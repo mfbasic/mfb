@@ -245,7 +245,7 @@ severity is `error`.
 | `1-102-0008` | `MFB_PARSE_MISSING_NATIVE_SYMBOL` | error | a native LINK function must declare its native SYMBOL |
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | error | a native LINK function must declare its ABI signature |
 | `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` | error | a TESTING block may contain only TGROUP groups |
-| `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases |
+| `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases and nested TGROUP groups |
 | `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
 
 ### `1-103` — DOC block structure (lexer/parser)

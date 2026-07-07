@@ -1171,7 +1171,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "1-102-0011",
         name: "MFB_PARSE_TESTING_EXPECTED_TCASE",
         severity: Severity::Error,
-        message: "a TGROUP may contain only TCASE cases",
+        message: "a TGROUP may contain only TCASE cases and nested TGROUP groups",
     },
     Rule {
         code: "1-102-0012",

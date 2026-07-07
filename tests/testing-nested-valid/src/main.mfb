@@ -1,0 +1,43 @@
+IMPORT io
+IMPORT errorCode
+
+FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+FUNC parseIt(s AS String) AS Integer
+  RETURN toInt(s)
+END FUNC
+
+FUNC main AS Integer
+  io::print("normal program body — dropped under mfb test")
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "outer"
+    TCASE "direct case"
+      expectInteger(add(1, 2), 3)
+    END TCASE
+    TGROUP "inner"
+      TCASE "nested pass"
+        expectInteger(add(2, 2), 4)
+      END TCASE
+      TGROUP "deep"
+        TCASE "deep pass"
+          expectTrap(parseIt("bad"), errorCode::ErrInvalidFormat)
+        END TCASE
+        TCASE "deep fail shows indented detail"
+          expectInteger(add(2, 2), 5)
+        END TCASE
+      END TGROUP
+    END TGROUP
+    TCASE "case after a subgroup keeps source order"
+      expectInteger(add(0, 0), 0)
+    END TCASE
+  END TGROUP
+  TGROUP "case-less parent emits nothing"
+    TGROUP "empty child"
+    END TGROUP
+  END TGROUP
+END TESTING

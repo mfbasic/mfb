@@ -24,14 +24,20 @@ END TESTING
 
 ```
 TESTING NEWLINE Group* END TESTING
-Group := TGROUP <string> NEWLINE Case* END TGROUP
-Case  := TCASE  <string> NEWLINE Statement* END TCASE
+Group  := TGROUP <string> NEWLINE Member* END TGROUP
+Member := Case | Group
+Case   := TCASE  <string> NEWLINE Statement* END TCASE
 ```
 
 - A `TESTING` block appears anywhere a top-level declaration may appear, in any
   source file, any number of times. Blocks run in declaration order across files.
-- A `TGROUP` contains only `TCASE` cases; a `TCASE` body is an ordinary statement
-  block. Both take a **string-literal** description used verbatim in the report.
+- A `TGROUP` contains `TCASE` cases and/or nested `TGROUP` sub-groups, in
+  declaration order; nesting may be **arbitrarily deep** and cases and sub-groups
+  may interleave within one group. A `TCASE` body is an ordinary statement block.
+  Both `TGROUP` and `TCASE` take a **string-literal** description used verbatim in
+  the report.
+- A `TGROUP` with no `TCASE` anywhere in its subtree emits nothing in the report;
+  cases still run and report in declaration order regardless of nesting depth.
 - Only `TESTING` is a reserved keyword. `TGROUP` and `TCASE` are contextual — they
   are recognized only inside a `TESTING` block, so existing programs that use them
   as identifiers are unaffected.
@@ -78,13 +84,17 @@ failed assertion aborts its case, and sibling cases and groups continue.
 
 `mfb test [path] [--coverage]` compiles the project with its `TESTING` blocks
 retained, replaces the normal entry point with a synthesized driver, builds a
-host executable, runs it, and adopts its exit status. The driver streams:
+host executable, runs it, and adopts its exit status. The driver streams a tree
+that indents two columns per nesting level, so a nested `TGROUP` sits under its
+parent and its cases sit under it:
 
 ```
 * <group description>
   * [P] <case description>
   * [F] <case description>
     X <detail>  (<file>:<line>)
+  * <nested group description>
+    * [P] <case description>
 ...
 
 Tests: <total>  Pass: <passed>  Fail: <failed>

@@ -57,7 +57,7 @@
       {
         "description": "equality",
         "line": 20,
-        "cases": [
+        "members": [
         {
           "description": "expectEqual passes",
           "line": 21,
@@ -84,7 +84,7 @@
       {
         "description": "typed equality",
         "line": 31,
-        "cases": [
+        "members": [
         {
           "description": "expectInteger / expectNInteger",
           "line": 32,
@@ -129,7 +129,7 @@
       {
         "description": "traps",
         "line": 52,
-        "cases": [
+        "members": [
         {
           "description": "expectTrap passes",
           "line": 53,
@@ -163,7 +163,7 @@
       {
         "description": "runtime errors",
         "line": 66,
-        "cases": [
+        "members": [
         {
           "description": "a genuine runtime error is a failure, not a crash",
           "line": 67,

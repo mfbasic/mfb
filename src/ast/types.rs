@@ -83,12 +83,22 @@ pub struct TestingBlock {
     pub line: usize,
 }
 
-/// A `TGROUP <string> … END TGROUP` group: a described bundle of `TCASE` cases.
+/// A `TGROUP <string> … END TGROUP` group: a described bundle of members, each
+/// either a `TCASE` case or a nested `TGROUP` sub-group, in declaration order.
 #[derive(Clone, Debug)]
 pub struct TestGroup {
     pub description: String,
-    pub cases: Vec<TestCase>,
+    pub members: Vec<TestGroupMember>,
     pub line: usize,
+}
+
+/// One member of a `TGROUP`, in declaration order: an ordinary `TCASE` case or a
+/// nested `TGROUP` sub-group. Nesting may go arbitrarily deep, and cases and
+/// sub-groups may interleave within a single group.
+#[derive(Clone, Debug)]
+pub enum TestGroupMember {
+    Case(TestCase),
+    Group(TestGroup),
 }
 
 /// A `TCASE <string> … END TCASE` case: a described statement body exercising the

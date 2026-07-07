@@ -28,12 +28,19 @@ const COV_DUMP: &str = "__mfb_cov_dump";
 const COV_ZEROS: &str = "__mfb_cov_zeros";
 const COV_EMPTY_STRINGS: &str = "__mfb_cov_empty_strings";
 
-/// One registered test case: its group/case descriptions (verbatim from source)
-/// and the generated `SUB` name the driver invokes, in declaration order.
-pub(crate) struct Registration {
-    pub(crate) group: String,
-    pub(crate) case: String,
-    pub(crate) sub_name: String,
+/// One line-emitting step in the driver's streamed report, in declaration order.
+/// The flat step list carries the tree shape as per-step indentation so nested
+/// `TGROUP`s render as an indented tree without the driver tracking depth.
+pub(crate) enum DriverStep {
+    /// A `TGROUP` header line: `<indent spaces>* <description>`.
+    Group { indent: usize, description: String },
+    /// A `TCASE` invocation. `indent` is the leading-space width of its
+    /// `* [P]/[F]` line; the failure detail sits two columns deeper.
+    Case {
+        sub_name: String,
+        description: String,
+        indent: usize,
+    },
 }
 
 /// The case body is used verbatim as the generated `SUB` body — the assertion
@@ -230,28 +237,37 @@ fn fail_test(detail: Expression, line: usize) -> Statement {
 /// Build the synthesized `#mfb_test_main AS Integer` driver from the registration
 /// table (plan-18-B §3.5). With `coverage`, each case records its failed source
 /// line and the driver flushes the coverage counters before returning.
-pub(crate) fn build_driver(registrations: &[Registration], coverage: bool) -> Function {
+pub(crate) fn build_driver(steps: &[DriverStep], coverage: bool) -> Function {
     let mut body: Vec<Statement> = Vec::new();
     // Failure tally; total is a compile-time constant.
     body.push(let_mut("#failed", "Integer", num(0)));
     body.push(let_mut("#ok", "Boolean", boolean(true)));
 
-    let mut last_group: Option<&str> = None;
-    for registration in registrations {
-        if last_group != Some(registration.group.as_str()) {
-            body.push(print_line(str_lit(format!("* {}", registration.group))));
-            last_group = Some(registration.group.as_str());
+    let mut total = 0i64;
+    for step in steps {
+        match step {
+            DriverStep::Group { indent, description } => {
+                let pad = " ".repeat(*indent);
+                body.push(print_line(str_lit(format!("{pad}* {description}"))));
+            }
+            DriverStep::Case {
+                sub_name,
+                description,
+                indent,
+            } => {
+                total += 1;
+                let pad = " ".repeat(*indent);
+                body.push(assign("#ok", boolean(true)));
+                body.push(case_call(sub_name, description, *indent, coverage));
+                body.push(if_then(
+                    ident("#ok"),
+                    vec![print_line(str_lit(format!("{pad}* [P] {description}")))],
+                    0,
+                ));
+            }
         }
-        body.push(assign("#ok", boolean(true)));
-        body.push(case_call(registration, coverage));
-        body.push(if_then(
-            ident("#ok"),
-            vec![print_line(str_lit(format!("  * [P] {}", registration.case)))],
-            0,
-        ));
     }
 
-    let total = registrations.len() as i64;
     body.push(print_line(str_lit(String::new())));
     body.push(print_line(summary_line(total)));
     // Flush the coverage counters after every case has run.
@@ -271,8 +287,9 @@ pub(crate) fn build_driver(registrations: &[Registration], coverage: bool) -> Fu
     Function {
         kind: FunctionKind::Func,
         // Public so `scope_privates` never mangles the name — the entry point
-        // pins it verbatim. (The case SUBs stay Private; their references are
-        // rewritten consistently within this file.)
+        // pins it verbatim. (The generated case SUBs are likewise Public, since
+        // the driver calls them across file boundaries; each stays in its own
+        // originating file so its body keeps that file's import scope.)
         visibility: Visibility::Public,
         isolated: false,
         name: super::DRIVER_NAME.to_string(),
@@ -288,15 +305,19 @@ pub(crate) fn build_driver(registrations: &[Registration], coverage: bool) -> Fu
 }
 
 /// `<sub>() TRAP(#e) …handler… END TRAP` — run one case under trap isolation.
-fn case_call(registration: &Registration, coverage: bool) -> Statement {
+/// `indent` is the leading-space width of the `* [F]` line; the failure detail
+/// sits two columns deeper.
+fn case_call(sub_name: &str, description: &str, indent: usize, coverage: bool) -> Statement {
+    let pad = " ".repeat(indent);
+    let detail_indent = indent + 2;
     let mut handler = vec![
         assign("#ok", boolean(false)),
         assign("#failed", binary(ident("#failed"), "+", num(1))),
-        print_line(str_lit(format!("  * [F] {}", registration.case))),
+        print_line(str_lit(format!("{pad}* [F] {description}"))),
         if_else(
             binary(member(ident("#e"), "code"), "=", num(TEST_ABORT_CODE)),
-            vec![print_line(assertion_detail())],
-            vec![print_line(runtime_detail())],
+            vec![print_line(assertion_detail(detail_indent))],
+            vec![print_line(runtime_detail(detail_indent))],
             0,
         ),
     ];
@@ -319,7 +340,7 @@ fn case_call(registration: &Registration, coverage: bool) -> Statement {
     });
     Statement::Expression {
         expression: Expression::Trapped {
-            expression: Box::new(call(&registration.sub_name, Vec::new())),
+            expression: Box::new(call(sub_name, Vec::new())),
             binding: "#e".to_string(),
             handler,
             line: 0,
@@ -328,20 +349,20 @@ fn case_call(registration: &Registration, coverage: bool) -> Statement {
     }
 }
 
-/// `    X <message>  (<file>:<line>)` for an assertion failure — the message the
-/// assertion baked into the reserved-code error, plus its stamped origin.
-fn assertion_detail() -> Expression {
+/// `<indent>X <message>  (<file>:<line>)` for an assertion failure — the message
+/// the assertion baked into the reserved-code error, plus its stamped origin.
+fn assertion_detail(indent: usize) -> Expression {
     concat(vec![
-        str_lit("    X ".to_string()),
+        str_lit(format!("{}X ", " ".repeat(indent))),
         member(ident("#e"), "message"),
         error_location(),
     ])
 }
 
-/// `    X runtime error [<code>] <message>  (<file>:<line>)` for a genuine trap.
-fn runtime_detail() -> Expression {
+/// `<indent>X runtime error [<code>] <message>  (<file>:<line>)` for a genuine trap.
+fn runtime_detail(indent: usize) -> Expression {
     concat(vec![
-        str_lit("    X runtime error [".to_string()),
+        str_lit(format!("{}X runtime error [", " ".repeat(indent))),
         to_string(member(ident("#e"), "code")),
         str_lit("] ".to_string()),
         member(ident("#e"), "message"),

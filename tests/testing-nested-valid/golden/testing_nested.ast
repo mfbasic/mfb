@@ -1,0 +1,125 @@
+{
+  "project": "testing_nested",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "errorCode", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "add",
+      "line": 4,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "parseIt",
+      "line": 8,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "normal program body — dropped under mfb test" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "testing",
+      "line": 17,
+      "groups": [
+      {
+        "description": "outer",
+        "line": 18,
+        "members": [
+        {
+          "description": "direct case",
+          "line": 19,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectInteger", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "number", "value": "3" }] }, "line": 20 }
+          ]
+        },
+        {
+          "description": "inner",
+          "line": 22,
+          "members": [
+          {
+            "description": "nested pass",
+            "line": 23,
+            "body": [
+            { "kind": "expression", "expression": { "kind": "call", "callee": "expectInteger", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "2" }] }, { "kind": "number", "value": "4" }] }, "line": 24 }
+            ]
+          },
+          {
+            "description": "deep",
+            "line": 26,
+            "members": [
+            {
+              "description": "deep pass",
+              "line": 27,
+              "body": [
+              { "kind": "expression", "expression": { "kind": "call", "callee": "expectTrap", "arguments": [{ "kind": "call", "callee": "parseIt", "arguments": [{ "kind": "string", "value": "bad" }] }, { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" }] }, "line": 28 }
+              ]
+            },
+            {
+              "description": "deep fail shows indented detail",
+              "line": 30,
+              "body": [
+              { "kind": "expression", "expression": { "kind": "call", "callee": "expectInteger", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "2" }] }, { "kind": "number", "value": "5" }] }, "line": 31 }
+              ]
+            }
+            ]
+          }
+          ]
+        },
+        {
+          "description": "case after a subgroup keeps source order",
+          "line": 35,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectInteger", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "0" }] }, "line": 36 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "case-less parent emits nothing",
+        "line": 39,
+        "members": [
+        {
+          "description": "empty child",
+          "line": 40,
+          "members": [
+          ]
+        }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

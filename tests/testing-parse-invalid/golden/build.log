@@ -9,6 +9,6 @@ tests/testing-parse-invalid/src/main.mfb:6 error[1-102-0010 MFB_PARSE_TESTING_EX
    7 |   TGROUP "a group"
    8 |     LET strayCase AS Integer = 2
      |     ^^^
-tests/testing-parse-invalid/src/main.mfb:8 error[1-102-0011 MFB_PARSE_TESTING_EXPECTED_TCASE]: a TGROUP may contain only TCASE cases
-               A TGROUP may contain only TCASE cases.
+tests/testing-parse-invalid/src/main.mfb:8 error[1-102-0011 MFB_PARSE_TESTING_EXPECTED_TCASE]: a TGROUP may contain only TCASE cases and nested TGROUP groups
+               A TGROUP may contain only TCASE cases and nested TGROUP groups.
 [exit 1]

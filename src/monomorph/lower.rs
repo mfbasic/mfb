@@ -249,6 +249,24 @@ impl<'a> Monomorphizer<'a> {
             // with no modifier (e.g. the `collections::` internals) instantiates to
             // a `Public` concrete function, which resolves project-wide — so no
             // widening is needed here.
+            //
+            // Those generated bodies can still carry package-qualified calls to any
+            // package used anywhere in the project (a monomorphized `collections::`
+            // generic keeps calling `collections::` helpers). Since they now live in
+            // the first file, union every source file's imports into it so the
+            // post-monomorph resolve can resolve those qualified names; the first
+            // file's own bindings win on any alias clash.
+            let mut seen: HashSet<String> = first_file
+                .imports
+                .iter()
+                .map(|import| import.binding_name().to_string())
+                .collect();
+            for import in self.source.files.iter().flat_map(|file| &file.imports) {
+                if seen.insert(import.binding_name().to_string()) {
+                    first_file.imports.push(import.clone());
+                }
+            }
+
             let mut generated_types = self
                 .concrete_types
                 .into_values()

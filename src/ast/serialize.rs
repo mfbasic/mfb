@@ -118,7 +118,7 @@ impl ToAstJson for TestGroup {
                 "\n{}{{\n",
                 "{}  \"description\": {},\n",
                 "{}  \"line\": {},\n",
-                "{}  \"cases\": [{}\n{}  ]\n",
+                "{}  \"members\": [{}\n{}  ]\n",
                 "{}}}"
             ),
             pad,
@@ -127,10 +127,19 @@ impl ToAstJson for TestGroup {
             pad,
             self.line,
             pad,
-            join_indented(&self.cases, indent + 2),
+            join_indented(&self.members, indent + 2),
             pad,
             pad
         )
+    }
+}
+
+impl ToAstJson for TestGroupMember {
+    fn to_json(&self, indent: usize) -> String {
+        match self {
+            TestGroupMember::Case(case) => case.to_json(indent),
+            TestGroupMember::Group(group) => group.to_json(indent),
+        }
     }
 }
 

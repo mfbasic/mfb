@@ -13,7 +13,8 @@
 //!     pass/fail tree, and exits non-zero iff any case failed.
 
 use crate::ast::{
-    AstProject, Function, FunctionKind, Import, Item, TestCase, TestGroup, Visibility,
+    AstProject, Function, FunctionKind, Import, Item, TestCase, TestGroup, TestGroupMember,
+    Visibility,
 };
 use crate::coverage::CovSlot;
 use std::path::Path;
@@ -95,45 +96,51 @@ pub(crate) fn lower_testing_blocks(
     }
 }
 
-/// Test-mode lowering: collect every case across every file, replace the
-/// `TESTING` blocks with the generated case `SUB`s, and append the driver `FUNC`.
+/// Test-mode lowering: replace every file's `TESTING` blocks with the generated
+/// case `SUB`s *in that same file*, then append the driver `FUNC` to the first
+/// file. Keeping each case SUB in its originating file means its body inherits
+/// that file's import scope — a `bits::` call stays in the file that
+/// `IMPORT bits`, and any file-local `PRIVATE` references (already rewritten by
+/// `scope_privates`) still resolve against that file's declarations.
 /// With `coverage`, additionally instrument the user statements and emit the
 /// coverage runtime helpers; returns the coverage slot map (empty otherwise).
 fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> Vec<CovSlot> {
-    // Enumerate cases in declaration order across all files, assigning each a
-    // unique generated SUB name. The registration order the driver iterates is
-    // exactly this order.
-    let mut registrations: Vec<desugar::Registration> = Vec::new();
-    let mut generated: Vec<Function> = Vec::new();
+    // Enumerate the report steps (group headers and cases) in declaration order
+    // across all files; each case's index (globally unique across the project)
+    // names its generated SUB. The step order the driver iterates is exactly this
+    // order.
+    let mut steps: Vec<desugar::DriverStep> = Vec::new();
+    let mut case_index = 0usize;
 
     for file in &mut ast.files {
         let mut replacement: Vec<Item> = Vec::new();
+        let mut generated: Vec<Function> = Vec::new();
         for item in std::mem::take(&mut file.items) {
             match item {
                 Item::Testing(block) => {
                     for group in block.groups {
-                        lower_group(group, &mut registrations, &mut generated);
+                        lower_group(group, 0, &mut steps, &mut generated, &mut case_index);
                     }
                 }
                 other => replacement.push(other),
             }
         }
+        // The generated case SUBs stay in the file they were declared in, after
+        // that file's ordinary items.
+        replacement.extend(generated.into_iter().map(Item::Function));
         file.items = replacement;
     }
 
-    // Emit the generated case SUBs and the driver into the first file (there is
-    // always at least one source file in a project).
-    let driver = desugar::build_driver(&registrations, coverage);
+    // The driver (entry point) goes into the first file — there is always at least
+    // one source file in a project. It streams the report through `io::print`, so
+    // ensure that file imports `io`; the case SUBs it calls are Public, so the
+    // cross-file calls resolve regardless of which file each case lives in.
+    let driver = desugar::build_driver(&steps, coverage);
     let sink = ast
         .files
         .first_mut()
         .expect("a project has at least one source file");
-    // The driver streams the report through `io::print`; ensure the host file
-    // imports `io` so the qualified call resolves.
     ensure_import(sink, "io");
-    for func in generated {
-        sink.items.push(Item::Function(func));
-    }
     sink.items.push(Item::Function(driver));
 
     // Coverage instrumentation runs last: it walks the now-complete item list
@@ -156,36 +163,71 @@ fn ensure_import(file: &mut crate::ast::AstFile, module: &str) {
     }
 }
 
+/// Lower one `TGROUP` at nesting `depth` (top-level groups are depth 0) into an
+/// ordered run of driver steps: a header for the group followed by, in source
+/// order, one step per direct `TCASE` and a recursive run per nested `TGROUP`.
+/// A group with no case anywhere in its subtree emits nothing — an empty header
+/// would be noise — matching the pre-nesting behaviour for a case-less group.
 fn lower_group(
     group: TestGroup,
-    registrations: &mut Vec<desugar::Registration>,
+    depth: usize,
+    steps: &mut Vec<desugar::DriverStep>,
     generated: &mut Vec<Function>,
+    case_index: &mut usize,
 ) {
-    for case in group.cases {
-        let index = registrations.len();
-        let sub_name = format!("__mfb_test_case_{index}");
-        let TestCase {
-            description, body, ..
-        } = case;
-        let desugared_body = desugar::desugar_case_body(body);
-        generated.push(Function {
-            kind: FunctionKind::Sub,
-            visibility: Visibility::Private,
-            isolated: false,
-            name: sub_name.clone(),
-            template_params: Vec::new(),
-            params: Vec::new(),
-            return_type: None,
-            return_resource: false,
-            return_state_type: None,
-            body: desugared_body,
-            trap: None,
-            line: 0,
-        });
-        registrations.push(desugar::Registration {
-            group: group.description.clone(),
-            case: description,
-            sub_name,
-        });
+    if !group_has_cases(&group) {
+        return;
     }
+    steps.push(desugar::DriverStep::Group {
+        indent: depth * 2,
+        description: group.description,
+    });
+    for member in group.members {
+        match member {
+            TestGroupMember::Case(case) => {
+                // One generated SUB per case; its index is the running case count
+                // across the whole project, so the name is globally unique even
+                // though the SUB stays in its own file.
+                let index = *case_index;
+                *case_index += 1;
+                let sub_name = format!("__mfb_test_case_{index}");
+                let TestCase {
+                    description, body, ..
+                } = case;
+                let desugared_body = desugar::desugar_case_body(body);
+                generated.push(Function {
+                    kind: FunctionKind::Sub,
+                    // Public so the driver (in the first file) can call it across
+                    // file boundaries; the unique generated name avoids collision.
+                    visibility: Visibility::Public,
+                    isolated: false,
+                    name: sub_name.clone(),
+                    template_params: Vec::new(),
+                    params: Vec::new(),
+                    return_type: None,
+                    return_resource: false,
+                    return_state_type: None,
+                    body: desugared_body,
+                    trap: None,
+                    line: 0,
+                });
+                steps.push(desugar::DriverStep::Case {
+                    sub_name,
+                    description,
+                    indent: (depth + 1) * 2,
+                });
+            }
+            TestGroupMember::Group(nested) => {
+                lower_group(nested, depth + 1, steps, generated, case_index);
+            }
+        }
+    }
+}
+
+/// Whether a group has at least one `TCASE` anywhere in its subtree.
+fn group_has_cases(group: &TestGroup) -> bool {
+    group.members.iter().any(|member| match member {
+        TestGroupMember::Case(_) => true,
+        TestGroupMember::Group(nested) => group_has_cases(nested),
+    })
 }

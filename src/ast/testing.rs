@@ -41,20 +41,24 @@ impl<'a> FileParser<'a> {
         self.consume_statement_end("Expected end of line after the TGROUP description.");
         self.skip_separators();
 
-        let mut cases = Vec::new();
+        let mut members = Vec::new();
         while !self.is_at_end()
             && !self.is_end_contextual("TGROUP")
             && !self.is_end_block(Keyword::Testing)
         {
             if self.check_identifier_ci("TCASE") {
                 if let Some(case) = self.parse_test_case() {
-                    cases.push(case);
+                    members.push(TestGroupMember::Case(case));
+                }
+            } else if self.check_identifier_ci("TGROUP") {
+                if let Some(group) = self.parse_test_group() {
+                    members.push(TestGroupMember::Group(group));
                 }
             } else {
                 let token = self.peek().clone();
                 self.report(
                     "MFB_PARSE_TESTING_EXPECTED_TCASE",
-                    "A TGROUP may contain only TCASE cases.",
+                    "A TGROUP may contain only TCASE cases and nested TGROUP groups.",
                     &token,
                 );
                 self.synchronize();
@@ -65,7 +69,7 @@ impl<'a> FileParser<'a> {
         self.consume_end_contextual("TGROUP", "Expected END TGROUP to close the group.");
         Some(TestGroup {
             description,
-            cases,
+            members,
             line,
         })
     }

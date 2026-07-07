@@ -50,7 +50,7 @@
       {
         "description": "classify",
         "line": 16,
-        "cases": [
+        "members": [
         {
           "description": "only the positive branch is exercised",
           "line": 17,

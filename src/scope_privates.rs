@@ -16,7 +16,8 @@
 //! or `TRAP` binding) is left alone.
 
 use crate::ast::{
-    AstProject, CallArg, ConstructorArg, Expression, Item, MatchPattern, Statement, Visibility,
+    AstProject, CallArg, ConstructorArg, Expression, Item, MatchPattern, Statement, TestGroup,
+    TestGroupMember, Visibility,
 };
 use crate::internal_name::{file_scope_hash, mangle_private};
 use crate::rules::PendingDiagnostic;
@@ -197,12 +198,27 @@ fn rewrite_item_refs(
             // file-local PRIVATE declarations; rewrite them before the block is
             // desugared into generated SUBs (plan-18-A).
             for group in testing.groups.iter_mut() {
-                for case in group.cases.iter_mut() {
-                    rewrite_block(&mut case.body, rename, types, &HashSet::new());
-                }
+                rewrite_test_group(group, rename, types);
             }
         }
         Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) | Item::Doc(_) => {}
+    }
+}
+
+/// Rewrite the case bodies of a `TGROUP` (and its nested sub-groups) so file-local
+/// `PRIVATE` references inside them resolve before the block is desugared.
+fn rewrite_test_group(
+    group: &mut TestGroup,
+    rename: &HashMap<String, String>,
+    types: &HashMap<String, String>,
+) {
+    for member in group.members.iter_mut() {
+        match member {
+            TestGroupMember::Case(case) => {
+                rewrite_block(&mut case.body, rename, types, &HashSet::new());
+            }
+            TestGroupMember::Group(nested) => rewrite_test_group(nested, rename, types),
+        }
     }
 }
 

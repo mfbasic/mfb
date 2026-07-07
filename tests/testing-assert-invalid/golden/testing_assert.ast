@@ -25,7 +25,7 @@
       {
         "description": "misuse",
         "line": 6,
-        "cases": [
+        "members": [
         {
           "description": "arity",
           "line": 7,
