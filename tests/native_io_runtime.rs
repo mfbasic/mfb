@@ -175,6 +175,10 @@ fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
     let mut child = Command::new(executable)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        // Pipe stderr too: otherwise the child inherits the test harness's fd 2,
+        // which is a tty when `cargo test` runs in an interactive terminal, and
+        // `io::isErrorTerminal()` then reports TRUE instead of the expected FALSE.
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn executable");
     let mut child_stdin = child.stdin.take().expect("stdin pipe");

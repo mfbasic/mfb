@@ -289,8 +289,14 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        instructions.push(abi::store_u64("x2", abi::stack_pointer(), 0));
-        emit_libsystem_call(from, "_ioctl", platform_imports, instructions, relocations)
+        // `ioctl` is variadic, so the trailing `winsize` pointer (in `x2`) must be
+        // spilled to the physical stack top across the call (Apple AArch64 ABI).
+        // Route through `emit_variadic_call` so the spill is bracketed by
+        // `sub_sp`/`add_sp`: a bare `str x2, [sp]` is treated as a depth-0 frame
+        // access and gets shifted up by the callee-saved area during frame
+        // finalization, which leaves the saved link register at `sp+0` and makes
+        // `ioctl` read it as the buffer pointer (EFAULT → false ERR_UNSUPPORTED).
+        self.emit_variadic_call("ioctl", from, platform_imports, instructions, relocations)
     }
 
     fn emit_path_exists(

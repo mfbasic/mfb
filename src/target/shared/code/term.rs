@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use super::*;
 use crate::arch::aarch64::abi;
 
-// Frame layout. `sp+0` is reserved for the Darwin variadic `ioctl` spill that
-// `emit_terminal_size` performs (it stores `x2` to `sp+0`), so the saved link
-// register lives at the top of the frame, well clear of it.
+// Frame layout. The saved link register lives at the top of the frame. The
+// Darwin variadic `ioctl` spill is handled by the macOS `emit_terminal_size`
+// hook, which brackets its own `sub_sp`/`str x2, [sp]`/`add_sp` around the call
+// rather than borrowing a fixed slot here.
 const LR_OFFSET: usize = 64;
 const ARG0_OFFSET: usize = 8;
 const ARG1_OFFSET: usize = 16;
