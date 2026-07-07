@@ -153,7 +153,21 @@ fn lower_global_initializer(ir: &IrProject) -> NirFunction {
                 value: binding.value.as_ref().map(lower_value),
             })
             .collect(),
-        file: String::new(),
+        // A binding initializer that allocates (a collection/string/record
+        // literal, a constructor, a fallible call) can emit an error-report path,
+        // and that path loads the source file as `ErrorLoc.filename`. Give the
+        // synthesized initializer a real file so the filename is a defined string
+        // constant (registered by `string_symbols`) rather than the
+        // `_mfb_str_empty` sentinel — which is only emitted when a *function*
+        // demands it, leaving a dangling data relocation for global-only
+        // initializers (bug-05). Using the first binding's file also makes
+        // global-init error origins point at the source rather than nowhere.
+        file: ir
+            .bindings
+            .iter()
+            .map(|binding| binding.file.clone())
+            .find(|file| !file.is_empty())
+            .unwrap_or_default(),
         resource_owners: HashMap::new(),
     }
 }

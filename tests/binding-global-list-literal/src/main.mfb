@@ -1,0 +1,33 @@
+IMPORT collections
+
+' bug-05: a top-level MUT/LET binding whose initializer is a collection literal
+' must build and run. Previously the synthesized global initializer emitted an
+' error-report path referencing `_mfb_str_empty` in a context where that symbol
+' was not defined, failing the build with a dangling data relocation. Both a
+' non-empty literal and an empty literal reproduce it.
+
+MUT counters AS List OF Integer = [10, 20, 30]
+MUT empties AS List OF Integer = []
+LET names AS List OF String = ["a", "b", "c"]
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "global collection literals"
+    TCASE "non-empty integer list literal"
+      expectInteger(len(counters), 3)
+      expectInteger(collections::get(counters, 0), 10)
+      expectInteger(collections::get(counters, 2), 30)
+    END TCASE
+    TCASE "empty list literal"
+      expectInteger(len(empties), 0)
+      expectInteger(len(collections::append(empties, 99)), 1)
+    END TCASE
+    TCASE "string list literal"
+      expectInteger(len(names), 3)
+      expectString(collections::get(names, 1), "b")
+    END TCASE
+  END TGROUP
+END TESTING
