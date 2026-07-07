@@ -487,7 +487,21 @@ impl CodeBuilder<'_> {
         )?;
         self.emit(abi::branch(&done));
         self.emit(abi::label(&use_default));
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+        if element_type == "String" {
+            // See `lower_map_get_or`: the found path materializes a fresh owned
+            // string, so the default must be copied too — returning the borrow
+            // double-frees it and corrupts the arena.
+            let default_ptr = self.allocate_register()?;
+            self.emit(abi::load_u64(
+                &default_ptr,
+                abi::stack_pointer(),
+                default_slot,
+            ));
+            let copied = self.emit_copy_owned_string(&default_ptr)?;
+            self.emit(abi::move_register(&result, &copied));
+        } else {
+            self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+        }
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
@@ -584,7 +598,22 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
 
         self.emit(abi::label(&use_default));
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+        if value_type == "String" {
+            // Copy the borrowed default into a fresh owned string so both paths
+            // return an owned `String` (found path materializes fresh); returning
+            // the borrow double-frees it and corrupts the arena. See
+            // `emit_copy_owned_string`.
+            let default_ptr = self.allocate_register()?;
+            self.emit(abi::load_u64(
+                &default_ptr,
+                abi::stack_pointer(),
+                default_slot,
+            ));
+            let copied = self.emit_copy_owned_string(&default_ptr)?;
+            self.emit(abi::move_register(&result, &copied));
+        } else {
+            self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+        }
         self.emit(abi::label(&done));
 
         Ok(ValueResult {

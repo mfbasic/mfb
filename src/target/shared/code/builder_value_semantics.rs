@@ -528,6 +528,34 @@ impl CodeBuilder<'_> {
                 let right = self.static_string_value(right)?;
                 Some(format!("{left}{right}"))
             }
+            // The unicode case/normalization builtins fold a static-string argument
+            // to a static result (`lower_strings_package_call` /
+            // `static_strings_package_string`). This resolver MUST recognize the
+            // same folds: `value_needs_owning_copy` consults it to decide whether a
+            // bound value is a rodata constant needing a deep copy. If it misses the
+            // fold, `LET r = caseFold("HELLO")` binds `r` straight to the folded
+            // rodata pointer with no copy, and scope-drop then `arena_free`s a
+            // read-only constant — an arena free-list corruption that only surfaces
+            // on a *later* allocation (e.g. the next `mfb test` case).
+            NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. }
+                if args.len() == 1
+                    && matches!(
+                        target.as_str(),
+                        "strings.upper"
+                            | "strings.lower"
+                            | "strings.caseFold"
+                            | "strings.normalizeNfc"
+                    ) =>
+            {
+                let value = self.static_string_value(&args[0])?;
+                Some(match target.as_str() {
+                    "strings.upper" => crate::unicode_backend::upper(&value),
+                    "strings.lower" => crate::unicode_backend::lower(&value),
+                    "strings.caseFold" => crate::unicode_backend::case_fold(&value),
+                    "strings.normalizeNfc" => crate::unicode_backend::normalize_nfc(&value),
+                    _ => unreachable!(),
+                })
+            }
             _ => None,
         }
     }

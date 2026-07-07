@@ -7,27 +7,10 @@ IMPORT collections
 ' fixture's exact golden value, using the typed TESTING assertions so no
 ' toString formatting is needed.
 
-' The unicode-table string builtins (caseFold/lower/upper/normalizeNfc) are
-' routed through these user FUNCs (as the source fixtures did) so their large
-' data relocations live outside the single generated TESTING driver FUNC; called
-' inline in that driver they trigger a layout-sensitive codegen miscompile that
-' corrupts adjacent assertions.
-FUNC foldValue(value AS String) AS String
-  RETURN strings::caseFold(value)
-END FUNC
-
-FUNC lowerValue(value AS String) AS String
-  RETURN strings::lower(value)
-END FUNC
-
-FUNC upperValue(value AS String) AS String
-  RETURN strings::upper(value)
-END FUNC
-
-FUNC nfcValue(value AS String) AS String
-  RETURN strings::normalizeNfc(value)
-END FUNC
-
+' The unicode case/normalization builtins (caseFold/lower/upper/normalizeNfc) are
+' called INLINE here on purpose: a folded static-string argument used to bind a
+' rodata constant that scope-drop then arena_free'd, corrupting the arena for a
+' later case. Inlining them across this multi-case suite is the regression test.
 FUNC main AS Integer
   RETURN 0
 END FUNC
@@ -46,11 +29,11 @@ TESTING
   TGROUP "caseFold"
     TCASE "scalar"
       LET german AS String = "Straße"
-      expectString(foldValue(""), "")
-      expectString(foldValue("HELLO"), "hello")
-      expectString(foldValue(german), "strasse")
-      expectString(foldValue("İ"), "i̇")
-      expectString(foldValue("É日😀"), "é日😀")
+      expectString(strings::caseFold(""), "")
+      expectString(strings::caseFold("HELLO"), "hello")
+      expectString(strings::caseFold(german), "strasse")
+      expectString(strings::caseFold("İ"), "i̇")
+      expectString(strings::caseFold("É日😀"), "é日😀")
     END TCASE
   END TGROUP
 
@@ -212,34 +195,34 @@ TESTING
   TGROUP "lower"
     TCASE "scalar"
       LET mixed AS String = "CAFÉ"
-      expectString(lowerValue(""), "")
-      expectString(lowerValue("HELLO"), "hello")
-      expectString(lowerValue(mixed), "café")
-      expectString(lowerValue("İ"), "i̇")
-      expectString(lowerValue("É日😀"), "é日😀")
+      expectString(strings::lower(""), "")
+      expectString(strings::lower("HELLO"), "hello")
+      expectString(strings::lower(mixed), "café")
+      expectString(strings::lower("İ"), "i̇")
+      expectString(strings::lower("É日😀"), "é日😀")
     END TCASE
   END TGROUP
 
   TGROUP "upper"
     TCASE "scalar"
       LET german AS String = "straße"
-      expectString(upperValue(""), "")
-      expectString(upperValue("hello"), "HELLO")
-      expectString(upperValue(german), "STRASSE")
-      expectString(upperValue("é日😀"), "É日😀")
-      expectString(upperValue("i̇"), "İ")
+      expectString(strings::upper(""), "")
+      expectString(strings::upper("hello"), "HELLO")
+      expectString(strings::upper(german), "STRASSE")
+      expectString(strings::upper("é日😀"), "É日😀")
+      expectString(strings::upper("i̇"), "İ")
     END TCASE
   END TGROUP
 
   TGROUP "normalizeNfc"
     TCASE "scalar"
       LET cafe AS String = "Café"
-      expectString(nfcValue(""), "")
-      expectString(nfcValue(cafe), "Café")
-      expectString(nfcValue("Å"), "Å")
-      expectString(nfcValue("Å"), "Å")
-      expectString(nfcValue("가"), "가")
-      expectString(nfcValue("😀é"), "😀é")
+      expectString(strings::normalizeNfc(""), "")
+      expectString(strings::normalizeNfc(cafe), "Café")
+      expectString(strings::normalizeNfc("Å"), "Å")
+      expectString(strings::normalizeNfc("Å"), "Å")
+      expectString(strings::normalizeNfc("가"), "가")
+      expectString(strings::normalizeNfc("😀é"), "😀é")
     END TCASE
   END TGROUP
 

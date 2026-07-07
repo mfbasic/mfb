@@ -599,6 +599,11 @@ impl CodeBuilder<'_> {
         let x7 = self.temporary_vreg();
         let x6 = x6.as_str();
         let x7 = x7.as_str();
+        // Scratch as a vreg (was hand-pinned physical `x8`): a raw `x8` write is
+        // invisible to the register allocator, so a caller value it placed in
+        // `x8` was silently clobbered — a layout-sensitive miscompile.
+        let x8 = self.temporary_vreg();
+        let x8 = x8.as_str();
 
         self.emit(abi::move_immediate(x6, "Integer", "4352"));
         self.emit(abi::compare_registers(starter, x6));
@@ -610,12 +615,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(x6, "Integer", "4449"));
         self.emit(abi::compare_registers(current, x6));
         self.emit(abi::branch_lo(&check_lv_t));
-        self.emit(abi::subtract_registers("x8", current, x6));
-        self.emit(abi::compare_immediate("x8", "21"));
+        self.emit(abi::subtract_registers(x8, current, x6));
+        self.emit(abi::compare_immediate(x8, "21"));
         self.emit(abi::branch_ge(&check_lv_t));
         self.emit(abi::move_immediate(x6, "Integer", "21"));
         self.emit(abi::multiply_registers(output, x7, x6));
-        self.emit(abi::add_registers(output, output, "x8"));
+        self.emit(abi::add_registers(output, output, x8));
         self.emit(abi::move_immediate(x6, "Integer", "28"));
         self.emit(abi::multiply_registers(output, output, x6));
         self.emit(abi::move_immediate(x6, "Integer", "44032"));
@@ -631,19 +636,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(x7, x6));
         self.emit(abi::branch_ge(fallback_label));
         self.emit(abi::move_immediate(x6, "Integer", "28"));
-        self.emit(abi::unsigned_divide_registers("x8", x7, x6));
-        self.emit(abi::multiply_subtract_registers("x8", "x8", x6, x7));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::unsigned_divide_registers(x8, x7, x6));
+        self.emit(abi::multiply_subtract_registers(x8, x8, x6, x7));
+        self.emit(abi::compare_immediate(x8, "0"));
         self.emit(abi::branch_ne(fallback_label));
         self.emit(abi::move_immediate(x6, "Integer", "4519"));
         self.emit(abi::compare_registers(current, x6));
         self.emit(abi::branch_lo(fallback_label));
-        self.emit(abi::subtract_registers("x8", current, x6));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::subtract_registers(x8, current, x6));
+        self.emit(abi::compare_immediate(x8, "0"));
         self.emit(abi::branch_eq(fallback_label));
-        self.emit(abi::compare_immediate("x8", "28"));
+        self.emit(abi::compare_immediate(x8, "28"));
         self.emit(abi::branch_ge(fallback_label));
-        self.emit(abi::add_registers(output, starter, "x8"));
+        self.emit(abi::add_registers(output, starter, x8));
         self.emit(abi::branch(found_label));
     }
 
@@ -911,6 +916,13 @@ impl CodeBuilder<'_> {
         let x5 = x5.as_str();
         let x6 = x6.as_str();
         let x7 = x7.as_str();
+        // Byte-compare scratch as a vreg (was hand-pinned physical `x8`). This
+        // helper backs `String` equality and every substring predicate, so a
+        // raw `x8` here clobbered a caller value the allocator had placed in
+        // `x8` under register pressure — a layout-sensitive miscompile that
+        // corrupted adjacent string comparisons.
+        let x8 = self.temporary_vreg();
+        let x8 = x8.as_str();
         self.emit(abi::move_register(x4, left_data));
         self.emit(abi::move_register(x5, right_data));
         self.emit(abi::move_register(x6, length));
@@ -918,8 +930,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(x6, "0"));
         self.emit(abi::branch_eq(equal_label));
         self.emit(abi::load_u8(x7, x4, 0));
-        self.emit(abi::load_u8("x8", x5, 0));
-        self.emit(abi::compare_registers(x7, "x8"));
+        self.emit(abi::load_u8(x8, x5, 0));
+        self.emit(abi::compare_registers(x7, x8));
         self.emit(abi::branch_ne(not_equal_label));
         self.emit(abi::add_immediate(x4, x4, 1));
         self.emit(abi::add_immediate(x5, x5, 1));
@@ -937,6 +949,11 @@ impl CodeBuilder<'_> {
     ) {
         let x7 = self.temporary_vreg();
         let x7 = x7.as_str();
+        // Continuation-byte scratch as a vreg (was hand-pinned physical `x8`): a
+        // raw `x8` write is invisible to the register allocator and clobbered a
+        // caller value under register pressure — a layout-sensitive miscompile.
+        let x8 = self.temporary_vreg();
+        let x8 = x8.as_str();
         let check_c2 = self.label("unicode_ws_check_c2");
         let check_e1 = self.label("unicode_ws_check_e1");
         let check_e2 = self.label("unicode_ws_check_e2");
@@ -966,10 +983,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&check_e1));
         self.emit(abi::compare_immediate(remaining, "2"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8("x8", cursor, 1));
-        self.emit(abi::compare_immediate("x8", "133"));
+        self.emit(abi::load_u8(x8, cursor, 1));
+        self.emit(abi::compare_immediate(x8, "133"));
         self.emit(abi::branch_eq(&two));
-        self.emit(abi::compare_immediate("x8", "160"));
+        self.emit(abi::compare_immediate(x8, "160"));
         self.emit(abi::branch_eq(&two));
         self.emit(abi::branch(not_whitespace_label));
 
@@ -978,11 +995,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&check_e2));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8("x8", cursor, 1));
-        self.emit(abi::compare_immediate("x8", "154"));
+        self.emit(abi::load_u8(x8, cursor, 1));
+        self.emit(abi::compare_immediate(x8, "154"));
         self.emit(abi::branch_ne(not_whitespace_label));
-        self.emit(abi::load_u8("x8", cursor, 2));
-        self.emit(abi::compare_immediate("x8", "128"));
+        self.emit(abi::load_u8(x8, cursor, 2));
+        self.emit(abi::compare_immediate(x8, "128"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(not_whitespace_label));
 
@@ -991,36 +1008,36 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&check_e3));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8("x8", cursor, 1));
-        self.emit(abi::compare_immediate("x8", "128"));
+        self.emit(abi::load_u8(x8, cursor, 1));
+        self.emit(abi::compare_immediate(x8, "128"));
         self.emit(abi::branch_eq(&e2_80));
-        self.emit(abi::compare_immediate("x8", "129"));
+        self.emit(abi::compare_immediate(x8, "129"));
         self.emit(abi::branch_eq(&e2_81));
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&e2_80));
-        self.emit(abi::load_u8("x8", cursor, 2));
-        self.emit(abi::compare_immediate("x8", "128"));
+        self.emit(abi::load_u8(x8, cursor, 2));
+        self.emit(abi::compare_immediate(x8, "128"));
         self.emit(abi::branch_lo(&e2_80_check_a8));
-        self.emit(abi::compare_immediate("x8", "138"));
+        self.emit(abi::compare_immediate(x8, "138"));
         self.emit(abi::branch_le(&e2_80_range));
         self.emit(abi::label(&e2_80_check_a8));
-        self.emit(abi::compare_immediate("x8", "168"));
+        self.emit(abi::compare_immediate(x8, "168"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(&e2_80_check_a9));
         self.emit(abi::label(&e2_80_range));
         self.emit(abi::branch(&three));
         self.emit(abi::label(&e2_80_check_a9));
-        self.emit(abi::compare_immediate("x8", "169"));
+        self.emit(abi::compare_immediate(x8, "169"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::label(&e2_80_check_af));
-        self.emit(abi::compare_immediate("x8", "175"));
+        self.emit(abi::compare_immediate(x8, "175"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&e2_81));
-        self.emit(abi::load_u8("x8", cursor, 2));
-        self.emit(abi::compare_immediate("x8", "159"));
+        self.emit(abi::load_u8(x8, cursor, 2));
+        self.emit(abi::compare_immediate(x8, "159"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(not_whitespace_label));
 
@@ -1029,11 +1046,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(not_whitespace_label));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8("x8", cursor, 1));
-        self.emit(abi::compare_immediate("x8", "128"));
+        self.emit(abi::load_u8(x8, cursor, 1));
+        self.emit(abi::compare_immediate(x8, "128"));
         self.emit(abi::branch_ne(not_whitespace_label));
-        self.emit(abi::load_u8("x8", cursor, 2));
-        self.emit(abi::compare_immediate("x8", "128"));
+        self.emit(abi::load_u8(x8, cursor, 2));
+        self.emit(abi::compare_immediate(x8, "128"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(not_whitespace_label));
 

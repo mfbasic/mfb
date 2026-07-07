@@ -465,9 +465,10 @@ pub(crate) fn lower_module_for_platform(
             }
         }
     }
-    if module_uses_unicode_runtime_tables(module) {
-        data_objects.extend(unicode_runtime_data_objects());
-    }
+    // Unicode property/mapping tables are emitted below, after code generation,
+    // driven by the relocations the generated functions actually reference (a
+    // pre-codegen NIR heuristic and codegen disagreed on whether a
+    // `caseFold(localVar)` folds, leaving an undefined `_mfb_unicode_*` reloc).
     // `term::` console helpers reference fixed ANSI escape-sequence byte strings
     // (plan-01-term.md §6.1).
     if native_plan
@@ -959,6 +960,23 @@ pub(crate) fn lower_module_for_platform(
             size: words.len() * 16,
             value: builder_simd_float_math::math_const_pool_data_value(),
         });
+    }
+
+    // Unicode property/mapping tables (`strings::upper/lower/caseFold/
+    // normalizeNfc/graphemes*` at runtime). Emit iff some generated function
+    // actually relocates against a `_mfb_unicode_*` data symbol, unioned with the
+    // legacy NIR heuristic so the emitted set can only grow relative to prior
+    // builds (no golden churn). The relocation scan is the ground truth: the NIR
+    // heuristic could deem a `caseFold(localVar)` static (folded, table skipped)
+    // while codegen lowered it at runtime, leaving the `_mfb_unicode_casefold_*`
+    // relocation undefined — a deterministic build failure this closes.
+    let references_unicode_table = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.binding == "data" && relocation.to.starts_with("_mfb_unicode_")
+        })
+    });
+    if references_unicode_table || module_uses_unicode_runtime_tables(module) {
+        data_objects.extend(unicode_runtime_data_objects());
     }
 
     // MIR seam for the hand-written runtime helpers (plan-00-F). Builder-emitted

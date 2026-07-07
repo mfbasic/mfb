@@ -1710,6 +1710,25 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Copy an existing heap `String` value (a pointer to `[u64 len][bytes][nul]`)
+    /// into a fresh owned arena string. `getOr`'s found path materializes its
+    /// `String` result fresh (`emit_load_collection_payload`), so `getOr`'s
+    /// default path must copy the borrowed default the same way — otherwise the
+    /// owned-result contract (`materialize_owned_element` frees the result at
+    /// scope end, but deliberately skips `String` assuming it is already fresh)
+    /// double-frees the caller's default and corrupts the arena free-list, which
+    /// only surfaces as a trap on a *later* allocation. See [[scope-drop-frees]].
+    pub(super) fn emit_copy_owned_string(
+        &mut self,
+        source_ptr: &str,
+    ) -> Result<String, String> {
+        let length = self.allocate_register()?;
+        self.emit(abi::load_u64(&length, source_ptr, 0));
+        let bytes = self.allocate_register()?;
+        self.emit(abi::add_immediate(&bytes, source_ptr, 8));
+        self.emit_materialize_string_from_bytes(&bytes, &length)
+    }
+
     pub(super) fn emit_materialize_string_from_bytes(
         &mut self,
         source: &str,

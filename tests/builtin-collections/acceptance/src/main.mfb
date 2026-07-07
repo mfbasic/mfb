@@ -187,6 +187,15 @@ TESTING
       expectInteger(collections::getOr(names, "Grace", 7), 7)
       expectInteger(collections::getOr(default := 8, key := "Grace", value := names), 8)
     END TCASE
+    TCASE "string default is owned, not a borrow"
+      ' A getOr miss whose default is a String must return an OWNED copy: the
+      ' "get" group below reads String map values, and a borrowed default here
+      ' would be double-freed and corrupt the arena, trapping that later read.
+      LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one" }
+      expectString(collections::getOr(codes, 2, "two"), "two")
+      LET words AS List OF String = ["a", "b"]
+      expectString(collections::getOr(words, 9, "z"), "z")
+    END TCASE
   END TGROUP
 
   TGROUP "get"
@@ -514,15 +523,6 @@ TESTING
       expectInteger(len(pt.unmatched), 2)
       expectInteger(collections::get(pt.unmatched, 0), -2)
       expectInteger(collections::get(pt.unmatched, 1), -4)
-    END TCASE
-  END TGROUP
-
-  ' getOr's String-default (miss) path is asserted last: it must be the final
-  ' String-producing map operation in the block (see the source getOr fixture).
-  TGROUP "getOr string default"
-    TCASE "map miss returns the default string"
-      LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one" }
-      expectString(collections::getOr(codes, 2, "two"), "two")
     END TCASE
   END TGROUP
 END TESTING
