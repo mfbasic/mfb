@@ -99,6 +99,29 @@ fn load_store_word_offsets() {
 }
 
 #[test]
+fn large_offset_load_uses_rd_not_t0_as_address_scratch() {
+    // A big-frame reload must not stage its address in `t0`: a scalarized `v128`
+    // sequence keeps live lanes in `t0`/`t1`, so the fallback materializes the
+    // address in the destination register (overwritten by the load) instead.
+    let w = words(&encode_text(vec![
+        ci("ldr_u64", &[("dst", "a1"), ("base", "sp"), ("offset", "7472")]),
+        ci("ret", &[]),
+    ]));
+    // li a1, 7472 ; add a1, sp, a1 ; ld a1, 0(a1) — no `t0` (x5) anywhere.
+    let a1 = 11u32;
+    // The `add` is R-type add a1, sp(x2), a1: funct7=0, rs2=a1, rs1=sp, f3=0.
+    let add = (0 << 25) | (a1 << 20) | (2 << 15) | (0 << 12) | (a1 << 7) | 0x33;
+    assert_eq!(w[w.len() - 3], add, "address add targets rd, sourced from sp+rd");
+    // ld a1, 0(a1): I-type, imm 0, rs1=a1, funct3=011, rd=a1.
+    assert_eq!(w[w.len() - 2], (a1 << 15) | (0b011 << 12) | (a1 << 7) | 0x03);
+    // No instruction reads or writes t0 (x5) as rd/rs1/rs2.
+    for &word in &w[..w.len() - 1] {
+        let (rd, rs1, rs2) = ((word >> 7) & 0x1f, (word >> 15) & 0x1f, (word >> 20) & 0x1f);
+        assert!(rd != 5 && rs1 != 5 && rs2 != 5, "t0 (x5) must not appear: {word:#010x}");
+    }
+}
+
+#[test]
 fn conditional_branch_is_long_form() {
     let w = words(&encode_text(vec![
         ci("label", &[("name", "top")]),

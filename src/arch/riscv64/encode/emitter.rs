@@ -482,9 +482,12 @@ impl Encoder {
         if offset <= 2047 {
             return self.emit_word(i_type(offset as i32, base as u32, funct3, rd as u32, LOAD));
         }
-        self.emit_li(T0, offset)?;
-        self.emit_r(OP, 0b000, 0, T0, base, T0)?; // add t0, base, t0
-        self.emit_word(i_type(0, T0 as u32, funct3, rd as u32, LOAD))
+        // Materialize the address in `rd` itself (it is overwritten by the load),
+        // never in `t0` — a large frame's spill/reload can land amid a scalarized
+        // `v128` sequence that holds live lanes in the `t0`/`t1` scratch.
+        self.emit_li(rd, offset)?;
+        self.emit_r(OP, 0b000, 0, rd, base, rd)?; // add rd, base, rd
+        self.emit_word(i_type(0, rd as u32, funct3, rd as u32, LOAD))
     }
 
     fn emit_store(&mut self, funct3: u32, src: u8, base: u8, offset: u64) -> Result<(), String> {

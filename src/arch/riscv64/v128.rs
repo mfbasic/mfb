@@ -21,7 +21,8 @@
 //! computation must not span a call to another `v128`-using function. The
 //! transcendental kernels are inlined straight-line leaf code, so this holds.
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 
 use crate::arch::aarch64::ops::CodeOp;
 use crate::target::shared::code::mir::MirInstruction;
@@ -85,12 +86,23 @@ fn is_vector_operand(value: &str) -> bool {
         .is_some_and(|rest| rest.parse::<u32>().is_ok())
 }
 
-/// Assign every distinct `v128` value in a neutral MIR stream a compact slot
-/// index (0-based), scanning all `v128` ops' vector operands. Returns the map;
-/// the region needs `map.len()` slots.
+/// Assign every distinct `v128` value in a neutral MIR stream a slot index via
+/// **linear-scan reuse**: a slot is freed for reuse once its value's live range
+/// (first mention … last mention) ends. Because the memory-slot model only ever
+/// touches a value by name, its last mention is its last use, so reuse after that
+/// point is safe. Sequential SIMD kernels barely overlap, so a function with
+/// hundreds of distinct `v128` values needs only a few dozen concurrent slots —
+/// keeping the region (and every lane offset) small. The peak slot count is
+/// `1 + max(map.values())`; a naive one-slot-per-value scheme would blow the
+/// 128-slot / 2047-byte-offset budget on kernel-heavy functions (e.g. a program
+/// exercising the whole `math` package uses ~140 distinct values but ≤128 live).
 pub(crate) fn build_slot_map(instructions: &[MirInstruction]) -> HashMap<String, usize> {
-    let mut map: HashMap<String, usize> = HashMap::new();
-    for instruction in instructions {
+    // Live range [first, last] (instruction index) for each vector value, in
+    // first-appearance order.
+    let mut first: HashMap<String, usize> = HashMap::new();
+    let mut last: HashMap<String, usize> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for (idx, instruction) in instructions.iter().enumerate() {
         let Some(op) = instruction.op.to_code() else {
             continue;
         };
@@ -98,9 +110,96 @@ pub(crate) fn build_slot_map(instructions: &[MirInstruction]) -> HashMap<String,
             continue;
         }
         for (_, value) in &instruction.fields {
-            if is_vector_operand(value) && !map.contains_key(value) {
-                let next = map.len();
-                map.insert(value.clone(), next);
+            if is_vector_operand(value) {
+                first.entry(value.clone()).or_insert_with(|| {
+                    order.push(value.clone());
+                    idx
+                });
+                last.insert(value.clone(), idx);
+            }
+        }
+    }
+    // Loop bodies `[target, branch]` from every backward branch. A value whose
+    // range touches a loop body may be live across the back-edge (defined late,
+    // read early next iteration), which a linear index range cannot express — so
+    // extend any overlapping range to span the whole loop. Iterate to a fixpoint
+    // for nested/overlapping loops. Without this, a slot freed inside a loop is
+    // reused while a loop-carried value still needs it (silent corruption).
+    let mut label_idx: HashMap<&str, usize> = HashMap::new();
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if instruction.op.to_code() == Some(CodeOp::Label) {
+            if let Some((_, name)) = instruction.fields.iter().find(|(k, _)| *k == "name") {
+                label_idx.insert(name.as_str(), idx);
+            }
+        }
+    }
+    let mut loops: Vec<(usize, usize)> = Vec::new();
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if let Some((_, target)) = instruction.fields.iter().find(|(k, _)| *k == "target") {
+            if let Some(&t) = label_idx.get(target.as_str()) {
+                if t < idx {
+                    loops.push((t, idx));
+                }
+            }
+        }
+    }
+    loop {
+        let mut changed = false;
+        for value in &order {
+            let (f, l) = (first[value], last[value]);
+            let (mut nf, mut nl) = (f, l);
+            for &(t, b) in &loops {
+                if nf <= b && t <= nl {
+                    nf = nf.min(t);
+                    nl = nl.max(b);
+                }
+            }
+            if nf != f || nl != l {
+                first.insert(value.clone(), nf);
+                last.insert(value.clone(), nl);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Linear scan requires ascending start order; loop extension may have moved
+    // starts earlier, so re-sort before allocating.
+    order.sort_by_key(|value| first[value]);
+
+    // Linear scan: assign each value (in start order) the lowest free slot,
+    // recycling slots whose range ended strictly before this value's start.
+    let mut map: HashMap<String, usize> = HashMap::new();
+    let mut free: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
+    let mut next_slot = 0usize;
+    let mut active: Vec<(usize, String)> = Vec::new(); // (last index, value)
+    for value in &order {
+        let start = first[value];
+        active.sort_by_key(|(end, _)| *end);
+        let expired = active.iter().take_while(|(end, _)| *end < start).count();
+        for (_, dead) in active.drain(0..expired) {
+            free.push(Reverse(map[&dead]));
+        }
+        let slot = free.pop().map(|Reverse(s)| s).unwrap_or_else(|| {
+            let s = next_slot;
+            next_slot += 1;
+            s
+        });
+        map.insert(value.clone(), slot);
+        active.push((last[value], value.clone()));
+    }
+    // Invariant: two values sharing a slot must have disjoint live ranges.
+    #[cfg(debug_assertions)]
+    for (a, &sa) in &map {
+        for (b, &sb) in &map {
+            if a < b && sa == sb {
+                let (fa, la, fb, lb) = (first[a], last[a], first[b], last[b]);
+                assert!(
+                    la < fb || lb < fa,
+                    "rv64 v128 slot {sa} shared by overlapping ranges {a}[{fa},{la}] {b}[{fb},{lb}]"
+                );
             }
         }
     }
@@ -444,6 +543,50 @@ mod tests {
         assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(), 2);
         // %f7 (slot 1) low lane reads offset 16.
         assert!(out.iter().any(|i| i.get("offset") == Some("16")));
+    }
+
+    fn mir(op: crate::target::shared::code::mir::MirOp, fields: &[(&'static str, &str)]) -> MirInstruction {
+        MirInstruction {
+            op,
+            fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect(),
+        }
+    }
+
+    fn peak(map: &HashMap<String, usize>) -> usize {
+        map.values().map(|s| s + 1).max().unwrap_or(0)
+    }
+
+    #[test]
+    fn slots_are_reused_across_disjoint_live_ranges() {
+        use crate::target::shared::code::mir::MirOp;
+        // Two independent lane-adds in straight-line code: the second op's values
+        // recycle the first op's slots (their ranges do not overlap), so six
+        // distinct values need only three concurrent slots.
+        let inst = vec![
+            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
+            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
+        ];
+        let slots = build_slot_map(&inst);
+        assert_eq!(slots.len(), 6, "all six values are mapped");
+        assert_eq!(peak(&slots), 3, "but only three slots are live at once");
+    }
+
+    #[test]
+    fn loop_carried_values_never_share_a_slot() {
+        use crate::target::shared::code::mir::MirOp;
+        // The same two ops inside a loop (a backward branch to `top`): a value
+        // defined late could be read early on the next iteration, so live ranges
+        // are extended across the whole loop and no slot is recycled within it —
+        // otherwise a loop-carried value would be silently clobbered.
+        let inst = vec![
+            mir(MirOp::Label, &[("name", "top")]),
+            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
+            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
+            mir(MirOp::BranchEq, &[("lhs", "a0"), ("rhs", "a1"), ("target", "top")]),
+        ];
+        let slots = build_slot_map(&inst);
+        assert_eq!(slots.len(), 6);
+        assert_eq!(peak(&slots), 6, "loop extension keeps all six values distinct");
     }
 
     #[test]

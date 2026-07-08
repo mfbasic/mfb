@@ -312,10 +312,13 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // Assign a memory slot to every distinct `v128` value the function uses, so
     // the SIMD ops can be scalarized onto the slot region (plan-99 §6).
     let v128_slots = super::v128::build_slot_map(instructions);
+    // Slots are recycled across non-overlapping live ranges, so the region size
+    // is the peak concurrent slot count (highest index + 1), not the number of
+    // distinct values.
+    let peak_slots = v128_slots.values().map(|s| s + 1).max().unwrap_or(0);
     assert!(
-        v128_slots.len() <= super::v128::SLOT_COUNT,
-        "rv64 v128: function uses {} vector values, exceeding the {}-slot region",
-        v128_slots.len(),
+        peak_slots <= super::v128::SLOT_COUNT,
+        "rv64 v128: function needs {peak_slots} concurrent vector slots, exceeding the {}-slot region",
         super::v128::SLOT_COUNT
     );
     // A bare `cmp`/`cmp_imm` whose flag-reading branch is not adjacent (fusion
