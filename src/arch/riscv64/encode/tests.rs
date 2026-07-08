@@ -134,7 +134,7 @@ fn li_reconstructs_all_values() {
             rd = match step {
                 super::sizing::LiStep::Lui(hi20) => {
                     // sign-extend the 20-bit field, then <<12.
-                    (((hi20 << 12) as i32) as i64)
+                    ((hi20 << 12) as i32) as i64
                 }
                 super::sizing::LiStep::Addi(imm) => imm as i64,
                 super::sizing::LiStep::Slli(sh) => rd.wrapping_shl(sh),

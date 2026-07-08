@@ -1,4 +1,4 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedSection, ImportKind};
+use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
 use crate::os::linux::flavor::LinuxFlavor;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -262,7 +262,9 @@ fn patch_relocations(
                 patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
             }
             // Internal data address: `auipc rd, %pcrel_hi; addi rd, rd, %pcrel_lo`.
-            // The lo12 is computed from the paired auipc's PC (this offset − 4).
+            // The lo12 is computed from the paired auipc's PC, located by pairing
+            // (`paired_auipc_offset`) — the two halves need not be adjacent, since
+            // the allocator may spill `rd` between them under register pressure.
             "data" if relocation.kind == "riscv_pcrel_hi20" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
@@ -271,7 +273,12 @@ fn patch_relocations(
             }
             "data" if relocation.kind == "riscv_pcrel_lo12" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let auipc_site = text_vmaddr + relocation.offset as u64 - 4;
+                let auipc_offset = paired_auipc_offset(
+                    &image.relocations,
+                    relocation,
+                    "riscv_pcrel_hi20",
+                )?;
+                let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64);
                 patch_riscv_itype_imm(text, relocation.offset, lo12);
             }
@@ -298,7 +305,12 @@ fn patch_relocations(
                         relocation.library.as_deref().unwrap_or("<unknown library>")
                     ));
                 };
-                let auipc_site = text_vmaddr + relocation.offset as u64 - 4;
+                let auipc_offset = paired_auipc_offset(
+                    &image.relocations,
+                    relocation,
+                    "riscv_got_hi20",
+                )?;
+                let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64);
                 patch_riscv_itype_imm(text, relocation.offset, lo12);
             }
@@ -346,6 +358,33 @@ fn append_import_stubs(
             .insert(import.symbol.clone(), entry_vmaddr);
     }
     Ok(locations)
+}
+
+/// Locate the `auipc` a RISC-V lo12 relocation pairs with. A pcrel pair
+/// (`auipc rd,%hi` + `addi rd,rd,%lo`, or `auipc rd,%got_hi` + `ld rd,%lo(rd)`)
+/// shares one PC base — the `auipc`'s address — because the `auipc` alone is
+/// PC-relative and the lo12 merely completes the low 12 bits of that same
+/// displacement. The two halves need **not** be adjacent: the register allocator
+/// may spill `rd` immediately after the `auipc` and reload it right before the
+/// lo12 under pressure (e.g. two inlined SIMD math kernels in one function),
+/// inserting stack traffic in the gap. So the lo12's base is the nearest
+/// *preceding* `hi` relocation to the same target, not a hard-coded `offset - 4`.
+fn paired_auipc_offset(
+    relocations: &[EncodedRelocation],
+    lo: &EncodedRelocation,
+    hi_kind: &str,
+) -> Result<usize, String> {
+    relocations
+        .iter()
+        .filter(|r| r.kind == hi_kind && r.target == lo.target && r.offset < lo.offset)
+        .map(|r| r.offset)
+        .max()
+        .ok_or_else(|| {
+            format!(
+                "linux-riscv64 linker: {} at {:#x} for '{}' has no paired {}",
+                lo.kind, lo.offset, lo.target, hi_kind
+            )
+        })
 }
 
 /// The RISC-V high/low split of a PC-relative displacement: `auipc` materializes

@@ -874,3 +874,68 @@ fn writes_versioned_glibc_elf() {
         ".dynstr should contain the required version GLIBC_2.17"
     );
 }
+
+fn riscv_reloc(offset: usize, target: &str, kind: &str) -> EncodedRelocation {
+    EncodedRelocation {
+        offset,
+        target: target.to_string(),
+        kind: kind.to_string(),
+        binding: "data".to_string(),
+        library: None,
+    }
+}
+
+#[test]
+fn riscv_pcrel_lo12_pairs_with_adjacent_auipc() {
+    // The common case: `auipc rd,%hi` at 100, `addi rd,rd,%lo` at 104.
+    let relocs = vec![
+        riscv_reloc(100, "P", "riscv_pcrel_hi20"),
+        riscv_reloc(104, "P", "riscv_pcrel_lo12"),
+    ];
+    assert_eq!(
+        paired_auipc_offset(&relocs, &relocs[1], "riscv_pcrel_hi20"),
+        Ok(100)
+    );
+}
+
+#[test]
+fn riscv_pcrel_lo12_pairs_across_a_spill_gap() {
+    // The regression: the allocator spilled `rd` right after the `auipc`, so the
+    // `addi` at 116 is 16 bytes past its `auipc` at 100 — not the adjacent 104.
+    // A hard-coded `offset - 4` would mis-locate the PC base and corrupt the low
+    // 12 bits of the address (two inlined SIMD kernels reading a shifted pool).
+    let relocs = vec![
+        riscv_reloc(100, "P", "riscv_pcrel_hi20"),
+        riscv_reloc(116, "P", "riscv_pcrel_lo12"),
+    ];
+    assert_eq!(
+        paired_auipc_offset(&relocs, &relocs[1], "riscv_pcrel_hi20"),
+        Ok(100)
+    );
+}
+
+#[test]
+fn riscv_pcrel_lo12_pairs_with_nearest_preceding_hi_of_same_target() {
+    // Two materializations of the same symbol: each lo12 must bind to its own
+    // (nearest preceding) auipc, and a lo12 never pairs with a hi for a
+    // different target.
+    let relocs = vec![
+        riscv_reloc(100, "P", "riscv_pcrel_hi20"),
+        riscv_reloc(108, "P", "riscv_pcrel_lo12"),
+        riscv_reloc(200, "Q", "riscv_pcrel_hi20"),
+        riscv_reloc(220, "P", "riscv_pcrel_hi20"),
+        riscv_reloc(228, "P", "riscv_pcrel_lo12"),
+    ];
+    assert_eq!(
+        paired_auipc_offset(&relocs, &relocs[1], "riscv_pcrel_hi20"),
+        Ok(100)
+    );
+    assert_eq!(
+        paired_auipc_offset(&relocs, &relocs[4], "riscv_pcrel_hi20"),
+        Ok(220)
+    );
+    // A lo12 with no preceding hi to its target is a hard error, not a silent
+    // `offset - 4` guess.
+    let orphan = vec![riscv_reloc(50, "Z", "riscv_pcrel_lo12")];
+    assert!(paired_auipc_offset(&orphan, &orphan[0], "riscv_pcrel_hi20").is_err());
+}

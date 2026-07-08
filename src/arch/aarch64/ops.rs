@@ -204,6 +204,12 @@ pub(crate) enum CodeOp {
     /// following `rv.br` tests. Fields: `dst` (GPR), `lhs`/`rhs` (FP), `cmp`
     /// (`eq`/`lt`/`le`). Never emitted for AArch64/x86.
     RvFcmp,
+    /// rv64-only signed set-less-than: `slt dst, lhs, rhs` → `dst = (lhs < rhs)`
+    /// (signed) as 0/1. Synthesized by the `v128` scalarizer for lane-compare
+    /// masks. Never emitted for AArch64/x86.
+    Slt,
+    /// rv64-only unsigned set-less-than (`sltu`). Never emitted for AArch64/x86.
+    Sltu,
 }
 
 impl CodeOp {
@@ -352,6 +358,8 @@ impl CodeOp {
             CodeOp::FMaddD => "fmadd_d",
             CodeOp::RvBr => "rv.br",
             CodeOp::RvFcmp => "rv.fcmp",
+            CodeOp::Slt => "rv.slt",
+            CodeOp::Sltu => "rv.sltu",
         }
     }
 
@@ -500,6 +508,8 @@ impl CodeOp {
             "fmadd_d" => Ok(CodeOp::FMaddD),
             "rv.br" => Ok(CodeOp::RvBr),
             "rv.fcmp" => Ok(CodeOp::RvFcmp),
+            "rv.slt" => Ok(CodeOp::Slt),
+            "rv.sltu" => Ok(CodeOp::Sltu),
             other => Err(format!("aarch64 code op '{other}' is not encodable")),
         }
     }
@@ -658,6 +668,8 @@ mod tests {
             CodeOp::FMaddD,
             CodeOp::RvBr,
             CodeOp::RvFcmp,
+            CodeOp::Slt,
+            CodeOp::Sltu,
         ];
         for &op in ALL {
             assert_eq!(CodeOp::from_mnemonic(op.mnemonic()), Ok(op));

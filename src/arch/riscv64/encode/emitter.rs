@@ -148,6 +148,8 @@ impl Encoder {
                 r("rhs")?,
                 r("borrow_in")?,
             ),
+            "rv.slt" => self.emit_r(OP, 0b010, 0, r("dst")?, r("lhs")?, r("rhs")?),
+            "rv.sltu" => self.emit_r(OP, 0b011, 0, r("dst")?, r("lhs")?, r("rhs")?),
             "lslv" => self.emit_r(OP, 0b001, 0, r("dst")?, r("lhs")?, r("rhs")?),
             "lsrv" => self.emit_r(OP, 0b101, 0, r("dst")?, r("lhs")?, r("rhs")?),
             "asrv" => self.emit_r(OP, 0b101, 0b0100000, r("dst")?, r("lhs")?, r("rhs")?),

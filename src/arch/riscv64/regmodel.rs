@@ -59,12 +59,13 @@ const FP_REGS: &[&str] = &[
 ];
 
 /// Allocatable FP registers, caller-saved scratch first then callee-saved.
-/// Excludes `ft0`/`ft1` (reserved float-compare / non-commutative staging
-/// scratch) and `fa0`–`fa7` (ABI argument/return, placed physically at FP call
+/// Excludes `ft0`/`ft1`/`ft2` (reserved lowering scratch: float-compare staging
+/// and the three FP lanes a scalarized `v128` fused-multiply-add needs, plan-99
+/// §6) and `fa0`–`fa7` (ABI argument/return, placed physically at FP call
 /// boundaries by selection).
 const FP_ALLOCATABLE: &[&str] = &[
-    "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "ft8", "ft9", "ft10", "ft11", "fs0", "fs1", "fs2",
-    "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9", "fs10", "fs11",
+    "ft3", "ft4", "ft5", "ft6", "ft7", "ft8", "ft9", "ft10", "ft11", "fs0", "fs1", "fs2", "fs3",
+    "fs4", "fs5", "fs6", "fs7", "fs8", "fs9", "fs10", "fs11",
 ];
 
 /// Caller-saved FP registers — clobbered across a `call` (`ft*` and `fa*`).

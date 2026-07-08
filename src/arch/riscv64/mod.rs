@@ -18,3 +18,4 @@ pub(crate) mod encode;
 pub(crate) mod regmodel;
 pub(crate) mod reloc;
 pub(crate) mod select;
+pub(crate) mod v128;

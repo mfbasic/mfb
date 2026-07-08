@@ -309,6 +309,15 @@ enum FlagRhs {
 /// Select neutral MIR into RV64GC machine ops (plan-99).
 pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
+    // Assign a memory slot to every distinct `v128` value the function uses, so
+    // the SIMD ops can be scalarized onto the slot region (plan-99 §6).
+    let v128_slots = super::v128::build_slot_map(instructions);
+    assert!(
+        v128_slots.len() <= super::v128::SLOT_COUNT,
+        "rv64 v128: function uses {} vector values, exceeding the {}-slot region",
+        v128_slots.len(),
+        super::v128::SLOT_COUNT
+    );
     // A bare `cmp`/`cmp_imm` whose flag-reading branch is not adjacent (fusion
     // missed it) saves its left operand into `gp` here; the standalone branch
     // that follows consumes `pending` to build a native `rv.br`. Multiple
@@ -410,6 +419,18 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             let _ = is_shared(&instruction.fields);
             out.extend(expand_fused(instruction.op, setter_op, &instruction.fields));
             continue;
+        }
+        // v128 SIMD ops scalarize to scalar `f64`/`i64` memory-slot ops (plan-99
+        // §6): RV64GC has no 128-bit vector file.
+        if let Some(code_op) = instruction.op.to_code() {
+            if super::v128::is_v128(code_op) {
+                out.extend(super::v128::scalarize_v128(
+                    code_op,
+                    &instruction.fields,
+                    &v128_slots,
+                ));
+                continue;
+            }
         }
         // Non-fused MIR ops map 1:1 to a CodeOp via `to_code` (applying the
         // neutral→concrete renames, e.g. `call`→`bl`, `mulhi_u`→`umulh`); the

@@ -139,10 +139,11 @@ mir_ops!(
         // MIR lowering (never produced by `from_code`); listed here only so the
         // `CodeOp`→`MirOp` map stays total.
         X86Jae, X86Jp, X86Jnp, X86Ja, X86Jb, X86Jbe, X86Je, X86Jne,
-        // rv64-only compare-and-branch / float-compare-to-GPR, synthesized by
-        // `select_riscv64` *after* MIR lowering (never produced by `from_code`);
-        // listed here only so the `CodeOp`→`MirOp` map stays total (plan-99).
-        RvBr, RvFcmp,
+        // rv64-only compare-and-branch / float-compare-to-GPR / set-less-than,
+        // synthesized by `select_riscv64` *after* MIR lowering (never produced by
+        // `from_code`); listed here only so the `CodeOp`→`MirOp` map stays total
+        // (plan-99).
+        RvBr, RvFcmp, Slt, Sltu,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, FMaddD,
     }
