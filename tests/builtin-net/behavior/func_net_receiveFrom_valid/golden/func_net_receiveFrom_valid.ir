@@ -511,6 +511,175 @@
     },
     { "op": "return", "line": 201, "value": { "kind": "local", "name": "out" } }
     ]
+  },
+  {
+    "name": "#net_percentDecodeImpl",
+    "line": 213,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 213, "type": "String", "default": null },
+    { "name": "plusSpace", "line": 213, "type": "Boolean", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 214, "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "line": 215, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 216, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 217,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "n" } },
+      "body": [
+      { "op": "bind", "line": 218, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "i" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+      {
+        "op": "if",
+        "line": 219,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "c" }, "right": { "kind": "const", "type": "String", "value": "%" } },
+        "then": [
+        {
+          "op": "if",
+          "line": 220,
+          "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "local", "name": "n" } },
+          "then": [
+          { "op": "fail", "line": 221, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "truncated percent-escape" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "221" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "assign", "line": 223, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "s" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Integer", "value": "16" }] }] }] } },
+        { "op": "assign", "line": 224, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "line": 225,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "c" }, "right": { "kind": "const", "type": "String", "value": "+" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "plusSpace" }, "right": { "kind": "const", "type": "Boolean", "value": "true" } } },
+          "then": [
+          { "op": "assign", "line": 226, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "32" }] }] } },
+          { "op": "assign", "line": 227, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ],
+          "else": [
+          { "op": "assign", "line": 229, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "local", "name": "c" }] }] } },
+          { "op": "assign", "line": 230, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 233, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "out" }] } },
+    {
+      "op": "trap",
+      "line": 234,
+      "name": "e",
+      "body": [
+      { "op": "fail", "line": 235, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid percent-encoding" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "235" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "#net_percentDecode",
+    "line": 243,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 243, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 244, "value": { "kind": "call", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "false" }] } }
+    ]
+  },
+  {
+    "name": "#net_decodeQueryComponent",
+    "line": 251,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 251, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 252, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "bind", "line": 252, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
+    {
+      "op": "if",
+      "line": 252,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "line": 252, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 252, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 253, "name": "$trap_val3", "value": { "kind": "local", "name": "s" } }
+      ]
+    },
+    { "op": "bind", "line": 252, "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "return", "line": 255, "value": { "kind": "local", "name": "decoded" } }
+    ]
+  },
+  {
+    "name": "#net_parseQuery",
+    "line": 262,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 262, "type": "String", "default": null }
+    ],
+    "returns": "Map OF String TO String",
+    "body": [
+    { "op": "bind", "line": 263, "mutable": true, "name": "result", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
+    {
+      "op": "if",
+      "line": 264,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "return", "line": 265, "value": { "kind": "local", "name": "result" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 267, "mutable": false, "name": "pairs", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "strings.split", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "String", "value": "&" }] } },
+    {
+      "op": "forEach",
+      "line": 268,
+      "name": "pair",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "pairs" },
+      "body": [
+      {
+        "op": "if",
+        "line": 269,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "pair" }, "right": { "kind": "const", "type": "String", "value": "" } },
+        "then": [
+        { "op": "bind", "line": 270, "mutable": false, "name": "eq", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "pair" }, { "kind": "const", "type": "String", "value": "=" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+        { "op": "bind", "line": 271, "mutable": true, "name": "rawKey", "type": "String", "value": { "kind": "local", "name": "pair" } },
+        { "op": "bind", "line": 272, "mutable": true, "name": "rawValue", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+        {
+          "op": "if",
+          "line": 273,
+          "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "eq" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+          "then": [
+          { "op": "assign", "line": 274, "name": "rawKey", "value": { "kind": "call", "type": "String", "target": "#net_slice", "args": [{ "kind": "local", "name": "pair" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "eq" }] } },
+          { "op": "assign", "line": 275, "name": "rawValue", "value": { "kind": "call", "type": "String", "target": "#net_slice", "args": [{ "kind": "local", "name": "pair" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "eq" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pair" }] }] } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "line": 277, "mutable": false, "name": "key", "type": "String", "value": { "kind": "call", "type": "String", "target": "#net_decodeQueryComponent", "args": [{ "kind": "local", "name": "rawKey" }] } },
+        { "op": "bind", "line": 278, "mutable": false, "name": "value", "type": "String", "value": { "kind": "call", "type": "String", "target": "#net_decodeQueryComponent", "args": [{ "kind": "local", "name": "rawValue" }] } },
+        { "op": "assign", "line": 279, "name": "result", "value": { "kind": "call", "type": "Map OF String TO String", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "value" }] } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 282, "value": { "kind": "local", "name": "result" } }
+    ]
   }
   ]
 }

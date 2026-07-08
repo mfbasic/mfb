@@ -1,0 +1,37 @@
+' net::parseQuery — parse an "a=1&b=2" query string into a map, query-decoding
+' keys/values ("+" -> space, %XX), last-wins on repeats (plan-05 §F.4.2).
+IMPORT net
+IMPORT collections
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "net::parseQuery"
+    TCASE "splits pairs and decodes values"
+      LET q = net::parseQuery("name=a+b&n=42&raw=%2Fx")
+      expectString(collections::getOr(q, "name", "?"), "a b")
+      expectString(collections::getOr(q, "n", "?"), "42")
+      expectString(collections::getOr(q, "raw", "?"), "/x")
+    END TCASE
+    TCASE "decodes keys and handles bare keys"
+      LET q = net::parseQuery("a%20b=1&flag")
+      expectString(collections::getOr(q, "a b", "?"), "1")
+      expectString(collections::getOr(q, "flag", "MISSING"), "")
+    END TCASE
+    TCASE "last-wins on repeated keys, skips empty pairs"
+      LET q = net::parseQuery("x=1&&x=2&")
+      expectString(collections::getOr(q, "x", "?"), "2")
+      expectInteger(len(collections::keys(q)), 1)
+    END TCASE
+    TCASE "empty query yields an empty map"
+      LET q = net::parseQuery("")
+      expectInteger(len(collections::keys(q)), 0)
+    END TCASE
+    TCASE "tolerates a malformed escape by keeping raw text"
+      LET q = net::parseQuery("k=%2")
+      expectString(collections::getOr(q, "k", "?"), "%2")
+    END TCASE
+  END TGROUP
+END TESTING

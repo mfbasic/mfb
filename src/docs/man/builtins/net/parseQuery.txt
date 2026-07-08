@@ -1,0 +1,33 @@
+NAME
+  parseQuery - parse a URL query string into a map
+
+SYNOPSIS
+  net::parseQuery(s AS String) AS Map OF String TO String
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  parseQuery parses an "a=1&b=2" query string (the part after the first "?", which
+  must already be stripped) into a Map OF String TO String. It splits on "&", then
+  each pair on the first "=", and query-decodes keys and values — "%XX" escapes
+  plus "+" to a space (application/x-www-form-urlencoded semantics). A bare key
+  with no "=" maps to "", an empty pair (from "&&" or a leading/trailing "&") is
+  skipped, and repeated keys collapse last-wins.
+
+  Decoding is tolerant: a component with a malformed "%" escape is kept as its raw
+  text rather than failing the whole parse, so a single bad query never sinks an
+  otherwise valid request. This is the parser the http server applies to the
+  request query (plan-05 §F.4.2).
+
+EXAMPLES
+  Parsing a query:
+
+    LET q = net::parseQuery("name=a+b&n=42")
+    ' q["name"] = "a b", q["n"] = "42"
+
+SEE ALSO
+  net::percentDecode, net::toUrl, collections::getOr

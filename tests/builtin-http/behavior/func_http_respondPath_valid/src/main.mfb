@@ -1,0 +1,65 @@
+' http::respondPath (plan-05 §F.5.5): serve a request path safely under a root.
+' Extension -> Content-Type; a traversal attempt (../ escaping root) -> 403; a
+' missing file -> 404; a confined file -> 200. Path-traversal safety is the one
+' security-critical server behavior and is exercised here on real temp files.
+' `mfb test` replaces the entry point, so main() never runs — each TCASE calls
+' the idempotent setup() to lay down its fixture.
+IMPORT http
+IMPORT fs
+IMPORT collections
+IMPORT strings
+
+FUNC root() AS String
+  RETURN fs::pathJoin([fs::tempDirectory(), "mfbhttp_respondpath_root"])
+END FUNC
+
+SUB setup()
+  LET r AS String = root()
+  fs::createDirectories(r)
+  fs::writeText(fs::pathJoin([r, "hi.txt"]), "hello static")
+  fs::writeText(fs::pathJoin([r, "page.html"]), "<h1>hi</h1>")
+  fs::writeText(fs::pathJoin([fs::tempDirectory(), "mfbhttp_respondpath_secret.txt"]), "SECRET")
+END SUB
+
+' Build a Request whose "*" capture is `star` (as a "/static/*" route would).
+FUNC mkReq(star AS String) AS http::Request
+  MUT params AS Map OF String TO String = Map OF String TO String {}
+  params = collections::set(params, "*", star)
+  LET h AS Map OF String TO String = Map OF String TO String {}
+  LET q AS Map OF String TO String = Map OF String TO String {}
+  LET parts AS Map OF String TO http::RequestPart = Map OF String TO http::RequestPart {}
+  LET b AS List OF Byte = []
+  RETURN http::Request["GET", "/static/" & star, "/static/" & star, h, q, params, parts, b]
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "http::respondPath"
+    TCASE "serves a confined file with inferred Content-Type"
+      setup()
+      LET resp = http::respondPath(mkReq("hi.txt"), root())
+      expectInteger(resp.status, 200)
+      expectString(toString(resp.body), "hello static")
+      expectString(collections::getOr(resp.headers, "content-type", ""), "text/plain; charset=utf-8")
+    END TCASE
+    TCASE "infers html Content-Type from the extension"
+      setup()
+      LET resp = http::respondPath(mkReq("page.html"), root())
+      expectInteger(resp.status, 200)
+      expectString(collections::getOr(resp.headers, "content-type", ""), "text/html; charset=utf-8")
+    END TCASE
+    TCASE "a missing file is 404"
+      setup()
+      LET resp = http::respondPath(mkReq("nope.txt"), root())
+      expectInteger(resp.status, 404)
+    END TCASE
+    TCASE "a traversal escaping root is 403, never read"
+      setup()
+      LET resp = http::respondPath(mkReq("../mfbhttp_respondpath_secret.txt"), root())
+      expectInteger(resp.status, 403)
+    END TCASE
+  END TGROUP
+END TESTING

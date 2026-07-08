@@ -200,3 +200,84 @@ FUNC __net_urlToString(value AS Url) AS String
   END IF
   RETURN out
 END FUNC
+
+' ---- URL component decoding (plan-05 §F.4.2) ----
+
+' Core percent-decoder: `%XX` escapes become bytes; when `plusSpace` is TRUE a
+' literal `+` becomes a space (query semantics). Every other grapheme keeps its
+' UTF-8 bytes. The accumulated bytes are UTF-8 validated by `toString`.
+' Implemented with only `strings`/`collections` so `net` carries no extra
+' package dependency. A function-level TRAP maps every failure — a truncated or
+' non-hex escape, or a non-UTF-8 decoded result (`toString`'s ErrEncoding, which
+' the inline-TRAP analysis cannot catch) — to a single `ErrInvalidFormat`.
+FUNC __net_percentDecodeImpl(s AS String, plusSpace AS Boolean) AS String
+  MUT out AS List OF Byte = []
+  LET n AS Integer = len(s)
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET c AS String = strings::mid(s, i, 1)
+    IF c = "%" THEN
+      IF i + 2 >= n THEN
+        FAIL error(77050003, "truncated percent-escape")
+      END IF
+      out = collections::append(out, toByte(toInt(strings::mid(s, i + 1, 2), 16)))
+      i = i + 3
+    ELSEIF c = "+" AND plusSpace = TRUE THEN
+      out = collections::append(out, toByte(32))
+      i = i + 1
+    ELSE
+      out = collections::append(out, strings::toBytes(c))
+      i = i + 1
+    END IF
+  WEND
+  RETURN toString(out)
+TRAP(e)
+  FAIL error(77050003, "invalid percent-encoding")
+END TRAP
+END FUNC
+
+' Percent-decode a request-target path component: `%XX` -> bytes, UTF-8
+' validated. Unlike query decoding, `+` is left literal (a path segment's `+`
+' is not a space). A malformed escape or non-UTF-8 result fails
+' `ErrInvalidFormat`.
+FUNC __net_percentDecode(s AS String) AS String
+  RETURN __net_percentDecodeImpl(s, FALSE)
+END FUNC
+
+' Query-component decoding: `%XX` plus `+` -> space. Tolerant — a malformed
+' escape falls back to the raw component rather than failing the whole query
+' parse (a bad query must not sink an otherwise valid request; §F.4.1 routes
+' hard framing errors to 400, not soft query decode).
+FUNC __net_decodeQueryComponent(s AS String) AS String
+  LET decoded AS String = __net_percentDecodeImpl(s, TRUE) TRAP(e)
+    RECOVER s
+  END TRAP
+  RETURN decoded
+END FUNC
+
+' Parse an `a=1&b=2` query string into a map. Keys and values are
+' query-decoded (`+` -> space, `%XX`). A bare `key` (no `=`) maps to `""`; an
+' empty pair (from `&&` or a leading/trailing `&`) is skipped. Repeated keys
+' collapse last-wins. The leading `?` must already be stripped by the caller.
+FUNC __net_parseQuery(s AS String) AS Map OF String TO String
+  MUT result AS Map OF String TO String = Map OF String TO String {}
+  IF s = "" THEN
+    RETURN result
+  END IF
+  LET pairs AS List OF String = strings::split(s, "&")
+  FOR EACH pair IN pairs
+    IF pair <> "" THEN
+      LET eq AS Integer = __net_indexOf(pair, "=", 0)
+      MUT rawKey AS String = pair
+      MUT rawValue AS String = ""
+      IF eq >= 0 THEN
+        rawKey = __net_slice(pair, 0, eq)
+        rawValue = __net_slice(pair, eq + 1, len(pair))
+      END IF
+      LET key AS String = __net_decodeQueryComponent(rawKey)
+      LET value AS String = __net_decodeQueryComponent(rawValue)
+      result = collections::set(result, key, value)
+    END IF
+  NEXT
+  RETURN result
+END FUNC

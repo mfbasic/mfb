@@ -584,8 +584,16 @@ impl<'a> SyntaxChecker<'a> {
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
-            .map(|argument| {
-                let type_ = self.infer_expression(file, argument, locals, line, ExprMode::Read);
+            .enumerate()
+            .map(|(index, argument)| {
+                // `http.respondFile` consumes (takes ownership of) the `RES File`
+                // it serves, closing it by lexical drop (plan-05 §F.5.5).
+                let mode = if builtins::http::consumes_argument(callee, index) {
+                    ExprMode::Transfer
+                } else {
+                    ExprMode::Read
+                };
+                let type_ = self.infer_expression(file, argument, locals, line, mode);
                 self.type_name(&type_)
             })
             .collect::<Vec<_>>();

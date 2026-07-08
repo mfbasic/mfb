@@ -1,0 +1,46 @@
+NAME
+  route - build a validated path-pattern -> handler Route
+
+SYNOPSIS
+  http::route(pattern AS String, handler AS FUNC(Request) AS Response) AS Route
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT http
+
+DESCRIPTION
+  route builds an http::Route mapping a path pattern to a handler function of type
+  FUNC(http::Request) AS http::Response. It is a convenience over the literal form
+  Route[pattern, handler]; unlike the literal, route validates the pattern at
+  registration and fails ErrInvalidArgument on a malformed one.
+
+  Patterns are matched segment by segment (split on "/"). A segment is a literal
+  (must equal the path segment exactly), ":name" (captures exactly one non-empty
+  segment into params["name"]), ":name?" (a trailing optional segment, present in
+  params only when matched), or "*" (a trailing catch-all capturing the entire
+  remaining path — including embedded "/" — into params["*"]). ":name?" and "*"
+  are legal only as the final segment(s); a mid-pattern optional or wildcard is
+  rejected. A trailing slash is normalized away before matching, except the root
+  "/" itself.
+
+  Routes are held in an ordered List OF http::Route and tried in list order by
+  http::handleRequest — the first pattern that matches handles the request. To let
+  a literal beat a pattern, list it first.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when "*" is not the final segment, or a ":name?" optional segment is
+  followed by a non-optional segment.
+
+EXAMPLES
+  A route table, literal-before-pattern:
+
+    MUT routes AS List OF http::Route = []
+    routes = collections::append(routes, http::route("/foo/new", newFoo))
+    routes = collections::append(routes, http::route("/foo/:bar?", showFoo))
+    routes = collections::append(routes, http::route("/static/*", serveStatic))
+
+SEE ALSO
+  http::handleRequest, http::respondPath, http::ok

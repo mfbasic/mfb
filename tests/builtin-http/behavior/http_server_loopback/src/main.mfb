@@ -1,0 +1,105 @@
+' plan-05 §F.7 worked example + handler contract (plan-05 §C3).
+'
+' This behavioral test compiles the ENTIRE server lifecycle surface — http::server,
+' http::handleRequest over an ordered route list, http::route with every pattern
+' form, respondPath, and every response constructor — and runtime-tests the
+' handler contract by calling handlers directly with constructed Requests.
+'
+' The blocking accept loop (serverMain) is compiled but not executed here (a
+' single-threaded server blocks forever). The full networked round-trip
+' (routing/params/query/404/500/static/traversal/multipart) is validated
+' on-device with a two-process loopback: build this project, run it, and drive it
+' with the http client — see the plan's C3 loopback notes.
+IMPORT http
+IMPORT net
+IMPORT collections
+IMPORT errorCode
+
+FUNC home(req AS http::Request) AS http::Response
+  RETURN http::ok("welcome")
+END FUNC
+
+FUNC showTest(req AS http::Request) AS http::Response
+  RETURN http::ok("id=" & collections::getOr(req.params, "testId", "?") & " q=" & collections::getOr(req.query, "debug", "none"))
+END FUNC
+
+FUNC teapot(req AS http::Request) AS http::Response
+  MUT r AS http::Response = http::responseDefault()
+  r = WITH r { status := 418 }
+  r = WITH r { body := http::bytes("teapot") }
+  RETURN r
+END FUNC
+
+FUNC boom(req AS http::Request) AS http::Response
+  FAIL error(errorCode::ErrNotFound, "boom")
+END FUNC
+
+FUNC serveStatic(req AS http::Request) AS http::Response
+  RETURN http::respondPath(req, "./public")
+END FUNC
+
+FUNC routes() AS List OF http::Route
+  MUT rs AS List OF http::Route = []
+  rs = collections::append(rs, http::route("/", home))
+  rs = collections::append(rs, http::route("/test/:testId", showTest))
+  rs = collections::append(rs, http::route("/foo/:bar?", home))
+  rs = collections::append(rs, http::route("/teapot", teapot))
+  rs = collections::append(rs, http::route("/boom", boom))
+  rs = collections::append(rs, http::route("/static/*", serveStatic))
+  RETURN rs
+END FUNC
+
+' The worked-example accept loop. Compiled here; run on-device.
+SUB serverMain()
+  RES s AS net::Listener = http::server(8080)
+  DO
+    http::handleRequest(s, routes())
+  LOOP UNTIL FALSE
+END SUB
+
+FUNC mkReq(testId AS String, debug AS String) AS http::Request
+  MUT params AS Map OF String TO String = Map OF String TO String {}
+  params = collections::set(params, "testId", testId)
+  MUT query AS Map OF String TO String = Map OF String TO String {}
+  IF debug <> "" THEN
+    query = collections::set(query, "debug", debug)
+  END IF
+  LET h AS Map OF String TO String = Map OF String TO String {}
+  LET parts AS Map OF String TO http::RequestPart = Map OF String TO http::RequestPart {}
+  LET b AS List OF Byte = []
+  RETURN http::Request["GET", "/test/" & testId, "/test/" & testId, h, query, params, parts, b]
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "http server handler contract"
+    TCASE "home returns 200 welcome"
+      LET r = home(mkReq("", ""))
+      expectInteger(r.status, 200)
+      expectString(toString(r.body), "welcome")
+    END TCASE
+    TCASE "showTest reads path param and query"
+      LET r = showTest(mkReq("42", "1"))
+      expectString(toString(r.body), "id=42 q=1")
+    END TCASE
+    TCASE "teapot builds a 418 via WITH"
+      LET r = teapot(mkReq("", ""))
+      expectInteger(r.status, 418)
+      expectString(toString(r.body), "teapot")
+    END TCASE
+    TCASE "a failing handler traps (handleRequest maps this to 500)"
+      expectTrap(boom(mkReq("", "")), errorCode::ErrNotFound)
+    END TCASE
+    TCASE "the worked-example route table builds in order"
+      LET rs = routes()
+      expectInteger(len(rs), 6)
+      LET r0 = collections::get(rs, 0)
+      expectString(r0.pattern, "/")
+      LET r5 = collections::get(rs, 5)
+      expectString(r5.pattern, "/static/*")
+    END TCASE
+  END TGROUP
+END TESTING

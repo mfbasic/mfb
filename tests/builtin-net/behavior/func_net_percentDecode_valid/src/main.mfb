@@ -1,0 +1,31 @@
+' net::percentDecode — decode %XX request-target path components (plan-05 §F.4.2).
+' Path decoding leaves "+" literal (unlike query decoding); a malformed or
+' non-UTF-8 escape fails ErrInvalidFormat.
+IMPORT net
+IMPORT errorCode
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "net::percentDecode"
+    TCASE "decodes %XX escapes"
+      expectString(net::percentDecode("/a%20b/c"), "/a b/c")
+      expectString(net::percentDecode("%2Fetc%2Fpasswd"), "/etc/passwd")
+      expectString(net::percentDecode("a%2Bb"), "a+b")
+    END TCASE
+    TCASE "leaves plus and unescaped text alone"
+      expectString(net::percentDecode("a+b"), "a+b")
+      expectString(net::percentDecode("plain/path"), "plain/path")
+      expectString(net::percentDecode(""), "")
+    END TCASE
+    TCASE "decodes multi-byte UTF-8 escapes"
+      expectString(net::percentDecode("%E2%9C%93"), "✓")
+    END TCASE
+    TCASE "rejects a truncated or invalid escape"
+      expectTrap(net::percentDecode("%2"), errorCode::ErrInvalidFormat)
+      expectTrap(net::percentDecode("%ZZ"), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING

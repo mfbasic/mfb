@@ -2949,11 +2949,28 @@ fn lower_expression_with_expected(
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {
+                    // `http::handleRequest` is overloaded by listener type
+                    // (net::Listener vs tls::Listener), selecting one of two
+                    // transport bodies from the first argument's type
+                    // (plan-05 §F.5.1). The other http calls map 1:1.
+                    if !builtins::http::is_http_call(&canonical_callee) {
+                        return None;
+                    }
+                    let arg_types: Vec<String> = arguments
+                        .iter()
+                        .map(call_arg_value)
+                        .map(|argument| {
+                            expression_type(argument, locals, context).unwrap_or_default()
+                        })
+                        .collect();
+                    builtins::http::implementation_name(&canonical_callee, &arg_types)
+                        .map(crate::internal_name::internalize)
+                })
+                .or_else(|| {
                     builtins::json::implementation_name(&canonical_callee)
                         .or_else(|| builtins::csv::implementation_name(&canonical_callee))
                         .or_else(|| builtins::regex::implementation_name(&canonical_callee))
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
-                        .or_else(|| builtins::http::implementation_name(&canonical_callee))
                         .or_else(|| builtins::encoding::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })

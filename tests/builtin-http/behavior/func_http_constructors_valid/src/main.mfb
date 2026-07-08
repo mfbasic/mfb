@@ -1,0 +1,63 @@
+' http server response constructors & combinators (plan-05 §F.5.3): ok / status /
+' json / responseDefault / withHeader / bytes. body is List OF Byte (decode via
+' toString); header names are sent as written.
+IMPORT http
+IMPORT collections
+IMPORT strings
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "http::ok"
+    TCASE "200 text/plain with the given body"
+      LET r = http::ok("welcome")
+      expectInteger(r.status, 200)
+      expectString(toString(r.body), "welcome")
+      expectString(collections::getOr(r.headers, "content-type", ""), "text/plain; charset=utf-8")
+    END TCASE
+  END TGROUP
+  TGROUP "http::status"
+    TCASE "arbitrary code, ok flag by class"
+      LET r = http::status(404, "nope")
+      expectInteger(r.status, 404)
+      expectString(toString(r.body), "nope")
+      LET okr = http::status(204, "")
+      expectInteger(okr.status, 204)
+    END TCASE
+  END TGROUP
+  TGROUP "http::json"
+    TCASE "200 application/json"
+      LET r = http::json("{\"ok\":true}")
+      expectInteger(r.status, 200)
+      expectString(collections::getOr(r.headers, "content-type", ""), "application/json")
+      expectString(toString(r.body), "{\"ok\":true}")
+    END TCASE
+  END TGROUP
+  TGROUP "http::responseDefault + WITH"
+    TCASE "200 OK, editable with WITH"
+      MUT r = http::responseDefault()
+      expectInteger(r.status, 200)
+      expectString(toString(r.body), "OK")
+      r = WITH r { status := 418 }
+      r = WITH r { body := http::bytes("teapot") }
+      expectInteger(r.status, 418)
+      expectString(toString(r.body), "teapot")
+    END TCASE
+  END TGROUP
+  TGROUP "http::withHeader"
+    TCASE "copy with one header set, name as written"
+      LET r = http::withHeader(http::ok("body"), "Cache-Control", "no-store")
+      expectString(collections::getOr(r.headers, "Cache-Control", ""), "no-store")
+    END TCASE
+  END TGROUP
+  TGROUP "http::bytes"
+    TCASE "UTF-8 encodes a String into a body"
+      LET b = http::bytes("hi")
+      expectInteger(len(b), 2)
+      expectString(toString(b), "hi")
+      expectString(toString(strings::toBytes("hi")), toString(b))
+    END TCASE
+  END TGROUP
+END TESTING

@@ -1,6 +1,6 @@
 # http
 
-Blocking HTTP/1.1 client layered on the native `net` and `tls` packages
+Blocking HTTP/1.1 client and single-threaded server layered on the native `net` and `tls` packages
 
 ## Synopsis
 
@@ -32,9 +32,11 @@ escapes. [[src/builtins/http_package.mfb:__http_read]]
 
 Both functions return an `http::Response`, an ordinary copyable value record
 with fields `status` (Integer), `reason` (String), `httpVersion` (String),
-`headers` (Map OF String TO String), `body` (String), and `ok` (Boolean, TRUE
-when `status` is in `200..299`). Because the record holds no resource handle, a
-`Response` can be returned, copied, and sent across threads. [[src/builtins/http_package.mfb:Response]]
+`headers` (Map OF String TO String), `body` (List OF Byte), and `ok` (Boolean,
+TRUE when `status` is in `200..299`). The `body` is raw bytes so binary payloads
+survive intact; decode it to text with `toString(resp.body)`. Because the record
+holds no resource handle, a `Response` can be returned, copied, and sent across
+threads. The same `Response` record is used by the server (below). [[src/builtins/http_package.mfb:Response]]
 
 The `headers` field is a standard map whose field names are lowercased (HTTP
 field names are case-insensitive), with duplicate fields collapsed last-wins.
@@ -55,13 +57,49 @@ response carries no body). The body is decoded as UTF-8 text. Redirects are
 returned as-is (`ok` is FALSE and the location is in `resp.headers`) rather than
 followed. [[src/builtins/http_package.mfb:__http_buildRequest]]
 
+## Server
+
+The `http` package also provides a single-threaded, blocking, user-driven HTTP
+server. A program obtains a listener with `http::server(port, host, backlog)`
+(plaintext, returning a `net::Listener`) or `http::serverSSL(port, certPath,
+keyPath, host, backlog)` (TLS, returning a `tls::TlsListener`), builds an ordered
+`List OF http::Route` mapping path patterns to handler functions, and calls
+`http::handleRequest(listener, routes)` in its own `DO/LOOP`. Each call accepts
+one connection, parses the request, matches its path against the routes in list
+order (first match wins), invokes the matched handler
+(`FUNC(http::Request) AS http::Response`), writes the response, and closes the
+connection. There are no threads, no async, and no keep-alive. [[src/builtins/http_package.mfb:__http_handleRequest]]
+
+`http::route(pattern, handler)` builds a validated `Route`. A pattern is matched
+segment by segment: a literal must equal the segment; `:name` captures one
+segment into `params["name"]`; a trailing `:name?` is optional; a trailing `*`
+captures the whole remaining path into `params["*"]`. `:name?` and `*` are legal
+only as final segment(s), and a trailing slash is normalized away (except root
+`/`). The matched request exposes `method`, `path` (query stripped,
+percent-decoded), `rawPath`, `headers` (lowercased), `query` (from `?a=1&b=2`),
+`params` (route captures), `parts` (for `multipart/form-data`), and `body`
+(`List OF Byte`) — all read with the ordinary `collections` accessors. [[src/builtins/http_package.mfb:__http_matchPath]]
+
+Handlers build responses with `http::ok`, `http::status`, `http::json`,
+`http::responseDefault` (+ `WITH` edits), `http::withHeader`, and `http::bytes`,
+and serve files with `http::respondFile` / `http::respondPath` (traversal-safe).
+`handleRequest` is crash-proof: a handler failure becomes a `500`, no matching
+route becomes a `404`, a malformed request becomes a `400`, an oversize request
+(64 MiB cap) becomes a `413`, and a peer reset drops the one connection without
+tearing down the server. `Content-Length`, the reason phrase, and
+`Connection: close` are supplied on emit. [[src/builtins/http_package.mfb:__http_buildResponse]]
+
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by `read` and `write` when the method is empty or contains a space character [[src/builtins/http_package.mfb:__http_normalizeMethod]] |
-| `77050003` | `ErrInvalidFormat` | raised by `read` and `write` when the response status line, header block, or chunked framing is malformed [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
-| `77050010` | `ErrOverflow` | raised by `read` and `write` when the accumulated response exceeds the internal 64 MiB size cap [[src/builtins/http_package.mfb:__http_exchangeTcp]] |
+| `77050002` | `ErrInvalidArgument` | raised by `read`/`write` when the method is empty or contains a space, and by `route` when a `*`/`:name?` segment is not trailing [[src/builtins/http_package.mfb:__http_normalizeMethod]] |
+| `77050003` | `ErrInvalidFormat` | raised by `read`/`write` on a malformed response status line, header block, or chunked framing; the server maps the same class of request-parse failure (malformed request line, non-text headers, bad multipart framing) to a `400` response [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
+| `77050010` | `ErrOverflow` | raised by `read`/`write` when the response exceeds the internal 64 MiB size cap; the server maps an oversize request to a `413` response [[src/builtins/http_package.mfb:__http_exchangeTcp]] |
 
-Transport failures from `net` and `tls` are propagated unchanged; a clean end of
-stream terminates an EOF-framed body and is not an error.
+Client transport failures from `net` and `tls` are propagated unchanged; a clean
+end of stream terminates an EOF-framed body and is not an error. The server,
+by contrast, is crash-proof: it converts request-parse failures, oversize
+requests, missing routes, and handler failures into `400`/`413`/`404`/`500`
+responses rather than propagating them, and drops a connection on a peer I/O
+error without failing the accept loop.

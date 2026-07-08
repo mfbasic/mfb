@@ -1,0 +1,27 @@
+NAME
+  ok - build a 200 text/plain response
+
+SYNOPSIS
+  http::ok(body AS String) AS Response
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT http
+
+DESCRIPTION
+  ok builds a 200 http::Response whose body is the UTF-8 encoding of body and whose
+  Content-Type is "text/plain; charset=utf-8". It is the common success
+  constructor for a text handler. To set additional headers, wrap the result with
+  http::withHeader; to change the status, use http::status or a WITH edit.
+
+EXAMPLES
+  A plain-text handler:
+
+    FUNC home(req AS http::Request) AS http::Response
+      RETURN http::ok("welcome")
+    END FUNC
+
+SEE ALSO
+  http::status, http::json, http::withHeader, http::bytes

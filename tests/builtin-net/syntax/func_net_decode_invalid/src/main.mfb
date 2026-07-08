@@ -1,0 +1,11 @@
+IMPORT net
+
+FUNC main AS Integer
+  ' percentDecode / parseQuery each take exactly one String argument.
+  LET noArg = net::percentDecode()
+  LET badArg = net::percentDecode(42)
+  LET tooMany = net::percentDecode("a", "b")
+  LET qNoArg = net::parseQuery()
+  LET qBadArg = net::parseQuery(42)
+  RETURN 0
+END FUNC

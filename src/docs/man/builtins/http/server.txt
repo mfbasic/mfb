@@ -1,0 +1,55 @@
+NAME
+  server - bind a plaintext HTTP listener for the accept loop
+
+SYNOPSIS
+  http::server(port AS Integer) AS net::Listener
+  http::server(port AS Integer, host AS String) AS net::Listener
+  http::server(port AS Integer, host AS String, backlog AS Integer) AS net::Listener
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT net
+  IMPORT http
+
+DESCRIPTION
+  server binds a listening TCP socket for a plaintext HTTP/1.1 server and returns
+  the net::Listener directly — the server introduces no wrapper resource. host
+  defaults to "0.0.0.0" (all interfaces) and backlog defaults to 128. The listener
+  is owned by the caller's RES binding and closed by lexical drop at scope exit,
+  exactly as net::listenTcp already provides.
+
+  The returned listener is driven by a user-owned DO/LOOP over http::handleRequest,
+  which accepts one connection per call, parses the request, matches its path
+  against an ordered List OF http::Route, invokes the matched handler, writes the
+  response, and closes the connection. The server is single-threaded and blocking:
+  one request is served at a time, in the caller's loop. For HTTPS use
+  http::serverSSL, which returns a tls::TlsListener that handleRequest accepts.
+
+ERRORS
+  Bind, listen, and address-resolution failures are propagated unchanged from net
+  (see net::listenTcp).
+
+EXAMPLES
+  A minimal server on port 8080:
+
+    IMPORT http
+    IMPORT net
+    IMPORT collections
+
+    FUNC home(req AS http::Request) AS http::Response
+      RETURN http::ok("welcome")
+    END FUNC
+
+    FUNC main() AS Integer
+      MUT routes AS List OF http::Route = []
+      routes = collections::append(routes, http::route("/", home))
+      RES s AS net::Listener = http::server(8080)
+      DO
+        http::handleRequest(s, routes)
+      LOOP UNTIL FALSE
+    END FUNC
+
+SEE ALSO
+  http::serverSSL, http::handleRequest, http::route, net::listenTcp

@@ -1,0 +1,33 @@
+NAME
+  percentDecode - percent-decode a URL path component
+
+SYNOPSIS
+  net::percentDecode(s AS String) AS String
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  percentDecode decodes the %XX escapes in a request-target path component and
+  validates the result as UTF-8. Every %XX becomes one byte and every other
+  grapheme keeps its UTF-8 bytes; the accumulated bytes are UTF-8 validated.
+  Unlike query decoding, "+" is left literal (a path segment's "+" is not a
+  space); use net::parseQuery for query strings, whose values decode "+" to a
+  space. This is the decoder the http server applies to the request path
+  (plan-05 §F.4.2).
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  Raised when a "%" escape is truncated or invalid, or the decoded bytes are not
+  valid UTF-8.
+
+EXAMPLES
+  Decoding an escaped path:
+
+    LET p = net::percentDecode("/a%20b/c")   ' "/a b/c"
+
+SEE ALSO
+  net::parseQuery, net::toUrl, encoding::percentDecode

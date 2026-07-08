@@ -140,6 +140,32 @@ Round-trip notes and asymmetries:
   `http://h:80/` round-trips to `http://h/`.
 - No re-encoding of `path`/`query`/`fragment`; they are concatenated verbatim.
 
+## Component Decoding
+
+Two decoders support the `http` server's request parsing (they are also useful
+standalone):
+
+| Function | Signature |
+| --- | --- |
+| `net::percentDecode` | `percentDecode(s AS String) AS String` |
+| `net::parseQuery` | `parseQuery(s AS String) AS Map OF String TO String` |
+
+- **`net::percentDecode`** decodes `%XX` escapes in a request-target path
+  component and validates the result as UTF-8. `+` is left **literal** (a path
+  `+` is not a space). A truncated/invalid escape or non-UTF-8 result fails
+  `ErrInvalidFormat` (`77050003`). It is implemented with only
+  `strings`/`collections` (byte accumulation + `toString` UTF-8 validation), so
+  `net` carries no extra package dependency.
+- **`net::parseQuery`** parses an `a=1&b=2` query string (the part after the
+  first `?`, already stripped) into a `Map OF String TO String`. It splits on
+  `&`, then each pair on the first `=`, and query-decodes keys and values —
+  `%XX` plus `+` → space (`application/x-www-form-urlencoded` semantics). A bare
+  key maps to `""`, an empty pair is skipped, and repeated keys collapse
+  last-wins. Decoding is **tolerant**: a component with a malformed escape is
+  kept as its raw text rather than failing the whole parse.
+
+[[src/builtins/net_package.mfb:__net_percentDecode]] [[src/builtins/net_package.mfb:__net_parseQuery]]
+
 ## See Also
 
 * ./mfb man net — per-function API for `net::toUrl` and the socket/DNS/UDP surface

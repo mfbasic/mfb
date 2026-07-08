@@ -1,22 +1,25 @@
 IMPORT http
 IMPORT collections
+IMPORT strings
 IMPORT io
 
-' http::Response is an ordinary value record. Build one directly (the transport
-' is exercised by the gated loopback test) and read its standard map fields with
-' the ordinary collections accessors. Response header names are lowercased on
-' parse, so callers look them up in lowercase.
+' http::Response is an ordinary value record shared by the client and the server
+' (plan-05 §F.2.3). Its `body` is `List OF Byte` so binary responses work; decode
+' it to text with `toString`. Build one directly (the transport is exercised by
+' the gated loopback test) and read its standard map fields with the ordinary
+' collections accessors. Response header names are lowercased on parse, so
+' callers look them up in lowercase.
 FUNC main AS Integer
   MUT headers AS Map OF String TO String = Map OF String TO String {}
   headers = collections::set(headers, "content-type", "text/html; charset=utf-8")
   headers = collections::set(headers, "content-length", "42")
-  LET r AS http::Response = http::Response[200, "OK", "1.1", headers, "body", TRUE]
+  LET r AS http::Response = http::Response[200, "OK", "1.1", headers, strings::toBytes("body"), TRUE]
 
   io::print("status=" & toString(r.status))
   io::print("reason=" & r.reason)
   io::print("version=" & r.httpVersion)
   io::print("ok=" & toString(r.ok))
-  io::print("body=" & r.body)
+  io::print("body=" & toString(r.body))
   ' Standard map access, no dedicated header function.
   io::print("ctype=" & collections::get(r.headers, "content-type"))
   io::print("clen=" & collections::getOr(r.headers, "content-length", "?"))

@@ -5,6 +5,7 @@
 ' here do not leak into a program that writes `IMPORT http`.
 IMPORT net
 IMPORT tls
+IMPORT fs
 IMPORT strings
 IMPORT collections
 IMPORT errorCode
@@ -19,7 +20,7 @@ EXPORT TYPE Response
   reason      AS String           ' reason phrase, e.g. "OK" ("" if omitted)
   httpVersion AS String           ' "1.0" or "1.1" from the status line
   headers     AS Map OF String TO String   ' lowercased field name -> value
-  body        AS String           ' decoded response body
+  body        AS List OF Byte     ' raw body bytes (decode text via toString)
   ok          AS Boolean          ' TRUE iff status is in 200..299
 END TYPE
 
@@ -226,7 +227,7 @@ FUNC __http_parseStatusLine(line AS String) AS Response
   LET status AS Integer = __http_decToInt(strings::trim(statusText))
   LET ok AS Boolean = status >= 200 AND status <= 299
   LET emptyHeaders AS Map OF String TO String = Map OF String TO String {}
-  RETURN Response[status, reason, version, emptyHeaders, "", ok]
+  RETURN Response[status, reason, version, emptyHeaders, strings::toBytes(""), ok]
 END FUNC
 
 FUNC __http_parseResponse(raw AS String) AS Response
@@ -262,8 +263,8 @@ FUNC __http_parseResponse(raw AS String) AS Response
     index = index + 1
   WEND
 
-  LET body AS String = __http_decodeBody(base.status, headers, bodySection)
-  RETURN Response[base.status, base.reason, base.httpVersion, headers, body, base.ok]
+  LET bodyText AS String = __http_decodeBody(base.status, headers, bodySection)
+  RETURN Response[base.status, base.reason, base.httpVersion, headers, strings::toBytes(bodyText), base.ok]
 END FUNC
 
 FUNC __http_decodeBody(status AS Integer, headers AS Map OF String TO String, bodyRaw AS String) AS String
@@ -349,3 +350,803 @@ FUNC __http_write(url AS net::Url, body AS String, headers AS Map OF String TO S
   LET raw AS String = __http_exchange(url, request)
   RETURN __http_parseResponse(raw)
 END FUNC
+
+' ============================================================================
+' HTTP SERVER (plan-05): routing, request parsing, static files, lifecycle.
+' A single-threaded, blocking, user-driven accept loop layered on native
+' `net`/`tls` transport. The pure core (parse/match/dispatch/serialize) is
+' shared by the plaintext and TLS `handleRequest` overloads; only the accept /
+' read / write / close transport differs (Socket vs TlsSocket, §F.5.6).
+' ============================================================================
+
+' Request bound to a matched route. All flat, copyable value records (§F.2).
+EXPORT TYPE Request
+  method  AS String                         ' "GET", "POST", ... (uppercased)
+  path    AS String                         ' "/test/42" — query stripped, decoded
+  rawPath AS String                         ' request-target as received
+  headers AS Map OF String TO String        ' field names lowercased; last-wins
+  query   AS Map OF String TO String        ' from "?a=1&b=2"; decoded; last-wins
+  params  AS Map OF String TO String        ' route captures (:id / :x? / *)
+  parts   AS Map OF String TO RequestPart   ' multipart parts, keyed by part name
+  body    AS List OF Byte                   ' raw request body bytes
+END TYPE
+
+EXPORT TYPE RequestPart
+  filename    AS String        ' from Content-Disposition; "" for a plain field
+  contentType AS String        ' the part's Content-Type; "" if absent
+  body        AS List OF Byte  ' the part's raw bytes
+END TYPE
+
+EXPORT TYPE Route
+  pattern AS String
+  handler AS FUNC(Request) AS Response
+END TYPE
+
+' Internal route-match result: the shared core cannot mutate a record field, so
+' matching produces the bound params here and `dispatch` rebuilds the Request
+' with `WITH`.
+TYPE RouteMatch
+  matched AS Boolean
+  params  AS Map OF String TO String
+END TYPE
+
+LET __HTTP_MAX_REQUEST AS Integer = 67108864
+
+' ---- Byte-buffer helpers (request framing operates on raw bytes so binary
+'      bodies — file uploads — survive intact; §F.4.3) ----
+
+FUNC __http_bytesMatchAt(buf AS List OF Byte, pos AS Integer, needle AS List OF Byte) AS Boolean
+  LET nn AS Integer = len(needle)
+  IF pos < 0 OR pos + nn > len(buf) THEN
+    RETURN FALSE
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < nn
+    IF collections::get(buf, pos + i) <> collections::get(needle, i) THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  WEND
+  RETURN TRUE
+END FUNC
+
+FUNC __http_indexOfBytes(buf AS List OF Byte, needle AS List OF Byte, start AS Integer) AS Integer
+  LET nn AS Integer = len(needle)
+  IF nn = 0 THEN
+    RETURN start
+  END IF
+  MUT i AS Integer = start
+  LET limit AS Integer = len(buf) - nn
+  WHILE i <= limit
+    IF __http_bytesMatchAt(buf, i, needle) THEN
+      RETURN i
+    END IF
+    i = i + 1
+  WEND
+  RETURN 0 - 1
+END FUNC
+
+FUNC __http_byteSlice(buf AS List OF Byte, start AS Integer, stop AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  IF stop <= start THEN
+    RETURN out
+  END IF
+  MUT i AS Integer = start
+  WHILE i < stop
+    out = collections::append(out, collections::get(buf, i))
+    i = i + 1
+  WEND
+  RETURN out
+END FUNC
+
+' Grapheme index of the last occurrence of `needle` in `s`, or -1.
+FUNC __http_lastIndexOf(s AS String, needle AS String) AS Integer
+  MUT idx AS Integer = 0 - 1
+  MUT from AS Integer = 0
+  MUT scanning AS Boolean = TRUE
+  WHILE scanning = TRUE
+    LET found AS Integer = __http_indexOf(s, needle, from)
+    IF found < 0 THEN
+      scanning = FALSE
+    ELSE
+      idx = found
+      from = found + 1
+    END IF
+  WEND
+  RETURN idx
+END FUNC
+
+' Decode a byte range to text, returning "" when it is not valid UTF-8. A
+' function-level TRAP is required here: `toString` on a `List OF Byte` fails at
+' runtime with ErrEncoding on invalid UTF-8, but the inline-TRAP analysis treats
+' `toString` as infallible and would elide an inline handler — so a malicious
+' non-UTF-8 header must be caught at function scope to keep the server
+' crash-proof. Header blocks are ASCII, so "" reliably signals a bad request.
+FUNC __http_bytesToText(b AS List OF Byte) AS String
+  RETURN toString(b)
+TRAP(e)
+  RETURN ""
+END TRAP
+END FUNC
+
+' ---- Header parsing shared by framing and request building ----
+
+' Parse the header block (excluding the request line at index 0) into a map
+' with lowercased field names; duplicates collapse last-wins (§F.4.1).
+FUNC __http_headerMapFromHead(headStr AS String) AS Map OF String TO String
+  MUT headers AS Map OF String TO String = Map OF String TO String {}
+  LET lines AS List OF String = strings::split(headStr, "\r\n")
+  MUT idx AS Integer = 1
+  WHILE idx < len(lines)
+    LET line AS String = collections::get(lines, idx)
+    IF line <> "" THEN
+      LET colon AS Integer = __http_indexOf(line, ":", 0)
+      IF colon >= 0 THEN
+        LET name AS String = strings::lower(strings::trim(__http_slice(line, 0, colon)))
+        LET value AS String = strings::trim(__http_slice(line, colon + 1, len(line)))
+        headers = collections::set(headers, name, value)
+      END IF
+    END IF
+    idx = idx + 1
+  WEND
+  RETURN headers
+END FUNC
+
+' Body length implied by the head: Content-Length, -1 for chunked, 0 for none.
+FUNC __http_framingLength(headStr AS String) AS Integer
+  LET headers AS Map OF String TO String = __http_headerMapFromHead(headStr)
+  LET te AS String = strings::lower(collections::getOr(headers, "transfer-encoding", ""))
+  IF strings::contains(te, "chunked") THEN
+    RETURN 0 - 1
+  END IF
+  LET clText AS String = collections::getOr(headers, "content-length", "")
+  IF clText = "" THEN
+    RETURN 0
+  END IF
+  LET cl AS Integer = toInt(strings::trim(clText), 10) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN cl
+END FUNC
+
+' Whether `raw` holds a complete request (headers + framed body). Recomputed
+' by the transport read loop after each read; requests are small so the rescan
+' cost is negligible.
+FUNC __http_frameComplete(raw AS List OF Byte) AS Boolean
+  LET he AS Integer = __http_indexOfBytes(raw, strings::toBytes("\r\n\r\n"), 0)
+  IF he < 0 THEN
+    RETURN FALSE
+  END IF
+  LET headStr AS String = __http_bytesToText(__http_byteSlice(raw, 0, he))
+  IF headStr = "" THEN
+    RETURN TRUE
+  END IF
+  LET bodyStart AS Integer = he + 4
+  LET have AS Integer = len(raw) - bodyStart
+  LET framing AS Integer = __http_framingLength(headStr)
+  IF framing = 0 - 1 THEN
+    RETURN __http_indexOfBytes(raw, strings::toBytes("0\r\n\r\n"), bodyStart) >= 0
+  END IF
+  RETURN have >= framing
+END FUNC
+
+' De-chunk a Transfer-Encoding: chunked request body (byte-accurate).
+FUNC __http_dechunkBytes(raw AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT cursor AS Integer = 0
+  LET total AS Integer = len(raw)
+  MUT done AS Boolean = FALSE
+  LET crlf AS List OF Byte = strings::toBytes("\r\n")
+  WHILE done = FALSE
+    LET lineEnd AS Integer = __http_indexOfBytes(raw, crlf, cursor)
+    IF lineEnd < 0 THEN
+      FAIL error(errorCode::ErrInvalidFormat, "malformed chunk framing")
+    END IF
+    MUT sizeText AS String = __http_bytesToText(__http_byteSlice(raw, cursor, lineEnd))
+    LET semi AS Integer = __http_indexOf(sizeText, ";", 0)
+    IF semi >= 0 THEN
+      sizeText = __http_slice(sizeText, 0, semi)
+    END IF
+    LET size AS Integer = __http_hexToInt(strings::trim(sizeText))
+    LET dataStart AS Integer = lineEnd + 2
+    IF size = 0 THEN
+      done = TRUE
+    ELSE
+      LET dataEnd AS Integer = dataStart + size
+      IF dataEnd > total THEN
+        FAIL error(errorCode::ErrInvalidFormat, "truncated chunk data")
+      END IF
+      out = collections::append(out, __http_byteSlice(raw, dataStart, dataEnd))
+      cursor = dataEnd + 2
+    END IF
+  WEND
+  RETURN out
+END FUNC
+
+' ---- Multipart/form-data parsing (§F.4.3) ----
+
+FUNC __http_multipartBoundary(ctype AS String) AS String
+  LET marker AS String = "boundary="
+  LET idx AS Integer = __http_indexOf(ctype, marker, 0)
+  IF idx < 0 THEN
+    RETURN ""
+  END IF
+  MUT b AS String = __http_slice(ctype, idx + len(marker), len(ctype))
+  LET semi AS Integer = __http_indexOf(b, ";", 0)
+  IF semi >= 0 THEN
+    b = __http_slice(b, 0, semi)
+  END IF
+  b = strings::trim(b)
+  IF len(b) >= 2 AND strings::startsWith(b, "\"") AND strings::endsWith(b, "\"") THEN
+    b = __http_slice(b, 1, len(b) - 1)
+  END IF
+  RETURN b
+END FUNC
+
+' The value of a `; name=...` / `; filename=...` parameter within a part's
+' Content-Disposition. Splits on ';' so "name" never matches inside "filename".
+FUNC __http_dispositionParam(disposition AS String, param AS String) AS String
+  LET tokens AS List OF String = strings::split(disposition, ";")
+  LET prefix AS String = param & "="
+  FOR EACH tok IN tokens
+    LET t AS String = strings::trim(tok)
+    IF strings::startsWith(t, prefix) THEN
+      MUT v AS String = __http_slice(t, len(prefix), len(t))
+      IF len(v) >= 2 AND strings::startsWith(v, "\"") AND strings::endsWith(v, "\"") THEN
+        v = __http_slice(v, 1, len(v) - 1)
+      END IF
+      RETURN v
+    END IF
+  NEXT
+  RETURN ""
+END FUNC
+
+' A part's own header value (case-insensitive) from its head block.
+FUNC __http_partHeader(headStr AS String, lowerName AS String) AS String
+  LET lines AS List OF String = strings::split(headStr, "\r\n")
+  FOR EACH line IN lines
+    LET colon AS Integer = __http_indexOf(line, ":", 0)
+    IF colon >= 0 THEN
+      LET nm AS String = strings::lower(strings::trim(__http_slice(line, 0, colon)))
+      IF nm = lowerName THEN
+        RETURN strings::trim(__http_slice(line, colon + 1, len(line)))
+      END IF
+    END IF
+  NEXT
+  RETURN ""
+END FUNC
+
+FUNC __http_addPart(parts AS Map OF String TO RequestPart, partRaw AS List OF Byte) AS Map OF String TO RequestPart
+  LET he AS Integer = __http_indexOfBytes(partRaw, strings::toBytes("\r\n\r\n"), 0)
+  IF he < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "malformed multipart part")
+  END IF
+  LET headStr AS String = __http_bytesToText(__http_byteSlice(partRaw, 0, he))
+  LET partBody AS List OF Byte = __http_byteSlice(partRaw, he + 4, len(partRaw))
+  LET disposition AS String = __http_partHeader(headStr, "content-disposition")
+  LET name AS String = __http_dispositionParam(disposition, "name")
+  LET filename AS String = __http_dispositionParam(disposition, "filename")
+  LET contentType AS String = __http_partHeader(headStr, "content-type")
+  IF name = "" THEN
+    RETURN parts
+  END IF
+  RETURN collections::set(parts, name, RequestPart[filename, contentType, partBody])
+END FUNC
+
+FUNC __http_parseMultipart(boundary AS String, body AS List OF Byte) AS Map OF String TO RequestPart
+  MUT parts AS Map OF String TO RequestPart = Map OF String TO RequestPart {}
+  LET marker AS List OF Byte = strings::toBytes("--" & boundary)
+  LET sep AS List OF Byte = strings::toBytes("\r\n--" & boundary)
+  LET s AS Integer = __http_indexOfBytes(body, marker, 0)
+  IF s < 0 THEN
+    RETURN parts
+  END IF
+  MUT pos AS Integer = s + len(marker)
+  MUT looping AS Boolean = TRUE
+  WHILE looping = TRUE
+    IF pos + 1 < len(body) AND collections::get(body, pos) = 45 AND collections::get(body, pos + 1) = 45 THEN
+      looping = FALSE
+    ELSE
+      LET headStart AS Integer = pos + 2
+      LET n AS Integer = __http_indexOfBytes(body, sep, headStart)
+      IF n < 0 THEN
+        FAIL error(errorCode::ErrInvalidFormat, "malformed multipart body")
+      END IF
+      parts = __http_addPart(parts, __http_byteSlice(body, headStart, n))
+      pos = n + len(sep)
+    END IF
+  WEND
+  RETURN parts
+END FUNC
+
+' ---- Request parsing (§F.4) ----
+
+FUNC __http_emptyRequest() AS Request
+  LET h AS Map OF String TO String = Map OF String TO String {}
+  LET q AS Map OF String TO String = Map OF String TO String {}
+  LET p AS Map OF String TO String = Map OF String TO String {}
+  LET parts AS Map OF String TO RequestPart = Map OF String TO RequestPart {}
+  LET b AS List OF Byte = []
+  RETURN Request["", "/", "/", h, q, p, parts, b]
+END FUNC
+
+FUNC __http_parseRequest(raw AS List OF Byte) AS Request
+  IF len(raw) > __HTTP_MAX_REQUEST THEN
+    FAIL error(errorCode::ErrOverflow, "request too large")
+  END IF
+  LET he AS Integer = __http_indexOfBytes(raw, strings::toBytes("\r\n\r\n"), 0)
+  IF he < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "incomplete request headers")
+  END IF
+  LET headStr AS String = __http_bytesToText(__http_byteSlice(raw, 0, he))
+  IF headStr = "" THEN
+    FAIL error(errorCode::ErrInvalidFormat, "non-text request headers")
+  END IF
+  LET lines AS List OF String = strings::split(headStr, "\r\n")
+  IF len(lines) = 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "empty request")
+  END IF
+  LET reqLine AS String = collections::get(lines, 0)
+  LET sp1 AS Integer = __http_indexOf(reqLine, " ", 0)
+  IF sp1 < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "malformed request line")
+  END IF
+  LET method AS String = strings::upper(__http_slice(reqLine, 0, sp1))
+  LET afterMethod AS String = __http_slice(reqLine, sp1 + 1, len(reqLine))
+  LET sp2 AS Integer = __http_indexOf(afterMethod, " ", 0)
+  IF sp2 < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "malformed request line")
+  END IF
+  LET target AS String = __http_slice(afterMethod, 0, sp2)
+  MUT rawPathOnly AS String = target
+  MUT queryStr AS String = ""
+  LET q AS Integer = __http_indexOf(target, "?", 0)
+  IF q >= 0 THEN
+    rawPathOnly = __http_slice(target, 0, q)
+    queryStr = __http_slice(target, q + 1, len(target))
+  END IF
+  MUT decodedPath AS String = rawPathOnly
+  decodedPath = net::percentDecode(rawPathOnly) TRAP(e)
+    RECOVER rawPathOnly
+  END TRAP
+  LET query AS Map OF String TO String = net::parseQuery(queryStr)
+  LET headers AS Map OF String TO String = __http_headerMapFromHead(headStr)
+  LET bodyStart AS Integer = he + 4
+  MUT body AS List OF Byte = __http_byteSlice(raw, bodyStart, len(raw))
+  LET te AS String = strings::lower(collections::getOr(headers, "transfer-encoding", ""))
+  IF strings::contains(te, "chunked") THEN
+    body = __http_dechunkBytes(body)
+  END IF
+  MUT parts AS Map OF String TO RequestPart = Map OF String TO RequestPart {}
+  LET ctype AS String = strings::lower(collections::getOr(headers, "content-type", ""))
+  IF strings::contains(ctype, "multipart/form-data") THEN
+    LET boundary AS String = __http_multipartBoundary(collections::getOr(headers, "content-type", ""))
+    IF boundary <> "" THEN
+      parts = __http_parseMultipart(boundary, body)
+    END IF
+  END IF
+  LET emptyParams AS Map OF String TO String = Map OF String TO String {}
+  RETURN Request[method, decodedPath, target, headers, query, emptyParams, parts, body]
+END FUNC
+
+' ---- Routing (§F.3) ----
+
+FUNC __http_normalizePath(path AS String) AS String
+  IF path = "/" THEN
+    RETURN path
+  END IF
+  IF len(path) > 1 AND strings::endsWith(path, "/") THEN
+    RETURN __http_slice(path, 0, len(path) - 1)
+  END IF
+  RETURN path
+END FUNC
+
+FUNC __http_segments(path AS String) AS List OF String
+  MUT out AS List OF String = []
+  LET norm AS String = __http_normalizePath(path)
+  IF norm = "/" OR norm = "" THEN
+    RETURN out
+  END IF
+  MUT p AS String = norm
+  IF strings::startsWith(p, "/") THEN
+    p = __http_slice(p, 1, len(p))
+  END IF
+  RETURN strings::split(p, "/")
+END FUNC
+
+' Validate a route pattern: `:name?` and `*` are legal only as trailing
+' segment(s) (§F.3.2). Fails ErrInvalidArgument on a mid-pattern optional /
+' wildcard.
+SUB __http_validatePattern(pattern AS String)
+  LET segs AS List OF String = __http_segments(pattern)
+  LET n AS Integer = len(segs)
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET seg AS String = collections::get(segs, i)
+    IF seg = "*" THEN
+      IF i <> n - 1 THEN
+        FAIL error(errorCode::ErrInvalidArgument, "wildcard '*' must be the final segment")
+      END IF
+    ELSEIF strings::endsWith(seg, "?") THEN
+      MUT j AS Integer = i + 1
+      WHILE j < n
+        LET tail AS String = collections::get(segs, j)
+        IF strings::endsWith(tail, "?") = FALSE THEN
+          FAIL error(errorCode::ErrInvalidArgument, "optional ':name?' segments must be trailing")
+        END IF
+        j = j + 1
+      WEND
+    END IF
+    i = i + 1
+  WEND
+END SUB
+
+FUNC __http_matchPath(pattern AS String, path AS String) AS RouteMatch
+  MUT params AS Map OF String TO String = Map OF String TO String {}
+  LET pSegs AS List OF String = __http_segments(pattern)
+  LET uSegs AS List OF String = __http_segments(path)
+  LET pn AS Integer = len(pSegs)
+  LET un AS Integer = len(uSegs)
+  MUT pi AS Integer = 0
+  MUT ui AS Integer = 0
+  MUT ok AS Boolean = TRUE
+  MUT stop AS Boolean = FALSE
+  WHILE pi < pn AND stop = FALSE
+    LET seg AS String = collections::get(pSegs, pi)
+    IF seg = "*" THEN
+      MUT rest AS String = ""
+      MUT j AS Integer = ui
+      WHILE j < un
+        IF rest = "" THEN
+          rest = collections::get(uSegs, j)
+        ELSE
+          rest = rest & "/" & collections::get(uSegs, j)
+        END IF
+        j = j + 1
+      WEND
+      params = collections::set(params, "*", rest)
+      ui = un
+      pi = pn
+      stop = TRUE
+    ELSEIF strings::startsWith(seg, ":") AND strings::endsWith(seg, "?") THEN
+      LET nm AS String = __http_slice(seg, 1, len(seg) - 1)
+      IF ui < un THEN
+        params = collections::set(params, nm, collections::get(uSegs, ui))
+        ui = ui + 1
+      END IF
+      pi = pi + 1
+    ELSEIF strings::startsWith(seg, ":") THEN
+      IF ui < un THEN
+        params = collections::set(params, __http_slice(seg, 1, len(seg)), collections::get(uSegs, ui))
+        ui = ui + 1
+        pi = pi + 1
+      ELSE
+        ok = FALSE
+        stop = TRUE
+      END IF
+    ELSE
+      IF ui < un AND collections::get(uSegs, ui) = seg THEN
+        ui = ui + 1
+        pi = pi + 1
+      ELSE
+        ok = FALSE
+        stop = TRUE
+      END IF
+    END IF
+  WEND
+  IF ok = TRUE AND ui < un THEN
+    ok = FALSE
+  END IF
+  RETURN RouteMatch[ok, params]
+END FUNC
+
+' Invoke a route's handler on the request, converting any handler failure into
+' a 500 (§F.5.1). The handler is a first-class `FUNC(Request) AS Response`;
+' MFBASIC invokes a stored function value only through a builtin that calls it,
+' so the singleton `collections::transform` applies it exactly once.
+FUNC __http_invokeHandler(r AS Route, req AS Request) AS Response
+  LET h AS FUNC(Request) AS Response = r.handler
+  LET single AS List OF Request = [req]
+  LET fallback AS List OF Response = [__http_status(500, "Internal Server Error")]
+  MUT out AS List OF Response = fallback
+  out = collections::transform(single, h) TRAP(e)
+    RECOVER fallback
+  END TRAP
+  RETURN collections::get(out, 0)
+END FUNC
+
+FUNC __http_dispatch(req AS Request, routes AS List OF Route) AS Response
+  LET n AS Integer = len(routes)
+  MUT idx AS Integer = 0
+  WHILE idx < n
+    LET r AS Route = collections::get(routes, idx)
+    LET m AS RouteMatch = __http_matchPath(r.pattern, req.path)
+    IF m.matched = TRUE THEN
+      LET boundReq AS Request = WITH req { params := m.params }
+      RETURN __http_invokeHandler(r, boundReq)
+    END IF
+    idx = idx + 1
+  WEND
+  RETURN __http_status(404, "Not Found")
+END FUNC
+
+' Parse + dispatch, mapping framing errors to 400/413. 404/500 are handled by
+' `dispatch`, so this never fails — the accept loop is crash-proof (§F.5.1).
+FUNC __http_buildResponse(raw AS List OF Byte, routes AS List OF Route) AS Response
+  MUT parseErr AS Integer = 0
+  MUT req AS Request = __http_emptyRequest()
+  req = __http_parseRequest(raw) TRAP(e)
+    parseErr = e.code
+    RECOVER __http_emptyRequest()
+  END TRAP
+  IF parseErr = errorCode::ErrOverflow THEN
+    RETURN __http_status(413, "Payload Too Large")
+  END IF
+  IF parseErr <> 0 THEN
+    RETURN __http_status(400, "Bad Request")
+  END IF
+  RETURN __http_dispatch(req, routes)
+END FUNC
+
+' ---- Response constructors & combinators (§F.5.3) ----
+
+FUNC __http_bytes(text AS String) AS List OF Byte
+  RETURN strings::toBytes(text)
+END FUNC
+
+FUNC __http_responseWith(status AS Integer, body AS String, contentType AS String) AS Response
+  MUT h AS Map OF String TO String = Map OF String TO String {}
+  IF contentType <> "" THEN
+    h = collections::set(h, "content-type", contentType)
+  END IF
+  LET ok AS Boolean = status >= 200 AND status <= 299
+  RETURN Response[status, "", "1.1", h, strings::toBytes(body), ok]
+END FUNC
+
+FUNC __http_responseDefault() AS Response
+  LET h AS Map OF String TO String = Map OF String TO String {}
+  RETURN Response[200, "OK", "1.1", h, strings::toBytes("OK"), TRUE]
+END FUNC
+
+FUNC __http_ok(body AS String) AS Response
+  RETURN __http_responseWith(200, body, "text/plain; charset=utf-8")
+END FUNC
+
+FUNC __http_status(code AS Integer, body AS String) AS Response
+  RETURN __http_responseWith(code, body, "text/plain; charset=utf-8")
+END FUNC
+
+FUNC __http_json(body AS String) AS Response
+  RETURN __http_responseWith(200, body, "application/json")
+END FUNC
+
+FUNC __http_withHeader(resp AS Response, name AS String, value AS String) AS Response
+  MUT h AS Map OF String TO String = resp.headers
+  h = collections::set(h, name, value)
+  RETURN WITH resp { headers := h }
+END FUNC
+
+' ---- Response emission (§F.5.3) ----
+
+FUNC __http_reasonPhrase(status AS Integer) AS String
+  IF status = 200 THEN RETURN "OK"
+  IF status = 201 THEN RETURN "Created"
+  IF status = 202 THEN RETURN "Accepted"
+  IF status = 204 THEN RETURN "No Content"
+  IF status = 301 THEN RETURN "Moved Permanently"
+  IF status = 302 THEN RETURN "Found"
+  IF status = 303 THEN RETURN "See Other"
+  IF status = 304 THEN RETURN "Not Modified"
+  IF status = 307 THEN RETURN "Temporary Redirect"
+  IF status = 308 THEN RETURN "Permanent Redirect"
+  IF status = 400 THEN RETURN "Bad Request"
+  IF status = 401 THEN RETURN "Unauthorized"
+  IF status = 403 THEN RETURN "Forbidden"
+  IF status = 404 THEN RETURN "Not Found"
+  IF status = 405 THEN RETURN "Method Not Allowed"
+  IF status = 409 THEN RETURN "Conflict"
+  IF status = 413 THEN RETURN "Payload Too Large"
+  IF status = 418 THEN RETURN "I'm a teapot"
+  IF status = 422 THEN RETURN "Unprocessable Entity"
+  IF status = 429 THEN RETURN "Too Many Requests"
+  IF status = 500 THEN RETURN "Internal Server Error"
+  IF status = 501 THEN RETURN "Not Implemented"
+  IF status = 503 THEN RETURN "Service Unavailable"
+  IF status < 300 THEN RETURN "OK"
+  IF status < 400 THEN RETURN "Redirect"
+  IF status < 500 THEN RETURN "Client Error"
+  RETURN "Server Error"
+END FUNC
+
+' The status line + headers block. `Content-Length` and `Connection` are always
+' server-supplied (a handler-set framing header is dropped, §F.5.3).
+FUNC __http_serializeHead(resp AS Response) AS String
+  LET crlf AS String = "\r\n"
+  MUT reason AS String = resp.reason
+  IF reason = "" THEN
+    reason = __http_reasonPhrase(resp.status)
+  END IF
+  MUT head AS String = "HTTP/1.1 " & toString(resp.status) & " " & reason & crlf
+  FOR EACH entry IN resp.headers
+    LET lname AS String = strings::lower(entry.key)
+    IF lname <> "content-length" AND lname <> "connection" THEN
+      head = head & entry.key & ": " & entry.value & crlf
+    END IF
+  NEXT
+  head = head & "Content-Length: " & toString(len(resp.body)) & crlf
+  head = head & "Connection: close" & crlf
+  head = head & crlf
+  RETURN head
+END FUNC
+
+' ---- Static file helpers (§F.5.5) ----
+
+FUNC __http_extContentType(path AS String) AS String
+  LET lower AS String = strings::lower(path)
+  LET dot AS Integer = __http_lastIndexOf(lower, ".")
+  LET slash AS Integer = __http_lastIndexOf(lower, "/")
+  IF dot < 0 OR dot < slash THEN
+    RETURN "application/octet-stream"
+  END IF
+  LET ext AS String = __http_slice(lower, dot + 1, len(lower))
+  IF ext = "html" OR ext = "htm" THEN RETURN "text/html; charset=utf-8"
+  IF ext = "css" THEN RETURN "text/css; charset=utf-8"
+  IF ext = "js" OR ext = "mjs" THEN RETURN "text/javascript; charset=utf-8"
+  IF ext = "json" THEN RETURN "application/json"
+  IF ext = "txt" OR ext = "text" THEN RETURN "text/plain; charset=utf-8"
+  IF ext = "xml" THEN RETURN "application/xml"
+  IF ext = "csv" THEN RETURN "text/csv; charset=utf-8"
+  IF ext = "png" THEN RETURN "image/png"
+  IF ext = "jpg" OR ext = "jpeg" THEN RETURN "image/jpeg"
+  IF ext = "gif" THEN RETURN "image/gif"
+  IF ext = "svg" THEN RETURN "image/svg+xml"
+  IF ext = "ico" THEN RETURN "image/x-icon"
+  IF ext = "webp" THEN RETURN "image/webp"
+  IF ext = "woff" THEN RETURN "font/woff"
+  IF ext = "woff2" THEN RETURN "font/woff2"
+  IF ext = "ttf" THEN RETURN "font/ttf"
+  IF ext = "pdf" THEN RETURN "application/pdf"
+  IF ext = "wasm" THEN RETURN "application/wasm"
+  RETURN "application/octet-stream"
+END FUNC
+
+FUNC __http_respondFile(RES file AS File, contentType AS String) AS Response
+  LET data AS List OF Byte = fs::readAllBytes(file)
+  MUT ct AS String = contentType
+  IF ct = "" THEN
+    ct = "application/octet-stream"
+  END IF
+  MUT h AS Map OF String TO String = Map OF String TO String {}
+  h = collections::set(h, "content-type", ct)
+  RETURN Response[200, "OK", "1.1", h, data, TRUE]
+END FUNC
+
+FUNC __http_respondPath(req AS Request, root AS String) AS Response
+  MUT rel AS String = ""
+  IF collections::hasKey(req.params, "*") THEN
+    rel = collections::getOr(req.params, "*", "")
+  ELSE
+    rel = req.path
+  END IF
+  IF strings::startsWith(rel, "/") THEN
+    rel = __http_slice(rel, 1, len(rel))
+  END IF
+  IF rel = "" THEN
+    rel = "index.html"
+  END IF
+  LET parts AS List OF String = [root, rel]
+  LET candidate AS String = fs::pathJoin(parts)
+  IF fs::fileExists(candidate) = FALSE THEN
+    RETURN __http_status(404, "Not Found")
+  END IF
+  MUT within AS Boolean = FALSE
+  within = fs::isWithin(root, candidate) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  IF within = FALSE THEN
+    RETURN __http_status(403, "Forbidden")
+  END IF
+  LET ct AS String = __http_extContentType(candidate)
+  RES f AS File = fs::openFile(candidate)
+  RETURN __http_respondFile(f, ct)
+END FUNC
+
+' ---- Routing constructor (§F.5.2) ----
+
+FUNC __http_route(pattern AS String, handler AS FUNC(Request) AS Response) AS Route
+  __http_validatePattern(pattern)
+  RETURN Route[pattern, handler]
+END FUNC
+
+' ---- Lifecycle (§F.5.1) ----
+
+FUNC __http_server(port AS Integer, host AS String, backlog AS Integer) AS RES net::Listener
+  RETURN net::listenTcp(host, port, backlog)
+END FUNC
+
+FUNC __http_serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String, backlog AS Integer) AS RES tls::TlsListener
+  RETURN tls::listen(host, port, certPath, keyPath, backlog)
+END FUNC
+
+' Plaintext accept -> parse -> dispatch -> respond -> close (one connection).
+' The listener is borrowed (stays open for the next call); the accepted socket
+' is owned and closed by lexical drop at return.
+SUB __http_handleRequest(RES listener AS net::Listener, routes AS List OF Route)
+  RES sock AS net::Socket = net::accept(listener)
+  MUT raw AS List OF Byte = []
+  MUT reading AS Boolean = TRUE
+  MUT oversize AS Boolean = FALSE
+  WHILE reading = TRUE
+    MUT chunk AS List OF Byte = []
+    chunk = net::read(sock, 65536) TRAP(e)
+      RECOVER []
+    END TRAP
+    IF len(chunk) = 0 THEN
+      reading = FALSE
+    ELSE
+      raw = collections::append(raw, chunk)
+      IF len(raw) > __HTTP_MAX_REQUEST THEN
+        oversize = TRUE
+        reading = FALSE
+      ELSEIF __http_frameComplete(raw) THEN
+        reading = FALSE
+      END IF
+    END IF
+  WEND
+  IF len(raw) = 0 THEN
+    EXIT SUB
+  END IF
+  MUT resp AS Response = __http_status(413, "Payload Too Large")
+  IF oversize = FALSE THEN
+    resp = __http_buildResponse(raw, routes)
+  END IF
+  net::writeText(sock, __http_serializeHead(resp)) TRAP(e)
+    EXIT SUB
+  END TRAP
+  IF len(resp.body) > 0 THEN
+    net::write(sock, resp.body) TRAP(e)
+      EXIT SUB
+    END TRAP
+  END IF
+END SUB
+
+' TLS counterpart: identical core, `tls::` transport (server-side handshake in
+' tls::accept). The two bodies cannot share one socket variable (§F.5.6).
+SUB __http_handleRequestSSL(RES listener AS tls::TlsListener, routes AS List OF Route)
+  RES sock AS tls::TlsSocket = tls::accept(listener)
+  MUT raw AS List OF Byte = []
+  MUT reading AS Boolean = TRUE
+  MUT oversize AS Boolean = FALSE
+  WHILE reading = TRUE
+    MUT chunk AS List OF Byte = []
+    chunk = tls::read(sock, 65536) TRAP(e)
+      RECOVER []
+    END TRAP
+    IF len(chunk) = 0 THEN
+      reading = FALSE
+    ELSE
+      raw = collections::append(raw, chunk)
+      IF len(raw) > __HTTP_MAX_REQUEST THEN
+        oversize = TRUE
+        reading = FALSE
+      ELSEIF __http_frameComplete(raw) THEN
+        reading = FALSE
+      END IF
+    END IF
+  WEND
+  IF len(raw) = 0 THEN
+    EXIT SUB
+  END IF
+  MUT resp AS Response = __http_status(413, "Payload Too Large")
+  IF oversize = FALSE THEN
+    resp = __http_buildResponse(raw, routes)
+  END IF
+  tls::writeText(sock, __http_serializeHead(resp)) TRAP(e)
+    EXIT SUB
+  END TRAP
+  IF len(resp.body) > 0 THEN
+    tls::write(sock, resp.body) TRAP(e)
+      EXIT SUB
+    END TRAP
+  END IF
+END SUB

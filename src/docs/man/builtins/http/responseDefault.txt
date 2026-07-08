@@ -1,0 +1,32 @@
+NAME
+  responseDefault - a 200 OK response, ready for WITH edits
+
+SYNOPSIS
+  http::responseDefault() AS Response
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT http
+
+DESCRIPTION
+  responseDefault returns a 200 http::Response with reason "OK", body "OK", and no
+  extra headers. It is the convenient starting point for building a response with
+  WITH functional updates over a MUT binding; http::ok and http::status build a
+  response directly and do not require it.
+
+  http::Response is immutable in place — MFBASIC has no field-target assignment —
+  so a handler edits a response with WITH, which reads like mutation. The body
+  field is List OF Byte; use http::bytes to encode a String into it.
+
+EXAMPLES
+  Building a custom status/body with WITH:
+
+    MUT resp AS http::Response = http::responseDefault()
+    resp = WITH resp { status := 418 }
+    resp = WITH resp { body := http::bytes("I'm a teapot") }
+    RETURN resp
+
+SEE ALSO
+  http::ok, http::status, http::withHeader, http::bytes

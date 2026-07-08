@@ -1,0 +1,38 @@
+' http::route (plan-05 §F.5.2): builds a Route and validates the pattern —
+' ":name?" and "*" are legal only as trailing segment(s); a mid-pattern optional
+' or wildcard fails ErrInvalidArgument at registration.
+IMPORT http
+IMPORT errorCode
+
+FUNC home(req AS http::Request) AS http::Response
+  RETURN http::ok("home")
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "http::route valid patterns"
+    TCASE "literal, param, optional, wildcard"
+      LET r0 = http::route("/", home)
+      expectString(r0.pattern, "/")
+      LET r1 = http::route("/test/:testId", home)
+      expectString(r1.pattern, "/test/:testId")
+      LET r2 = http::route("/foo/:bar?", home)
+      expectString(r2.pattern, "/foo/:bar?")
+      LET r3 = http::route("/static/*", home)
+      expectString(r3.pattern, "/static/*")
+      LET r4 = http::route("/a/:x?/:y?", home)
+      expectString(r4.pattern, "/a/:x?/:y?")
+    END TCASE
+  END TGROUP
+  TGROUP "http::route rejects mid-pattern optional/wildcard"
+    TCASE "wildcard not final"
+      expectTrap(http::route("/*/tail", home), errorCode::ErrInvalidArgument)
+    END TCASE
+    TCASE "optional followed by required"
+      expectTrap(http::route("/a/:x?/b", home), errorCode::ErrInvalidArgument)
+    END TCASE
+  END TGROUP
+END TESTING

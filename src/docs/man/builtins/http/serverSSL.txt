@@ -1,0 +1,52 @@
+NAME
+  serverSSL - bind a TLS (HTTPS) listener for the accept loop
+
+SYNOPSIS
+  http::serverSSL(port AS Integer, certPath AS String, keyPath AS String) AS tls::TlsListener
+  http::serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String) AS tls::TlsListener
+  http::serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String, backlog AS Integer) AS tls::TlsListener
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT tls
+  IMPORT http
+
+DESCRIPTION
+  serverSSL is the TLS counterpart of http::server. It binds a listening socket
+  and loads a PEM server certificate (certPath) and private key (keyPath),
+  returning a tls::TlsListener that owns the bound socket and the loaded
+  credentials. host defaults to "0.0.0.0" and backlog defaults to 128. The
+  listener is closed by lexical drop at scope exit.
+
+  The accept loop is otherwise identical to the plaintext case: http::handleRequest
+  is overloaded on the listener type, so the loop body and route list are unchanged
+  between http:// and https://. Each handleRequest call performs the server-side
+  TLS handshake (via tls::accept) before parsing the request. serverSSL is
+  supported on both Linux (OpenSSL) and macOS (Network.framework); a single server
+  certificate is presented (no SNI multi-cert selection, no client-certificate
+  verification).
+
+ERRORS
+  Bind, listen, credential-load, and handshake failures are propagated unchanged
+  from tls (see tls::listen and tls::accept).
+
+EXAMPLES
+  An HTTPS server sharing the same routes as a plaintext one:
+
+    IMPORT http
+    IMPORT tls
+    IMPORT collections
+
+    FUNC main() AS Integer
+      MUT routes AS List OF http::Route = []
+      routes = collections::append(routes, http::route("/", home))
+      RES s AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem")
+      DO
+        http::handleRequest(s, routes)
+      LOOP UNTIL FALSE
+    END FUNC
+
+SEE ALSO
+  http::server, http::handleRequest, tls::listen, tls::accept

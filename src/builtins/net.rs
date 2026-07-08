@@ -33,6 +33,11 @@ const SEND_TEXT_TO: &str = "net.sendTextTo";
 // Source-companion calls (`net_package.mfb`): pure URL string work.
 const TO_URL: &str = "net.toUrl";
 const INTERNAL_TO_URL: &str = "__net_toUrl";
+// URL component decoders consumed by the `http` server (plan-05 §F.4.2).
+const PERCENT_DECODE: &str = "net.percentDecode";
+const INTERNAL_PERCENT_DECODE: &str = "__net_percentDecode";
+const PARSE_QUERY: &str = "net.parseQuery";
+const INTERNAL_PARSE_QUERY: &str = "__net_parseQuery";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -62,6 +67,8 @@ pub(crate) fn is_net_call(name: &str) -> bool {
             | SEND_TO
             | SEND_TEXT_TO
             | TO_URL
+            | PERCENT_DECODE
+            | PARSE_QUERY
     )
 }
 
@@ -113,6 +120,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         SEND_TO => Some(&[&["sock"], &["address"], &["bytes"]]),
         SEND_TEXT_TO => Some(&[&["sock"], &["address"], &["value"]]),
         TO_URL => Some(&[&["href", "value", "url"]]),
+        PERCENT_DECODE => Some(&[&["s", "text", "value"]]),
+        PARSE_QUERY => Some(&[&["s", "query", "value"]]),
         _ => None,
     }
 }
@@ -135,6 +144,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         RECEIVE_FROM => Some(DATAGRAM_TYPE),
         RECEIVE_TEXT_FROM => Some(DATAGRAM_TEXT_TYPE),
         TO_URL => Some(URL_TYPE),
+        PERCENT_DECODE => Some("String"),
+        PARSE_QUERY => Some("Map OF String TO String"),
         _ => None,
     }
 }
@@ -206,6 +217,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         CLOSE if exact(arg_types, &[UDP_SOCKET_TYPE]) => Cow::Borrowed("Nothing"),
         LOCAL_ADDRESS if exact(arg_types, &[UDP_SOCKET_TYPE]) => Cow::Borrowed(ADDRESS_TYPE),
         TO_URL if exact(arg_types, &["String"]) => Cow::Borrowed(URL_TYPE),
+        PERCENT_DECODE if exact(arg_types, &["String"]) => Cow::Borrowed("String"),
+        PARSE_QUERY if exact(arg_types, &["String"]) => Cow::Borrowed("Map OF String TO String"),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -231,6 +244,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         SEND_TO => Some("UdpSocket, Address, List OF Byte"),
         SEND_TEXT_TO => Some("UdpSocket, Address, String"),
         TO_URL => Some("String"),
+        PERCENT_DECODE => Some("String"),
+        PARSE_QUERY => Some("String"),
         _ => None,
     }
 }
@@ -254,6 +269,8 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         SEND_TO => Some("UdpSocket, Address, List OF Byte"),
         SEND_TEXT_TO => Some("UdpSocket, Address, String"),
         TO_URL => Some("String"),
+        PERCENT_DECODE => Some("String"),
+        PARSE_QUERY => Some("String"),
         _ => None,
     }
 }
@@ -268,7 +285,9 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT | BIND_UDP
         | RECEIVE_FROM | RECEIVE_TEXT_FROM => Some((2, 2)),
         SEND_TO | SEND_TEXT_TO => Some((3, 3)),
-        CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS | TO_URL => Some((1, 1)),
+        CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS | TO_URL | PERCENT_DECODE | PARSE_QUERY => {
+            Some((1, 1))
+        }
         _ => None,
     }
 }
@@ -279,6 +298,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
     match name {
         TO_URL => Some(INTERNAL_TO_URL),
+        PERCENT_DECODE => Some(INTERNAL_PERCENT_DECODE),
+        PARSE_QUERY => Some(INTERNAL_PARSE_QUERY),
         _ => None,
     }
 }

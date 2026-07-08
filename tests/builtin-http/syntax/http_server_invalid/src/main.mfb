@@ -1,0 +1,22 @@
+IMPORT http
+IMPORT net
+
+' A handler of the wrong shape cannot be a route.
+FUNC badHandler(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC main AS Integer
+  ' server: too few / wrong-typed arguments.
+  LET noPort = http::server()
+  LET badPort = http::server("8080")
+  ' route: the handler must be FUNC(http::Request) AS http::Response.
+  LET badRoute = http::route("/", badHandler)
+  ' route: too few arguments.
+  LET fewRoute = http::route("/")
+  ' status: wrong argument types (code must be Integer).
+  LET badStatus = http::status("200", "body")
+  ' ok: too many arguments.
+  LET manyOk = http::ok("a", "b")
+  RETURN 0
+END FUNC
