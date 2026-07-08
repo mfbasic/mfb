@@ -503,12 +503,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&done));
             }
             "Float" => {
-                self.emit(abi::move_immediate(
-                    &bound,
-                    "Integer",
-                    "9223372036854775807",
-                ));
-                self.emit(abi::and_registers(&dst, &value.location, &bound));
+                // Hardware `fabs` clears the sign bit in the FP domain (plan-02
+                // §4). Bit-identical to the old GPR sign-mask AND for every finite
+                // MFBASIC `Float`, but a single hardware instruction.
+                self.emit(abi::float_move_d_from_x("d0", &value.location));
+                self.emit(abi::float_abs_d("d0", "d0"));
+                self.emit(abi::float_move_x_from_d(&dst, "d0"));
             }
             other => return Err(format!("math.abs does not accept {other}")),
         }
@@ -690,22 +690,18 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&done));
             }
             "Float" => {
+                // Hardware `fminnm`/`fmaxnm` (plan-02 §4): a single instruction in
+                // place of the subtract/compare/branch. For the finite operands
+                // MFBASIC produces this is bit-identical to the old ordered
+                // compare that returned `lhs` on a tie.
                 self.emit(abi::float_move_d_from_x("d0", &lhs));
                 self.emit(abi::float_move_d_from_x("d1", &rhs));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
-                let take_left = self.label("math_minmax_float_take_left");
-                let done = self.label("math_minmax_float_done");
                 if function == "min" {
-                    self.emit(abi::branch_le(&take_left));
+                    self.emit(abi::float_min_d("d0", "d0", "d1"));
                 } else {
-                    self.emit(abi::branch_ge(&take_left));
+                    self.emit(abi::float_max_d("d0", "d0", "d1"));
                 }
-                self.emit(abi::move_register(&dst, &rhs));
-                self.emit(abi::branch(&done));
-                self.emit(abi::label(&take_left));
-                self.emit(abi::move_register(&dst, &lhs));
-                self.emit(abi::label(&done));
+                self.emit(abi::float_move_x_from_d(&dst, "d0"));
             }
             other => return Err(format!("math.{function} does not accept {other}")),
         }

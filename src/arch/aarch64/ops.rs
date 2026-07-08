@@ -118,6 +118,11 @@ pub(crate) enum CodeOp {
     FSubD,
     FMulD,
     FDivD,
+    /// `fminnm Dd, Dn, Dm` / `fmaxnm Dd, Dn, Dm` — scalar double min/max with the
+    /// IEEE-754 number semantics (a finite operand wins over a NaN). Selected for
+    /// `math::min`/`max(Float)` (plan-02 Phase 1).
+    FMinnmD,
+    FMaxnmD,
     FNegD,
     /// `fabs Dd, Dn` — scalar double absolute value, used by the FP-domain
     /// finiteness check to fold ±Inf together before the `fcmp` (plan-16 Piece B).
@@ -297,6 +302,8 @@ impl CodeOp {
             CodeOp::FSubD => "fsub_d",
             CodeOp::FMulD => "fmul_d",
             CodeOp::FDivD => "fdiv_d",
+            CodeOp::FMinnmD => "fminnm_d",
+            CodeOp::FMaxnmD => "fmaxnm_d",
             CodeOp::FNegD => "fneg_d",
             CodeOp::FAbsD => "fabs_d",
             CodeOp::FSqrtD => "fsqrt_d",
@@ -447,6 +454,8 @@ impl CodeOp {
             "fsub_d" => Ok(CodeOp::FSubD),
             "fmul_d" => Ok(CodeOp::FMulD),
             "fdiv_d" => Ok(CodeOp::FDivD),
+            "fminnm_d" => Ok(CodeOp::FMinnmD),
+            "fmaxnm_d" => Ok(CodeOp::FMaxnmD),
             "fneg_d" => Ok(CodeOp::FNegD),
             "fabs_d" => Ok(CodeOp::FAbsD),
             "fsqrt_d" => Ok(CodeOp::FSqrtD),
@@ -607,6 +616,8 @@ mod tests {
             CodeOp::FSubD,
             CodeOp::FMulD,
             CodeOp::FDivD,
+            CodeOp::FMinnmD,
+            CodeOp::FMaxnmD,
             CodeOp::FNegD,
             CodeOp::FAbsD,
             CodeOp::FSqrtD,

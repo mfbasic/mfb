@@ -63,6 +63,20 @@ fn add_and_sub_r_type() {
 }
 
 #[test]
+fn fp_min_max_d() {
+    // fmin.d / fmax.d fa0, fs1, fa7 — funct7=0010101, funct3 000(min)/001(max),
+    // OP-FP opcode 0x53. rd=fa0(10), rs1=fs1(9), rs2=fa7(17). These implement the
+    // IEEE number semantics, matching AArch64 fminnm/fmaxnm (plan-02 §4).
+    let w = words(&encode_text(vec![
+        ci("fminnm_d", &[("dst", "fa0"), ("lhs", "fs1"), ("rhs", "fa7")]),
+        ci("fmaxnm_d", &[("dst", "fa0"), ("lhs", "fs1"), ("rhs", "fa7")]),
+        ci("ret", &[]),
+    ]));
+    assert_eq!(w[0], 0x2b14_8553); // fmin.d fa0, fs1, fa7
+    assert_eq!(w[1], 0x2b14_9553); // fmax.d fa0, fs1, fa7
+}
+
+#[test]
 fn li_small_and_move() {
     let w = words(&encode_text(vec![
         ci("mov_imm", &[("dst", "a0"), ("value", "5")]),

@@ -618,6 +618,24 @@ pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction
         .field("rhs", rhs)
 }
 
+/// `fminnm Dd, Dn, Dm` — scalar double minimum with IEEE number semantics (a
+/// finite operand wins over a NaN). Selected for `math::min(Float)` (plan-02 §4).
+pub(crate) fn float_min_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fminnm_d")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+/// `fmaxnm Dd, Dn, Dm` — scalar double maximum, IEEE number semantics.
+/// Selected for `math::max(Float)` (plan-02 §4).
+pub(crate) fn float_max_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fmaxnm_d")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
 pub(crate) fn float_negate_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fneg_d")
         .field("dst", dst)

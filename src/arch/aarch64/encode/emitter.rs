@@ -302,6 +302,16 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "fminnm_d" => self.emit_fminnm_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "fmaxnm_d" => self.emit_fmaxnm_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             "fneg_d" => self.emit_fneg_d(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
@@ -876,6 +886,16 @@ impl Encoder {
 
     fn emit_fdiv_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
         self.emit_word(0x1e60_1800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+    }
+
+    /// `FMINNM Dd, Dn, Dm` — FP data-processing (2-source) `.d`, opcode `0111`.
+    fn emit_fminnm_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_7800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+    }
+
+    /// `FMAXNM Dd, Dn, Dm` — FP data-processing (2-source) `.d`, opcode `0110`.
+    fn emit_fmaxnm_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_6800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
     }
 
     fn emit_fneg_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {

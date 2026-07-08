@@ -145,7 +145,8 @@ mir_ops!(
         // (plan-99).
         RvBr, RvFcmp, Slt, Sltu,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
-        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, FMaddD,
+        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCmpD,
+        FCmpZeroD, FMaddD,
     }
     // Neutral semantic names for the AArch64-specific scalar shapes (plan-00-C
     // Phases 3 & 4). `CodeOp` (lhs) ⇒ `MirOp` (mid) ⇒ neutral mnemonic (rhs);

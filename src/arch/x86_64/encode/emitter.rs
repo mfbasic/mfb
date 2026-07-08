@@ -648,6 +648,14 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "fmul_d" => sse_arith(instruction, 0x59, true),
         "fsub_d" => sse_arith(instruction, 0x5c, false),
         "fdiv_d" => sse_arith(instruction, 0x5e, false),
+        // minsd / maxsd — dst = min/max(lhs, rhs). Treated as non-commutative so
+        // `lhs` stays the destination-accumulator and `rhs` the source, matching
+        // AArch64 `fminnm`/`fmaxnm` and RISC-V `fmin.d`/`fmax.d` for the finite,
+        // distinct operands MFBASIC produces. (minsd/maxsd differ from fminnm on a
+        // NaN input or a ±0 tie — neither is a value MFBASIC exposes through
+        // `math::min`/`max`; see 15_x86_64-instruction-set.md.)
+        "fminnm_d" => sse_arith(instruction, 0x5d, false),
+        "fmaxnm_d" => sse_arith(instruction, 0x5f, false),
         // sqrtsd dst, src (F2 0F 51 /r).
         "fsqrt_d" => {
             let dst = fp_reg(field(instruction, "dst")?)?;

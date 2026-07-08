@@ -184,7 +184,11 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_x86_64/
   `sqrtsd`, `ucomisd` (`fcmp_d`), `movq` reinterprets, `movaps` copy, `cvtsi2sd`/
   `cvttsd2si` conversions, SSE4.1 `roundsd` for directed rounding, and ties-away
   emulated as `trunc(x + copysign(0.5, x))`. `fneg`/`fabs` build the sign mask in
-  `xmm15` — no memory-mask constant. [[src/arch/x86_64/encode/emitter.rs:sse_arith]]
+  `xmm15` — no memory-mask constant. `fminnm_d`/`fmaxnm_d` (`math::min`/`max(Float)`)
+  use `minsd`/`maxsd` — order-preserving `min/max(lhs, rhs)`, correct for the finite
+  operands MFBASIC produces; they differ from AArch64 `fminnm`/`fmaxnm` only on a NaN
+  input or a ±0 tie (neither reachable through `math::min`/`max`).
+  [[src/arch/x86_64/encode/emitter.rs:sse_arith]]
 - **v128 SIMD (SSE2 / SSE4.1 / SSE4.2).** 128-bit load/store is `movups`. Packed
   f64×2 arithmetic uses the `66 0F` forms (`addpd`/`subpd`/`mulpd`/`divpd`/`minpd`/
   `maxpd`), packed i64×2 uses `paddq`/`psubq`, bitwise uses `pand`/`por`/`pxor`,

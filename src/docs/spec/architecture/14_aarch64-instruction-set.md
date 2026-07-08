@@ -113,7 +113,10 @@ the encoder ORs operand bits into. Field placement is `Rd = bits[4:0]`,
 | `FSubD` | `fsub_d` | `dst`,`lhs`,`rhs` | `0x1E603800` | double sub |
 | `FMulD` | `fmul_d` | `dst`,`lhs`,`rhs` | `0x1E600800` | double mul |
 | `FDivD` | `fdiv_d` | `dst`,`lhs`,`rhs` | `0x1E601800` | double div |
+| `FMinnmD` | `fminnm_d` | `dst`,`lhs`,`rhs` | `0x1E607800` | double min (IEEE number: finite wins over NaN) |
+| `FMaxnmD` | `fmaxnm_d` | `dst`,`lhs`,`rhs` | `0x1E606800` | double max (IEEE number) |
 | `FNegD` | `fneg_d` | `dst`,`src` | `0x1E614000` | double negate |
+| `FAbsD` | `fabs_d` | `dst`,`src` | `0x1E60C000` | double absolute value (clears sign bit) |
 | `FSqrtD` | `fsqrt_d` | `dst`,`src` | `0x1E61C000` | double sqrt |
 | `FCmpD` | `fcmp_d` | `lhs`,`rhs` | `0x1E602000` | `Dm=bits[20:16]`, `Dn=bits[9:5]` |
 | `FCmpZeroD` | `fcmp_zero_d` | `src` | `0x1E602000`+`0x8` | `fcmp Dn,#0.0` |

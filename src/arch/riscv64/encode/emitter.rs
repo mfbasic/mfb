@@ -241,6 +241,11 @@ impl Encoder {
             "fsub_d" => self.emit_fp_r(0b0000101, f("dst")?, f("lhs")?, f("rhs")?, 0b000),
             "fmul_d" => self.emit_fp_r(0b0001001, f("dst")?, f("lhs")?, f("rhs")?, 0b000),
             "fdiv_d" => self.emit_fp_r(0b0001101, f("dst")?, f("lhs")?, f("rhs")?, 0b000),
+            // fmin.d / fmax.d — funct7=0010101, funct3 selects min(000)/max(001).
+            // RISC-V fmin.d/fmax.d implement the IEEE number semantics (a finite
+            // operand wins over a NaN), matching AArch64 `fminnm`/`fmaxnm`.
+            "fminnm_d" => self.emit_fp_r(0b0010101, f("dst")?, f("lhs")?, f("rhs")?, 0b000),
+            "fmaxnm_d" => self.emit_fp_r(0b0010101, f("dst")?, f("lhs")?, f("rhs")?, 0b001),
             "fmov_d_from_d" => {
                 // fmv.d rd, rs → fsgnj.d rd, rs, rs.
                 let (rd, rs) = (f("dst")?, f("src")?);

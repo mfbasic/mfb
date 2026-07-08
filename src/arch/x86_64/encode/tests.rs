@@ -1760,6 +1760,33 @@ fn scalar_double_moves_and_arith() {
 }
 
 #[test]
+fn scalar_double_min_max() {
+    // minsd/maxsd via the non-commutative sse_arith path (plan-02 §4).
+    // fminnm_d xmm0, xmm0, xmm1 (dst==lhs in place) : minsd = F2 0F 5D C1.
+    assert_eq!(
+        bytes(
+            "fminnm_d",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0xF2, 0x0F, 0x5D, 0xC1]
+    );
+    // fmaxnm_d xmm0, xmm0, xmm1 : maxsd = F2 0F 5F C1.
+    assert_eq!(
+        bytes(
+            "fmaxnm_d",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0xF2, 0x0F, 0x5F, 0xC1]
+    );
+    // Disjoint destination copies lhs first, then the op (non-empty, aliasing-safe).
+    assert!(!enc(
+        "fminnm_d",
+        &[("dst", "xmm2"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+    )
+    .is_empty());
+}
+
+#[test]
 fn scalar_double_compares_and_signops() {
     // fcmp_d xmm0, xmm1 : ucomisd = 66 0F 2E C1
     assert_eq!(

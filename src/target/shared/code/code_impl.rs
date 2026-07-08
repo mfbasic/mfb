@@ -47,6 +47,8 @@ impl CodeInstruction {
             | CodeOp::FAddD
             | CodeOp::FSubD
             | CodeOp::FMulD
+            | CodeOp::FMinnmD
+            | CodeOp::FMaxnmD
             | CodeOp::FDivD => &["dst", "lhs", "rhs"],
             CodeOp::Mvn
             | CodeOp::Clz

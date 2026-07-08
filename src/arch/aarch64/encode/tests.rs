@@ -164,6 +164,31 @@ fn encodes_fabs_d() {
 }
 
 #[test]
+fn encodes_fminnm_fmaxnm_d() {
+    // FMINNM/FMAXNM (scalar, double) d5, d9, d17 — checked against
+    // `as -arch arm64`. Opcode 0111 (minnm) / 0110 (maxnm) in the FP
+    // data-processing 2-source `.d` group.
+    assert_eq!(
+        encode_one(
+            &CodeInstruction::new("fminnm_d")
+                .field("dst", "d5")
+                .field("lhs", "d9")
+                .field("rhs", "d17")
+        ),
+        0x1e71_7925
+    );
+    assert_eq!(
+        encode_one(
+            &CodeInstruction::new("fmaxnm_d")
+                .field("dst", "d5")
+                .field("lhs", "d9")
+                .field("rhs", "d17")
+        ),
+        0x1e71_6925
+    );
+}
+
+#[test]
 fn encodes_b_vs_branch() {
     // `b.vs` (overflow set, the FP-domain NaN branch) must encode condition 0b0110,
     // distinct from `b.vc` (0b0111) — swapping them would trap every finite float.

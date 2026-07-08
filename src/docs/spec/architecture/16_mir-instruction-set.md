@@ -189,7 +189,7 @@ carry the same fields as the shape they rename.
 | `call_indirect` | `register` | call via a register |
 | `ldr_u64` `ldr_u32` `ldr_u16` `ldr_u8` `ldr_d` | `dst`, `base`, `offset` | load (width in the mnemonic) |
 | `str_u64` `str_u32` `str_u8` `str_d` | `src`, `base`, `offset` | store |
-| `fadd_d` `fsub_d` `fmul_d` `fdiv_d` | `dst`, `lhs`, `rhs` | binary f64 op |
+| `fadd_d` `fsub_d` `fmul_d` `fdiv_d` `fminnm_d` `fmaxnm_d` | `dst`, `lhs`, `rhs` | binary f64 op (`fminnm_d`/`fmaxnm_d` = IEEE-number min/max: a finite operand wins over a NaN) |
 | `fmov_d_from_d` `fneg_d` `fabs_d` `fsqrt_d` `i2f` `f2i_trunc` `f2i_floor` `f2i_ceil` `f2i_nearest` `fmov_i2f` `fmov_f2i` | `dst`, `src` | unary f64 / convert / reinterpret |
 | `fmadd_d` | `dst`, `addend`, `lhs`, `rhs` | `dst = addend + lhs*rhs` |
 | `addr_of` | `dst`, `symbol` | PC-relative symbol address |
