@@ -200,9 +200,17 @@ ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
 | `UshrV` | `ushr_v` | `dst`,`src`,`shift` | `0x6F000400` | unsigned right; `immhb=128−s` |
 | `DupVFromX` | `dup_v_from_x` | `dst`,`src` | `0x4E080C00` | broadcast GPR into both `.2d` lanes |
 | `UmovXFromV` | `umov_x_from_v` | `dst`,`src`,`index` | `0x4E003C00` | `Xd ← Vn.d[index]`; `imm5=8\|(index<<4)` |
-| `FMaddD` | `fmadd_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F400000` | scalar `Dd = Da + Dn*Dm` (one round); `Ra=bits[14:10]` |
+| `FMaddD` | `fmadd_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F400000` | `dst = addend + lhs*rhs` (FMADD, one round); `Ra=bits[14:10]` |
+| `FMsubD` | `fmsub_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F608000` | `dst = lhs*rhs - addend` (selects FNMSUB) |
+| `FNmsubD` | `fnmsub_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F408000` | `dst = addend - lhs*rhs` (selects FMSUB) |
+| `FNmaddD` | `fnmadd_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F600000` | `dst = -(lhs*rhs) - addend` (FNMADD) |
 
-The scalar `fmadd_d` (and the `d`-register decoding extended to `d8`..`d31`)
+The four scalar FMA ops share the `Dm<<16 \| Da<<10 \| Dn<<5 \| Dd` layout and one
+round. The neutral MIR mnemonic names the *result*; the AArch64 instruction that
+computes it is not always the same name (MIR `fmsub_d` = `lhs*rhs − addend` is
+AArch64 `FNMSUB`; MIR `fnmsub_d` = `addend − lhs*rhs` is `FMSUB`) — the mapping is
+pinned by byte tests. The scalar FMA family (and the `d`-register decoding extended
+to `d8`..`d31`)
 backs the double-double recombination in the Float transcendental kernels, which
 also rely on the internal runtime symbol `_mfb_simd_alloc_list(count, typeCode)`
 (allocates a tight homogeneous numeric `List`; `mfb spec memory collections`).

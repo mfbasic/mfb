@@ -193,10 +193,20 @@ pub(crate) enum CodeOp {
     // Lane broadcast / extract.
     DupVFromX,
     UmovXFromV,
-    /// Scalar fused multiply-add: `Dd = Da + Dn*Dm` (round once). Used by the
+    /// Scalar fused multiply-add: `dst = addend + lhs*rhs` (round once). Used by the
     /// Float transcendental kernels' scalar tail so it is bit-identical to the
-    /// vector `fmla_v` Horner steps (plan-01-simd §4.6).
+    /// vector `fmla_v` Horner steps (plan-01-simd §4.6), and by scalar `a*b±c`
+    /// fusion (plan-02 Phase 3).
     FMaddD,
+    /// The other three scalar fused multiply-add sign combinations (plan-02 §5), all
+    /// single-rounded, fields `dst`,`addend`,`lhs`,`rhs`. Neutral MIR semantics
+    /// (each backend selects the native form that computes the same result):
+    ///   `fmsub_d`  = `lhs*rhs - addend`
+    ///   `fnmsub_d` = `addend - lhs*rhs`
+    ///   `fnmadd_d` = `-(lhs*rhs) - addend`
+    FMsubD,
+    FNmsubD,
+    FNmaddD,
     /// rv64-only native compare-and-branch (plan-99), synthesized by
     /// `select_riscv64` when it expands a flagless fused `br_cc`/`br_cc_imm` (or a
     /// float compare's `rv.fcmp` bool). RISC-V has no flags, so a compare-and-branch
@@ -363,6 +373,9 @@ impl CodeOp {
             CodeOp::DupVFromX => "dup_v_from_x",
             CodeOp::UmovXFromV => "umov_x_from_v",
             CodeOp::FMaddD => "fmadd_d",
+            CodeOp::FMsubD => "fmsub_d",
+            CodeOp::FNmsubD => "fnmsub_d",
+            CodeOp::FNmaddD => "fnmadd_d",
             CodeOp::RvBr => "rv.br",
             CodeOp::RvFcmp => "rv.fcmp",
             CodeOp::Slt => "rv.slt",
@@ -515,6 +528,9 @@ impl CodeOp {
             "dup_v_from_x" => Ok(CodeOp::DupVFromX),
             "umov_x_from_v" => Ok(CodeOp::UmovXFromV),
             "fmadd_d" => Ok(CodeOp::FMaddD),
+            "fmsub_d" => Ok(CodeOp::FMsubD),
+            "fnmsub_d" => Ok(CodeOp::FNmsubD),
+            "fnmadd_d" => Ok(CodeOp::FNmaddD),
             "rv.br" => Ok(CodeOp::RvBr),
             "rv.fcmp" => Ok(CodeOp::RvFcmp),
             "rv.slt" => Ok(CodeOp::Slt),
@@ -677,6 +693,9 @@ mod tests {
             CodeOp::DupVFromX,
             CodeOp::UmovXFromV,
             CodeOp::FMaddD,
+            CodeOp::FMsubD,
+            CodeOp::FNmsubD,
+            CodeOp::FNmaddD,
             CodeOp::RvBr,
             CodeOp::RvFcmp,
             CodeOp::Slt,

@@ -77,6 +77,36 @@ fn fp_min_max_d() {
 }
 
 #[test]
+fn fma_family_d() {
+    // Scalar FMA family, R4-type. rd=fa0(10), rs3/addend=fa1(11), rs1/lhs=fa2(12),
+    // rs2/rhs=fa3(13). RISC-V's native names match our neutral MIR result naming
+    // (plan-02 §5), so fmadd_d→MADD, fmsub_d→MSUB, fnmsub_d→NMSUB, fnmadd_d→NMADD.
+    let w = words(&encode_text(vec![
+        ci(
+            "fmadd_d",
+            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+        ),
+        ci(
+            "fmsub_d",
+            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+        ),
+        ci(
+            "fnmsub_d",
+            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+        ),
+        ci(
+            "fnmadd_d",
+            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+        ),
+        ci("ret", &[]),
+    ]));
+    assert_eq!(w[0], 0x5ad6_0543); // fmadd.d  fa0, fa2, fa3, fa1
+    assert_eq!(w[1], 0x5ad6_0547); // fmsub.d  fa0, fa2, fa3, fa1
+    assert_eq!(w[2], 0x5ad6_054b); // fnmsub.d fa0, fa2, fa3, fa1
+    assert_eq!(w[3], 0x5ad6_054f); // fnmadd.d fa0, fa2, fa3, fa1
+}
+
+#[test]
 fn li_small_and_move() {
     let w = words(&encode_text(vec![
         ci("mov_imm", &[("dst", "a0"), ("value", "5")]),

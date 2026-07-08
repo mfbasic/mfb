@@ -1787,6 +1787,26 @@ fn scalar_double_min_max() {
 }
 
 #[test]
+fn scalar_double_fma_family() {
+    // Scalar FMA family (FMA3), staged in xmm15 (plan-02 §5). For
+    // dst=xmm0, addend=xmm1, lhs=xmm2, rhs=xmm3 each expands to:
+    //   movsd  xmm15, xmm1        F2 44 0F 10 F9
+    //   v...231sd xmm15, xmm2, xmm3   C4 62 E9 <op> FB   (op = B9/BB/BD/BF)
+    //   movsd  xmm0, xmm15        F2 41 0F 10 C7
+    let fields = &[("dst", "xmm0"), ("addend", "xmm1"), ("lhs", "xmm2"), ("rhs", "xmm3")];
+    let head = [0xF2u8, 0x44, 0x0F, 0x10, 0xF9];
+    let tail = [0xF2u8, 0x41, 0x0F, 0x10, 0xC7];
+    let mid = |op: u8| [0xC4u8, 0x62, 0xE9, op, 0xFB];
+    let expect = |op: u8| -> Vec<u8> {
+        head.iter().chain(mid(op).iter()).chain(tail.iter()).copied().collect()
+    };
+    assert_eq!(bytes("fmadd_d", fields), expect(0xB9)); // vfmadd231sd
+    assert_eq!(bytes("fmsub_d", fields), expect(0xBB)); // vfmsub231sd
+    assert_eq!(bytes("fnmsub_d", fields), expect(0xBD)); // vfnmadd231sd
+    assert_eq!(bytes("fnmadd_d", fields), expect(0xBF)); // vfnmsub231sd
+}
+
+#[test]
 fn scalar_double_compares_and_signops() {
     // fcmp_d xmm0, xmm1 : ucomisd = 66 0F 2E C1
     assert_eq!(

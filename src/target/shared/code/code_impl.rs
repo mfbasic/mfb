@@ -157,7 +157,9 @@ impl CodeInstruction {
             CodeOp::ShlV | CodeOp::SshrV | CodeOp::UshrV => &["dst", "src", "shift"],
             CodeOp::DupVFromX => &["dst", "src"],
             CodeOp::UmovXFromV => &["dst", "src", "index"],
-            CodeOp::FMaddD => &["dst", "addend", "lhs", "rhs"],
+            CodeOp::FMaddD | CodeOp::FMsubD | CodeOp::FNmsubD | CodeOp::FNmaddD => {
+                &["dst", "addend", "lhs", "rhs"]
+            }
             // rv64-only compare-branch / float-compare-to-GPR / set-less-than (plan-99).
             CodeOp::RvBr => &["lhs", "rhs", "cond", "target"],
             CodeOp::RvFcmp => &["dst", "lhs", "rhs", "cmp"],

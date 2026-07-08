@@ -2784,6 +2784,7 @@ mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;
 use function_lowering::*;
+mod fma_fusion;
 pub(crate) mod mir;
 mod peephole;
 pub(crate) mod regalloc;

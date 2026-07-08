@@ -126,6 +126,9 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
         | CodeOp::FAbsD
         | CodeOp::FSqrtD
         | CodeOp::FMaddD
+        | CodeOp::FMsubD
+        | CodeOp::FNmsubD
+        | CodeOp::FNmaddD
         | CodeOp::SCvtfDFromX
         | CodeOp::FCvtzsXFromD
         | CodeOp::FCvtmsXFromD

@@ -401,16 +401,49 @@ fn encodes_neon_vector_ops() {
         0x4e18_3e25
     );
 
-    // Scalar fused multiply-add (dst=d5, addend=d3, lhs=d9, rhs=d17).
+    // Scalar fused multiply-add family (dst=d5, addend=d3, lhs=d9, rhs=d17).
+    // The neutral mnemonic names the result; the AArch64 instruction that computes
+    // it can carry a different name (fmsub_d→FNMSUB, fnmsub_d→FMSUB). Checked
+    // against `as -arch arm64`.
     assert_eq!(
         encode_one(
-            &CodeInstruction::new("fmadd_d")
+            &CodeInstruction::new("fmadd_d") // FMADD: d3 + d9*d17
                 .field("dst", "d5")
                 .field("addend", "d3")
                 .field("lhs", "d9")
                 .field("rhs", "d17")
         ),
         0x1f51_0d25
+    );
+    assert_eq!(
+        encode_one(
+            &CodeInstruction::new("fmsub_d") // FNMSUB: d9*d17 - d3
+                .field("dst", "d5")
+                .field("addend", "d3")
+                .field("lhs", "d9")
+                .field("rhs", "d17")
+        ),
+        0x1f71_8d25
+    );
+    assert_eq!(
+        encode_one(
+            &CodeInstruction::new("fnmsub_d") // FMSUB: d3 - d9*d17
+                .field("dst", "d5")
+                .field("addend", "d3")
+                .field("lhs", "d9")
+                .field("rhs", "d17")
+        ),
+        0x1f51_8d25
+    );
+    assert_eq!(
+        encode_one(
+            &CodeInstruction::new("fnmadd_d") // FNMADD: -(d9*d17) - d3
+                .field("dst", "d5")
+                .field("addend", "d3")
+                .field("lhs", "d9")
+                .field("rhs", "d17")
+        ),
+        0x1f71_0d25
     );
 
     // 128-bit load/store, with and without an offset.

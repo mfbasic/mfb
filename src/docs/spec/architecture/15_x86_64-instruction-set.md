@@ -195,7 +195,13 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_x86_64/
   plus `sqrtpd`, `roundpd`, and NaN-correct `cmppd`/`pcmpgtq`/`pcmpeqq`. Lane
   extract is `movq`/`pextrq`; broadcast is `movq`+`punpcklqdq`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 - **FMA3.** `fmla_v`/`fmls_v` use `vfmadd231pd`/`vfnmadd231pd` (3-byte VEX,
-  x86-64-v3) for single-rounding parity with AArch64 `fmla`/`fmls`. [[src/arch/x86_64/encode/emitter.rs:enc_vfma231pd]]
+  x86-64-v3) for single-rounding parity with AArch64 `fmla`/`fmls`. The four scalar
+  fused ops `fmadd_d`/`fmsub_d`/`fnmsub_d`/`fnmadd_d` use the matching 231-form
+  `sd` opcodes (`vfmadd231sd` B9 / `vfmsub231sd` BB / `vfnmadd231sd` BD /
+  `vfnmsub231sd` BF) — same VEX prefix as the packed form, opcode LSB odd. The
+  `addend` is staged in the reserved `xmm15` so `dst` need not alias a source; as
+  on AArch64 the neutral mnemonic names the result, so `fnmsub_d`→`vfnmadd231sd`
+  and `fnmadd_d`→`vfnmsub231sd`. [[src/arch/x86_64/encode/emitter.rs:enc_vfma231sd]]
 - **Emulated where SSE has no form:** packed i64↔f64 conversions (`fcvtzs_v`/
   `scvtf_v`) run lane-serial through rax/rdx + `xmm15` (`pshufd 0xEE` brings lane 1
   to lane 0); `sshr_v` (arithmetic i64 lane shift-right) uses `psrlq` plus a

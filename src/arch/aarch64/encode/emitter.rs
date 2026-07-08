@@ -391,7 +391,8 @@ impl Encoder {
                 vreg(field(instruction, "src")?)?,
                 immediate(field(instruction, "index")?)?,
             ),
-            "fmadd_d" => self.emit_fmadd_d(
+            "fmadd_d" | "fmsub_d" | "fnmsub_d" | "fnmadd_d" => self.emit_fma_d(
+                instruction.op,
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "addend")?)?,
                 reg(field(instruction, "lhs")?)?,
@@ -526,14 +527,26 @@ impl Encoder {
         self.emit_word(0x4e08_0c00 | ((rn as u32) << 5) | vd as u32)
     }
 
-    /// `FMADD Dd, Dn, Dm, Da` — `Dd = Da + Dn*Dm`, rounded once.
-    fn emit_fmadd_d(&mut self, dd: u8, da: u8, dn: u8, dm: u8) -> Result<(), String> {
+    /// Scalar FP three-source (fused multiply-add family), `.d`. All four share the
+    /// `Dm<<16 | Da<<10 | Dn<<5 | Dd` field layout and differ only in the `o1`
+    /// (bit 21) / `o0` (bit 15) base word. The neutral MIR mnemonic names the
+    /// *result* (`dst = addend ± lhs*rhs`); the AArch64 instruction that computes it
+    /// does not always share the name (e.g. MIR `fmsub_d` = `lhs*rhs - addend` is
+    /// AArch64 `FNMSUB` = `-Da + Dn*Dm`), so the mapping is pinned by byte tests:
+    ///   `fmadd_d`  → FMADD  `Da + Dn*Dm`   = addend + lhs*rhs
+    ///   `fmsub_d`  → FNMSUB `-Da + Dn*Dm`  = lhs*rhs - addend
+    ///   `fnmsub_d` → FMSUB  `Da - Dn*Dm`   = addend - lhs*rhs
+    ///   `fnmadd_d` → FNMADD `-Da - Dn*Dm`  = -(lhs*rhs) - addend
+    fn emit_fma_d(&mut self, op: CodeOp, dd: u8, da: u8, dn: u8, dm: u8) -> Result<(), String> {
+        let base = match op {
+            CodeOp::FMaddD => 0x1f40_0000,  // FMADD
+            CodeOp::FMsubD => 0x1f60_8000,  // FNMSUB
+            CodeOp::FNmsubD => 0x1f40_8000, // FMSUB
+            CodeOp::FNmaddD => 0x1f60_0000, // FNMADD
+            other => return Err(format!("{} is not a scalar FMA op", other.mnemonic())),
+        };
         self.emit_word(
-            0x1f40_0000
-                | ((dm as u32) << 16)
-                | ((da as u32) << 10)
-                | ((dn as u32) << 5)
-                | dd as u32,
+            base | ((dm as u32) << 16) | ((da as u32) << 10) | ((dn as u32) << 5) | dd as u32,
         )
     }
 

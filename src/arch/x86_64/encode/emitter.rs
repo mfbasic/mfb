@@ -702,6 +702,32 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             b.extend(enc_psxlq(0x02, dst, 1)); // psrlq dst, 1
             Ok(Encoded::plain(b))
         }
+        // Scalar fused multiply-add family (FMA3, x86-64-v3), single-rounded. The
+        // op is staged in the reserved xmm15 so `dst` need not alias a source: the
+        // 231-form computes `xmm15 = ±(lhs*rhs) ± xmm15`, seeded with `addend`.
+        // The neutral MIR mnemonic names the result; the x86 231-form that computes
+        // it can carry a different name (fnmsub_d→vfnmadd231sd, fnmadd_d→
+        // vfnmsub231sd), pinned by the byte tests:
+        //   fmadd_d  → vfmadd231sd  (B9)  lhs*rhs + addend
+        //   fmsub_d  → vfmsub231sd  (BB)  lhs*rhs - addend
+        //   fnmsub_d → vfnmadd231sd (BD)  addend - lhs*rhs
+        //   fnmadd_d → vfnmsub231sd (BF)  -(lhs*rhs) - addend
+        "fmadd_d" | "fmsub_d" | "fnmsub_d" | "fnmadd_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let addend = fp_reg(field(instruction, "addend")?)?;
+            let lhs = fp_reg(field(instruction, "lhs")?)?;
+            let rhs = fp_reg(field(instruction, "rhs")?)?;
+            let opcode = match m {
+                "fmadd_d" => 0xB9,
+                "fmsub_d" => 0xBB,
+                "fnmsub_d" => 0xBD,
+                _ => 0xBF,
+            };
+            let mut b = enc_sse_rr(Some(0xf2), 0x10, 15, addend); // movsd xmm15, addend
+            b.extend(enc_vfma231sd(opcode, 15, lhs, rhs)); // xmm15 = ±(lhs*rhs) ± xmm15
+            b.extend(enc_sse_rr(Some(0xf2), 0x10, dst, 15)); // movsd dst, xmm15
+            Ok(Encoded::plain(b))
+        }
         // cvtsi2sd xmm, r64 — signed i64 → f64 (F2 REX.W 0F 2A /r).
         "i2f" | "scvtf_d_from_x" => {
             let dst = fp_reg(field(instruction, "dst")?)?;
@@ -1378,6 +1404,14 @@ fn enc_vfma231pd(opcode: u8, dst: u8, lhs: u8, rhs: u8) -> Vec<u8> {
     let vvvv = (!(lhs as u32)) & 0xF;
     let p1 = (1u8 << 7) | ((vvvv as u8) << 3) | 0b01;
     vec![0xC4, p0, p1, opcode, modrm(0b11, dst, rhs)]
+}
+
+/// Scalar-double 231-form FMA. The VEX prefix is identical to the packed-double
+/// form (`VEX.128.66.0F38.W1`): the scalar/packed distinction is only the opcode
+/// LSB (odd = `sd`), and the `L` bit is ignored for scalar, so the encoded bytes
+/// match `enc_vfma231pd` for the same opcode. `dst = ±(lhs*rhs) ± dst`.
+fn enc_vfma231sd(opcode: u8, dst: u8, lhs: u8, rhs: u8) -> Vec<u8> {
+    enc_vfma231pd(opcode, dst, lhs, rhs)
 }
 
 /// `roundpd dst, src, mode` (SSE4.1 66 0F 3A 09 /r ib).

@@ -830,19 +830,54 @@ pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstru
         .field("index", &index.to_string())
 }
 
-/// `fmadd d<dst>, d<lhs>, d<rhs>, d<addend>` — `dst = addend + lhs*rhs` (one round).
-#[allow(dead_code)]
-pub(crate) fn float_multiply_add_d(
+/// Build one of the four scalar fused-multiply-add ops (one round). All share the
+/// `dst`,`addend`,`lhs`,`rhs` field shape; the mnemonic fixes the sign combination
+/// (see [`crate::arch::aarch64::ops::CodeOp`] docs / plan-02 §5):
+///   `fmadd_d`  = `addend + lhs*rhs`
+///   `fmsub_d`  = `lhs*rhs - addend`
+///   `fnmsub_d` = `addend - lhs*rhs`
+///   `fnmadd_d` = `-(lhs*rhs) - addend`
+fn float_fma_op(mnemonic: &str, dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new(mnemonic)
+        .field("dst", dst)
+        .field("addend", addend)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+/// `dst = addend + lhs*rhs`, rounded once.
+pub(crate) fn float_multiply_add_d(dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    float_fma_op("fmadd_d", dst, addend, lhs, rhs)
+}
+
+/// `dst = lhs*rhs - addend`, rounded once.
+pub(crate) fn float_multiply_sub_d(dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    float_fma_op("fmsub_d", dst, addend, lhs, rhs)
+}
+
+/// `dst = addend - lhs*rhs`, rounded once.
+pub(crate) fn float_negate_multiply_sub_d(
     dst: &str,
     addend: &str,
     lhs: &str,
     rhs: &str,
 ) -> CodeInstruction {
-    CodeInstruction::new("fmadd_d")
-        .field("dst", dst)
-        .field("addend", addend)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+    float_fma_op("fnmsub_d", dst, addend, lhs, rhs)
+}
+
+/// `dst = -(lhs*rhs) - addend`, rounded once. The fourth sign combination of the
+/// scalar FMA family; the op and its per-backend encodings are exercised by the
+/// byte tests, but the multiply-accumulate recognizer only emits the other three
+/// (a `-(a*b) - c` source is a rarer three-node shape), so this builder currently
+/// has no caller — kept for completeness / future negated-product fusion.
+#[allow(dead_code)]
+pub(crate) fn float_negate_multiply_add_d(
+    dst: &str,
+    addend: &str,
+    lhs: &str,
+    rhs: &str,
+) -> CodeInstruction {
+    float_fma_op("fnmadd_d", dst, addend, lhs, rhs)
 }
 
 #[cfg(test)]

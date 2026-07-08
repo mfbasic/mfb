@@ -27,6 +27,9 @@ const LOAD_FP: u32 = 0x07;
 const STORE_FP: u32 = 0x27;
 const OP_FP: u32 = 0x53;
 const MADD: u32 = 0x43;
+const MSUB: u32 = 0x47;
+const NMSUB: u32 = 0x4b;
+const NMADD: u32 = 0x4f;
 
 // Reserved lowering scratch (see module comment).
 const T0: u8 = 5;
@@ -295,12 +298,22 @@ impl Encoder {
                 };
                 self.emit_word(r_type(0b1010001, rhs as u32, lhs as u32, funct3, rd as u32, OP_FP))
             }
-            "fmadd_d" => {
-                // fmadd.d rd, rs1, rs2, rs3 → rs1*rs2 + rs3. aarch64 fmadd_d:
-                // dd = addend + lhs*rhs, so rs1=lhs, rs2=rhs, rs3=addend.
+            // Scalar fused multiply-add family. RISC-V's native fmadd/fmsub/
+            // fnmsub/fnmadd.d follow the same result naming as our neutral MIR ops
+            // (rs1=lhs, rs2=rhs, rs3=addend), so the mapping is 1:1 by mnemonic:
+            //   fmadd_d  → MADD   rs1*rs2 + rs3 = lhs*rhs + addend
+            //   fmsub_d  → MSUB   rs1*rs2 - rs3 = lhs*rhs - addend
+            //   fnmsub_d → NMSUB  -(rs1*rs2) + rs3 = addend - lhs*rhs
+            //   fnmadd_d → NMADD  -(rs1*rs2) - rs3 = -(lhs*rhs) - addend
+            "fmadd_d" | "fmsub_d" | "fnmsub_d" | "fnmadd_d" => {
+                let opcode = match instruction.op.mnemonic() {
+                    "fmadd_d" => MADD,
+                    "fmsub_d" => MSUB,
+                    "fnmsub_d" => NMSUB,
+                    _ => NMADD,
+                };
                 let (rd, addend, lhs, rhs) = (f("dst")?, f("addend")?, f("lhs")?, f("rhs")?);
                 // R4-type: rs3<<27 | fmt(D=01)<<25 | rs2<<20 | rs1<<15 | rm<<12 | rd<<7 | opcode.
-                // fmadd.d rd = rs1*rs2 + rs3 = lhs*rhs + addend.
                 self.emit_word(
                     ((addend as u32) << 27)
                         | (0b01 << 25)
@@ -308,7 +321,7 @@ impl Encoder {
                         | ((lhs as u32) << 15)
                         | (0b000 << 12)
                         | ((rd as u32) << 7)
-                        | MADD,
+                        | opcode,
                 )
             }
             other => Err(format!(
