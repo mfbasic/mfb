@@ -1,0 +1,134 @@
+//! RISC-V 64 (RVA20 / RV64GC, Linux lp64d) machine-code encoder — plan-99.
+//!
+//! Mirrors the AArch64 encoder framework (`crate::arch::aarch64::encode`) but
+//! emits little-endian RV64GC machine code. The architecture-neutral container
+//! types (`EncodedImage`/`EncodedSymbol`/…) are reused verbatim from the AArch64
+//! encoder — they describe a linkable image, not an ISA.
+//!
+//! The two-pass shape is identical to the other backends:
+//!   1. Walk every function once to assign each text symbol an offset, using
+//!      [`sizing::instruction_size`] — which MUST return exactly the byte count
+//!      [`emitter::Encoder::emit_instruction`] produces for the same instruction.
+//!   2. Re-walk per function: record `label` offsets, then emit bytes, then
+//!      [`emitter::Encoder::patch_labels`] resolves intra-function branch
+//!      displacements. Inter-function / data references are emitted as
+//!      relocations for the linker.
+//!
+//! Because RISC-V has fixed 32-bit instructions but tighter branch reach than
+//! AArch64 (a conditional branch reaches only ±4 KiB, versus AArch64's ±1 MiB),
+//! the conditional-branch op [`CodeOp::RvBr`] is always emitted in its 8-byte
+//! long form (`b<inverse> rs1, rs2, +8; jal zero, target`) so its size is
+//! deterministic and it reaches ±1 MiB — no branch-relaxation pass is needed.
+
+use std::collections::HashMap;
+
+use crate::arch::aarch64::ops::CodeOp;
+use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
+
+// The neutral image/symbol/relocation/import containers are ISA-independent;
+// reuse them rather than redeclaring a parallel set.
+pub(crate) use crate::arch::aarch64::encode::{
+    EncodedImage, EncodedImport, EncodedRelocation, EncodedSection, EncodedSymbol, ImportKind,
+};
+
+mod data;
+mod emitter;
+mod operand;
+mod sizing;
+
+#[cfg(test)]
+mod tests;
+
+use data::{align, encode_data};
+use emitter::Encoder;
+use operand::field;
+use sizing::instruction_size;
+
+pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
+    let mut encoder = Encoder {
+        text: Vec::new(),
+        data: encode_data(plan)?,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: plan
+            .imports
+            .iter()
+            .map(|import| (import.symbol.clone(), import.library.clone()))
+            .collect(),
+        labels: HashMap::new(),
+        patches: Vec::new(),
+    };
+
+    let mut data_offset = 0;
+    for object in &plan.data_objects {
+        data_offset = align(data_offset, object.align);
+        encoder.symbols.push(EncodedSymbol {
+            name: object.symbol.clone(),
+            section: EncodedSection::Data,
+            offset: data_offset,
+        });
+        data_offset += object.size;
+    }
+
+    let mut text_offset = 0;
+    for function in &plan.functions {
+        encoder.symbols.push(EncodedSymbol {
+            name: function.symbol.clone(),
+            section: EncodedSection::Text,
+            offset: text_offset,
+        });
+        for instruction in &function.instructions {
+            text_offset += instruction_size(instruction)?;
+        }
+    }
+
+    for function in &plan.functions {
+        encoder.labels.clear();
+        let function_start = encoder.text.len();
+        // First sub-pass: place each label at its byte offset by reserving each
+        // non-label instruction's exact size.
+        for instruction in &function.instructions {
+            if instruction.op == CodeOp::Label {
+                encoder
+                    .labels
+                    .insert(field(instruction, "name")?, encoder.text.len());
+            } else {
+                encoder
+                    .text
+                    .resize(encoder.text.len() + instruction_size(instruction)?, 0);
+            }
+        }
+        encoder.text.truncate(function_start);
+        // Second sub-pass: emit the bytes (label offsets are known).
+        for instruction in &function.instructions {
+            encoder.emit_instruction(instruction)?;
+        }
+        encoder.patch_labels()?;
+        encoder.patches.clear();
+    }
+
+    let imports = plan
+        .imports
+        .iter()
+        .map(|import| EncodedImport {
+            library: import.library.clone(),
+            symbol: import.symbol.clone(),
+            kind: ImportKind::Function,
+            version: None,
+        })
+        .collect();
+
+    Ok(EncodedImage {
+        text: encoder.text,
+        data: encoder.data,
+        symbols: encoder.symbols,
+        relocations: encoder.relocations,
+        imports,
+        entry: plan
+            .entry_symbol
+            .clone()
+            .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
+        initializers: Vec::new(),
+        signing_metadata: None,
+    })
+}

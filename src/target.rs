@@ -7,6 +7,7 @@ use crate::ir::IrProject;
 pub mod linux_aarch64;
 /// Linux GTK4 app-mode codegen shared by the aarch64 and x86-64 Linux targets.
 pub(crate) mod linux_gtk;
+pub mod linux_riscv64;
 pub mod linux_x86_64;
 pub mod macos_aarch64;
 pub mod package_mfp;
@@ -155,6 +156,7 @@ static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[
     &macos_aarch64::BACKEND,
     &linux_aarch64::BACKEND,
     &linux_x86_64::BACKEND,
+    &linux_riscv64::BACKEND,
 ];
 
 fn backend_for(target: &BuildTarget) -> Result<&'static dyn NativeBackend, String> {

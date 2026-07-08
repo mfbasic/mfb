@@ -179,7 +179,10 @@ impl NativeObjectPlan {
     pub(crate) fn validate(&self) -> Result<(), String> {
         // The object/ELF plan is ISA-neutral (an ELF container is ELF); accept any
         // Linux target so the x86-64 backend (plan-00-H) reuses this linker.
-        if self.target != "linux-aarch64" && self.target != "linux-x86_64" {
+        if self.target != "linux-aarch64"
+            && self.target != "linux-x86_64"
+            && self.target != "linux-riscv64"
+        {
             return Err(format!(
                 "native object plan target '{}' is not a supported Linux target",
                 self.target

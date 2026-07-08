@@ -11,6 +11,10 @@ const R_AARCH64_GLOB_DAT: u32 = 1025;
 const R_AARCH64_JUMP_SLOT: u32 = 1026;
 const R_X86_64_GLOB_DAT: u32 = 6;
 const R_X86_64_JUMP_SLOT: u32 = 7;
+// RISC-V dynamic relocation types. RISC-V has no dedicated GLOB_DAT — a data
+// global's GOT slot is bound with an absolute R_RISCV_64.
+const R_RISCV_64: u32 = 2;
+const R_RISCV_JUMP_SLOT: u32 = 5;
 
 mod elf;
 #[cfg(test)]
@@ -233,6 +237,71 @@ fn patch_relocations(
                 let rel = (target as i64 - (site as i64 + 4)) as i32;
                 write_u32(text, relocation.offset, rel as u32);
             }
+            // --- RISC-V (plan-99) ----------------------------------------------
+            // An internal `call` (auipc ra, hi; jalr ra, lo(ra)): patch both
+            // words from the auipc's PC.
+            "internal" if relocation.kind == "riscv_call" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let site = text_vmaddr + relocation.offset as u64;
+                let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64);
+                patch_riscv_auipc(text, relocation.offset, hi20);
+                patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
+            }
+            // An external `call` targets the imported symbol's PLT-like stub.
+            "external" if relocation.kind == "riscv_call" => {
+                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-riscv64 linker cannot bind external symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let site = text_vmaddr + relocation.offset as u64;
+                let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64);
+                patch_riscv_auipc(text, relocation.offset, hi20);
+                patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
+            }
+            // Internal data address: `auipc rd, %pcrel_hi; addi rd, rd, %pcrel_lo`.
+            // The lo12 is computed from the paired auipc's PC (this offset − 4).
+            "data" if relocation.kind == "riscv_pcrel_hi20" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let site = text_vmaddr + relocation.offset as u64;
+                let (hi20, _) = riscv_hi_lo(target as i64 - site as i64);
+                patch_riscv_auipc(text, relocation.offset, hi20);
+            }
+            "data" if relocation.kind == "riscv_pcrel_lo12" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let auipc_site = text_vmaddr + relocation.offset as u64 - 4;
+                let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64);
+                patch_riscv_itype_imm(text, relocation.offset, lo12);
+            }
+            // Imported data global addressed through its GOT slot: `auipc rd,
+            // %got_pcrel_hi; ld rd, %pcrel_lo(rd)` — the slot holds the address
+            // (bound by an R_RISCV_64 dynamic reloc).
+            "external" if relocation.kind == "riscv_got_hi20" => {
+                let Some(&slot) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-riscv64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let site = text_vmaddr + relocation.offset as u64;
+                let (hi20, _) = riscv_hi_lo(slot as i64 - site as i64);
+                patch_riscv_auipc(text, relocation.offset, hi20);
+            }
+            "external" if relocation.kind == "riscv_got_lo12" => {
+                let Some(&slot) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-riscv64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let auipc_site = text_vmaddr + relocation.offset as u64 - 4;
+                let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64);
+                patch_riscv_itype_imm(text, relocation.offset, lo12);
+            }
             _ => {
                 return Err(format!(
                     "linux linker does not support relocation {} {}",
@@ -279,7 +348,44 @@ fn append_import_stubs(
     Ok(locations)
 }
 
+/// The RISC-V high/low split of a PC-relative displacement: `auipc` materializes
+/// the upper 20 bits (rounded so the sign-extended low 12 corrects it) and the
+/// paired `addi`/`ld`/`jalr` adds the low 12. Returns `(auipc_imm20_field,
+/// lo12)` where `lo12 ∈ [-2048, 2047]`.
+fn riscv_hi_lo(delta: i64) -> (u32, i32) {
+    let hi = (delta + 0x800) >> 12;
+    let lo = (delta - (hi << 12)) as i32;
+    ((hi as u32) & 0xfffff, lo)
+}
+
+/// Patch a RISC-V `auipc rd, hi20` word in place, preserving `rd`.
+fn patch_riscv_auipc(text: &mut [u8], offset: usize, hi20: u32) {
+    let existing = read_u32(text, offset);
+    let rd = (existing >> 7) & 0x1f;
+    write_u32(text, offset, (hi20 << 12) | (rd << 7) | 0x17);
+}
+
+/// Patch the 12-bit immediate of a RISC-V I-type word (`addi`/`ld`/`jalr`) in
+/// place, preserving `rd`/`rs1`/`funct3`/opcode.
+fn patch_riscv_itype_imm(text: &mut [u8], offset: usize, lo12: i32) {
+    let existing = read_u32(text, offset) & 0x000f_ffff; // clear imm[31:20]
+    write_u32(text, offset, existing | (((lo12 as u32) & 0xfff) << 20));
+}
+
 fn emit_import_stub(arch: &str, text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
+    if arch == "riscv64" {
+        // Load the resolved address from the GOT slot and jump: `auipc t3, hi;
+        // ld t3, lo(t3); jr t3` (t3 = x28). 12 bytes, matching the fixed stub
+        // slot. The loader fills the GOT slot via the JUMP_SLOT reloc.
+        let (hi20, lo12) = riscv_hi_lo(got_vmaddr as i64 - stub_vmaddr as i64);
+        put_u32(text, (hi20 << 12) | (28 << 7) | 0x17); // auipc t3, hi20
+        put_u32(
+            text,
+            (((lo12 as u32) & 0xfff) << 20) | (28 << 15) | (0b011 << 12) | (28 << 7) | 0x03,
+        ); // ld t3, lo12(t3)
+        put_u32(text, (28 << 15) | 0x67); // jalr x0, 0(t3)
+        return;
+    }
     if arch == "x86_64" {
         // PLT stub `jmp *disp32(%rip)` (FF 25 disp32): jump through the GOT slot,
         // which the loader fills via the JUMP_SLOT reloc (non-lazy — the same rela

@@ -156,6 +156,9 @@ impl CodeInstruction {
             CodeOp::DupVFromX => &["dst", "src"],
             CodeOp::UmovXFromV => &["dst", "src", "index"],
             CodeOp::FMaddD => &["dst", "addend", "lhs", "rhs"],
+            // rv64-only compare-branch / float-compare-to-GPR (plan-99).
+            CodeOp::RvBr => &["lhs", "rhs", "cond", "target"],
+            CodeOp::RvFcmp => &["dst", "lhs", "rhs", "cmp"],
         };
         for name in required {
             if !self.fields.iter().any(|(field, _)| field == name) {

@@ -192,6 +192,18 @@ pub(crate) enum CodeOp {
     /// Float transcendental kernels' scalar tail so it is bit-identical to the
     /// vector `fmla_v` Horner steps (plan-01-simd §4.6).
     FMaddD,
+    /// rv64-only native compare-and-branch (plan-99), synthesized by
+    /// `select_riscv64` when it expands a flagless fused `br_cc`/`br_cc_imm` (or a
+    /// float compare's `rv.fcmp` bool). RISC-V has no flags, so a compare-and-branch
+    /// is a single B-type instruction: `b<cond> lhs, rhs, target`. Fields carry
+    /// `lhs`/`rhs` (GPRs; `rhs` may be `zero`) plus a `cond` (`eq`/`ne`/`lt`/`ge`/
+    /// `ltu`/`geu`) and a `target` label. Never emitted for AArch64/x86.
+    RvBr,
+    /// rv64-only float compare into a GPR (plan-99): `feq.d`/`flt.d`/`fle.d dst,
+    /// lhs, rhs` — RISC-V's flagless float comparison writes a 0/1 GPR the
+    /// following `rv.br` tests. Fields: `dst` (GPR), `lhs`/`rhs` (FP), `cmp`
+    /// (`eq`/`lt`/`le`). Never emitted for AArch64/x86.
+    RvFcmp,
 }
 
 impl CodeOp {
@@ -338,6 +350,8 @@ impl CodeOp {
             CodeOp::DupVFromX => "dup_v_from_x",
             CodeOp::UmovXFromV => "umov_x_from_v",
             CodeOp::FMaddD => "fmadd_d",
+            CodeOp::RvBr => "rv.br",
+            CodeOp::RvFcmp => "rv.fcmp",
         }
     }
 
@@ -484,6 +498,8 @@ impl CodeOp {
             "dup_v_from_x" => Ok(CodeOp::DupVFromX),
             "umov_x_from_v" => Ok(CodeOp::UmovXFromV),
             "fmadd_d" => Ok(CodeOp::FMaddD),
+            "rv.br" => Ok(CodeOp::RvBr),
+            "rv.fcmp" => Ok(CodeOp::RvFcmp),
             other => Err(format!("aarch64 code op '{other}' is not encodable")),
         }
     }
@@ -640,6 +656,8 @@ mod tests {
             CodeOp::DupVFromX,
             CodeOp::UmovXFromV,
             CodeOp::FMaddD,
+            CodeOp::RvBr,
+            CodeOp::RvFcmp,
         ];
         for &op in ALL {
             assert_eq!(CodeOp::from_mnemonic(op.mnemonic()), Ok(op));

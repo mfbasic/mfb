@@ -135,11 +135,23 @@ pub(super) fn int_physical_index(name: &str) -> Option<u32> {
         "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
         "r13", "r14", "r15",
     ];
-    X86_GPRS
-        .iter()
-        .position(|&reg| reg == name)
-        .filter(|&i| i != 4) // rsp
-        .map(|i| i as u32)
+    if let Some(i) = X86_GPRS.iter().position(|&reg| reg == name).filter(|&i| i != 4) {
+        return Some(i as u32);
+    }
+    // RISC-V lp64d GPRs, indexed by their register number (`zero`=0 … `t6`=31,
+    // plan-99). ABI names are distinct from the AArch64 `x*`/x86 spellings, so
+    // this is additive.
+    riscv_int_index(name)
+}
+
+/// The RISC-V lp64d GPR index (0–31) for an ABI register name, or `None`.
+pub(super) fn riscv_int_index(name: &str) -> Option<u32> {
+    const RISCV_GPRS: &[&str] = &[
+        "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
+        "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
+        "t5", "t6",
+    ];
+    RISCV_GPRS.iter().position(|&reg| reg == name).map(|i| i as u32)
 }
 
 /// The FP/SIMD physical-register index, or `None`. AArch64 scalar `d0`–`d31` /
@@ -151,9 +163,27 @@ pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
             return (n <= 31).then_some(n);
         }
     }
-    name.strip_prefix("xmm")
+    if let Some(n) = name
+        .strip_prefix("xmm")
         .and_then(|rest| rest.parse::<u32>().ok())
         .filter(|n| *n <= 15)
+    {
+        return Some(n);
+    }
+    // RISC-V FP registers, indexed by their register number (`ft0`=0 … `ft11`=31,
+    // plan-99). ABI names start with `f` and are distinct from the AArch64
+    // `d*`/`v*` and x86 `xmm*` spellings.
+    riscv_fp_index(name)
+}
+
+/// The RISC-V FP register index (0–31) for an ABI register name, or `None`.
+pub(super) fn riscv_fp_index(name: &str) -> Option<u32> {
+    const RISCV_FPRS: &[&str] = &[
+        "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1", "fa0", "fa1", "fa2",
+        "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9",
+        "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
+    ];
+    RISCV_FPRS.iter().position(|&reg| reg == name).map(|i| i as u32)
 }
 
 impl ClassModel {
@@ -251,6 +281,11 @@ fn is_block_terminator(op: CodeOp) -> bool {
             | CodeOp::X86Jae
             | CodeOp::X86Jp
             | CodeOp::X86Jnp
+            // rv64 native compare-and-branch `select_riscv64` emits for flagless
+            // fused compares (plan-99). Same reasoning as the x86 branches: the
+            // allocator runs after selection, so a block ending in one must split
+            // here or its jump-target CFG edge and cross-branch liveness are wrong.
+            | CodeOp::RvBr
             | CodeOp::Ret
             | CodeOp::BranchSelf
     )
