@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_float_fma_observed_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 7, "mutable": false, "name": "a", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1.5e308" }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "observed", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Float", "value": "2.0" } } },
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

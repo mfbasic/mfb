@@ -1,0 +1,26 @@
+{
+  "project": "arithmetic_float_fma_observed_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "1.5e308" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "observed", "type": "Float", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "2.0" } }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

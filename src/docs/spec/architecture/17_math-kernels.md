@@ -30,6 +30,16 @@ result is bit-identical on macOS, Linux-glibc, and Linux-musl** — the same
 property `Fixed` already had, now extended to `Float`. There is no
 reduction-order ambiguity, no libm version skew, and no last-ULP platform drift.
 
+This extends to the x86_64 and riscv64 backends, and to ordinary user-level
+`Float` `a*b±c` expressions, because scalar fused multiply-add is decided in
+target-neutral MIR lowering (plan-02) and IEEE-754 FMA is a correctly-rounded,
+deterministic operation — so every FMA-capable IEEE target fuses the same
+expression to the same bits. Note the distinction in strength: `Fixed`
+cross-target bit-identity is a **contractual guarantee** (Q32.32 integer math);
+`Float` cross-target bit-identity holds **in practice** under this uniform-fusion
+policy but is not contractually guaranteed — the headroom is reserved for a future
+target that lacks hardware FMA (`./mfb spec language builtin-functions`).
+
 (`math::rand`/`math::seed` import `getentropy` from libc for their startup seed;
 that is the RNG, not math, and it is the only `math::` member that imports
 anything.)

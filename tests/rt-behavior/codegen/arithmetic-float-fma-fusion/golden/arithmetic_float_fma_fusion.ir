@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_float_fma_fusion",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 4, "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "4" } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "const", "type": "Float", "value": "3.0" } }, "right": { "kind": "const", "type": "Float", "value": "4.0" } }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "const", "type": "Float", "value": "3.0" } }, "right": { "kind": "const", "type": "Float", "value": "4.0" } }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "10.0" }, "right": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "const", "type": "Float", "value": "3.0" } } }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "1.5" }, "right": { "kind": "const", "type": "Float", "value": "1.5" } }, "right": { "kind": "const", "type": "Float", "value": "0.25" } }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "a", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1.5e308" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "r", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Float", "value": "2.0" } }, "right": { "kind": "local", "name": "a" } } },
+    {
+      "op": "if",
+      "line": 17,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } },
+      "then": [
+      { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "fused-finite-ok" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

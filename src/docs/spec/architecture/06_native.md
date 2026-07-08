@@ -297,6 +297,17 @@ so the `bump` oracle keeps the legacy GP-native round-trip; `MOD`/`^` run
 dedicated scalar kernels — their FP working set is allocator-placed virtual
 registers plus the fixed `d0`–`d7` input/scratch bank — and stay GP-native too.)
 
+A single-use `Float` `a*b±c` chain is **fused** into one single-rounded fused
+multiply-add before register allocation (plan-02): `a*b+c`→`fmadd_d`,
+`a*b-c`→`fmsub_d`, `c-a*b`→`fnmsub_d`. The rewrite is decided on the neutral MIR
+stream, so it fires identically on every backend, and applies only when the
+product's FP virtual register is used exactly once — a product the program
+observes (a named binding, a store, a second reader) keeps its own `fmul_d` and is
+checked at that boundary like any other value (plan-17). Fusion rounds the product
+once instead of twice, so a fused result is `≤1` ULP and no worse than the discrete
+form; the intermediate product is not a named `Float` and does not independently
+trap, so `a*b+c` can be finite even where `a*b` alone would overflow.
+
 A value live across a call stays in a callee-saved `d8`–`d15` rather than
 spilling. A loop-carried float accumulator — a non-escaping `Float` local
 assigned in a loop body — is **promoted** to a `d`-register held across the whole

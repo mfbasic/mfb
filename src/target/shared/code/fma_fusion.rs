@@ -55,11 +55,7 @@ fn use_counts(instructions: &[CodeInstruction]) -> std::collections::HashMap<Str
 }
 
 /// Rewrite single-use `a*b (+|-) c` chains into fused multiply-add ops, in place.
-///
-/// Dormant in plan-02 Phase 2 (compiled + unit-tested, not called from the
-/// lowering pipeline); `lower_function` calls it in Phase 3, at which point the
-/// `#[allow(dead_code)]` comes off.
-#[allow(dead_code)]
+/// Called by `lower_function` just before register allocation (plan-02 Phase 3).
 pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
     let counts = use_counts(instructions);
     let mut remove = vec![false; instructions.len()];

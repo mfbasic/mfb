@@ -15,9 +15,9 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "big", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "1e200" }] }, "line": 5 },
-      { "kind": "binding", "mutable": false, "name": "x", "type": "Float", "value": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } } }, "line": 6 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      { "kind": "binding", "mutable": false, "name": "big", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "1e200" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "x", "type": "Float", "value": { "kind": "binary", "operator": "/", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } } }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
       ]
     }
     ]

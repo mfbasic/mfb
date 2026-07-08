@@ -19,9 +19,9 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 5, "mutable": false, "name": "big", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1e200" }] } },
-    { "op": "bind", "line": 6, "mutable": false, "name": "x", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "big" } }, "right": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "big" } } } },
-    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 8, "mutable": false, "name": "big", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1e200" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "x", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "big" } }, "right": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "big" } } } },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

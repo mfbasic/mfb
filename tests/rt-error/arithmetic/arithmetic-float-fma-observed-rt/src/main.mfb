@@ -1,0 +1,10 @@
+FUNC main AS Integer
+  ' A product that is *observed* (bound to a named Float) is not fused: it
+  ' rounds to +Inf and traps at that boundary with ErrFloatOverflow (plan-17).
+  ' Contrast the single-use fused `a*b - c` in arithmetic-float-fma-fusion,
+  ' which stays finite and does NOT trap (plan-02 §6.2): fusion never hides a
+  ' product the program actually observes.
+  LET a AS Float = toFloat("1.5e308")
+  LET observed AS Float = a * 2.0
+  RETURN 0
+END FUNC

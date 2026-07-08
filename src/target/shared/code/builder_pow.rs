@@ -141,8 +141,10 @@ impl CodeBuilder<'_> {
         for &c in coeffs.iter().rev().skip(1) {
             self.emit(abi::move_immediate(xs, "Integer", &c.to_bits().to_string()));
             self.emit(abi::float_move_d_from_x("d1", xs));
-            self.emit(abi::float_multiply_d("d0", "d0", var));
-            self.emit(abi::float_add_d("d0", "d0", "d1"));
+            // One single-rounded fused step `d0 = d1 + d0*var` in place of the
+            // discrete `fmul; fadd` (plan-02 §4 kernel audit): fewer instructions
+            // and, like the vector `fmla` Horner steps, one rounding instead of two.
+            self.emit(abi::float_multiply_add_d("d0", "d1", "d0", var));
         }
         self.pst("d0", out);
     }

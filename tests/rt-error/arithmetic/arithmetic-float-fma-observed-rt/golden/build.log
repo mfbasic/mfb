@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt
+Wrote AST to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.ast
+Wrote IR to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt
+Wrote executable to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.out
+[exit 0]
+$ tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.out
+Code: 77050015 Message: float overflow
+[exit 255]

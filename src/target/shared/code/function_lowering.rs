@@ -716,6 +716,10 @@ pub(super) fn lower_function(
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
     }
+    // Fuse single-use `a*b ± c` float chains into one single-rounded fused op
+    // (plan-02 Phase 3) before allocation, so the fused op's operands are colored
+    // as a unit. A no-op unless the `d`-native FP virtual registers are present.
+    fma_fusion::fuse_scalar_fma(&mut builder.instructions);
     // Color virtual registers to physical registers (plan-03 Stage A) before the
     // body is moved out for the peephole pass and finalize_frame.
     builder.run_register_allocation();

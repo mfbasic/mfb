@@ -1,0 +1,42 @@
+{
+  "project": "arithmetic_float_fma_fusion",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "4" }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "2.0" }, "right": { "kind": "number", "value": "3.0" } }, "right": { "kind": "number", "value": "4.0" } }, { "kind": "identifier", "value": "p" }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "2.0" }, "right": { "kind": "number", "value": "3.0" } }, "right": { "kind": "number", "value": "4.0" } }, { "kind": "identifier", "value": "p" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "10.0" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "2.0" }, "right": { "kind": "number", "value": "3.0" } } }, { "kind": "identifier", "value": "p" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "1.5" }, "right": { "kind": "number", "value": "1.5" } }, "right": { "kind": "number", "value": "0.25" } }, { "kind": "identifier", "value": "p" }] }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "1.5e308" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Float", "value": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "2.0" } }, "right": { "kind": "identifier", "value": "a" } }, "line": 16 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "0.0" } },
+        "line": 17,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "fused-finite-ok" }] }, "line": 18 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,21 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET p AS Byte = 4
+  ' Each single-use `a*b (+|-) c` fuses to one single-rounded fused
+  ' multiply-add (plan-02 Phase 3): `fmadd`/`fmsub`/`fnmsub`.
+  io::print(toString(2.0 * 3.0 + 4.0, p))   ' a*b+c  -> fmadd  -> 10.0000
+  io::print(toString(2.0 * 3.0 - 4.0, p))   ' a*b-c  -> fmsub  -> 2.0000
+  io::print(toString(10.0 - 2.0 * 3.0, p))  ' c-a*b  -> fnmsub -> 4.0000
+  io::print(toString(1.5 * 1.5 + 0.25, p))  ' -> 2.5000
+  ' plan-02 §6.2: `a*b` alone overflows f64 (3e308 > max), but the single-use
+  ' fused `a*b - c` rounds once from the exact product and is finite, so it does
+  ' NOT trap. (A product that is *observed* still traps — see the rt-error
+  ' companion arithmetic-float-fma-observed-rt.)
+  LET a AS Float = toFloat("1.5e308")
+  LET r AS Float = a * 2.0 - a
+  IF r > 0.0 THEN
+    io::print("fused-finite-ok")
+  END IF
+  RETURN 0
+END FUNC
