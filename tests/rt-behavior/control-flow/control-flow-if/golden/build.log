@@ -1,0 +1,16 @@
+$ mfb build -ast -ir -br -nir -nplan -nobj -ncode -mir tests/rt-behavior/control-flow/control-flow-if
+Wrote AST to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.ast
+Wrote IR to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.ir
+Wrote binary representation hex to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.hex
+Wrote native IR to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.nir
+Wrote native plan to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.nplan
+Wrote native object plan to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.nobj
+Wrote native code plan to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.ncode
+Wrote MIR to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.mir
+[exit 0]
+$ mfb build tests/rt-behavior/control-flow/control-flow-if
+Wrote executable to tests/rt-behavior/control-flow/control-flow-if/control_flow_if.out
+[exit 0]
+$ tests/rt-behavior/control-flow/control-flow-if/control_flow_if.out
+28
+[exit 0]

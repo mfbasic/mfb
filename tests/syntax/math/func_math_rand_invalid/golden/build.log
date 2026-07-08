@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/math/func_math_rand_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+     | ^
+tests/syntax/math/func_math_rand_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `math.rand` has argument type(s) (Float, Float), expected Integer min, Integer max.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+     | ^
+tests/syntax/math/func_math_rand_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+   5 |   LET tooFew AS Integer = math::rand(1)
+     | ^
+tests/syntax/math/func_math_rand_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.rand` has 1 argument(s), expected 2.
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+   5 |   LET tooFew AS Integer = math::rand(1)
+     | ^
+tests/syntax/math/func_math_rand_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooFew` does not have a known type.
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+   5 |   LET tooFew AS Integer = math::rand(1)
+   6 |   LET tooMany AS Integer = math::rand(1, 2, 3)
+     | ^
+tests/syntax/math/func_math_rand_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.rand` has 3 argument(s), expected 2.
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+   5 |   LET tooFew AS Integer = math::rand(1)
+   6 |   LET tooMany AS Integer = math::rand(1, 2, 3)
+     | ^
+tests/syntax/math/func_math_rand_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

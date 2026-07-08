@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/builtin-term/behavior/func_term_getBold_valid
-Wrote AST to tests/builtin-term/behavior/func_term_getBold_valid/func_term_getBold_valid.ast
-Wrote IR to tests/builtin-term/behavior/func_term_getBold_valid/func_term_getBold_valid.ir
-[exit 0]

@@ -1,0 +1,24 @@
+IMPORT fs
+IMPORT io
+
+' Opens its own file resource, then fails. The resource is released by lexical
+' drop as the error leaves the function, before any inline trap handler runs.
+FUNC openThenFail(p AS String) AS Integer
+  RES scratch AS File = fs::openFile(p)
+  FAIL error(700, "after open")
+END FUNC
+
+FUNC main AS Integer
+  RES outer AS File = fs::openFile("tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt")
+  MUT code AS Integer = 0
+  openThenFail("tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt") TRAP(e)
+    ' The enclosing `outer` resource is established before the trapped call and
+    ' is still live here, so it remains usable inside the handler.
+    LET line AS String = fs::readLine(outer)
+    io::print(line)
+    code = e.code
+    RECOVER 0
+  END TRAP
+  io::print(toString(code))
+  RETURN 0
+END FUNC

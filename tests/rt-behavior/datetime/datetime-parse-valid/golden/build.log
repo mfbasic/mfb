@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-parse-valid
+Wrote AST to tests/rt-behavior/datetime/datetime-parse-valid/datetime-parse-valid.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-parse-valid/datetime-parse-valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-parse-valid
+Wrote executable to tests/rt-behavior/datetime/datetime-parse-valid/datetime-parse-valid.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-parse-valid/datetime-parse-valid.out
+launch=-14182980
+frac_nanos=250000000 off=19800
+p=2026-06-25 14:30:00 +05:30
+q=2026-06-25 14:30 Z
+am=00:05
+roundtrip=TRUE
+iso_roundtrip=TRUE
+[exit 0]

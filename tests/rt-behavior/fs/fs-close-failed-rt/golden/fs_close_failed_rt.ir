@@ -1,0 +1,59 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_close_failed_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "closeOnce",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 4, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 5, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": true, "name": "ok", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "closeOnce", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-close-failed-rt/data/in.txt" }] } },
+    { "op": "bind", "line": 12, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "line": 12,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 12, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 12, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 13, "name": "$trap_val1", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+      ]
+    },
+    { "op": "assign", "line": 12, "name": "ok", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ok" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "closed" }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

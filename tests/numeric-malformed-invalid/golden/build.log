@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/numeric-malformed-invalid
-   3 | ' plan-28-A: a digit outside the base is a lexer error, never a silent decode.
-   4 | FUNC main AS Integer
-   5 |   io::print(toString(0b2))
-     |                        ^
-tests/numeric-malformed-invalid/src/main.mfb:5 error[1-101-0004 MFB_LEX_MALFORMED_NUMBER]: numeric literal is malformed
-               `2` is not a valid digit in a binary literal.
-[exit 1]

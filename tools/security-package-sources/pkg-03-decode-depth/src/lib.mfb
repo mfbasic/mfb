@@ -1,6 +1,6 @@
 ' Benign base package for the PKG-03 security fixture. `generate.py`
 ' builds this, then rewrites the compiled `.mfp` into the malicious variant
-' committed under tests/security/pkg-03-decode-depth/packages/.
+' committed under tests/syntax/security/pkg-03-decode-depth/packages/.
 EXPORT FUNC run() AS Integer
   RETURN 42
 END FUNC

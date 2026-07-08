@@ -1,0 +1,13 @@
+$ mfb test tests/syntax/testing/testing-nested-valid
+* outer
+  * [P] direct case
+  * inner
+    * [P] nested pass
+    * deep
+      * [P] deep pass
+      * [F] deep fail shows indented detail
+        X expected 5, got 4  (src/main.mfb:31)
+  * [P] case after a subgroup keeps source order
+
+Tests: 5  Pass: 4  Fail: 1
+[exit 1]

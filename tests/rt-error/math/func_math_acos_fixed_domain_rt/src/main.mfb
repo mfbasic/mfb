@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET outside AS Fixed = 2.0F
+  LET result AS Fixed = math::acos(outside)
+  RETURN 0
+END FUNC

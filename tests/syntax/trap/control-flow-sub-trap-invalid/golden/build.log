@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/trap/control-flow-sub-trap-invalid
+   1 | SUB bad(flag AS Boolean)
+   2 |   IF flag THEN
+   3 |     RETURN
+     | ^
+tests/syntax/trap/control-flow-sub-trap-invalid/src/main.mfb:3 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
+               A SUB returns no value; use `EXIT SUB`.
+   4 |   END IF
+   5 |   TRAP(err)
+   6 |     RETURN
+     | ^
+tests/syntax/trap/control-flow-sub-trap-invalid/src/main.mfb:6 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
+               A SUB returns no value; use `EXIT SUB`.
+   3 |     RETURN
+   4 |   END IF
+   5 |   TRAP(err)
+     | ^
+tests/syntax/trap/control-flow-sub-trap-invalid/src/main.mfb:5 error[2-203-0012 TYPE_TRAP_FALLTHROUGH]: TRAP path can fall through
+               Normal flow in `bad` reaches TRAP `err`; body paths before TRAP must end with RETURN or FAIL.
+[exit 1]

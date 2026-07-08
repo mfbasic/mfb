@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/tls/tls-connect-google-rt
+Wrote AST to tests/rt-behavior/tls/tls-connect-google-rt/tls_connect_google_rt.ast
+Wrote IR to tests/rt-behavior/tls/tls-connect-google-rt/tls_connect_google_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/tls/tls-connect-google-rt
+Wrote executable to tests/rt-behavior/tls/tls-connect-google-rt/tls_connect_google_rt.out
+[exit 0]
+$ tests/rt-behavior/tls/tls-connect-google-rt/tls_connect_google_rt.out
+connected=TRUE
+httpResponse=TRUE
+closed=TRUE
+[exit 0]

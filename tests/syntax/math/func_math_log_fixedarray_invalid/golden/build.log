@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/math/func_math_log_fixedarray_invalid
+   3 | FUNC main AS Integer
+   4 |   LET xs AS List OF Integer = [1, 2, 3]
+   5 |   LET ls AS List OF Integer = math::log(xs)
+     | ^
+tests/syntax/math/func_math_log_fixedarray_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `math.log` has argument type(s) (List OF Integer), expected Float | Fixed.
+   3 | FUNC main AS Integer
+   4 |   LET xs AS List OF Integer = [1, 2, 3]
+   5 |   LET ls AS List OF Integer = math::log(xs)
+     | ^
+tests/syntax/math/func_math_log_fixedarray_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `ls` does not have a known type.
+[exit 1]

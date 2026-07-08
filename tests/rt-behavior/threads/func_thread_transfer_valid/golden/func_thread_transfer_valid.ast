@@ -1,0 +1,33 @@
+{
+  "project": "func_thread_transfer_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "fs", "line": 3 },
+    { "module": "thread_file_sink", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_file_sink.sizeOfReceived" }, { "kind": "string", "value": "seed" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/func_thread_transfer_valid/data/input.txt" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "size", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "size" }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-import-as
+Wrote AST to tests/syntax/packages/package-import-as/package_import_as.ast
+Wrote IR to tests/syntax/packages/package-import-as/package_import_as.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-import-as
+Wrote package to tests/syntax/packages/package-import-as/package_import_as.mfp
+[exit 0]

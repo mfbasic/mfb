@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/builtin-thread/behavior/func_thread_isCancelled_valid
-Wrote AST to tests/builtin-thread/behavior/func_thread_isCancelled_valid/func_thread_isCancelled_valid.ast
-Wrote IR to tests/builtin-thread/behavior/func_thread_isCancelled_valid/func_thread_isCancelled_valid.ir
-[exit 0]

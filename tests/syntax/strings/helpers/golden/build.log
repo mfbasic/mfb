@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/strings/helpers
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.startsWithAny` has argument type(s) (String, String), expected String, List OF String.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   5 |   LET b AS String = strings::left("abc")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.left` has 1 argument(s), expected 2.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   5 |   LET b AS String = strings::left("abc")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   5 |   LET b AS String = strings::left("abc")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.padLeft` has 4 argument(s), expected 2 to 3.
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   5 |   LET b AS String = strings::left("abc")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+   5 |   LET b AS String = strings::left("abc")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.graphemesCount` has 2 argument(s), expected 1.
+   5 |   LET b AS String = strings::left("abc")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+   8 |   LET e AS String = strings::repeat("abc", "x")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.repeat` has argument type(s) (String, String), expected String, Integer.
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+   8 |   LET e AS String = strings::repeat("abc", "x")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e` does not have a known type.
+[exit 1]

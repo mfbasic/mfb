@@ -1,6 +1,6 @@
 ' Benign base package for the PKG-04 security fixture. `generate.py`
 ' builds this, then rewrites the compiled `.mfp` into the malicious variant
-' committed under tests/security/pkg-04-type-cycle/packages/.
+' committed under tests/syntax/security/pkg-04-type-cycle/packages/.
 EXPORT FUNC run() AS Integer
   RETURN 42
 END FUNC

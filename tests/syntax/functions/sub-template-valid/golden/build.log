@@ -1,0 +1,7 @@
+$ mfb build -ast -ir -nir -nplan -nobj tests/syntax/functions/sub-template-valid
+Wrote AST to tests/syntax/functions/sub-template-valid/sub_template_valid.ast
+Wrote IR to tests/syntax/functions/sub-template-valid/sub_template_valid.ir
+Wrote native IR to tests/syntax/functions/sub-template-valid/sub_template_valid.nir
+Wrote native plan to tests/syntax/functions/sub-template-valid/sub_template_valid.nplan
+Wrote native object plan to tests/syntax/functions/sub-template-valid/sub_template_valid.nobj
+[exit 0]

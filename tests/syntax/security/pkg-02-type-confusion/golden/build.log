@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/security/pkg-02-type-confusion
+uses sec_confused - [Unsigned]
+Wrote AST to tests/syntax/security/pkg-02-type-confusion/pkg_02_type_confusion.ast
+Wrote IR to tests/syntax/security/pkg-02-type-confusion/pkg_02_type_confusion.ir
+[exit 0]
+$ mfb build tests/syntax/security/pkg-02-type-confusion
+uses sec_confused - [Unsigned]
+error: TYPE_FIELD_ACCESS_REQUIRES_RECORD: field access requires a record value, got `Integer`.
+[exit 1]

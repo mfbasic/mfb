@@ -53,8 +53,8 @@ TESTING
         LET letValue AS Fixed = 1.5
         MUT mutValue AS Fixed = 3.5
         mutValue = 2.5
-        expectFixed(letValue, toFixed("1.500000000000000000"))
-        expectFixed(mutValue, toFixed("2.500000000000000000"))
+        expectFixed(letValue, 1.500000000000000000F)
+        expectFixed(mutValue, 2.500000000000000000F)
       END TCASE
     END TGROUP
 

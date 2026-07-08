@@ -1,0 +1,44 @@
+IMPORT fs
+IMPORT io
+
+FUNC readText1(p AS String) AS String
+  RETURN fs::readText(p)
+END FUNC
+FUNC readAll1(p AS String) AS String
+  RETURN fs::readAll(fs::openFile(p))
+END FUNC
+FUNC readLine1(p AS String) AS String
+  RETURN fs::readLine(fs::openFile(p))
+END FUNC
+
+FUNC codeOf(p AS String, which AS Integer) AS Integer
+  MUT code AS Integer = 0
+  IF which = 0 THEN
+    readText1(p) TRAP(e)
+      code = e.code
+      RECOVER ""
+    END TRAP
+  END IF
+  IF which = 1 THEN
+    readAll1(p) TRAP(e)
+      code = e.code
+      RECOVER ""
+    END TRAP
+  END IF
+  IF which = 2 THEN
+    readLine1(p) TRAP(e)
+      code = e.code
+      RECOVER ""
+    END TRAP
+  END IF
+  RETURN code
+END FUNC
+
+FUNC main AS Integer
+  LET good AS String = fs::readText("tests/rt-behavior/fs/fs-text-utf8-rt/good.txt")
+  io::print(good)
+  io::print(toString(codeOf("tests/rt-behavior/fs/fs-text-utf8-rt/bad.txt", 0)))
+  io::print(toString(codeOf("tests/rt-behavior/fs/fs-text-utf8-rt/bad.txt", 1)))
+  io::print(toString(codeOf("tests/rt-behavior/fs/fs-text-utf8-rt/bad.txt", 2)))
+  RETURN 0
+END FUNC

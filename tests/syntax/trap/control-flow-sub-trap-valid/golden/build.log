@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/trap/control-flow-sub-trap-valid
+Wrote AST to tests/syntax/trap/control-flow-sub-trap-valid/control_flow_sub_trap_valid.ast
+Wrote IR to tests/syntax/trap/control-flow-sub-trap-valid/control_flow_sub_trap_valid.ir
+[exit 0]

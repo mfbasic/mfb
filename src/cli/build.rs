@@ -1284,7 +1284,7 @@ mod tests {
     #[test]
     fn classify_installed_package_reads_unsigned_fixture() {
         // A valid unsigned package classifies as Unsigned (no signature).
-        let path = Path::new("tests/package-trap-builtin/golden/trap_builtin_pkg.mfp");
+        let path = Path::new("tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp");
         assert!(path.is_file(), "fixture must exist");
         let classification = classify_installed_package(path, None);
         assert_eq!(classification.state, PackageVerification::Unsigned);
@@ -1357,7 +1357,7 @@ mod tests {
         let packages = dir.path().join("packages");
         std::fs::create_dir_all(&packages).expect("packages dir");
         std::fs::copy(
-            "tests/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+            "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp",
             packages.join("trap_builtin_pkg.mfp"),
         )
         .expect("copy fixture");
@@ -1382,7 +1382,7 @@ mod tests {
         let packages = dir.path().join("packages");
         std::fs::create_dir_all(&packages).expect("packages dir");
         std::fs::copy(
-            "tests/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+            "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp",
             packages.join("trap_builtin_pkg.mfp"),
         )
         .expect("copy fixture");

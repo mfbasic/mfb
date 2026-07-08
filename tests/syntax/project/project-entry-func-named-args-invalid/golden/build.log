@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/project/project-entry-func-named-args-invalid
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET duplicate = greet(name := "Ada", name := "Grace")
+     | ^
+tests/syntax/project/project-entry-func-named-args-invalid/src/main.mfb:6 error[2-203-0058 TYPE_DUPLICATE_ARGUMENT_NAME]: call argument is supplied more than once
+               Call to `greet` supplies parameter `name` more than once.
+   5 | FUNC main AS Integer
+   6 |   LET duplicate = greet(name := "Ada", name := "Grace")
+   7 |   LET unknown = greet(person := "Ada")
+     | ^
+tests/syntax/project/project-entry-func-named-args-invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `greet` does not have a parameter named `person`.
+   5 | FUNC main AS Integer
+   6 |   LET duplicate = greet(name := "Ada", name := "Grace")
+   7 |   LET unknown = greet(person := "Ada")
+     | ^
+tests/syntax/project/project-entry-func-named-args-invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `greet` has 0 argument(s), expected 1 to 2.
+[exit 1]

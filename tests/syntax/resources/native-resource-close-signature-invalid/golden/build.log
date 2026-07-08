@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/native-resource-close-signature-invalid
+   3 | 
+   4 | LINK "demo" AS demoLink
+   5 |   FUNC close(RES db AS Db, extra AS Integer) AS Nothing
+     | ^
+tests/syntax/resources/native-resource-close-signature-invalid/src/lib.mfb:5 error[2-203-0091 RESOURCE_CLOSE_SIGNATURE]: a close op must consume exactly one RES parameter of its resource
+               Close op `demoLink.close` for resource `Db` must take exactly one `RES Db ...` parameter.
+[exit 1]

@@ -8,7 +8,7 @@ IMPORT fs
 ' the worker receives the parent's file (length 6) and the parent receives the
 ' worker's file (length 12).
 EXPORT ISOLATED FUNC exchange(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
-  RES outgoing AS File = fs::openFile("tests/thread-transfer-bidirectional-rt/data/worker.txt")
+  RES outgoing AS File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/worker.txt")
   thread::transfer(t, outgoing)
   RES incoming AS File = thread::accept(t, -1)
   LET inData AS String = fs::readAll(incoming)

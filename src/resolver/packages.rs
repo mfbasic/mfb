@@ -359,7 +359,7 @@ mod tests {
         // A real, valid package binary-representation fixture exercises the
         // success loop that inserts exported type/variant names.
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/project-with-package-import-as/packages/package_import_as.mfp");
+            .join("tests/rt-behavior/project/project-with-package-import-as/packages/package_import_as.mfp");
         fs::copy(&fixture, packages.join("shape.mfp")).unwrap();
         let manifest = manifest_with_package("shape", None);
         // Reading valid exports must not report an error.

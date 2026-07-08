@@ -196,7 +196,7 @@ TESTING
       LET floatPos AS Float = 3.9
       LET floatNeg AS Float = 0.0 - 3.9
       LET fixedPos AS Fixed = 12.75
-      LET fixedNeg AS Fixed = 0 - toFixed("12.75")
+      LET fixedNeg AS Fixed = 0 - 12.75F
       expectInteger(toInt("0"), 0)
       expectInteger(toInt("+42"), 42)
       expectInteger(toInt("-42"), -42)
@@ -304,7 +304,7 @@ TESTING
       expectEqual(isNumeric("1e308"), TRUE)
       expectEqual(isNumeric("1e309"), FALSE)
       expectFloat(toFloat("1e-18446744073709551616"), 0.00000000000000000)
-      expectFixed(toFixed("1e-18446744073709551616"), toFixed("0.0"))
+      expectFixed(toFixed("1e-18446744073709551616"), 0.0F)
     END TCASE
   END TGROUP
 

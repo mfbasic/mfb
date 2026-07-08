@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/control-flow-match-when
-Wrote AST to tests/control-flow-match-when/control_flow_match_when.ast
-Wrote IR to tests/control-flow-match-when/control_flow_match_when.ir
-[exit 0]
-$ mfb build tests/control-flow-match-when
-Wrote executable to tests/control-flow-match-when/control_flow_match_when.out
-[exit 0]
-$ tests/control-flow-match-when/control_flow_match_when.out
-[exit 60]

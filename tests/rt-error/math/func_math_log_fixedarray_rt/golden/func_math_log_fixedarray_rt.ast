@@ -1,0 +1,29 @@
+{
+  "project": "func_math_log_fixedarray_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "number", "value": "4.0F" }, { "kind": "number", "value": "0.0F" }, { "kind": "number", "value": "9.0F" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "ls", "type": "List OF Fixed", "value": { "kind": "call", "callee": "math.log", "arguments": [{ "kind": "identifier", "value": "xs" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ls" }] }] }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

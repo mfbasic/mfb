@@ -124,11 +124,13 @@ mkdir -p "$ACTUAL_ROOT"
 
 cd "$ROOT" || exit 2
 
-# Every directory holding a project.json is a test, at any depth: the flat
-# tests/<name>, the grouped tests/security/* suites, and nested package suites
-# such as tests/builtin-bits/{acceptance,syntax,runtime}/* (a grouping directory
-# has no project.json of its own and is skipped). Process substitution keeps the
-# loop in this shell so `ran`/`failures` persist.
+# Every directory holding a project.json is a test, at any depth. Tests are
+# organized under four top-level trees: tests/acceptance (the single TESTING
+# app), tests/syntax/<feature>/* (compile-time diagnostics), tests/rt-error/
+# <feature>/* (runtime errors), and tests/rt-behavior/<feature>/* (runtime
+# behavior). A <feature> directory is just a grouping dir (no project.json of
+# its own) and is skipped. Process substitution keeps the loop in this shell so
+# `ran`/`failures` persist.
 while IFS= read -r project_json; do
   test_dir=$(dirname "$project_json")
 

@@ -1,0 +1,84 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_resource_fail_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "failOnce",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 4, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 5, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "fail", "line": 6, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "body fail" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "trapFail",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 9, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "failOnce", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    {
+      "op": "trap",
+      "line": 12,
+      "name": "err",
+      "body": [
+      {
+        "op": "if",
+        "line": 13,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+        "then": [
+        { "op": "fail", "line": 13, "error": { "kind": "local", "name": "err" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "return", "line": 14, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 20,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4000" } },
+      "body": [
+      { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "trapFail", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/control-flow-resource-fail-runtime/src/main.mfb" }] } },
+      { "op": "assign", "line": 22, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "fail" }] } },
+    { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -61,7 +61,7 @@ pub(crate) enum RegallocKind {
     /// it has no spilling, so on high register pressure it reuses a still-live
     /// register and miscompiles — exactly the legacy bug class [`LinearScan`] was
     /// built to fix. Known divergences where bump is the wrong one (and
-    /// linear-scan correct) are `tests/logic-valid` (a value clobbered across a
+    /// linear-scan correct) are `tests/rt-behavior/control-flow/control-flow-behavior` (a value clobbered across a
     /// call) and the `float-nbody` benchmark (the advance loop's float pressure).
     /// Never default to it or treat its output as a correctness baseline.
     BumpAndReset,

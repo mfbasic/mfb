@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/packages/audit-resources
+Wrote AST to tests/syntax/packages/audit-resources/audit_resources.ast
+Wrote IR to tests/syntax/packages/audit-resources/audit_resources.ir
+[exit 0]

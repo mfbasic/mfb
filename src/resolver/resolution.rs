@@ -1389,9 +1389,7 @@ mod tests {
     }
 
     fn resolve_fixture_fails(name: &str) -> bool {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join(name);
+        let dir = crate::testutil::fixture_dir(name);
         let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
         let pname = manifest
             .get("name")
@@ -1405,7 +1403,9 @@ mod tests {
     #[test]
     fn broad_valid_fixtures_resolve() {
         for name in [
-            "control-flow-valid",
+            // control-flow-valid was consolidated into control-flow-behavior by
+            // the tests reorganization; it stays a valid resolve fixture.
+            "control-flow-behavior",
             "control-flow-match",
             "control-flow-match-when",
             "control-flow-match-destructuring",
@@ -1417,9 +1417,7 @@ mod tests {
             "func_return_overload_valid",
             "native-resource-link-valid",
         ] {
-            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests")
-                .join(name);
+            let dir = crate::testutil::fixture_dir(name);
             let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
             let pname = manifest
                 .get("name")

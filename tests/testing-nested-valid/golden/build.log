@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/testing-nested-valid
-Wrote AST to tests/testing-nested-valid/testing_nested.ast
-Wrote IR to tests/testing-nested-valid/testing_nested.ir
-[exit 0]

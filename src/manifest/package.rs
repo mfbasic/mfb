@@ -1323,9 +1323,7 @@ mod tests {
 
     /// A committed, structurally-valid compiled package fixture.
     fn fixture_mfp() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("package-simple")
+        crate::testutil::fixture_dir("package-simple")
             .join("golden")
             .join("package_simple.mfp")
     }

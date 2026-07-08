@@ -1,6 +1,0 @@
-IMPORT term
-
-FUNC main AS Integer
-  term::setBackground(0, 0, 0)
-  RETURN 0
-END FUNC

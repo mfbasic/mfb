@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-comparable-types
+Wrote AST to tests/syntax/packages/package-comparable-types/package_comparable_types.ast
+Wrote IR to tests/syntax/packages/package-comparable-types/package_comparable_types.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-comparable-types
+Wrote package to tests/syntax/packages/package-comparable-types/package_comparable_types.mfp
+[exit 0]

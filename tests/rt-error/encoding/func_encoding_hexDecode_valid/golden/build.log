@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/encoding/func_encoding_hexDecode_valid
+Wrote AST to tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.ast
+Wrote IR to tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.ir
+[exit 0]
+$ mfb build tests/rt-error/encoding/func_encoding_hexDecode_valid
+Wrote executable to tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.out
+[exit 0]
+$ tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.out
+Code: 77020004 Message: invalid encoding
+[exit 255]

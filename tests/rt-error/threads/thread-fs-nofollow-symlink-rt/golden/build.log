@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-error/threads/thread-fs-nofollow-symlink-rt
+uses fs_thread_workers - [Unsigned]
+Wrote AST to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.ast
+Wrote IR to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/threads/thread-fs-nofollow-symlink-rt
+uses fs_thread_workers - [Unsigned]
+Wrote executable to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
+[exit 0]
+$ tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
+Code: 77030003 Message: access denied
+[exit 255]

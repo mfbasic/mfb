@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-collection-close-floated-invalid
+  10 |     RES f AS File = fs::openFile("tests/syntax/resources/resource-collection-close-floated-invalid/src/main.mfb")
+  11 |     handles = collections::append(handles, f)
+  12 |     fs::close(f)
+     | ^
+tests/syntax/resources/resource-collection-close-floated-invalid/src/main.mfb:12 error[2-203-0086 TYPE_RESOURCE_BORROW_INVALIDATE]: a borrowed resource cannot be closed, returned, or transferred
+               Binding `f` is a borrowed resource; only its owner may close, `RETURN`, or transfer it.
+[exit 1]

@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET big AS Fixed = 30.0F
+  LET result AS Fixed = math::exp(big)
+  RETURN 0
+END FUNC

@@ -1,0 +1,26 @@
+IMPORT fs
+IMPORT io
+
+FUNC failOnce(path AS String) AS Nothing
+  RES f = fs::openFile(path)
+  FAIL error(77050002, "body fail")
+END FUNC
+
+FUNC trapFail(path AS String) AS Nothing
+  failOnce(path)
+  RETURN NOTHING
+  TRAP(err)
+    IF err.code <> 77050002 THEN FAIL err
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  MUT i AS Integer = 0
+  WHILE i < 4000
+    trapFail("tests/rt-behavior/resources/control-flow-resource-fail-runtime/src/main.mfb")
+    i = i + 1
+  WEND
+  io::print("fail")
+  RETURN 0
+END FUNC

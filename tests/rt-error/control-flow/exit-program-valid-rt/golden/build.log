@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/rt-error/control-flow/exit-program-valid-rt
+Wrote AST to tests/rt-error/control-flow/exit-program-valid-rt/exit_program_valid_rt.ast
+Wrote IR to tests/rt-error/control-flow/exit-program-valid-rt/exit_program_valid_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/control-flow/exit-program-valid-rt
+Wrote executable to tests/rt-error/control-flow/exit-program-valid-rt/exit_program_valid_rt.out
+[exit 0]
+$ tests/rt-error/control-flow/exit-program-valid-rt/exit_program_valid_rt.out
+[exit 3]

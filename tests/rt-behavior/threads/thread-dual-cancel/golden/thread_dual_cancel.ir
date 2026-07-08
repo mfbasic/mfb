@@ -1,0 +1,32 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_dual_cancel",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 6, "mutable": false, "name": "left", "type": "Thread OF String TO String", "value": { "kind": "call", "type": "Thread OF String TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.readFileText", "type": "ISOLATED FUNC(ThreadWorker OF String TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/thread-fs-read-return/data/input.txt" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "right", "type": "Thread OF String TO String", "value": { "kind": "call", "type": "Thread OF String TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.readTextPath", "type": "ISOLATED FUNC(ThreadWorker OF String TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/thread-fs-readtext-return/data/input.txt" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "leftText", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "left" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "rightText", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "right" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "leftText" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "rightText" }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

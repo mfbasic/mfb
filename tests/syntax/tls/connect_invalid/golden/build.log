@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/tls/connect_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = tls::connect()
+     | ^
+tests/syntax/tls/connect_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tls.connect` has 0 argument(s), expected 2 to 4.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = tls::connect()
+     | ^
+tests/syntax/tls/connect_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing = tls::connect()
+   5 |   LET wrongType = tls::connect(1, 2)
+     | ^
+tests/syntax/tls/connect_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tls.connect` has argument type(s) (Integer, Integer), expected String, Integer, Integer, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing = tls::connect()
+   5 |   LET wrongType = tls::connect(1, 2)
+     | ^
+tests/syntax/tls/connect_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing = tls::connect()
+   5 |   LET wrongType = tls::connect(1, 2)
+   6 |   LET tooMany = tls::connect("example.com", 443, 0, "example.com", 9)
+     | ^
+tests/syntax/tls/connect_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tls.connect` has 5 argument(s), expected 2 to 4.
+   4 |   LET missing = tls::connect()
+   5 |   LET wrongType = tls::connect(1, 2)
+   6 |   LET tooMany = tls::connect("example.com", 443, 0, "example.com", 9)
+     | ^
+tests/syntax/tls/connect_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

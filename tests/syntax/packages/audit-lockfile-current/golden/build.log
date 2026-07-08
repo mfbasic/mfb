@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/packages/audit-lockfile-current
+Wrote AST to tests/syntax/packages/audit-lockfile-current/audit_lockfile_current.ast
+Wrote IR to tests/syntax/packages/audit-lockfile-current/audit_lockfile_current.ir
+[exit 0]

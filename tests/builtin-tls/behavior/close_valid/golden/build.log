@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/builtin-tls/behavior/close_valid
-Wrote AST to tests/builtin-tls/behavior/close_valid/func_tls_close_valid.ast
-Wrote IR to tests/builtin-tls/behavior/close_valid/func_tls_close_valid.ir
-[exit 0]

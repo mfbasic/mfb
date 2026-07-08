@@ -1,0 +1,66 @@
+{
+  "project": "json_behavior",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "json", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "json_read_valid_run",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/json_read_valid.json" }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "{ \"user\": { \"name\": \"Ada\" }, \"items\": [1, 2, 3] }" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "list", "values": [{ "kind": "string", "value": "user" }, { "kind": "string", "value": "name" }] }] }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "list", "values": [{ "kind": "string", "value": "items" }] }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "json_write_valid_run",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/json_write_valid.json" }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "JsonObj", "arguments": [{ "kind": "map", "keyType": "String", "valueType": "Json", "entries": [{ "key": { "kind": "string", "value": "name" }, "value": { "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "string", "value": "Ada" }] } }, { "key": { "kind": "string", "value": "enabled" }, "value": { "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": true }] } }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "identifier", "value": "text" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, { "kind": "list", "values": [{ "kind": "string", "value": "name" }] }] }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "_json_read_valid", "type": "Integer", "value": { "kind": "call", "callee": "json_read_valid_run", "arguments": [] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "_json_write_valid", "type": "Integer", "value": { "kind": "call", "callee": "json_write_valid_run", "arguments": [] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 37 }
+      ]
+    }
+    ]
+  }
+  ]
+}

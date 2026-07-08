@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/arithmetic/arithmetic-division-invalid-rt
+Wrote AST to tests/rt-error/arithmetic/arithmetic-division-invalid-rt/arithmetic_division_invalid_rt.ast
+Wrote IR to tests/rt-error/arithmetic/arithmetic-division-invalid-rt/arithmetic_division_invalid_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/arithmetic/arithmetic-division-invalid-rt
+Wrote executable to tests/rt-error/arithmetic/arithmetic-division-invalid-rt/arithmetic_division_invalid_rt.out
+[exit 0]
+$ tests/rt-error/arithmetic/arithmetic-division-invalid-rt/arithmetic_division_invalid_rt.out
+Code: 77050002 Message: invalid argument
+[exit 255]

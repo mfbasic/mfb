@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-behavior/security/allocator-02-size-overflow
+Wrote AST to tests/rt-behavior/security/allocator-02-size-overflow/allocator_02_size_overflow.ast
+Wrote IR to tests/rt-behavior/security/allocator-02-size-overflow/allocator_02_size_overflow.ir
+[exit 0]
+$ mfb build tests/rt-behavior/security/allocator-02-size-overflow
+Wrote executable to tests/rt-behavior/security/allocator-02-size-overflow/allocator_02_size_overflow.out
+[exit 0]
+$ tests/rt-behavior/security/allocator-02-size-overflow/allocator_02_size_overflow.out
+repeat-huge caught 77010001
+huge len 0
+repeat-wrap caught 77050002
+wrap len 0
+repeat-negative caught 77050002
+negative len 0
+churn total 4626
+[exit 0]

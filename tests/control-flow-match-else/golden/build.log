@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/control-flow-match-else
-Wrote AST to tests/control-flow-match-else/control_flow_match_else.ast
-Wrote IR to tests/control-flow-match-else/control_flow_match_else.ir
-[exit 0]
-$ mfb build tests/control-flow-match-else
-Wrote executable to tests/control-flow-match-else/control_flow_match_else.out
-[exit 0]
-$ tests/control-flow-match-else/control_flow_match_else.out
-[exit 60]

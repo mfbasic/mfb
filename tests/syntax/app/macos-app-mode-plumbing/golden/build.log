@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/app/macos-app-mode-plumbing
+Wrote AST to tests/syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.ast
+Wrote IR to tests/syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.ir
+[exit 0]
+$ mfb build -app -nir -nplan -ncode tests/syntax/app/macos-app-mode-plumbing
+Wrote native IR to tests/syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.nir
+Wrote native plan to tests/syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.nplan
+Wrote native code plan to tests/syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.ncode
+[exit 0]

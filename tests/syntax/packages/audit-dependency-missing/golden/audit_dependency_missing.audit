@@ -1,0 +1,86 @@
+$ mfb audit --format text tests/syntax/packages/audit-dependency-missing
+Audit: audit_dependency_missing 0.1.0 (executable)
+Root: tests/syntax/packages/audit-dependency-missing
+Language: 1.0
+Entry: main
+Lockfile: absent
+
+Summary:
+  errors: 1
+  warnings: 0
+  infos: 0
+
+Dependencies:
+  widgets 1.0.0 pin missing
+
+Findings:
+  error AUDIT-DEP-MISSING declared package `widgets` is not installed under packages/
+[exit 1]
+$ mfb audit --format json tests/syntax/packages/audit-dependency-missing
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "audit_dependency_missing",
+    "ident": "audit_dependency_missing",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/syntax/packages/audit-dependency-missing",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 1,
+    "warnings": 0,
+    "infos": 0
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [
+    {
+      "name": "widgets",
+      "ident": "acme#widgets",
+      "requestedVersion": "1.0.0",
+      "resolvedVersion": null,
+      "pin": true,
+      "source": "file:///widgets.mfp",
+      "signature": null,
+      "contentHash": null,
+      "status": "missing"
+    }
+  ],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 1,
+      "fallible": false,
+      "trap": null,
+      "calls": []
+    }
+  ],
+  "resources": [],
+  "nativeLinks": [],
+  "nativeResources": [],
+  "permissions": [],
+  "findings": [
+    {
+      "code": "AUDIT-DEP-MISSING",
+      "severity": "error",
+      "category": "dependency",
+      "message": "declared package `widgets` is not installed under packages/",
+      "location": null,
+      "package": "widgets"
+    }
+  ]
+}
+[exit 1]

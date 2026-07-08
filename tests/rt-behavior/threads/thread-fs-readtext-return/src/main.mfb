@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO String = thread::start(thread_runtime_workers::readTextPath, "tests/rt-behavior/threads/thread-fs-readtext-return/data/input.txt")
+  LET content AS String = thread::waitFor(t)
+  io::print(content)
+  RETURN 0
+END FUNC

@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/builtin-pair-partition-valid
+Wrote AST to tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid.ast
+Wrote IR to tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/builtin-pair-partition-valid
+Wrote executable to tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid.out
+[exit 0]
+$ tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid.out
+7
+seven
+9-nine
+9
+seven
+0[]
+2
+3
+2
+00
+[exit 0]

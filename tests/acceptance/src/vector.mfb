@@ -26,17 +26,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::abs(vector::Fixed2[toFixed(-3.0), toFixed(4.0)])
-        expectFixed(x2.x, toFixed("3.0"))
-        expectFixed(x2.y, toFixed("4.0"))
+        expectFixed(x2.x, 3.0F)
+        expectFixed(x2.y, 4.0F)
         LET x3 AS vector::Fixed3 = vector::abs(vector::Fixed3[toFixed(-3.0), toFixed(4.0), toFixed(-5.0)])
-        expectFixed(x3.x, toFixed("3.0"))
-        expectFixed(x3.y, toFixed("4.0"))
-        expectFixed(x3.z, toFixed("5.0"))
+        expectFixed(x3.x, 3.0F)
+        expectFixed(x3.y, 4.0F)
+        expectFixed(x3.z, 5.0F)
         LET x4 AS vector::Fixed4 = vector::abs(vector::Fixed4[toFixed(-3.0), toFixed(4.0), toFixed(-5.0), toFixed(6.0)])
-        expectFixed(x4.x, toFixed("3.0"))
-        expectFixed(x4.y, toFixed("4.0"))
-        expectFixed(x4.z, toFixed("5.0"))
-        expectFixed(x4.w, toFixed("6.0"))
+        expectFixed(x4.x, 3.0F)
+        expectFixed(x4.y, 4.0F)
+        expectFixed(x4.z, 5.0F)
+        expectFixed(x4.w, 6.0F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::abs(vector::Integer2[-3, 4])
@@ -61,9 +61,9 @@ TESTING
         expectFloat(vector::angle(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 0.85899698838604177)
       END TCASE
       TCASE "Fixed"
-        expectFixed(vector::angle(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), toFixed("0.179853500565513968"))
-        expectFixed(vector::angle(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), toFixed("0.475882249185815453"))
-        expectFixed(vector::angle(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), toFixed("0.858996988506987690"))
+        expectFixed(vector::angle(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), 0.179853500565513968F)
+        expectFixed(vector::angle(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), 0.475882249185815453F)
+        expectFixed(vector::angle(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), 0.858996988506987690F)
       END TCASE
       TCASE "Integer"
         expectInteger(vector::angle(vector::Integer2[3, 4], vector::Integer2[1, 2]), 0)
@@ -89,17 +89,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::clamp_length(vector::Fixed2[toFixed(3.0), toFixed(4.0)], toFixed(2.0))
-        expectFixed(x2.x, toFixed("1.199999999720603227"))
-        expectFixed(x2.y, toFixed("1.599999999627470970"))
+        expectFixed(x2.x, 1.199999999720603227F)
+        expectFixed(x2.y, 1.599999999627470970F)
         LET x3 AS vector::Fixed3 = vector::clamp_length(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], toFixed(2.0))
-        expectFixed(x3.x, toFixed("0.666666666511446237"))
-        expectFixed(x3.y, toFixed("1.333333333022892475"))
-        expectFixed(x3.z, toFixed("1.333333333022892475"))
+        expectFixed(x3.x, 0.666666666511446237F)
+        expectFixed(x3.y, 1.333333333022892475F)
+        expectFixed(x3.z, 1.333333333022892475F)
         LET x4 AS vector::Fixed4 = vector::clamp_length(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], toFixed(2.0))
-        expectFixed(x4.x, toFixed("0.399999999906867742"))
-        expectFixed(x4.y, toFixed("0.799999999813735485"))
-        expectFixed(x4.z, toFixed("0.799999999813735485"))
-        expectFixed(x4.w, toFixed("1.599999999627470970"))
+        expectFixed(x4.x, 0.399999999906867742F)
+        expectFixed(x4.y, 0.799999999813735485F)
+        expectFixed(x4.z, 0.799999999813735485F)
+        expectFixed(x4.w, 1.599999999627470970F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::clamp_length(vector::Integer2[3, 4], 2)
@@ -123,9 +123,9 @@ TESTING
         expectFloat(vector::zeroFloat2.y, 0.0)
         expectFloat(vector::zeroFloat3.z, 0.0)
         expectFloat(vector::zeroFloat4.w, 0.0)
-        expectFixed(vector::zeroFixed2.x, toFixed("0.0"))
-        expectFixed(vector::zeroFixed3.z, toFixed("0.0"))
-        expectFixed(vector::zeroFixed4.w, toFixed("0.0"))
+        expectFixed(vector::zeroFixed2.x, 0.0F)
+        expectFixed(vector::zeroFixed3.z, 0.0F)
+        expectFixed(vector::zeroFixed4.w, 0.0F)
         expectInteger(vector::zeroInteger2.x, 0)
         expectInteger(vector::zeroInteger3.z, 0)
         expectInteger(vector::zeroInteger4.w, 0)
@@ -133,21 +133,21 @@ TESTING
       TCASE "one"
         expectFloat(vector::oneFloat2.x, 1.0)
         expectFloat(vector::oneFloat4.w, 1.0)
-        expectFixed(vector::oneFixed3.z, toFixed("1.0"))
+        expectFixed(vector::oneFixed3.z, 1.0F)
         expectInteger(vector::oneInteger4.w, 1)
       END TCASE
       TCASE "up"
         expectFloat(vector::upFloat2.x, 0.0)
         expectFloat(vector::upFloat2.y, 1.0)
         expectFloat(vector::upFloat3.z, 0.0)
-        expectFixed(vector::upFixed3.y, toFixed("1.0"))
+        expectFixed(vector::upFixed3.y, 1.0F)
         expectInteger(vector::upInteger4.y, 1)
         expectInteger(vector::upInteger4.z, 0)
       END TCASE
       TCASE "right"
         expectFloat(vector::rightFloat2.x, 1.0)
         expectFloat(vector::rightFloat2.y, 0.0)
-        expectFixed(vector::rightFixed4.x, toFixed("1.0"))
+        expectFixed(vector::rightFixed4.x, 1.0F)
         expectInteger(vector::rightInteger3.x, 1)
         expectInteger(vector::rightInteger3.y, 0)
       END TCASE
@@ -155,7 +155,7 @@ TESTING
         expectFloat(vector::forwardFloat3.z, 1.0)
         expectFloat(vector::forwardFloat4.z, 1.0)
         expectFloat(vector::forwardFloat4.w, 0.0)
-        expectFixed(vector::forwardFixed3.z, toFixed("1.0"))
+        expectFixed(vector::forwardFixed3.z, 1.0F)
         expectInteger(vector::forwardInteger3.z, 1)
         expectInteger(vector::forwardInteger4.z, 1)
       END TCASE
@@ -178,17 +178,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::cross(vector::Fixed2[toFixed(3.0), toFixed(4.0)])
-        expectFixed(x2.x, toFixed("-4.0"))
-        expectFixed(x2.y, toFixed("3.0"))
+        expectFixed(x2.x, -4.0F)
+        expectFixed(x2.y, 3.0F)
         LET x3 AS vector::Fixed3 = vector::cross(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
-        expectFixed(x3.x, toFixed("2.0"))
-        expectFixed(x3.y, toFixed("2.0"))
-        expectFixed(x3.z, toFixed("-3.0"))
+        expectFixed(x3.x, 2.0F)
+        expectFixed(x3.y, 2.0F)
+        expectFixed(x3.z, -3.0F)
         LET x4 AS vector::Fixed4 = vector::cross(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)], vector::Fixed4[toFixed(0.0), toFixed(1.0), toFixed(1.0), toFixed(0.0)])
-        expectFixed(x4.x, toFixed("4.0"))
-        expectFixed(x4.y, toFixed("-7.0"))
-        expectFixed(x4.z, toFixed("7.0"))
-        expectFixed(x4.w, toFixed("-1.0"))
+        expectFixed(x4.x, 4.0F)
+        expectFixed(x4.y, -7.0F)
+        expectFixed(x4.z, 7.0F)
+        expectFixed(x4.w, -1.0F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::cross(vector::Integer2[3, 4])
@@ -213,9 +213,9 @@ TESTING
         expectFloat(vector::distance(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 3.87298334620741702)
       END TCASE
       TCASE "Fixed"
-        expectFixed(vector::distance(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), toFixed("2.828427124768495559"))
-        expectFixed(vector::distance(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), toFixed("1.414213562384247779"))
-        expectFixed(vector::distance(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), toFixed("3.872983346227556467"))
+        expectFixed(vector::distance(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), 2.828427124768495559F)
+        expectFixed(vector::distance(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), 1.414213562384247779F)
+        expectFixed(vector::distance(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), 3.872983346227556467F)
       END TCASE
       TCASE "Integer"
         expectInteger(vector::distance(vector::Integer2[3, 4], vector::Integer2[1, 2]), 3)
@@ -231,9 +231,9 @@ TESTING
         expectFloat(vector::dot(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 8.0)
       END TCASE
       TCASE "Fixed"
-        expectFixed(vector::dot(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), toFixed("11.0"))
-        expectFixed(vector::dot(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), toFixed("8.0"))
-        expectFixed(vector::dot(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), toFixed("8.0"))
+        expectFixed(vector::dot(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), 11.0F)
+        expectFixed(vector::dot(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), 8.0F)
+        expectFixed(vector::dot(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), 8.0F)
       END TCASE
       TCASE "Integer"
         expectInteger(vector::dot(vector::Integer2[3, 4], vector::Integer2[1, 2]), 11)
@@ -249,9 +249,9 @@ TESTING
         expectFloat(vector::length(vector::Float4[1.0, 2.0, 2.0, 4.0]), 5.0)
       END TCASE
       TCASE "Fixed"
-        expectFixed(vector::length(vector::Fixed2[toFixed(3.0), toFixed(4.0)]), toFixed("5.0"))
-        expectFixed(vector::length(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)]), toFixed("3.0"))
-        expectFixed(vector::length(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)]), toFixed("5.0"))
+        expectFixed(vector::length(vector::Fixed2[toFixed(3.0), toFixed(4.0)]), 5.0F)
+        expectFixed(vector::length(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)]), 3.0F)
+        expectFixed(vector::length(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)]), 5.0F)
       END TCASE
       TCASE "Integer"
         expectInteger(vector::length(vector::Integer2[3, 4]), 5)
@@ -360,17 +360,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::normalize(vector::Fixed2[toFixed(3.0), toFixed(4.0)])
-        expectFixed(x2.x, toFixed("0.599999999860301613"))
-        expectFixed(x2.y, toFixed("0.799999999813735485"))
+        expectFixed(x2.x, 0.599999999860301613F)
+        expectFixed(x2.y, 0.799999999813735485F)
         LET x3 AS vector::Fixed3 = vector::normalize(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)])
-        expectFixed(x3.x, toFixed("0.333333333255723118"))
-        expectFixed(x3.y, toFixed("0.666666666511446237"))
-        expectFixed(x3.z, toFixed("0.666666666511446237"))
+        expectFixed(x3.x, 0.333333333255723118F)
+        expectFixed(x3.y, 0.666666666511446237F)
+        expectFixed(x3.z, 0.666666666511446237F)
         LET x4 AS vector::Fixed4 = vector::normalize(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)])
-        expectFixed(x4.x, toFixed("0.199999999953433871"))
-        expectFixed(x4.y, toFixed("0.399999999906867742"))
-        expectFixed(x4.z, toFixed("0.399999999906867742"))
-        expectFixed(x4.w, toFixed("0.799999999813735485"))
+        expectFixed(x4.x, 0.199999999953433871F)
+        expectFixed(x4.y, 0.399999999906867742F)
+        expectFixed(x4.z, 0.399999999906867742F)
+        expectFixed(x4.w, 0.799999999813735485F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::normalize(vector::Integer2[3, 4])
@@ -394,8 +394,8 @@ TESTING
         expectFloat(f.x, -4.0)
         expectFloat(f.y, 3.0)
         LET x AS vector::Fixed2 = vector::perpendicular(vector::Fixed2[toFixed(3.0), toFixed(4.0)])
-        expectFixed(x.x, toFixed("-4.0"))
-        expectFixed(x.y, toFixed("3.0"))
+        expectFixed(x.x, -4.0F)
+        expectFixed(x.y, 3.0F)
         LET i AS vector::Integer2 = vector::perpendicular(vector::Integer2[3, 4])
         expectInteger(i.x, -4)
         expectInteger(i.y, 3)
@@ -419,17 +419,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::project(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)])
-        expectFixed(x2.x, toFixed("2.199999999953433871"))
-        expectFixed(x2.y, toFixed("4.399999999906867742"))
+        expectFixed(x2.x, 2.199999999953433871F)
+        expectFixed(x2.y, 4.399999999906867742F)
         LET x3 AS vector::Fixed3 = vector::project(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
-        expectFixed(x3.x, toFixed("1.777777777519077062"))
-        expectFixed(x3.y, toFixed("0.888888888759538531"))
-        expectFixed(x3.z, toFixed("1.777777777519077062"))
+        expectFixed(x3.x, 1.777777777519077062F)
+        expectFixed(x3.y, 0.888888888759538531F)
+        expectFixed(x3.z, 1.777777777519077062F)
         LET x4 AS vector::Fixed4 = vector::project(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)])
-        expectFixed(x4.x, toFixed("2.666666666511446237"))
-        expectFixed(x4.y, toFixed("1.333333333255723118"))
-        expectFixed(x4.z, toFixed("0.0"))
-        expectFixed(x4.w, toFixed("1.333333333255723118"))
+        expectFixed(x4.x, 2.666666666511446237F)
+        expectFixed(x4.y, 1.333333333255723118F)
+        expectFixed(x4.z, 0.0F)
+        expectFixed(x4.w, 1.333333333255723118F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::project(vector::Integer2[3, 4], vector::Integer2[1, 2])
@@ -456,9 +456,9 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x3 AS vector::Fixed3 = vector::reflect(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
-        expectFixed(x3.x, toFixed("-31.0"))
-        expectFixed(x3.y, toFixed("-14.0"))
-        expectFixed(x3.z, toFixed("-30.0"))
+        expectFixed(x3.x, -31.0F)
+        expectFixed(x3.y, -14.0F)
+        expectFixed(x3.z, -30.0F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::reflect(vector::Integer2[3, 4], vector::Integer2[1, 2])
@@ -489,17 +489,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::reject(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)])
-        expectFixed(x2.x, toFixed("0.800000000046566128"))
-        expectFixed(x2.y, toFixed("-0.399999999906867742"))
+        expectFixed(x2.x, 0.800000000046566128F)
+        expectFixed(x2.y, -0.399999999906867742F)
         LET x3 AS vector::Fixed3 = vector::reject(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
-        expectFixed(x3.x, toFixed("-0.777777777519077062"))
-        expectFixed(x3.y, toFixed("1.111111111240461468"))
-        expectFixed(x3.z, toFixed("0.222222222480922937"))
+        expectFixed(x3.x, -0.777777777519077062F)
+        expectFixed(x3.y, 1.111111111240461468F)
+        expectFixed(x3.z, 0.222222222480922937F)
         LET x4 AS vector::Fixed4 = vector::reject(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)])
-        expectFixed(x4.x, toFixed("-1.666666666511446237"))
-        expectFixed(x4.y, toFixed("0.666666666744276881"))
-        expectFixed(x4.z, toFixed("2.0"))
-        expectFixed(x4.w, toFixed("2.666666666744276881"))
+        expectFixed(x4.x, -1.666666666511446237F)
+        expectFixed(x4.y, 0.666666666744276881F)
+        expectFixed(x4.z, 2.0F)
+        expectFixed(x4.w, 2.666666666744276881F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::reject(vector::Integer2[3, 4], vector::Integer2[1, 2])
@@ -519,8 +519,8 @@ TESTING
         expectFloat(f.x, -4.0)
         expectFloat(f.y, 3.00000000000000044)
         LET x AS vector::Fixed2 = vector::rotate_2d(vector::Fixed2[toFixed(3.0), toFixed(4.0)], math::pi2)
-        expectFixed(x.x, toFixed("-4.000000008614733815"))
-        expectFixed(x.y, toFixed("3.000000002095475792"))
+        expectFixed(x.x, -4.000000008614733815F)
+        expectFixed(x.y, 3.000000002095475792F)
         LET i AS vector::Integer2 = vector::rotate_2d(vector::Integer2[3, 4], math::pi2)
         expectInteger(i.x, -4)
         expectInteger(i.y, 3)
@@ -540,9 +540,9 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x3 AS vector::Fixed3 = vector::scale(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
-        expectFixed(x3.x, toFixed("2.0"))
-        expectFixed(x3.y, toFixed("2.0"))
-        expectFixed(x3.z, toFixed("4.0"))
+        expectFixed(x3.x, 2.0F)
+        expectFixed(x3.y, 2.0F)
+        expectFixed(x3.z, 4.0F)
       END TCASE
       TCASE "Integer"
         LET i2 AS vector::Integer2 = vector::scale(vector::Integer2[3, 4], vector::Integer2[1, 2])
@@ -568,17 +568,17 @@ TESTING
       END TCASE
       TCASE "Fixed"
         LET x2 AS vector::Fixed2 = vector::slerp(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)], 0.5)
-        expectFixed(x2.x, toFixed("2.008114158175885677"))
-        expectFixed(x2.y, toFixed("3.012171237263828516"))
+        expectFixed(x2.x, 2.008114158175885677F)
+        expectFixed(x2.y, 3.012171237263828516F)
         LET x3 AS vector::Fixed3 = vector::slerp(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)], 0.5)
-        expectFixed(x3.x, toFixed("1.543487269431352615"))
-        expectFixed(x3.y, toFixed("1.543487269431352615"))
-        expectFixed(x3.z, toFixed("2.057983025908470153"))
+        expectFixed(x3.x, 1.543487269431352615F)
+        expectFixed(x3.y, 1.543487269431352615F)
+        expectFixed(x3.z, 2.057983025908470153F)
         LET x4 AS vector::Fixed4 = vector::slerp(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)], 0.5)
-        expectFixed(x4.x, toFixed("1.649847932858392596"))
-        expectFixed(x4.y, toFixed("1.649847932858392596"))
-        expectFixed(x4.z, toFixed("1.099898621905595064"))
-        expectFixed(x4.w, toFixed("2.749746554763987660"))
+        expectFixed(x4.x, 1.649847932858392596F)
+        expectFixed(x4.y, 1.649847932858392596F)
+        expectFixed(x4.z, 1.099898621905595064F)
+        expectFixed(x4.w, 2.749746554763987660F)
       END TCASE
       TCASE "Integer"
         LET i4 AS vector::Integer4 = vector::slerp(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1], 0.5)
@@ -619,10 +619,10 @@ TESTING
         expectFloat(vf.y, 2.0)
         expectFloat(vf.z, 2.0)
         LET vx AS vector::Fixed4 = vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)]
-        expectFixed(vx.x, toFixed("1.0"))
-        expectFixed(vx.y, toFixed("2.0"))
-        expectFixed(vx.z, toFixed("2.0"))
-        expectFixed(vx.w, toFixed("4.0"))
+        expectFixed(vx.x, 1.0F)
+        expectFixed(vx.y, 2.0F)
+        expectFixed(vx.z, 2.0F)
+        expectFixed(vx.w, 4.0F)
         LET vi AS vector::Integer2 = vector::Integer2[3, 4]
         expectInteger(vi.x, 3)
         expectInteger(vi.y, 4)

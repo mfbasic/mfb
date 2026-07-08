@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/types/types-constructor-invalid
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET wrongKind = Shape[1]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongKind` does not have a known type.
+  14 | FUNC main AS Integer
+  15 |   LET wrongKind = Shape[1]
+  16 |   LET wrongKind2 = Color[1]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongKind2` does not have a known type.
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET wrongKind = Shape[1]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:15 error[2-203-0025 TYPE_CONSTRUCTOR_REQUIRES_RECORD]: record constructor syntax requires a TYPE
+               `Shape` is a UNION, not a record TYPE.
+  14 | FUNC main AS Integer
+  15 |   LET wrongKind = Shape[1]
+  16 |   LET wrongKind2 = Color[1]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:16 error[2-203-0025 TYPE_CONSTRUCTOR_REQUIRES_RECORD]: record constructor syntax requires a TYPE
+               `Color` is a ENUM, not a record TYPE.
+  15 |   LET wrongKind = Shape[1]
+  16 |   LET wrongKind2 = Color[1]
+  17 |   LET tooMany = Point[1, 2, 3]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:17 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Point` has 3 argument(s), expected 2.
+  16 |   LET wrongKind2 = Color[1]
+  17 |   LET tooMany = Point[1, 2, 3]
+  18 |   LET tooFew = Point[1]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:18 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Point` has 1 argument(s), expected 2.
+  17 |   LET tooMany = Point[1, 2, 3]
+  18 |   LET tooFew = Point[1]
+  19 |   LET wrongType = Point["a", 2]
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:19 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Point` has type String, expected Integer for field `x`.
+  18 |   LET tooFew = Point[1]
+  19 |   LET wrongType = Point["a", 2]
+  20 |   LET updated = WITH tooMany { x := "b" }
+     | ^
+tests/syntax/types/types-constructor-invalid/src/main.mfb:20 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               WITH update for `x` has type String, expected Integer.
+[exit 1]

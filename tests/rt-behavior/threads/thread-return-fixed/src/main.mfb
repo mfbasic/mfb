@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF Fixed TO Fixed = thread::start(thread_runtime_workers::returnFixed, "seed")
+  thread::send(t, 3.750F, 10)
+  LET result AS Fixed = thread::waitFor(t)
+  io::print(toString(result, toByte(3)))
+  RETURN 0
+END FUNC

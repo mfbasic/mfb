@@ -1,0 +1,11 @@
+IMPORT fs
+
+FUNC main AS Integer
+  MUT offset AS Integer = 1
+  LET badMutable AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset
+
+  RES file = fs::openFile("tests/syntax/functions/lambda-capture-invalid/data/input.txt")
+  LET badResource AS FUNC() AS String = LAMBDA() -> fs::readLine(file)
+
+  RETURN 0
+END FUNC

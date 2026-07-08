@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/testing/testing-placement-invalid
+src/main.mfb:2 error[2-208-0001 TESTING_EXPECT_OUTSIDE_TCASE]: assertion builtins are valid only inside a TCASE body
+               `expectEqual` is a test assertion and is valid only inside a TCASE body.
+[exit 1]

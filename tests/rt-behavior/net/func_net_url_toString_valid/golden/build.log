@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/net/func_net_url_toString_valid
+Wrote AST to tests/rt-behavior/net/func_net_url_toString_valid/func_net_url_toString_valid.ast
+Wrote IR to tests/rt-behavior/net/func_net_url_toString_valid/func_net_url_toString_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/net/func_net_url_toString_valid
+Wrote executable to tests/rt-behavior/net/func_net_url_toString_valid/func_net_url_toString_valid.out
+[exit 0]
+$ tests/rt-behavior/net/func_net_url_toString_valid/func_net_url_toString_valid.out
+render=https://example.com/a?b=c#d
+  roundtrip=ok
+render=http://example.com:8080/a
+  roundtrip=ok
+render=http://user:pass@host.test/p
+  roundtrip=ok
+render=https://[2001:db8::1]:8443/x?y=z
+  roundtrip=ok
+render=http://host/
+  roundtrip=ok
+[exit 0]

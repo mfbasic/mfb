@@ -1,6 +1,6 @@
 ' Benign base package for the PKG-05 security fixture. `generate.py`
 ' builds this, then rewrites the compiled `.mfp` into the malicious variant
-' committed under tests/security/pkg-05-alloc-count/packages/.
+' committed under tests/syntax/security/pkg-05-alloc-count/packages/.
 EXPORT FUNC run() AS Integer
   RETURN 42
 END FUNC

@@ -1,0 +1,5 @@
+$ mfb build tests/rt-error/project/top-level-bindings-valid
+Wrote executable to tests/rt-error/project/top-level-bindings-valid/top_level_bindings_valid.out
+[exit 0]
+$ tests/rt-error/project/top-level-bindings-valid/top_level_bindings_valid.out
+[exit 42]

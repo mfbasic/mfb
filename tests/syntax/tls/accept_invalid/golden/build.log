@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/tls/accept_invalid
+   5 |   RES conn = tls::connect("example.com", 443)
+   6 |   ' No arguments (accept needs a listener).
+   7 |   LET missing = tls::accept()
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tls.accept` has 0 argument(s), expected 1 to 2.
+   5 |   RES conn = tls::connect("example.com", 443)
+   6 |   ' No arguments (accept needs a listener).
+   7 |   LET missing = tls::accept()
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   7 |   LET missing = tls::accept()
+   8 |   ' Wrong receiver type: a TlsSocket is not a TlsListener.
+   9 |   LET wrongReceiver = tls::accept(conn)
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tls.accept` has argument type(s) (TlsSocket), expected TlsListener, Integer.
+   7 |   LET missing = tls::accept()
+   8 |   ' Wrong receiver type: a TlsSocket is not a TlsListener.
+   9 |   LET wrongReceiver = tls::accept(conn)
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongReceiver` does not have a known type.
+   9 |   LET wrongReceiver = tls::accept(conn)
+  10 |   ' Wrong timeout type: timeoutMs must be Integer.
+  11 |   LET badTimeout = tls::accept(server, "soon")
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tls.accept` has argument type(s) (TlsListener, String), expected TlsListener, Integer.
+   9 |   LET wrongReceiver = tls::accept(conn)
+  10 |   ' Wrong timeout type: timeoutMs must be Integer.
+  11 |   LET badTimeout = tls::accept(server, "soon")
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badTimeout` does not have a known type.
+  11 |   LET badTimeout = tls::accept(server, "soon")
+  12 |   ' Too many arguments (accept takes at most 2).
+  13 |   LET tooMany = tls::accept(server, 1000, 2000)
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tls.accept` has 3 argument(s), expected 1 to 2.
+  11 |   LET badTimeout = tls::accept(server, "soon")
+  12 |   ' Too many arguments (accept takes at most 2).
+  13 |   LET tooMany = tls::accept(server, 1000, 2000)
+     | ^
+tests/syntax/tls/accept_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

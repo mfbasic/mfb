@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/syntax/packages/package-comparable-import-invalid
+uses package_comparable_types - [Unsigned]
+   3 | 
+   4 | FUNC main AS Integer
+   5 |   LET first AS comparable::Box = comparable::Box[[1, 2]]
+     | ^
+tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `first` does not have a known type.
+   4 | FUNC main AS Integer
+   5 |   LET first AS comparable::Box = comparable::Box[[1, 2]]
+   6 |   LET second AS comparable::Box = comparable::Box[[3, 4]]
+     | ^
+tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `second` does not have a known type.
+[exit 1]

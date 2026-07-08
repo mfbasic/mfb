@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_readline_buffer_boundary_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-readline-buffer-boundary-rt/data.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "bind", "line": 10, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 11,
+      "loop": "while",
+      "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "fs.eof", "args": [{ "kind": "local", "name": "f" }] } },
+      "body": [
+      { "op": "bind", "line": 12, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] } },
+      { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "idx" }] }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "line" }] }] } }] } },
+      { "op": "assign", "line": 14, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "lines=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "idx" }] } }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

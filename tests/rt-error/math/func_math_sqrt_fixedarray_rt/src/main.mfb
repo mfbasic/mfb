@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT math
+
+' sqrt over a List OF Fixed raises ErrInvalidArgument when any lane is negative.
+FUNC main AS Integer
+  LET xs AS List OF Fixed = [4.0F, -1.0F, 9.0F]
+  LET sq AS List OF Fixed = math::sqrt(xs)
+  io::print(toString(len(sq)))
+  RETURN 0
+END FUNC

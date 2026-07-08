@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/general/toInt_radix_invalid_runtime
+Wrote AST to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.ast
+Wrote IR to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.ir
+[exit 0]
+$ mfb build tests/rt-error/general/toInt_radix_invalid_runtime
+Wrote executable to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.out
+[exit 0]
+$ tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.out
+Code: 77050003 Message: invalid format
+[exit 255]

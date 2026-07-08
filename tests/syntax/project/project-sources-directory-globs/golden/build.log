@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/project/project-sources-directory-globs
+Wrote AST to tests/syntax/project/project-sources-directory-globs/project_sources_directory_globs.ast
+Wrote IR to tests/syntax/project/project-sources-directory-globs/project_sources_directory_globs.ir
+[exit 0]

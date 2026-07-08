@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/project-entry-func-args-default-trap
-Wrote AST to tests/project-entry-func-args-default-trap/project_entry_func_args_default_trap.ast
-Wrote IR to tests/project-entry-func-args-default-trap/project_entry_func_args_default_trap.ir
-[exit 0]
-$ mfb build tests/project-entry-func-args-default-trap
-Wrote executable to tests/project-entry-func-args-default-trap/project_entry_func_args_default_trap.out
-[exit 0]
-$ tests/project-entry-func-args-default-trap/project_entry_func_args_default_trap.out
-[exit 0]

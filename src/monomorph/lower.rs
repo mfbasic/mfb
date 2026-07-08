@@ -2179,9 +2179,7 @@ END FUNC
         // Import a real package with an exported overload set and call it; the
         // call is rewritten to the package-qualified mangled name
         // (resolve_imported_overload, types_compatible, normalize_type).
-        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("package-simple")
+        let fixture = crate::testutil::fixture_dir("package-simple")
             .join("golden")
             .join("package_simple.mfp");
         let dir = tempfile::tempdir().expect("tempdir");
@@ -2376,9 +2374,7 @@ END FUNC
         // Import the real package and call the `Vec2` overload of `score` with a
         // constructed Vec2, driving resolve_imported_overload's per-argument
         // types_compatible / normalize_type comparison.
-        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("package-simple")
+        let fixture = crate::testutil::fixture_dir("package-simple")
             .join("golden")
             .join("package_simple.mfp");
         let dir = tempfile::tempdir().expect("tempdir");

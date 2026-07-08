@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/types/types-enum-member-invalid
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   LET tint = Color.Purple
+     | ^
+tests/syntax/types/types-enum-member-invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tint` does not have a known type.
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   LET tint = Color.Purple
+     | ^
+tests/syntax/types/types-enum-member-invalid/src/main.mfb:7 error[2-203-0044 TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
+               ENUM `Color` has no member `Purple`.
+[exit 1]

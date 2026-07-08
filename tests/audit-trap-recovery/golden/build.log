@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/audit-trap-recovery
-Wrote AST to tests/audit-trap-recovery/audit_trap_recovery.ast
-Wrote IR to tests/audit-trap-recovery/audit_trap_recovery.ir
-[exit 0]

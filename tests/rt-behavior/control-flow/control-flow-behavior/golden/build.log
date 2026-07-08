@@ -1,0 +1,75 @@
+$ mfb build -ast -ir tests/rt-behavior/control-flow/control-flow-behavior
+Wrote AST to tests/rt-behavior/control-flow/control-flow-behavior/control_flow_behavior.ast
+Wrote IR to tests/rt-behavior/control-flow/control-flow-behavior/control_flow_behavior.ir
+[exit 0]
+$ mfb build tests/rt-behavior/control-flow/control-flow-behavior
+Wrote executable to tests/rt-behavior/control-flow/control-flow-behavior/control_flow_behavior.out
+[exit 0]
+$ tests/rt-behavior/control-flow/control-flow-behavior/control_flow_behavior.out
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+FALSE
+TRUE
+xor-rhs
+TRUE
+TRUE
+TRUE
+TRUE
+FALSE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+FALSE
+TRUE
+TRUE
+FALSE
+FALSE
+TRUE
+TRUE
+TRUE
+int=1
+int=3
+int=5
+down=5
+down=3
+down=1
+byte=1
+byte=3
+byte=5
+fixed=1.00
+fixed=1.50
+fixed=2.00
+float=1.00
+float=1.50
+float=2.00
+line=alpha
+line=beta
+ada=10
+while=1
+while=2
+while=3
+doUntil=1
+doUntil=2
+doWhile=1
+skipped=0
+[exit 0]

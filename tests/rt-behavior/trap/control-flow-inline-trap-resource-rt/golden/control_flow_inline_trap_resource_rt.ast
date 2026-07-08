@@ -1,0 +1,55 @@
+{
+  "project": "control_flow_inline_trap_resource_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "openThenFail",
+      "line": 6,
+      "params": [
+      { "name": "p", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "scratch", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 7 },
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "700" }, { "kind": "string", "value": "after open" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "outer", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt" }] }, "line": 12 },
+      { "kind": "binding", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 13 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 14,
+        "expression": { "kind": "call", "callee": "openThenFail", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt" }] },
+        "handler": [
+        { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "outer" }] }, "line": 17 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "line" }] }, "line": 18 },
+        { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 19 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 20 }
+        ]
+      }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

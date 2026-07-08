@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  RES f AS File = fs::openFile("tests/rt-behavior/fs/func_fs_close_valid/src/main.mfb")
+  fs::close(f)
+  io::print("closed")
+  RETURN 0
+END FUNC

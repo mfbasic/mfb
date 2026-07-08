@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/math/math_legacy_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET pi AS Float = math::piFloat
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:4 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.piFloat`.
+   3 | FUNC main AS Integer
+   4 |   LET pi AS Float = math::piFloat
+   5 |   LET e AS Float = math::eFloat
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:5 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.eFloat`.
+   4 |   LET pi AS Float = math::piFloat
+   5 |   LET e AS Float = math::eFloat
+   6 |   LET sign AS Integer = math::sign(-7)
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:6 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.sign`.
+   5 |   LET e AS Float = math::eFloat
+   6 |   LET sign AS Integer = math::sign(-7)
+   7 |   LET truncated AS Integer = math::trunc(3.75)
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:7 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.trunc`.
+   6 |   LET sign AS Integer = math::sign(-7)
+   7 |   LET truncated AS Integer = math::trunc(3.75)
+   8 |   LET radians AS Float = math::radians(180.0)
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:8 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.radians`.
+   7 |   LET truncated AS Integer = math::trunc(3.75)
+   8 |   LET radians AS Float = math::radians(180.0)
+   9 |   LET degrees AS Float = math::degrees(math::pi)
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:9 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.degrees`.
+   8 |   LET radians AS Float = math::radians(180.0)
+   9 |   LET degrees AS Float = math::degrees(math::pi)
+  10 |   LET finite AS Boolean = math::isFinite(degrees)
+     | ^
+tests/syntax/math/math_legacy_invalid/src/main.mfb:10 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.isFinite`.
+[exit 1]

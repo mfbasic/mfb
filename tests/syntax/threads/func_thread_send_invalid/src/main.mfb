@@ -1,0 +1,25 @@
+IMPORT thread
+IMPORT thread_workers
+IMPORT thread_file_workers
+IMPORT fs
+
+TYPE BadMessage
+  handle AS Thread OF String TO Integer
+END TYPE
+
+SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)
+  thread::send(t, payload)
+END SUB
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  LET missing AS Nothing = thread::send()
+  LET wrongMessage AS Nothing = thread::send(t, 1)
+  LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
+  LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
+  RES movedFile AS File = fs::openFile("tests/syntax/threads/func_thread_send_invalid/src/main.mfb")
+  thread::send(fileThread, movedFile)
+  fs::close(movedFile)
+  RETURN 0
+END FUNC

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-record-field-invalid
+   2 | 
+   3 | TYPE Holder
+   4 |   handle AS File
+     | ^
+tests/syntax/resources/resource-record-field-invalid/src/main.mfb:4 error[2-203-0084 TYPE_RESOURCE_FIELD_FORBIDDEN]: a record field cannot be a resource
+               Record `Holder` field `handle` is resource `File`; records cannot own resources.
+[exit 1]

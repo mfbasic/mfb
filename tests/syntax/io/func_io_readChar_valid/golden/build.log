@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/io/func_io_readChar_valid
+Wrote AST to tests/syntax/io/func_io_readChar_valid/func_io_readChar_valid.ast
+Wrote IR to tests/syntax/io/func_io_readChar_valid/func_io_readChar_valid.ir
+[exit 0]

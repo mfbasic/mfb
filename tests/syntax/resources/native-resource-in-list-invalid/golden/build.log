@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/resources/native-resource-in-list-invalid
+  21 | END LINK
+  22 | 
+  23 | EXPORT FUNC bad(path AS String) AS List OF Db
+     | ^
+tests/syntax/resources/native-resource-in-list-invalid/src/lib.mfb:23 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               Collection element type `Db` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type.
+  23 | EXPORT FUNC bad(path AS String) AS List OF Db
+  24 |   RES db AS Db = demoLink::open(path)
+  25 |   LET xs AS List OF Db = [db]
+     | ^
+tests/syntax/resources/native-resource-in-list-invalid/src/lib.mfb:25 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               Collection element type `Db` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type.
+[exit 1]

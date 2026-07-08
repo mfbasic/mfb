@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/rt-behavior/project/project-entry-param-trap
+Wrote AST to tests/rt-behavior/project/project-entry-param-trap/project_entry_param_trap.ast
+Wrote IR to tests/rt-behavior/project/project-entry-param-trap/project_entry_param_trap.ir
+[exit 0]
+$ mfb build tests/rt-behavior/project/project-entry-param-trap
+Wrote executable to tests/rt-behavior/project/project-entry-param-trap/project_entry_param_trap.out
+[exit 0]
+$ tests/rt-behavior/project/project-entry-param-trap/project_entry_param_trap.out
+[exit 0]

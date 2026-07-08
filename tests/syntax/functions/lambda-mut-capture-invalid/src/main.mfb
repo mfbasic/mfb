@@ -1,0 +1,41 @@
+IMPORT collections
+IMPORT fs
+IMPORT thread
+
+' Capturing a `MUT` binding is allowed only in a compiler-proven non-escaping
+' callback position (`forEach`). Every escaping use stays rejected, and the
+' non-escaping exception never extends to resources or threads
+' (plan-08-lambda-mut.md §10, §12.4).
+
+SUB applyTwice(action AS FUNC(Integer) AS Nothing)
+  action(1)
+  action(2)
+END SUB
+
+FUNC makeCounter() AS FUNC(Integer) AS Nothing
+  MUT running AS Integer = 0
+  ' Returned: the closure would outlive `running`. Rejected.
+  RETURN LAMBDA(amount AS Integer) -> running = running + amount
+END FUNC
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+
+  ' Bound to a LET (escapes the statement). Rejected.
+  LET stored AS FUNC(Integer) AS Nothing = LAMBDA(x AS Integer) -> total = total + x
+
+  ' Passed to a user function not proven non-escaping. Rejected.
+  applyTwice(LAMBDA(x AS Integer) -> total = total + x)
+
+  ' Sent to a thread (not a non-escaping position). Rejected.
+  LET worker AS Thread OF Integer TO Integer = thread::start(LAMBDA(input AS Integer) -> total = total + input, 1, 1, 1)
+
+  ' A resource is never capturable, even though `forEach` is non-escaping and
+  ' the `MUT lastLine` capture alone would be allowed (§12.4).
+  LET numbers AS List OF Integer = [1, 2, 3]
+  RES handle = fs::openFile("tests/syntax/functions/lambda-mut-capture-invalid/data/input.txt")
+  MUT lastLine AS String = ""
+  collections::forEach(numbers, LAMBDA(x AS Integer) -> lastLine = fs::readLine(handle))
+
+  RETURN 0
+END FUNC

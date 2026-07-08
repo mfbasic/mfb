@@ -1,0 +1,73 @@
+Package: package_simple
+Ident: tests:package-simple
+Version: 1.0.0
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
+Author: <empty>
+URL: <empty>
+Path: tests/syntax/packages/package-simple/package_simple.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  package binary hash: 1f80e66830c3504123570c7fc024cc41ab35122a6fe267fb1e9b67341cde94f4
+  content hash: 7ce114154d9d3224606b4f81779dbd2f7b6b14c9ed624ff676f37df5ecc79ca1
+  binary representation length: 2874
+
+Manifest:
+  name: package_simple
+  ident: tests:package-simple
+  version: 1.0.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 5
+  constants: 0
+  resources: 0
+  functions: 5
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 10
+
+Exports:
+  FUNC score$
+    sigHash: b8be4292b366a3dfc6022a8fa80c583bd1316b178fa4a14d1e732c3c7d17c71f
+  FUNC score$Vec2
+    sigHash: fac19c85c67081b2309f9271b0fe689fb1a2f20c0089a09144254713859dd565
+  SUB mark$
+    sigHash: cadf6e48a0d54c7f1c50bbf30e790c348f041176a78140b9d905cbf53aaf8296
+  SUB mark$Vec2
+    sigHash: f8c16b352cc903ae6d8e40831bb4b5f0614794721e9f590b8024e91c3fa52c03
+  FUNC worker
+    sigHash: f3a127c4f60abc87c8d22269145f7b240ca1935e7f7400499e77d399ba2a3034
+  TYPE Vec2
+    sigHash: da95cb2dd7cf9cac6a665ed1e1858fa9a46bbb940a0f01139c49a1586c55b52e
+  ENUM Color
+    sigHash: f506a215076273557bbf08998d73af7fb651488abbd49b12517ce61b2eb58485
+  TYPE Number
+    sigHash: 6fa7861ccd24c28d72509fe8dd73d6e04416eaa0591cb93b272332edd0272717
+  TYPE Missing
+    sigHash: 6f56a0627bf6e66bd79e17e6ba8bfd9853a637e284cdc465fc2f0590dcea5780
+  UNION MaybeNumber
+    sigHash: 60b0186ae18a2256be8ae9c563857b93b4c8178bfcfafa034449f0b2d43a6007
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

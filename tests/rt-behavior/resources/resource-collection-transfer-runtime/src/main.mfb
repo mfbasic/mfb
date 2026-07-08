@@ -1,0 +1,27 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+' `AS List OF RES File` transfers scope-ownership of the referenced resources to
+' the caller (§15.6): the callee does not close them, the caller's scope adopts
+' them and closes each once at its exit. The collection only ever holds borrows.
+FUNC openTwo() AS List OF RES File
+  MUT handles AS List OF RES File = []
+  RES a AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb")
+  handles = collections::append(handles, a)
+  RES b AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb")
+  handles = collections::append(handles, b)
+  RETURN handles
+END FUNC
+
+FUNC main AS Integer
+  LET files AS List OF RES File = openTwo()
+  ' The transferred handles are still open in the caller's scope.
+  MUT opened AS Integer = 0
+  FOR EACH h IN files
+    LET line AS String = fs::readLine(h)
+    opened = opened + 1
+  NEXT
+  io::print("opened=" & toString(opened))
+  RETURN 0
+END FUNC

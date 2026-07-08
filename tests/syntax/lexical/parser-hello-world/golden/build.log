@@ -1,0 +1,9 @@
+$ mfb build -ast -ir -nir -nplan -nobj -ncode -mir tests/syntax/lexical/parser-hello-world
+Wrote AST to tests/syntax/lexical/parser-hello-world/parser_hello_world.ast
+Wrote IR to tests/syntax/lexical/parser-hello-world/parser_hello_world.ir
+Wrote native IR to tests/syntax/lexical/parser-hello-world/parser_hello_world.nir
+Wrote native plan to tests/syntax/lexical/parser-hello-world/parser_hello_world.nplan
+Wrote native object plan to tests/syntax/lexical/parser-hello-world/parser_hello_world.nobj
+Wrote native code plan to tests/syntax/lexical/parser-hello-world/parser_hello_world.ncode
+Wrote MIR to tests/syntax/lexical/parser-hello-world/parser_hello_world.mir
+[exit 0]

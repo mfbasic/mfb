@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/project/project-sources-file-root
+Wrote AST to tests/syntax/project/project-sources-file-root/project_sources_file_root.ast
+Wrote IR to tests/syntax/project/project-sources-file-root/project_sources_file_root.ir
+[exit 0]

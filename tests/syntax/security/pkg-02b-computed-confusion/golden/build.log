@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/security/pkg-02b-computed-confusion
+uses sec_confused_computed - [Unsigned]
+Wrote AST to tests/syntax/security/pkg-02b-computed-confusion/pkg_02b_computed_confusion.ast
+Wrote IR to tests/syntax/security/pkg-02b-computed-confusion/pkg_02b_computed_confusion.ir
+[exit 0]
+$ mfb build tests/syntax/security/pkg-02b-computed-confusion
+uses sec_confused_computed - [Unsigned]
+error: TYPE_FIELD_ACCESS_REQUIRES_RECORD: field access requires a record value, got `Integer`.
+[exit 1]

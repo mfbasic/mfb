@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/audit-dependency-missing
-Wrote AST to tests/audit-dependency-missing/audit_dependency_missing.ast
-Wrote IR to tests/audit-dependency-missing/audit_dependency_missing.ir
-[exit 0]

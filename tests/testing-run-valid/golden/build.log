@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/testing-run-valid
-Wrote AST to tests/testing-run-valid/testing_run.ast
-Wrote IR to tests/testing-run-valid/testing_run.ir
-[exit 0]

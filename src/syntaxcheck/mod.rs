@@ -2087,7 +2087,7 @@ mod checker_tests {
     use std::path::Path;
 
     fn fixture(name: &str) -> String {
-        format!("{}/tests/{}", env!("CARGO_MANIFEST_DIR"), name)
+        crate::testutil::fixture_dir(name).to_string_lossy().into_owned()
     }
 
     // ---- check_function -----------------------------------------------------
@@ -2562,12 +2562,12 @@ mod checker_tests {
 
     #[test]
     fn package_metadata_thread_transfer_valid() {
-        assert!(check_project_dir(Path::new(&fixture("builtin-thread/behavior/func_thread_transfer_valid"))).is_empty());
+        assert!(check_project_dir(Path::new(&fixture("func_thread_transfer_valid"))).is_empty());
     }
 
     #[test]
     fn package_metadata_thread_send_valid() {
-        assert!(check_project_dir(Path::new(&fixture("builtin-thread/behavior/func_thread_send_valid"))).is_empty());
+        assert!(check_project_dir(Path::new(&fixture("func_thread_send_valid"))).is_empty());
     }
 
     // Diverse imported-package metadata shapes walk validate_package_metadata_type
@@ -2580,7 +2580,7 @@ mod checker_tests {
             "thread-return-map-of-string-to-string",
             "thread-return-list-of-string",
             "package-import-as",
-            "builtin-thread/behavior/func_thread_start_valid",
+            "func_thread_start_valid",
             "thread-drop-cleanup",
             "native-resource-import-valid",
             "thread-import-package-print",

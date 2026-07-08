@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/vector/abs_invalid
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET a AS vector::Float2 = vector::abs(5.0)
+     | ^
+tests/syntax/vector/abs_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `vector.abs` has argument type(s) (Float), expected a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4).
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET a AS vector::Float2 = vector::abs(5.0)
+     | ^
+tests/syntax/vector/abs_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   5 | FUNC main AS Integer
+   6 |   LET a AS vector::Float2 = vector::abs(5.0)
+   7 |   LET b AS vector::Float2 = vector::abs(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0])
+     | ^
+tests/syntax/vector/abs_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `vector.abs` has 2 argument(s), expected 1.
+   5 | FUNC main AS Integer
+   6 |   LET a AS vector::Float2 = vector::abs(5.0)
+   7 |   LET b AS vector::Float2 = vector::abs(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0])
+     | ^
+tests/syntax/vector/abs_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+[exit 1]

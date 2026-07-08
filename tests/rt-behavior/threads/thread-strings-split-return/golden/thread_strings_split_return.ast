@@ -1,0 +1,40 @@
+{
+  "project": "thread_strings_split_return",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "thread", "line": 3 },
+    { "module": "thread_runtime_workers", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "content", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-strings-split-return/data/input.txt" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO List OF String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.splitLines" }, { "kind": "identifier", "value": "content" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "lines", "type": "List OF String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 9 },
+      {
+        "kind": "forEach",
+        "name": "line",
+        "iterable": { "kind": "identifier", "value": "lines" },
+        "line": 10,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "line" }] }, "line": 11 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/functions/user-function-default-args-invalid
+   4 | 
+   5 | FUNC main() AS Integer
+   6 |   LET missing = combine(extra := 2)
+     | ^
+tests/syntax/functions/user-function-default-args-invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `combine` has 1 argument(s), expected 1 to 3.
+   5 | FUNC main() AS Integer
+   6 |   LET missing = combine(extra := 2)
+   7 |   LET wrongType = combine(1, suffix := 9)
+     | ^
+tests/syntax/functions/user-function-default-args-invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 3 for `combine` has type Integer, expected String.
+   6 |   LET missing = combine(extra := 2)
+   7 |   LET wrongType = combine(1, suffix := 9)
+   8 |   LET tooMany = combine(1, 2, "!", 4)
+     | ^
+tests/syntax/functions/user-function-default-args-invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `combine` has 3 argument(s), expected 1 to 3.
+[exit 1]

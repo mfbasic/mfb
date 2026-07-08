@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/types/result-not-matchable-invalid
+  11 |   MATCH parse(5)
+  12 |     CASE Ok(value)
+  13 |       RETURN value
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  13 |       RETURN value
+  14 |     CASE Error(err)
+  15 |       RETURN err.code
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+   8 | END FUNC
+   9 | 
+  10 | FUNC main AS Integer
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:10 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `main` must return a Integer value.
+   9 | 
+  10 | FUNC main AS Integer
+  11 |   MATCH parse(5)
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:11 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on open type Integer requires an unguarded CASE ELSE.
+  10 | FUNC main AS Integer
+  11 |   MATCH parse(5)
+  12 |     CASE Ok(value)
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:12 error[2-203-0071 TYPE_RESULT_NOT_MATCHABLE]: Ok and Error are not matchable as Result members in user code
+               `CASE Ok` is not a valid match arm; handle failure with an inline `TRAP` instead.
+  12 |     CASE Ok(value)
+  13 |       RETURN value
+  14 |     CASE Error(err)
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:14 error[2-203-0071 TYPE_RESULT_NOT_MATCHABLE]: Ok and Error are not matchable as Result members in user code
+               `CASE Error` is not a valid match arm; handle failure with an inline `TRAP` instead.
+  11 |   MATCH parse(5)
+  12 |     CASE Ok(value)
+  13 |       RETURN value
+     | ^
+tests/syntax/types/result-not-matchable-invalid/src/main.mfb:13 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Ok, expected Integer.
+[exit 1]

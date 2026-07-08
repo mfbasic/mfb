@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  RES first = fs::openFile("tests/syntax/resources/ownership-use-after-move-invalid/src/main.mfb")
+  RES second = first
+  RES third = first
+  RETURN 0
+END FUNC

@@ -1,0 +1,38 @@
+IMPORT fs
+IMPORT io
+IMPORT json
+
+' Consolidated runtime-behavior coverage (tests reorg). Each former per-case
+' main is a <case>_run helper; main drives them in order so stdout is the
+' concatenation of every case's output.
+
+' ---- from json_read_valid ----
+
+FUNC json_read_valid_run AS Integer
+  LET path AS String = "target/json_read_valid.json"
+  fs::writeText(path, "{ \"user\": { \"name\": \"Ada\" }, \"items\": [1, 2, 3] }")
+  LET value AS Json = json::parse(fs::readText(path))
+  io::print(json::stringify(json::get(value, ["user", "name"])))
+  io::print(json::stringify(json::get(value, ["items"])))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC
+
+' ---- from json_write_valid ----
+
+FUNC json_write_valid_run AS Integer
+  LET path AS String = "target/json_write_valid.json"
+  LET value AS Json = JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"], "enabled" := JsonBool[TRUE] }]
+  LET text AS String = json::stringify(value)
+  fs::writeText(path, text)
+  io::print(fs::readText(path))
+  io::print(json::stringify(json::get(json::parse(fs::readText(path)), ["name"])))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET _json_read_valid AS Integer = json_read_valid_run()
+  LET _json_write_valid AS Integer = json_write_valid_run()
+  RETURN 0
+END FUNC

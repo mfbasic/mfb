@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/testing/testing-assert-invalid
+Wrote AST to tests/syntax/testing/testing-assert-invalid/testing_assert.ast
+Wrote IR to tests/syntax/testing/testing-assert-invalid/testing_assert.ir
+[exit 0]

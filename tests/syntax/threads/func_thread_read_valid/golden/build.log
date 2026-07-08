@@ -1,0 +1,5 @@
+$ mfb build -ast -ir tests/syntax/threads/func_thread_read_valid
+uses thread_workers - [Unsigned]
+Wrote AST to tests/syntax/threads/func_thread_read_valid/func_thread_read_valid.ast
+Wrote IR to tests/syntax/threads/func_thread_read_valid/func_thread_read_valid.ir
+[exit 0]

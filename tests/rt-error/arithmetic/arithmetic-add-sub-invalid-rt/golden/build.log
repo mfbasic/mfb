@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt
+Wrote AST to tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt/arithmetic_add_sub_invalid_rt.ast
+Wrote IR to tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt/arithmetic_add_sub_invalid_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt
+Wrote executable to tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt/arithmetic_add_sub_invalid_rt.out
+[exit 0]
+$ tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt/arithmetic_add_sub_invalid_rt.out
+Code: 77050011 Message: numeric underflow
+[exit 255]

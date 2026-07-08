@@ -1,0 +1,30 @@
+{
+  "project": "thread_fs_readtext_return",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_runtime_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/rt-behavior/threads/thread-fs-readtext-return/data/input.txt" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "content", "type": "String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "content" }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

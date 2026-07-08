@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/func_override_reserved_invalid
-   3 | ' `error` is a reserved language primitive (it builds the read-only Error record)
-   4 | ' and may not be redeclared (§A.5).
-   5 | FUNC error(code AS Integer, message AS String) AS String
-     | ^
-tests/func_override_reserved_invalid/src/main.mfb:5 error[2-201-0016 SYMBOL_RESERVED_BUILTIN_NAME]: function name is a reserved built-in and may not be redeclared
-               `error` is a reserved built-in and cannot be redeclared.
-[exit 1]

@@ -1,6 +1,0 @@
-IMPORT term
-
-FUNC main AS Integer
-  term::showCursor()
-  RETURN 0
-END FUNC

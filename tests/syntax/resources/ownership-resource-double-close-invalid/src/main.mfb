@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  RES file = fs::openFile("tests/syntax/resources/ownership-resource-double-close-invalid/src/main.mfb")
+  fs::close(file)
+  fs::close(file)
+  RETURN 0
+END FUNC

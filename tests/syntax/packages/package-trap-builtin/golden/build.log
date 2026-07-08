@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-trap-builtin
+Wrote AST to tests/syntax/packages/package-trap-builtin/trap_builtin_pkg.ast
+Wrote IR to tests/syntax/packages/package-trap-builtin/trap_builtin_pkg.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-trap-builtin
+Wrote package to tests/syntax/packages/package-trap-builtin/trap_builtin_pkg.mfp
+[exit 0]

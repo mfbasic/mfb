@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/types/types-member-visibility-invalid
+   1 | FUNC main AS Integer
+   2 |   LET acct = mkAccount("a", 10)
+   3 |   RETURN acct.balance
+     | ^
+tests/syntax/types/types-member-visibility-invalid/src/main.mfb:3 error[2-203-0036 TYPE_MEMBER_NOT_VISIBLE]: type member is not visible from this scope
+               Field `Account::balance` is not visible from this file.
+[exit 1]

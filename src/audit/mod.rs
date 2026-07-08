@@ -269,7 +269,7 @@ mod tests {
         // audit it end-to-end in both formats.
         let src_root = std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/func_math_clamp_valid"
+            "/tests/rt-behavior/math/math_package_valid"
         ));
         if !src_root.exists() {
             return;

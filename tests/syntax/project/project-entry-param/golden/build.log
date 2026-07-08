@@ -1,0 +1,7 @@
+$ mfb build -ast -ir -nir -nplan -nobj tests/syntax/project/project-entry-param
+Wrote AST to tests/syntax/project/project-entry-param/project_entry_param.ast
+Wrote IR to tests/syntax/project/project-entry-param/project_entry_param.ir
+Wrote native IR to tests/syntax/project/project-entry-param/project_entry_param.nir
+Wrote native plan to tests/syntax/project/project-entry-param/project_entry_param.nplan
+Wrote native object plan to tests/syntax/project/project-entry-param/project_entry_param.nobj
+[exit 0]

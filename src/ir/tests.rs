@@ -126,22 +126,32 @@ mod lowering_totality_tests {
     use std::path::{Path, PathBuf};
 
     fn invalid_fixture_dirs() -> Vec<PathBuf> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-        let mut dirs = Vec::new();
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            return dirs;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            // Compile-time-invalid fixtures reach lowering only if they parse
-            // and resolve; runtime-invalid (`*-invalid-rt`) fixtures are valid
-            // programs that fail at run time, so they lower normally too.
-            if name.ends_with("-invalid") && path.join("project.json").is_file() {
-                dirs.push(path);
+        // Walk recursively: after the tests reorganization the `*-invalid`
+        // fixtures live nested under tests/syntax/<feature>/* (and a few under
+        // the runtime buckets), not directly under tests/.
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                // Compile-time-invalid fixtures reach lowering only if they
+                // parse and resolve; runtime-invalid (`*-invalid-rt`) fixtures
+                // are valid programs that fail at run time, so they lower too.
+                if entry.file_name().to_string_lossy().ends_with("-invalid")
+                    && path.join("project.json").is_file()
+                {
+                    out.push(path.clone());
+                }
+                walk(&path, out);
             }
         }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let mut dirs = Vec::new();
+        walk(&root, &mut dirs);
         dirs.sort();
         dirs
     }
@@ -4783,7 +4793,7 @@ SUB seek(RES s AS File STATE Cursor, dest AS Integer)
   s.state.pos = dest
 END SUB
 FUNC main AS Integer
-  RES f AS File STATE Cursor = fs::openFile("tests/resource-state-field-assign-valid/src/main.mfb")
+  RES f AS File STATE Cursor = fs::openFile("tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb")
   LET p AS Integer = f.state.pos
   f.state = WITH f.state { pos := 10 }
   seek(f, 25)

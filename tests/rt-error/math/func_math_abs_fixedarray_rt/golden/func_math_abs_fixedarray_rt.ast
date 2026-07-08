@@ -1,0 +1,30 @@
+{
+  "project": "func_math_abs_fixedarray_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "-2147483648.0" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.0F" }, { "kind": "identifier", "value": "m" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "ys", "type": "List OF Fixed", "value": { "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "identifier", "value": "xs" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ys" }] }] }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

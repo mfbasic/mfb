@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/resources/native-resource-close-not-native-invalid
+   1 | ' CLOSE BY must name a native LINK function, not an ordinary FUNC (§5/§12).
+   2 | EXPORT RESOURCE Db CLOSE BY closeDb
+     | ^
+tests/syntax/resources/native-resource-close-not-native-invalid/src/lib.mfb:2 error[2-203-0089 RESOURCE_CLOSE_NOT_NATIVE]: a resource's CLOSE BY op must be a native LINK function
+               RESOURCE `Db` CLOSE BY `closeDb` must name a native LINK function (alias::func).
+[exit 1]

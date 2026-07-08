@@ -1,0 +1,27 @@
+$ mfb build -ast -ir tests/syntax/threads/func_thread_emit_invalid
+uses thread_workers - [Unsigned]
+   4 | FUNC main AS Integer
+   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+   6 |   LET missing AS Nothing = thread::emit()
+     | ^
+tests/syntax/threads/func_thread_emit_invalid/src/main.mfb:6 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `thread` does not export `thread.emit`.
+   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+   6 |   LET missing AS Nothing = thread::emit()
+   7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
+     | ^
+tests/syntax/threads/func_thread_emit_invalid/src/main.mfb:7 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `thread` does not export `thread.emit`.
+   6 |   LET missing AS Nothing = thread::emit()
+   7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
+   8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
+     | ^
+tests/syntax/threads/func_thread_emit_invalid/src/main.mfb:8 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `thread` does not export `thread.emit`.
+   7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
+   8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
+   9 |   LET tooMany AS Nothing = thread::emit(t, "b", 0, 1)
+     | ^
+tests/syntax/threads/func_thread_emit_invalid/src/main.mfb:9 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `thread` does not export `thread.emit`.
+[exit 1]

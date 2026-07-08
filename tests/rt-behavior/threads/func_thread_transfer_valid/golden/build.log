@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/func_thread_transfer_valid
+uses thread_file_sink - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/func_thread_transfer_valid/func_thread_transfer_valid.ast
+Wrote IR to tests/rt-behavior/threads/func_thread_transfer_valid/func_thread_transfer_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/func_thread_transfer_valid
+uses thread_file_sink - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/func_thread_transfer_valid/func_thread_transfer_valid.out
+[exit 0]
+$ tests/rt-behavior/threads/func_thread_transfer_valid/func_thread_transfer_valid.out
+20
+[exit 0]

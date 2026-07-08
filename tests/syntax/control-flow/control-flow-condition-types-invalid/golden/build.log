@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/control-flow/control-flow-condition-types-invalid
+  11 | FUNC describe(shape AS Shape) AS Integer
+  12 |   MATCH shape
+  13 |     CASE Circle(c) WHEN c.radius
+     | ^
+tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:13 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+               WHEN guard has type Integer, expected Boolean.
+  19 | 
+  20 | FUNC main AS Integer
+  21 |   IF 1 THEN
+     | ^
+tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:21 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+               IF condition has type Integer, expected Boolean.
+  23 |   END IF
+  24 | 
+  25 |   WHILE "loop"
+     | ^
+tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:25 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+               WHILE condition has type String, expected Boolean.
+  27 |   WEND
+  28 | 
+  29 |   DO
+     | ^
+tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:29 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+               LOOP UNTIL condition has type Float, expected Boolean.
+  31 |   LOOP UNTIL 2.5
+  32 | 
+  33 |   FOR i = "a" TO 10
+     | ^
+tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:33 error[2-203-0004 TYPE_FOR_REQUIRES_NUMERIC]: FOR loop operands must be numeric
+               FOR loop start value has type String, expected numeric.
+  35 |   NEXT
+  36 | 
+  37 |   FOR EACH item IN 42
+     | ^
+tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:37 error[2-203-0050 TYPE_FOR_EACH_REQUIRES_COLLECTION]: FOR EACH source must be a List or Map
+               FOR EACH source has type Integer, expected List or Map.
+[exit 1]

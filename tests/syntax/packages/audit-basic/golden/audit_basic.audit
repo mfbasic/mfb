@@ -1,0 +1,95 @@
+$ mfb audit --format text tests/syntax/packages/audit-basic
+Audit: audit_basic 0.1.0 (executable)
+Root: tests/syntax/packages/audit-basic
+Language: 1.0
+Entry: main
+Lockfile: absent
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 1
+
+Permissions:
+  terminal
+    io.print at src/main.mfb:4
+
+Control flow:
+  main at src/main.mfb:3 (fallible)
+    fallible call io.print at src/main.mfb:4 -> return
+
+Findings:
+  info AUDIT-PERM-TERMINAL project uses host capability: terminal
+[exit 0]
+$ mfb audit --format json tests/syntax/packages/audit-basic
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "audit_basic",
+    "ident": "audit_basic",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/syntax/packages/audit-basic",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 1
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 3,
+      "fallible": true,
+      "trap": null,
+      "calls": [
+        {
+          "callee": "io.print",
+          "line": 4,
+          "propagation": "return",
+          "capability": "terminal"
+        }
+      ]
+    }
+  ],
+  "resources": [],
+  "nativeLinks": [],
+  "nativeResources": [],
+  "permissions": [
+    {
+      "capability": "terminal",
+      "package": "io",
+      "function": "io.print",
+      "path": "src/main.mfb",
+      "line": 4,
+      "kind": "standard"
+    }
+  ],
+  "findings": [
+    {
+      "code": "AUDIT-PERM-TERMINAL",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: terminal",
+      "location": null,
+      "package": null
+    }
+  ]
+}
+[exit 0]

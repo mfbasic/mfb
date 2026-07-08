@@ -1,0 +1,18 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-queue-timeout-cancel
+uses thread_runtime_workers - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-queue-timeout-cancel/thread_queue_timeout_cancel.ast
+Wrote IR to tests/rt-behavior/threads/thread-queue-timeout-cancel/thread_queue_timeout_cancel.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-queue-timeout-cancel
+uses thread_runtime_workers - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-queue-timeout-cancel/thread_queue_timeout_cancel.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-queue-timeout-cancel/thread_queue_timeout_cancel.out
+timeout
+worker timeout
+poll false
+interrupted
+cancelled
+receive interrupted
+outbound interrupted
+[exit 0]

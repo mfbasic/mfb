@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/operators/unary-byte-negation-underflow-rt
+Wrote AST to tests/rt-error/operators/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.ast
+Wrote IR to tests/rt-error/operators/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/operators/unary-byte-negation-underflow-rt
+Wrote executable to tests/rt-error/operators/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.out
+[exit 0]
+$ tests/rt-error/operators/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.out
+Code: 77050011 Message: numeric underflow
+[exit 255]

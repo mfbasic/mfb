@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/rt-behavior/types/types-behavior
+Wrote AST to tests/rt-behavior/types/types-behavior/types_behavior.ast
+Wrote IR to tests/rt-behavior/types/types-behavior/types_behavior.ir
+[exit 0]
+$ mfb build tests/rt-behavior/types/types-behavior
+Wrote executable to tests/rt-behavior/types/types-behavior/types_behavior.out
+[exit 0]
+$ tests/rt-behavior/types/types-behavior/types_behavior.out
+
+0
+FALSE
+Ada
+36
+Grace
+85
+Nothing
+Nothing
+fallthrough
+bare-return
+explicit-return
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+0
+0
+Katherine
+first
+TRUE
+1
+10
+2
+1
+FALSE
+[exit 0]

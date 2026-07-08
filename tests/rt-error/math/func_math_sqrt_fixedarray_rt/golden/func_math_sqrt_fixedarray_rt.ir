@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_sqrt_fixedarray_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 6, "mutable": false, "name": "xs", "type": "List OF Fixed", "value": { "kind": "list", "type": "List OF Fixed", "values": [{ "kind": "const", "type": "Fixed", "value": "4.0" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1.0" } }, { "kind": "const", "type": "Fixed", "value": "9.0" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "sq", "type": "List OF Fixed", "value": { "kind": "call", "type": "List OF Fixed", "target": "math.sqrt", "args": [{ "kind": "local", "name": "xs" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "sq" }] }] }] } },
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

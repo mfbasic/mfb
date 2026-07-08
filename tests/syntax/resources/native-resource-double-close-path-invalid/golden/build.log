@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/native-resource-double-close-path-invalid
+  20 |     demoLink::close(db)
+  21 |   END IF
+  22 |   demoLink::close(db)
+     | ^
+tests/syntax/resources/native-resource-double-close-path-invalid/src/lib.mfb:22 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `db` was moved and cannot be used again.
+[exit 1]

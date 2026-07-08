@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-behavior/fs/fs-listdir-order-rt
+Wrote AST to tests/rt-behavior/fs/fs-listdir-order-rt/fs_listdir_order_rt.ast
+Wrote IR to tests/rt-behavior/fs/fs-listdir-order-rt/fs_listdir_order_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/fs/fs-listdir-order-rt
+Wrote executable to tests/rt-behavior/fs/fs-listdir-order-rt/fs_listdir_order_rt.out
+[exit 0]
+$ tests/rt-behavior/fs/fs-listdir-order-rt/fs_listdir_order_rt.out
+Banana.txt,apple.txt,mango.txt,zebra.txt
+[exit 0]

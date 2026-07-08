@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/functions/func_visibility_top_level_valid
+Wrote AST to tests/syntax/functions/func_visibility_top_level_valid/func_visibility_top_level_valid.ast
+Wrote IR to tests/syntax/functions/func_visibility_top_level_valid/func_visibility_top_level_valid.ir
+[exit 0]

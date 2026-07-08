@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/numeric-suffix-conflict-invalid
-   2 | ' to a Float slot is a type error (no Float<-Fixed coercion), not a silent Float.
-   3 | FUNC main AS Integer
-   4 |   LET x AS Float = 2F
-     | ^
-tests/numeric-suffix-conflict-invalid/src/main.mfb:4 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
-               Binding `x` has initializer type Fixed, expected Float.
-[exit 1]

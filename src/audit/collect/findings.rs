@@ -383,7 +383,7 @@ mod tests {
         // The `package-state-audit` golden `.mfp` exports a mutable `counter`, so
         // this exercises the AUDIT-PKG-STATE-EXPORTED-MUT emit path end-to-end.
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/package-state-audit/golden/package_state_audit.mfp");
+            .join("tests/syntax/packages/package-state-audit/golden/package_state_audit.mfp");
         if !fixture.exists() {
             return;
         }

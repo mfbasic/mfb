@@ -1,7 +1,0 @@
-$ mfb build -ast -ir tests/control-flow-bare-do-invalid
-   1 | FUNC main AS Integer
-   2 |   DO : LOOP
-     |            ^
-tests/control-flow-bare-do-invalid/src/main.mfb:2 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
-               DO blocks must end with LOOP UNTIL <condition>.
-[exit 1]

@@ -1,0 +1,55 @@
+Package: package_comparable_types
+Ident: tests:package-comparable-types
+Version: 1.0.0
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
+Author: <empty>
+URL: <empty>
+Path: tests/syntax/packages/package-comparable-types/package_comparable_types.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  package binary hash: cff8361097639dac62c2f0a2ec831c6ad86b5bfc4776c86383ac95a3a7992165
+  content hash: 0dd41ee71548cf5ee6ee414608c780daf69ac610bee212d5d19f502da606b1ac
+  binary representation length: 717
+
+Manifest:
+  name: package_comparable_types
+  ident: tests:package-comparable-types
+  version: 1.0.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 2
+  constants: 0
+  resources: 0
+  functions: 0
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 1
+
+Exports:
+  TYPE Box
+    sigHash: c3a7f7d263325ed7ce5c70268af973f8d064cfcbf0e3067a342e7cb8218e25ae
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

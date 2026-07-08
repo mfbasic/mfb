@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-shape
+Wrote AST to tests/syntax/packages/package-shape/package_shape.ast
+Wrote IR to tests/syntax/packages/package-shape/package_shape.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-shape
+Wrote package to tests/syntax/packages/package-shape/package_shape.mfp
+[exit 0]

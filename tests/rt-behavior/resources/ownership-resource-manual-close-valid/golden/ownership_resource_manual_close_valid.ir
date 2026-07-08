@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "ownership_resource_manual_close_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 5, "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/ownership-resource-manual-close-valid/src/main.mfb" }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "closed" }] } },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

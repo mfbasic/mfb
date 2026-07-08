@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/resource-collection-floats-runtime
+Wrote AST to tests/rt-behavior/resources/resource-collection-floats-runtime/resource_collection_floats_runtime.ast
+Wrote IR to tests/rt-behavior/resources/resource-collection-floats-runtime/resource_collection_floats_runtime.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/resource-collection-floats-runtime
+Wrote executable to tests/rt-behavior/resources/resource-collection-floats-runtime/resource_collection_floats_runtime.out
+[exit 0]
+$ tests/rt-behavior/resources/resource-collection-floats-runtime/resource_collection_floats_runtime.out
+opened=5
+[exit 0]

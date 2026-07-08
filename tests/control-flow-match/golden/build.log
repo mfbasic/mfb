@@ -1,9 +1,0 @@
-$ mfb build -ast -ir -br -nir -nplan -nobj -ncode tests/control-flow-match
-Wrote AST to tests/control-flow-match/control_flow_match.ast
-Wrote IR to tests/control-flow-match/control_flow_match.ir
-Wrote binary representation hex to tests/control-flow-match/control_flow_match.hex
-Wrote native IR to tests/control-flow-match/control_flow_match.nir
-Wrote native plan to tests/control-flow-match/control_flow_match.nplan
-Wrote native object plan to tests/control-flow-match/control_flow_match.nobj
-Wrote native code plan to tests/control-flow-match/control_flow_match.ncode
-[exit 0]

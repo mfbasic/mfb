@@ -11,19 +11,19 @@ TESTING
   TGROUP "Builtin: math"
     TGROUP "abs"
       TCASE "scalar"
-        LET fixedNeg AS Fixed = 0 - toFixed("4.75")
+        LET fixedNeg AS Fixed = 0 - 4.75F
         expectInteger(math::abs(-7), 7)
         expectInteger(math::abs(0), 0)
         expectFloat(math::abs(0.0 - 3.50), 3.50000000000000000)
         expectFloat(math::abs(2.25), 2.25000000000000000)
-        expectFixed(math::abs(fixedNeg), toFixed("4.750000000000000000"))
+        expectFixed(math::abs(fixedNeg), 4.750000000000000000F)
       END TCASE
       TCASE "fixed array"
-        LET xs AS List OF Fixed = [toFixed("-1.5"), toFixed("2.25"), toFixed("-3.0")]
+        LET xs AS List OF Fixed = [-1.5F, 2.25F, -3.0F]
         LET r AS List OF Fixed = math::abs(xs)
-        expectFixed(collections::get(r, 0), toFixed("1.500000000000000000"))
-        expectFixed(collections::get(r, 1), toFixed("2.250000000000000000"))
-        expectFixed(collections::get(r, 2), toFixed("3.000000000000000000"))
+        expectFixed(collections::get(r, 0), 1.500000000000000000F)
+        expectFixed(collections::get(r, 1), 2.250000000000000000F)
+        expectFixed(collections::get(r, 2), 3.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [0.0 - 1.5, 2.25, 0.0 - 3.0, 4.5, 0.0 - 0.5]
@@ -51,10 +51,10 @@ TESTING
 
     TGROUP "acos"
       TCASE "scalar"
-        LET fixedOne AS Fixed = toFixed("1.00")
+        LET fixedOne AS Fixed = 1.00F
         expectFloat(math::acos(1.0), 0.00000000000000000)
         expectFloat(math::acos(0.5), 1.04719755119659763)
-        expectFixed(math::acos(fixedOne), toFixed("0.000000000000000000"))
+        expectFixed(math::acos(fixedOne), 0.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [0.0, 0.5, 0.0 - 0.5, 1.0, 0.25]
@@ -69,10 +69,10 @@ TESTING
 
     TGROUP "asin"
       TCASE "scalar"
-        LET fixedOne AS Fixed = toFixed("1.00")
+        LET fixedOne AS Fixed = 1.00F
         expectFloat(math::asin(0.0), 0.00000000000000000)
         expectFloat(math::asin(0.5), 0.52359877559829893)
-        expectFixed(math::asin(fixedOne), toFixed("1.570796326734125614"))
+        expectFixed(math::asin(fixedOne), 1.570796326734125614F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [0.0, 0.5, 0.0 - 0.5, 1.0, 0.25]
@@ -87,10 +87,10 @@ TESTING
 
     TGROUP "atan"
       TCASE "scalar"
-        LET fixedZero AS Fixed = toFixed("0.00")
+        LET fixedZero AS Fixed = 0.00F
         expectFloat(math::atan(0.0), 0.00000000000000000)
         expectFloat(math::atan(1.0), 0.78539816339744828)
-        expectFixed(math::atan(fixedZero), toFixed("0.000000000000000000"))
+        expectFixed(math::atan(fixedZero), 0.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [0.0, 0.5, 1.0, 2.0, 0.0 - 3.0]
@@ -105,11 +105,11 @@ TESTING
 
     TGROUP "atan2"
       TCASE "scalar"
-        LET fixedY AS Fixed = toFixed("0.00")
-        LET fixedX AS Fixed = 0 - toFixed("1.00")
+        LET fixedY AS Fixed = 0.00F
+        LET fixedX AS Fixed = 0 - 1.00F
         expectFloat(math::atan2(1.0, 1.0), 0.78539816339744828)
         expectFloat(math::atan2(0.0, 1.0), 0.00000000000000000)
-        expectFixed(math::atan2(fixedY, fixedX), toFixed("3.141592653701081871"))
+        expectFixed(math::atan2(fixedY, fixedX), 3.141592653701081871F)
       END TCASE
       TCASE "float array"
         LET ys AS List OF Float = [1.0, 1.0, 0.0 - 1.0, 0.0, 2.0]
@@ -140,8 +140,8 @@ TESTING
 
     TGROUP "ceil"
       TCASE "scalar"
-        LET fixedPositive AS Fixed = toFixed("3.25")
-        LET fixedNegative AS Fixed = 0 - toFixed("3.75")
+        LET fixedPositive AS Fixed = 3.25F
+        LET fixedNegative AS Fixed = 0 - 3.75F
         expectInteger(math::ceil(3.25), 4)
         expectInteger(math::ceil(0 - 3.75), -3)
         expectInteger(math::ceil(4.0), 4)
@@ -151,7 +151,7 @@ TESTING
         expectInteger(math::ceil(fixedNegative), -3)
       END TCASE
       TCASE "fixed array"
-        LET xs AS List OF Fixed = [toFixed("2.3"), toFixed("-2.3"), toFixed("2.5"), toFixed("-2.5"), toFixed("3.75")]
+        LET xs AS List OF Fixed = [2.3F, -2.3F, 2.5F, -2.5F, 3.75F]
         LET r AS List OF Integer = math::ceil(xs)
         expectInteger(collections::get(r, 0), 3)
         expectInteger(collections::get(r, 1), -2)
@@ -172,22 +172,22 @@ TESTING
 
     TGROUP "clamp"
       TCASE "scalar"
-        LET fixedValue AS Fixed = 0 - toFixed("1.25")
-        LET fixedLow AS Fixed = 0 - toFixed("1.0")
-        LET fixedHigh AS Fixed = toFixed("1.0")
+        LET fixedValue AS Fixed = 0 - 1.25F
+        LET fixedLow AS Fixed = 0 - 1.0F
+        LET fixedHigh AS Fixed = 1.0F
         expectInteger(math::clamp(12, 0, 10), 10)
         expectInteger(math::clamp(-3, 0, 10), 0)
         expectInteger(math::clamp(5, 0, 10), 5)
         expectFloat(math::clamp(3.50, 0.0, 3.0), 3.00000000000000000)
-        expectFixed(math::clamp(fixedValue, fixedLow, fixedHigh), toFixed("-1.000000000000000000"))
+        expectFixed(math::clamp(fixedValue, fixedLow, fixedHigh), -1.000000000000000000F)
         expectFloat(math::clamp(0.50, 0.0, 1.0), 0.50000000000000000)
       END TCASE
       TCASE "fixed array"
-        LET a AS List OF Fixed = [toFixed("3.5"), toFixed("-1.0"), toFixed("2.0")]
-        LET r AS List OF Fixed = math::clamp(a, toFixed("0.0"), toFixed("2.5"))
-        expectFixed(collections::get(r, 0), toFixed("2.500000000000000000"))
-        expectFixed(collections::get(r, 1), toFixed("0.000000000000000000"))
-        expectFixed(collections::get(r, 2), toFixed("2.000000000000000000"))
+        LET a AS List OF Fixed = [3.5F, -1.0F, 2.0F]
+        LET r AS List OF Fixed = math::clamp(a, 0.0F, 2.5F)
+        expectFixed(collections::get(r, 0), 2.500000000000000000F)
+        expectFixed(collections::get(r, 1), 0.000000000000000000F)
+        expectFixed(collections::get(r, 2), 2.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET a AS List OF Float = [3.5, 0.0 - 1.0, 2.0]
@@ -209,10 +209,10 @@ TESTING
 
     TGROUP "cos"
       TCASE "scalar"
-        LET fixedPi AS Fixed = toFixed("3.1415926536")
+        LET fixedPi AS Fixed = 3.1415926536F
         expectFloat(math::cos(0.0), 1.00000000000000000)
         expectFloat(math::cos(3.1415926536), -1.00000000000000000)
-        expectFixed(math::cos(fixedPi), toFixed("-1.000000001629814505"))
+        expectFixed(math::cos(fixedPi), -1.000000001629814505F)
         expectFloat(math::cos(0.7), 0.76484218728448850)
         expectFloat(math::cos(2.0), -0.41614683654714241)
         expectFloat(math::cos(4.0), -0.65364362086361194)
@@ -232,10 +232,10 @@ TESTING
 
     TGROUP "exp"
       TCASE "scalar"
-        LET fixedZero AS Fixed = toFixed("0.00")
+        LET fixedZero AS Fixed = 0.00F
         expectFloat(math::exp(1.0), 2.71828182845904509)
         expectFloat(math::exp(0.0), 1.00000000000000000)
-        expectFixed(math::exp(fixedZero), toFixed("1.000000000000000000"))
+        expectFixed(math::exp(fixedZero), 1.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [0.0, 1.0, 0.0 - 1.0, 0.5, 2.0]
@@ -252,27 +252,27 @@ TESTING
 
     TGROUP "fixed transcendental"
       TCASE "fixed"
-        expectFixed(math::sqrt(toFixed("2.0")), toFixed("1.414213562384247779"))
-        expectFixed(math::exp(toFixed("1.0")), toFixed("2.718281827401369810"))
-        expectFixed(math::log(toFixed("10.0")), toFixed("2.302585092373192310"))
-        expectFixed(math::log10(toFixed("50.0")), toFixed("1.698970004217699170"))
-        expectFixed(math::pow(toFixed("1.5"), toFixed("2.0")), toFixed("2.250000000000000000"))
-        expectFixed(math::pow(toFixed("2.0"), toFixed("0.5")), toFixed("1.414213562849909067"))
-        expectFixed(math::pow(toFixed("3.0"), toFixed("-2.0")), toFixed("0.111111111007630825"))
-        expectFixed(math::sin(toFixed("0.5")), toFixed("0.479425538796931505"))
-        expectFixed(math::cos(toFixed("0.5")), toFixed("0.877582563087344169"))
-        expectFixed(math::tan(toFixed("1.0")), toFixed("1.557407720247283577"))
-        expectFixed(math::asin(toFixed("0.8")), toFixed("0.927295218454673886"))
-        expectFixed(math::acos(toFixed("-0.3")), toFixed("1.875488980673253536"))
-        expectFixed(math::atan(toFixed("2.0")), toFixed("1.107148718787357211"))
-        expectFixed(math::atan2(toFixed("3.0"), toFixed("-4.0")), toFixed("2.498091545421630144"))
+        expectFixed(math::sqrt(2.0F), 1.414213562384247779F)
+        expectFixed(math::exp(1.0F), 2.718281827401369810F)
+        expectFixed(math::log(10.0F), 2.302585092373192310F)
+        expectFixed(math::log10(50.0F), 1.698970004217699170F)
+        expectFixed(math::pow(1.5F, 2.0F), 2.250000000000000000F)
+        expectFixed(math::pow(2.0F, 0.5F), 1.414213562849909067F)
+        expectFixed(math::pow(3.0F, -2.0F), 0.111111111007630825F)
+        expectFixed(math::sin(0.5F), 0.479425538796931505F)
+        expectFixed(math::cos(0.5F), 0.877582563087344169F)
+        expectFixed(math::tan(1.0F), 1.557407720247283577F)
+        expectFixed(math::asin(0.8F), 0.927295218454673886F)
+        expectFixed(math::acos(-0.3F), 1.875488980673253536F)
+        expectFixed(math::atan(2.0F), 1.107148718787357211F)
+        expectFixed(math::atan2(3.0F, -4.0F), 2.498091545421630144F)
       END TCASE
     END TGROUP
 
     TGROUP "floor"
       TCASE "scalar"
-        LET fixedPositive AS Fixed = toFixed("3.75")
-        LET fixedNegative AS Fixed = 0 - toFixed("3.25")
+        LET fixedPositive AS Fixed = 3.75F
+        LET fixedNegative AS Fixed = 0 - 3.25F
         expectInteger(math::floor(3.75), 3)
         expectInteger(math::floor(0 - 3.25), -4)
         expectInteger(math::floor(4.0), 4)
@@ -282,7 +282,7 @@ TESTING
         expectInteger(math::floor(fixedNegative), -4)
       END TCASE
       TCASE "fixed array"
-        LET xs AS List OF Fixed = [toFixed("2.3"), toFixed("-2.3"), toFixed("2.5"), toFixed("-2.5"), toFixed("3.75")]
+        LET xs AS List OF Fixed = [2.3F, -2.3F, 2.5F, -2.5F, 3.75F]
         LET r AS List OF Integer = math::floor(xs)
         expectInteger(collections::get(r, 0), 2)
         expectInteger(collections::get(r, 1), -3)
@@ -303,25 +303,25 @@ TESTING
 
     TGROUP "log"
       TCASE "scalar"
-        LET fixedOne AS Fixed = toFixed("1.00")
+        LET fixedOne AS Fixed = 1.00F
         expectFloat(math::log(math::e), 1.00000000000000000)
         expectFloat(math::log(1.0), 0.00000000000000000)
-        expectFixed(math::log(fixedOne), toFixed("0.000000000000000000"))
+        expectFixed(math::log(fixedOne), 0.000000000000000000F)
       END TCASE
       TCASE "fixed array"
-        LET xs AS List OF Fixed = [toFixed("2.0"), toFixed("4.0"), toFixed("9.0"), toFixed("0.25"), toFixed("100.0")]
+        LET xs AS List OF Fixed = [2.0F, 4.0F, 9.0F, 0.25F, 100.0F]
         LET r AS List OF Fixed = math::log(xs)
-        expectFixed(collections::get(r, 0), toFixed("0.693147180601954460"))
-        expectFixed(collections::get(r, 1), toFixed("1.386294361203908920"))
-        expectFixed(collections::get(r, 2), toFixed("2.197224576957523822"))
-        expectFixed(collections::get(r, 3), toFixed("-1.386294361203908920"))
-        expectFixed(collections::get(r, 4), toFixed("4.605170184746384620"))
+        expectFixed(collections::get(r, 0), 0.693147180601954460F)
+        expectFixed(collections::get(r, 1), 1.386294361203908920F)
+        expectFixed(collections::get(r, 2), 2.197224576957523822F)
+        expectFixed(collections::get(r, 3), -1.386294361203908920F)
+        expectFixed(collections::get(r, 4), 4.605170184746384620F)
         LET r10 AS List OF Fixed = math::log10(xs)
-        expectFixed(collections::get(r10, 0), toFixed("0.301029995782300829"))
-        expectFixed(collections::get(r10, 1), toFixed("0.602059991564601659"))
-        expectFixed(collections::get(r10, 2), toFixed("0.954242509556934237"))
-        expectFixed(collections::get(r10, 3), toFixed("-0.602059991564601659"))
-        expectFixed(collections::get(r10, 4), toFixed("1.999999999767169356"))
+        expectFixed(collections::get(r10, 0), 0.301029995782300829F)
+        expectFixed(collections::get(r10, 1), 0.602059991564601659F)
+        expectFixed(collections::get(r10, 2), 0.954242509556934237F)
+        expectFixed(collections::get(r10, 3), -0.602059991564601659F)
+        expectFixed(collections::get(r10, 4), 1.999999999767169356F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [0.5, 1.0, 2.0, 10.0, 100.0]
@@ -342,47 +342,47 @@ TESTING
 
     TGROUP "log10"
       TCASE "scalar"
-        LET fixedTen AS Fixed = toFixed("10.00")
+        LET fixedTen AS Fixed = 10.00F
         expectFloat(math::log10(100.0), 2.00000000000000000)
         expectFloat(math::log10(1.0), 0.00000000000000000)
-        expectFixed(math::log10(fixedTen), toFixed("1.000000000000000000"))
+        expectFixed(math::log10(fixedTen), 1.000000000000000000F)
       END TCASE
     END TGROUP
 
     TGROUP "max"
       TCASE "scalar"
-        LET fixedLow AS Fixed = 0 - toFixed("3.75")
-        LET fixedHigh AS Fixed = toFixed("2.50")
+        LET fixedLow AS Fixed = 0 - 3.75F
+        LET fixedHigh AS Fixed = 2.50F
         expectInteger(math::max(2, -4), 2)
         expectInteger(math::max(5, 5), 5)
         expectFloat(math::max(2.50, 0.0 - 4.25), 2.50000000000000000)
         expectFloat(math::max(1.25, 1.25), 1.25000000000000000)
-        expectFixed(math::max(fixedLow, fixedHigh), toFixed("2.500000000000000000"))
+        expectFixed(math::max(fixedLow, fixedHigh), 2.500000000000000000F)
       END TCASE
     END TGROUP
 
     TGROUP "min"
       TCASE "scalar"
-        LET fixedLow AS Fixed = 0 - toFixed("3.75")
-        LET fixedHigh AS Fixed = toFixed("2.50")
+        LET fixedLow AS Fixed = 0 - 3.75F
+        LET fixedHigh AS Fixed = 2.50F
         expectInteger(math::min(2, -4), -4)
         expectInteger(math::min(b := -6, a := 3), -6)
         expectInteger(math::min(5, 5), 5)
         expectFloat(math::min(2.50, 0.0 - 4.25), -4.25000000000000000)
         expectFloat(math::min(1.25, 1.25), 1.25000000000000000)
-        expectFixed(math::min(fixedLow, fixedHigh), toFixed("-3.750000000000000000"))
+        expectFixed(math::min(fixedLow, fixedHigh), -3.750000000000000000F)
       END TCASE
       TCASE "fixed array"
-        LET a AS List OF Fixed = [toFixed("3.5"), toFixed("-1.0"), toFixed("2.0")]
-        LET b AS List OF Fixed = [toFixed("1.5"), toFixed("-2.0"), toFixed("9.0")]
+        LET a AS List OF Fixed = [3.5F, -1.0F, 2.0F]
+        LET b AS List OF Fixed = [1.5F, -2.0F, 9.0F]
         LET rmin AS List OF Fixed = math::min(a, b)
-        expectFixed(collections::get(rmin, 0), toFixed("1.500000000000000000"))
-        expectFixed(collections::get(rmin, 1), toFixed("-2.000000000000000000"))
-        expectFixed(collections::get(rmin, 2), toFixed("2.000000000000000000"))
+        expectFixed(collections::get(rmin, 0), 1.500000000000000000F)
+        expectFixed(collections::get(rmin, 1), -2.000000000000000000F)
+        expectFixed(collections::get(rmin, 2), 2.000000000000000000F)
         LET rmax AS List OF Fixed = math::max(a, b)
-        expectFixed(collections::get(rmax, 0), toFixed("3.500000000000000000"))
-        expectFixed(collections::get(rmax, 1), toFixed("-1.000000000000000000"))
-        expectFixed(collections::get(rmax, 2), toFixed("9.000000000000000000"))
+        expectFixed(collections::get(rmax, 0), 3.500000000000000000F)
+        expectFixed(collections::get(rmax, 1), -1.000000000000000000F)
+        expectFixed(collections::get(rmax, 2), 9.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET a AS List OF Float = [3.5, 0.0 - 1.0, 2.0]
@@ -416,12 +416,12 @@ TESTING
 
     TGROUP "pow"
       TCASE "scalar"
-        LET fixedBase AS Fixed = toFixed("1.50")
-        LET fixedExponent AS Fixed = toFixed("2.00")
+        LET fixedBase AS Fixed = 1.50F
+        LET fixedExponent AS Fixed = 2.00F
         expectFloat(math::pow(2.0, 3.0), 8.00000000000000000)
         expectFloat(math::pow(exponent := 4.0, base := 2.0), 16.00000000000000000)
         expectFloat(math::pow(4.0, 0.5), 2.00000000000000000)
-        expectFixed(math::pow(fixedBase, fixedExponent), toFixed("2.250000000000000000"))
+        expectFixed(math::pow(fixedBase, fixedExponent), 2.250000000000000000F)
       END TCASE
       TCASE "float array"
         LET bs AS List OF Float = [2.0, 4.0, 9.0, 2.0, 10.0]
@@ -459,8 +459,8 @@ TESTING
 
     TGROUP "round"
       TCASE "scalar"
-        LET fixedPositive AS Fixed = toFixed("2.25")
-        LET fixedNegative AS Fixed = 0 - toFixed("2.25")
+        LET fixedPositive AS Fixed = 2.25F
+        LET fixedNegative AS Fixed = 0 - 2.25F
         expectInteger(math::round(3.49), 3)
         expectInteger(math::round(3.50), 4)
         expectInteger(math::round(0 - 3.50), -4)
@@ -470,7 +470,7 @@ TESTING
         expectInteger(math::round(fixedNegative), -2)
       END TCASE
       TCASE "fixed array"
-        LET xs AS List OF Fixed = [toFixed("2.3"), toFixed("-2.3"), toFixed("2.5"), toFixed("-2.5"), toFixed("3.75")]
+        LET xs AS List OF Fixed = [2.3F, -2.3F, 2.5F, -2.5F, 3.75F]
         LET r AS List OF Integer = math::round(xs)
         expectInteger(collections::get(r, 0), 2)
         expectInteger(collections::get(r, 1), -2)
@@ -538,10 +538,10 @@ TESTING
 
     TGROUP "sin"
       TCASE "scalar"
-        LET fixedHalfPi AS Fixed = toFixed("1.5707963268")
+        LET fixedHalfPi AS Fixed = 1.5707963268F
         expectFloat(math::sin(0.0), 0.00000000000000000)
         expectFloat(math::sin(1.5707963268), 1.00000000000000000)
-        expectFixed(math::sin(fixedHalfPi), toFixed("1.000000001629814505"))
+        expectFixed(math::sin(fixedHalfPi), 1.000000001629814505F)
         expectFloat(math::sin(0.7), 0.64421768723769102)
         expectFloat(math::sin(2.0), 0.90929742682568171)
         expectFloat(math::sin(4.0), -0.75680249530792820)
@@ -561,25 +561,25 @@ TESTING
 
     TGROUP "sqrt"
       TCASE "scalar"
-        LET fixedSquare AS Fixed = toFixed("16.0")
+        LET fixedSquare AS Fixed = 16.0F
         expectFloat(math::sqrt(0.0), 0.00000000000000000)
         expectFloat(math::sqrt(9.0), 3.00000000000000000)
         expectFloat(math::sqrt(2.25), 1.50000000000000000)
-        expectFixed(math::sqrt(fixedSquare), toFixed("4.000000000000000000"))
+        expectFixed(math::sqrt(fixedSquare), 4.000000000000000000F)
       END TCASE
       TCASE "fixed array"
-        LET xs AS List OF Fixed = [toFixed("2.0"), toFixed("4.0"), toFixed("9.0"), toFixed("0.25"), toFixed("100.0")]
+        LET xs AS List OF Fixed = [2.0F, 4.0F, 9.0F, 0.25F, 100.0F]
         LET r AS List OF Fixed = math::sqrt(xs)
-        expectFixed(collections::get(r, 0), toFixed("1.414213562384247779"))
-        expectFixed(collections::get(r, 1), toFixed("2.000000000000000000"))
-        expectFixed(collections::get(r, 2), toFixed("3.000000000000000000"))
-        expectFixed(collections::get(r, 3), toFixed("0.500000000000000000"))
-        expectFixed(collections::get(r, 4), toFixed("10.000000000000000000"))
-        expectFixed(math::sqrt(collections::get(xs, 0)), toFixed("1.414213562384247779"))
-        expectFixed(math::sqrt(collections::get(xs, 1)), toFixed("2.000000000000000000"))
-        expectFixed(math::sqrt(collections::get(xs, 2)), toFixed("3.000000000000000000"))
-        expectFixed(math::sqrt(collections::get(xs, 3)), toFixed("0.500000000000000000"))
-        expectFixed(math::sqrt(collections::get(xs, 4)), toFixed("10.000000000000000000"))
+        expectFixed(collections::get(r, 0), 1.414213562384247779F)
+        expectFixed(collections::get(r, 1), 2.000000000000000000F)
+        expectFixed(collections::get(r, 2), 3.000000000000000000F)
+        expectFixed(collections::get(r, 3), 0.500000000000000000F)
+        expectFixed(collections::get(r, 4), 10.000000000000000000F)
+        expectFixed(math::sqrt(collections::get(xs, 0)), 1.414213562384247779F)
+        expectFixed(math::sqrt(collections::get(xs, 1)), 2.000000000000000000F)
+        expectFixed(math::sqrt(collections::get(xs, 2)), 3.000000000000000000F)
+        expectFixed(math::sqrt(collections::get(xs, 3)), 0.500000000000000000F)
+        expectFixed(math::sqrt(collections::get(xs, 4)), 10.000000000000000000F)
       END TCASE
       TCASE "float array"
         LET xs AS List OF Float = [4.0, 9.0, 2.0]
@@ -592,10 +592,10 @@ TESTING
 
     TGROUP "tan"
       TCASE "scalar"
-        LET fixedPiQuarter AS Fixed = toFixed("0.7853981634")
+        LET fixedPiQuarter AS Fixed = 0.7853981634F
         expectFloat(math::tan(0.0), 0.00000000000000000)
         expectFloat(math::tan(0.7853981634), 1.00000000000510325)
-        expectFixed(math::tan(fixedPiQuarter), toFixed("1.000000001629814505"))
+        expectFixed(math::tan(fixedPiQuarter), 1.000000001629814505F)
         expectFloat(math::tan(0.7), 0.84228838046307941)
         expectFloat(math::tan(2.0), -2.18503986326151889)
         expectFloat(math::tan(4.0), 1.15782128234957749)

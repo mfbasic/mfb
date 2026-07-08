@@ -1,0 +1,36 @@
+$ mfb build -ast -ir tests/syntax/functions/func_typesystem_ok_invalid
+   1 | FUNC main AS Integer
+   2 |   LET success = Ok[1]
+     | ^
+tests/syntax/functions/func_typesystem_ok_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `success` does not have a known type.
+   1 | FUNC main AS Integer
+   2 |   LET success = Ok[1]
+   3 |   LET noPayload = Ok[]
+     | ^
+tests/syntax/functions/func_typesystem_ok_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `noPayload` does not have a known type.
+   2 |   LET success = Ok[1]
+   3 |   LET noPayload = Ok[]
+   4 |   LET tooMany = Ok[1, 2]
+     | ^
+tests/syntax/functions/func_typesystem_ok_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+   1 | FUNC main AS Integer
+   2 |   LET success = Ok[1]
+     | ^
+tests/syntax/functions/func_typesystem_ok_invalid/src/main.mfb:2 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               `Ok` is compiler-owned and cannot be constructed directly.
+   1 | FUNC main AS Integer
+   2 |   LET success = Ok[1]
+   3 |   LET noPayload = Ok[]
+     | ^
+tests/syntax/functions/func_typesystem_ok_invalid/src/main.mfb:3 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               `Ok` is compiler-owned and cannot be constructed directly.
+   2 |   LET success = Ok[1]
+   3 |   LET noPayload = Ok[]
+   4 |   LET tooMany = Ok[1, 2]
+     | ^
+tests/syntax/functions/func_typesystem_ok_invalid/src/main.mfb:4 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               `Ok` is compiler-owned and cannot be constructed directly.
+[exit 1]

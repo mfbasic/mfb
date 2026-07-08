@@ -1,0 +1,152 @@
+IMPORT io
+
+' Consolidated runtime-behavior coverage (tests reorg). Each former per-case
+' main is a <case>_run helper; main drives them in order so stdout is the
+' concatenation of every case's output.
+
+' ---- from comparisons-valid ----
+
+FUNC comparisons_valid_run AS Integer
+  io::print(toString(1 = 1))
+  io::print(toString(1 <> 2))
+  io::print(toString(1 < 2))
+  io::print(toString(2 > 1))
+  io::print(toString(2 <= 2))
+  io::print(toString(2 >= 2))
+
+  io::print(toString(1 = toByte(1)))
+  io::print(toString(1.5 < 2))
+  io::print(toString(2.0 >= 2))
+  io::print(toString(1.25 = 1.25F))
+
+  io::print(toString("Ada" = "Ada"))
+  io::print(toString("Ada" <> "Grace"))
+  io::print(toString(TRUE = TRUE))
+  io::print(toString(FALSE <> TRUE))
+  RETURN 0
+END FUNC
+
+' ---- from logic-valid ----
+
+FUNC markTrue(label AS String) AS Boolean
+  io::print(label)
+  RETURN TRUE
+END FUNC
+
+FUNC markFalse(label AS String) AS Boolean
+  io::print(label)
+  RETURN FALSE
+END FUNC
+
+FUNC logic_valid_run AS Integer
+  io::print(toString(NOT FALSE))
+  io::print(toString(TRUE AND TRUE))
+  io::print(toString(TRUE OR FALSE))
+  io::print(toString(TRUE XOR FALSE))
+  io::print(toString(FALSE AND markTrue("and-rhs")))
+  io::print(toString(TRUE OR markFalse("or-rhs")))
+  io::print(toString(FALSE XOR markTrue("xor-rhs")))
+  io::print(toString(NOT FALSE AND TRUE))
+  io::print(toString(FALSE OR TRUE XOR FALSE))
+  RETURN 0
+END FUNC
+
+' ---- from string-ordering-valid ----
+
+FUNC string_ordering_valid_run AS Integer
+  ' ASCII ordering
+  io::print(toString("apple" < "banana"))   ' TRUE
+  io::print(toString("banana" < "apple"))   ' FALSE
+  io::print(toString("z" > "abc"))          ' TRUE
+
+  ' Code-point (not case-insensitive) ordering: 'A' (0x41) < 'a' (0x61)
+  io::print(toString("Ada" < "ada"))        ' TRUE
+
+  ' Prefix: the shorter string compares less
+  io::print(toString("abc" < "abcd"))       ' TRUE
+  io::print(toString("abcd" > "abc"))        ' TRUE
+
+  ' Empty strings
+  io::print(toString("" < "a"))             ' TRUE
+  io::print(toString("a" > ""))             ' TRUE
+  io::print(toString("" <= ""))             ' TRUE
+  io::print(toString("" < ""))              ' FALSE
+
+  ' Equal strings under each operator
+  io::print(toString("abc" <= "abc"))       ' TRUE
+  io::print(toString("abc" >= "abc"))       ' TRUE
+  io::print(toString("abc" < "abc"))        ' FALSE
+  io::print(toString("abc" > "abc"))        ' FALSE
+
+  ' Multi-byte scalars order above ASCII (UTF-8 byte order == scalar order)
+  io::print(toString("z" < "é"))            ' TRUE  (U+00E9 > 'z')
+  io::print(toString("café" > "cafz"))      ' TRUE  (é > z)
+  io::print(toString("z" < "🍎"))           ' TRUE  (U+1F34E > 'z')
+
+  RETURN 0
+END FUNC
+
+' ---- from control-flow-valid ----
+
+FUNC control_flow_valid_run AS Integer
+  FOR i = 1 TO 5 STEP 2 : io::print("int=" & toString(i)) : NEXT
+  FOR down = 5 TO 1 STEP -2 : io::print("down=" & toString(down)) : NEXT
+  FOR b = toByte(1) TO toByte(5) STEP toByte(2) : io::print("byte=" & toString(b)) : NEXT
+  FOR f = 1.0F TO 2.0F STEP 0.5F : io::print("fixed=" & toString(f)) : NEXT
+  FOR x = 1.0 TO 2.0 STEP 0.5 : io::print("float=" & toString(x)) : NEXT
+
+  LET lines AS List OF String = ["alpha", "beta"]
+  FOR EACH item IN lines : io::print("line=" & item) : NEXT
+
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "ada" := 10 }
+  FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
+
+  MUT counter AS Integer = 0
+  WHILE counter < 3 : counter = counter + 1 : io::print("while=" & toString(counter)) : WEND
+
+  MUT once AS Integer = 0
+  DO : once = once + 1 : io::print("doUntil=" & toString(once)) : LOOP UNTIL once >= 2
+
+  MUT ready AS Boolean = TRUE
+  MUT spins AS Integer = 0
+  DO WHILE ready : spins = spins + 1 : io::print("doWhile=" & toString(spins)) : ready = FALSE : LOOP
+
+  MUT skipped AS Integer = 0
+  DO WHILE skipped < 0 : skipped = skipped + 1 : LOOP
+  io::print("skipped=" & toString(skipped))
+  RETURN 0
+END FUNC
+
+' ---- from exit-sub-valid ----
+SUB guard(flag AS Boolean)
+  IF flag THEN
+    EXIT SUB
+  END IF
+  FAIL error(10, "guard failed")
+END SUB
+
+SUB swallow(flag AS Boolean)
+  IF flag THEN
+    EXIT SUB
+  END IF
+  FAIL error(11, "swallowed")
+  TRAP(err)
+    EXIT SUB
+  END TRAP
+END SUB
+
+SUB exit_sub_valid_run
+  guard(TRUE)
+  swallow(TRUE)
+  swallow(FALSE)
+  EXIT SUB
+END SUB
+
+FUNC main AS Integer
+  LET _comparisons_valid AS Integer = comparisons_valid_run()
+  LET _logic_valid AS Integer = logic_valid_run()
+  LET _string_ordering_valid AS Integer = string_ordering_valid_run()
+  LET _control_flow_valid AS Integer = control_flow_valid_run()
+  exit_sub_valid_run()
+  RETURN 0
+END FUNC

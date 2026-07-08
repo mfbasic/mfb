@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-fs-create-temp-file
+Wrote AST to tests/syntax/packages/package-fs-create-temp-file/package_fs_create_temp_file.ast
+Wrote IR to tests/syntax/packages/package-fs-create-temp-file/package_fs_create_temp_file.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-fs-create-temp-file
+Wrote package to tests/syntax/packages/package-fs-create-temp-file/package_fs_create_temp_file.mfp
+[exit 0]

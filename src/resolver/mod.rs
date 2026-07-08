@@ -524,9 +524,7 @@ mod tests {
     }
 
     fn resolve_fixture(name: &str) -> Result<(), ()> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join(name);
+        let dir = crate::testutil::fixture_dir(name);
         let manifest = validate_project_manifest(&dir.join("project.json"))
             .expect("fixture manifest is valid");
         let pname = manifest
@@ -760,9 +758,7 @@ mod tests {
 
     #[test]
     fn validate_project_docs_true_for_valid_docs() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("doc-block-valid");
+        let dir = crate::testutil::fixture_dir("doc-block-valid");
         let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
         let pname = manifest
             .get("name")
@@ -775,9 +771,7 @@ mod tests {
 
     #[test]
     fn validate_project_docs_false_for_invalid_docs() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("doc-block-invalid");
+        let dir = crate::testutil::fixture_dir("doc-block-invalid");
         let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
         let pname = manifest
             .get("name")
@@ -807,9 +801,7 @@ mod tests {
 
     #[test]
     fn resolve_project_with_no_doc_validation() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("doc-block-valid");
+        let dir = crate::testutil::fixture_dir("doc-block-valid");
         let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
         let pname = manifest
             .get("name")

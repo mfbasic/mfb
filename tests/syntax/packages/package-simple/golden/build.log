@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-simple
+Wrote AST to tests/syntax/packages/package-simple/package_simple.ast
+Wrote IR to tests/syntax/packages/package-simple/package_simple.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-simple
+Wrote package to tests/syntax/packages/package-simple/package_simple.mfp
+[exit 0]

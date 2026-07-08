@@ -1,0 +1,5 @@
+$ mfb build -ast -ir tests/syntax/security/pkg-01-tampered-signature
+uses sec_signed - [Tampered]
+error[6-605-0004 PACKAGE_ATTESTATION_INVALID]: package attestation is missing, unverifiable, or pins a different package
+               package `sec_signed` failed verification (no pinned registry key; run `mfb repo auth <owner>` against the registry to pin server.pub); refusing to build
+[exit 1]

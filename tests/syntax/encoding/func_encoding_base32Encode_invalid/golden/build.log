@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/encoding/func_encoding_base32Encode_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::base32Encode()
+     | ^
+tests/syntax/encoding/func_encoding_base32Encode_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `encoding.base32Encode` has 0 argument(s), expected 1.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::base32Encode()
+     | ^
+tests/syntax/encoding/func_encoding_base32Encode_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::base32Encode()
+   5 |   LET d AS String = encoding::base32Encode("notbytes")
+     | ^
+tests/syntax/encoding/func_encoding_base32Encode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `encoding.base32Encode` has argument type(s) (String), expected List OF Byte.
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::base32Encode()
+   5 |   LET d AS String = encoding::base32Encode("notbytes")
+     | ^
+tests/syntax/encoding/func_encoding_base32Encode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+[exit 1]

@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-return-fixed
+uses thread_runtime_workers - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-return-fixed/thread_return_fixed.ast
+Wrote IR to tests/rt-behavior/threads/thread-return-fixed/thread_return_fixed.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-return-fixed
+uses thread_runtime_workers - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-return-fixed/thread_return_fixed.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-return-fixed/thread_return_fixed.out
+3.750
+3.750
+[exit 0]

@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/builtin-thread/syntax/func_thread_transfer_invalid
-uses thread_workers - [Unsigned]
-   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-   6 |   ' A data-only thread has no resource plane, so `transfer`/`accept` are invalid.
-   7 |   thread::transfer(t, "x")
-     | ^
-tests/builtin-thread/syntax/func_thread_transfer_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.transfer` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer.
-[exit 1]

@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/net/func_net_decode_invalid
+   3 | FUNC main AS Integer
+   4 |   ' percentDecode / parseQuery each take exactly one String argument.
+   5 |   LET noArg = net::percentDecode()
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.percentDecode` has 0 argument(s), expected 1.
+   3 | FUNC main AS Integer
+   4 |   ' percentDecode / parseQuery each take exactly one String argument.
+   5 |   LET noArg = net::percentDecode()
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `noArg` does not have a known type.
+   4 |   ' percentDecode / parseQuery each take exactly one String argument.
+   5 |   LET noArg = net::percentDecode()
+   6 |   LET badArg = net::percentDecode(42)
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.percentDecode` has argument type(s) (Integer), expected String.
+   4 |   ' percentDecode / parseQuery each take exactly one String argument.
+   5 |   LET noArg = net::percentDecode()
+   6 |   LET badArg = net::percentDecode(42)
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badArg` does not have a known type.
+   5 |   LET noArg = net::percentDecode()
+   6 |   LET badArg = net::percentDecode(42)
+   7 |   LET tooMany = net::percentDecode("a", "b")
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.percentDecode` has 2 argument(s), expected 1.
+   5 |   LET noArg = net::percentDecode()
+   6 |   LET badArg = net::percentDecode(42)
+   7 |   LET tooMany = net::percentDecode("a", "b")
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+   6 |   LET badArg = net::percentDecode(42)
+   7 |   LET tooMany = net::percentDecode("a", "b")
+   8 |   LET qNoArg = net::parseQuery()
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.parseQuery` has 0 argument(s), expected 1.
+   6 |   LET badArg = net::percentDecode(42)
+   7 |   LET tooMany = net::percentDecode("a", "b")
+   8 |   LET qNoArg = net::parseQuery()
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `qNoArg` does not have a known type.
+   7 |   LET tooMany = net::percentDecode("a", "b")
+   8 |   LET qNoArg = net::parseQuery()
+   9 |   LET qBadArg = net::parseQuery(42)
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.parseQuery` has argument type(s) (Integer), expected String.
+   7 |   LET tooMany = net::percentDecode("a", "b")
+   8 |   LET qNoArg = net::parseQuery()
+   9 |   LET qBadArg = net::parseQuery(42)
+     | ^
+tests/syntax/net/func_net_decode_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `qBadArg` does not have a known type.
+[exit 1]

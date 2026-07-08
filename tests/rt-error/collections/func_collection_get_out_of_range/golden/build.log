@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/collections/func_collection_get_out_of_range
+Wrote AST to tests/rt-error/collections/func_collection_get_out_of_range/func_collection_get_out_of_range.ast
+Wrote IR to tests/rt-error/collections/func_collection_get_out_of_range/func_collection_get_out_of_range.ir
+[exit 0]
+$ mfb build tests/rt-error/collections/func_collection_get_out_of_range
+Wrote executable to tests/rt-error/collections/func_collection_get_out_of_range/func_collection_get_out_of_range.out
+[exit 0]
+$ tests/rt-error/collections/func_collection_get_out_of_range/func_collection_get_out_of_range.out
+Code: 77050001 Message: index out of range
+[exit 255]

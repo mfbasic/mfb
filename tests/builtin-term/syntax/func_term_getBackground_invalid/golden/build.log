@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/builtin-term/syntax/func_term_getBackground_invalid
-   2 | 
-   3 | FUNC bad AS TermColor
-   4 |   LET c AS TermColor = term::getBackground(1)
-     | ^
-tests/builtin-term/syntax/func_term_getBackground_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `term.getBackground` has 1 argument(s), expected 0.
-[exit 1]

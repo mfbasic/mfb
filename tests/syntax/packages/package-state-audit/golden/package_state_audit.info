@@ -1,0 +1,59 @@
+Package: package_state_audit
+Ident: package_state_audit
+Version: 1.0.0
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
+Author: <empty>
+URL: <empty>
+Path: tests/syntax/packages/package-state-audit/package_state_audit.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  package binary hash: d657e109635c4bc8a53c2478c840a29c1479ecc07b7db5b1220f47ca42729eb1
+  content hash: acd93c2daf2e517e7437859776f9bc56890079adeeb16c530dba29e37e4f9bcf
+  binary representation length: 925
+
+Manifest:
+  name: package_state_audit
+  ident: package_state_audit
+  version: 1.0.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 0
+  constants: 0
+  resources: 0
+  functions: 1
+  globals: 2
+  cleanups: 0
+  imports: 0
+  exports: 1
+
+Exports:
+  FUNC nextCounter
+    sigHash: b8be4292b366a3dfc6022a8fa80c583bd1316b178fa4a14d1e732c3c7d17c71f
+
+Package State:
+  MUT counter AS Integer
+    visibility: export
+    audit: exported mutable package state
+  LET label AS String
+    visibility: export
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

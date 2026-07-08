@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/security/pkg-06-duplicate-section
-uses sec_dup - [Unsigned]
-   3 | ' decode/verification rather than producing an executable.
-   4 | IMPORT io
-   5 | IMPORT sec_dup AS sec_dup
-     | ^
-tests/security/pkg-06-duplicate-section/src/main.mfb:5 error[0-000-0000 UNKNOWN_RULE]: unknown diagnostic rule
-               Package `sec_dup` type exports could not be read: failed to read 'tests/security/pkg-06-duplicate-section/packages/sec_dup.mfp': duplicate MFPC section id 1
-[exit 1]

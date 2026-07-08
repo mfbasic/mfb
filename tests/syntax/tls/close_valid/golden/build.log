@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/tls/close_valid
+Wrote AST to tests/syntax/tls/close_valid/func_tls_close_valid.ast
+Wrote IR to tests/syntax/tls/close_valid/func_tls_close_valid.ir
+[exit 0]

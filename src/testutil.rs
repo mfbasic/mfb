@@ -11,10 +11,38 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::ast::{parse_source, AstFile, AstProject};
 use crate::ir::{self, IrProject};
+
+/// Locate a committed test fixture directory by its leaf name, searching
+/// recursively under `tests/`. After the tests reorganization fixtures live
+/// under `tests/{syntax,rt-error,rt-behavior}/<feature>/<name>` (plus the
+/// `tests/acceptance` app), and leaf names are unique — so a by-name search
+/// keeps unit tests independent of the exact bucket/feature a fixture lives in.
+/// Panics if no matching fixture directory (one holding a `project.json`)
+/// exists.
+pub fn fixture_dir(name: &str) -> PathBuf {
+    fn find(dir: &Path, name: &str) -> Option<PathBuf> {
+        for entry in std::fs::read_dir(dir).ok()?.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            if entry.file_name() == *name && path.join("project.json").is_file() {
+                return Some(path);
+            }
+            if let Some(found) = find(&path, name) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    find(&root, name)
+        .unwrap_or_else(|| panic!("test fixture `{name}` not found under tests/"))
+}
 
 /// Parse a single `.mfb` source string into an [`AstFile`], panicking on any
 /// parse error (tests that want the error should call `parse_source` directly).

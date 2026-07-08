@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-send-file-ownership-rt
+uses thread_file_sink - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-send-file-ownership-rt/thread_send_file_ownership_rt.ast
+Wrote IR to tests/rt-behavior/threads/thread-send-file-ownership-rt/thread_send_file_ownership_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-send-file-ownership-rt
+uses thread_file_sink - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-send-file-ownership-rt/thread_send_file_ownership_rt.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-send-file-ownership-rt/thread_send_file_ownership_rt.out
+sent
+20
+[exit 0]

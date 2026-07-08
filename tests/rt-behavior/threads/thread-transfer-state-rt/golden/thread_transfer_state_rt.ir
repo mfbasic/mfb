@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_transfer_state_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 6,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 7, "name": "pos", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 13, "mutable": false, "name": "t", "type": "Thread OF RES File TO Integer", "value": { "kind": "call", "type": "Thread OF RES File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "state_xfer_workers.takeCursor", "type": "ISOLATED FUNC(ThreadWorker OF RES File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/thread-transfer-state-rt/data/input.txt" }] } },
+    { "op": "stateAssign", "line": 15, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "99" } }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Unknown", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "f" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "got" }] }] } },
+    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

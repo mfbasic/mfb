@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+' A borrower mutates a single STATE field in place (plan §4 `seek`).
+SUB seek(RES s AS File STATE Cursor, dest AS Integer)
+  s.state.pos = dest
+END SUB
+
+FUNC main AS Integer
+  RES f AS File STATE Cursor = fs::openFile("tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb")
+  io::print(toString(f.state.pos))   ' 0 (default)
+  f.state.pos = 10                    ' owner mutates one field in place
+  io::print(toString(f.state.pos))   ' 10
+  f.state.len = 42                    ' a different field; pos is preserved
+  io::print(toString(f.state.pos))   ' 10
+  io::print(toString(f.state.len))   ' 42
+  seek(f, 25)                         ' borrower mutates in place
+  io::print(toString(f.state.pos))   ' 25 (visible to owner after the call)
+  io::print(toString(f.state.len))   ' 42 (untouched)
+  fs::close(f)
+  RETURN 0
+END FUNC

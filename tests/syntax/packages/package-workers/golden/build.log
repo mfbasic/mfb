@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-workers
+Wrote AST to tests/syntax/packages/package-workers/package_workers.ast
+Wrote IR to tests/syntax/packages/package-workers/package_workers.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-workers
+Wrote package to tests/syntax/packages/package-workers/package_workers.mfp
+[exit 0]

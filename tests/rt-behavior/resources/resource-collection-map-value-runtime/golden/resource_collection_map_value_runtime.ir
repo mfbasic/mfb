@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_collection_map_value_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/resource-collection-map-value-runtime/src/main.mfb" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "m", "type": "Map OF String TO RES File", "value": { "kind": "map", "type": "Map OF String TO RES File", "entries": [{ "key": { "kind": "const", "type": "String", "value": "src" }, "value": { "kind": "local", "name": "f" } }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "call", "type": "File", "target": "collections.get", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "src" }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "entries=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "m" }] }] } }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,13 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+' A Map value may hold a borrow of a resource; collections::get() yields a borrow used
+' inline (§15.6). The owner RES binding closes it once at scope exit.
+FUNC main AS Integer
+  RES f AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-map-value-runtime/src/main.mfb")
+  LET m AS Map OF String TO RES File = Map OF String TO RES File { "src" := f }
+  LET line AS String = fs::readLine(collections::get(m, "src"))
+  io::print("entries=" & toString(len(m)))
+  RETURN 0
+END FUNC

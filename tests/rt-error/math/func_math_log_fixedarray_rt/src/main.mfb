@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT math
+
+' log over a List OF Fixed raises ErrInvalidArgument when any lane is <= 0.
+FUNC main AS Integer
+  LET xs AS List OF Fixed = [4.0F, 0.0F, 9.0F]
+  LET ls AS List OF Fixed = math::log(xs)
+  io::print(toString(len(ls)))
+  RETURN 0
+END FUNC

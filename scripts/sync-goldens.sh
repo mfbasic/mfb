@@ -17,8 +17,8 @@ bash "$ROOT/scripts/test-accept.sh" "$MFB_EXE" "$ACTUAL" >/dev/null 2>&1 || true
 tests=("$@")
 if [ "${#tests[@]}" -eq 0 ]; then
   tests=()
-  # Every project.json is a test at any depth (flat, tests/security/*, and nested
-  # package suites like tests/builtin-bits/{syntax,runtime}/*).
+  # Every project.json is a test at any depth, under tests/{syntax,rt-error,
+  # rt-behavior}/<feature>/* (plus the tests/acceptance app).
   while IFS= read -r pj; do
     d=$(dirname "$pj")
     tests+=("${d#"$ROOT/tests/"}")

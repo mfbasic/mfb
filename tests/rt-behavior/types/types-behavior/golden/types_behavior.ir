@@ -1,0 +1,277 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "types_behavior",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 10,
+    "visibility": "public",
+    "name": "Inner",
+    "fields": [
+    { "visibility": null, "line": 11, "name": "name", "type": "String" },
+    { "visibility": null, "line": 12, "name": "values", "type": "List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 15,
+    "visibility": "public",
+    "name": "Outer",
+    "fields": [
+    { "visibility": null, "line": 16, "name": "inner", "type": "Inner" },
+    { "visibility": null, "line": 17, "name": "ready", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 86,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 87, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 88, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 91,
+    "visibility": "public",
+    "name": "Person",
+    "fields": [
+    { "visibility": null, "line": 92, "name": "name", "type": "String" },
+    { "visibility": null, "line": 93, "name": "city", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 96,
+    "visibility": "public",
+    "name": "Badge",
+    "fields": [
+    { "visibility": null, "line": 97, "name": "owner", "type": "Person" },
+    { "visibility": null, "line": 98, "name": "level", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "mut_default_record_valid_run",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": true, "name": "state", "type": "Outer", "value": null },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "name" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "values" }] }] }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Boolean", "target": { "kind": "local", "name": "state" }, "member": "ready" }] }] } },
+    { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "printEntry",
+    "line": 30,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "entry", "line": 30, "type": "MapEntry OF String TO Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "entry" }, "member": "key" }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "entry" }, "member": "value" }] }] } }
+    ]
+  },
+  {
+    "name": "types_map_entry_valid_run",
+    "line": 35,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 36, "mutable": false, "name": "scores", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }, { "key": { "kind": "const", "type": "String", "value": "Grace" }, "value": { "kind": "const", "type": "Integer", "value": "85" } }] } },
+    {
+      "op": "forEach",
+      "line": 38,
+      "name": "entry",
+      "type": "MapEntry OF String TO Integer",
+      "iterable": { "kind": "local", "name": "scores" },
+      "body": [
+      { "op": "bind", "line": 39, "mutable": false, "name": "typed", "type": "MapEntry OF String TO Integer", "value": { "kind": "local", "name": "entry" } },
+      { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "printEntry", "args": [{ "kind": "local", "name": "typed" }] } }
+      ]
+    },
+    { "op": "return", "line": 43, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "literalNothing",
+    "line": 48,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "return", "line": 49, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "fallthroughSub",
+    "line": 52,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "fallthrough" }] } }
+    ]
+  },
+  {
+    "name": "bareReturnSub",
+    "line": 56,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "bare-return" }] } },
+    { "op": "return", "line": 58, "value": null }
+    ]
+  },
+  {
+    "name": "explicitReturnSub",
+    "line": 61,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "explicit-return" }] } },
+    { "op": "return", "line": 63, "value": null }
+    ]
+  },
+  {
+    "name": "callSubAsNothing",
+    "line": 66,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "fallthroughSub", "args": [] } },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "bareReturnSub", "args": [] } },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "explicitReturnSub", "args": [] } },
+    { "op": "return", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "literalNothing", "args": [] } }
+    ]
+  },
+  {
+    "name": "types_nothing_run",
+    "line": 73,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 74, "mutable": false, "name": "literal", "type": "Nothing", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    { "op": "bind", "line": 75, "mutable": true, "name": "defaulted", "type": "Nothing", "value": null },
+    { "op": "assign", "line": 76, "name": "defaulted", "value": { "kind": "local", "name": "literal" } },
+    { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "literal" }] }] } },
+    { "op": "eval", "line": 79, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "defaulted" }] }] } },
+    { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "callSubAsNothing", "args": [] } },
+    { "op": "return", "line": 81, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "printBoolean",
+    "line": 101,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 101, "type": "Boolean", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 102, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } },
+    { "op": "return", "line": 103, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "types_record_comparable_runtime_run",
+    "line": 106,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 107, "mutable": false, "name": "firstPoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 108, "mutable": false, "name": "samePoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 109, "mutable": false, "name": "otherPoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 111, "mutable": false, "name": "ada", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "A" }, "right": { "kind": "const", "type": "String", "value": "da" } }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "Love" }, "right": { "kind": "const", "type": "String", "value": "lace" } }] } },
+    { "op": "bind", "line": 112, "mutable": false, "name": "sameAda", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "Ad" }, "right": { "kind": "const", "type": "String", "value": "a" } }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "Lovel" }, "right": { "kind": "const", "type": "String", "value": "ace" } }] } },
+    { "op": "bind", "line": 113, "mutable": false, "name": "grace", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Hopper" }] } },
+    { "op": "bind", "line": 115, "mutable": false, "name": "firstBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "args": [{ "kind": "local", "name": "ada" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 116, "mutable": false, "name": "sameBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "args": [{ "kind": "local", "name": "sameAda" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 117, "mutable": false, "name": "otherBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "args": [{ "kind": "local", "name": "sameAda" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "eval", "line": 119, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "firstPoint" }, "right": { "kind": "local", "name": "samePoint" } }] } },
+    { "op": "eval", "line": 120, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "firstPoint" }, "right": { "kind": "local", "name": "otherPoint" } }] } },
+    { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ada" }, "right": { "kind": "local", "name": "sameAda" } }] } },
+    { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "ada" }, "right": { "kind": "local", "name": "grace" } }] } },
+    { "op": "eval", "line": 123, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "firstBadge" }, "right": { "kind": "local", "name": "sameBadge" } }] } },
+    { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "firstBadge" }, "right": { "kind": "local", "name": "otherBadge" } }] } },
+    { "op": "bind", "line": 126, "mutable": false, "name": "people", "type": "List OF Person", "value": { "kind": "list", "type": "List OF Person", "values": [{ "kind": "local", "name": "ada" }, { "kind": "local", "name": "grace" }] } },
+    { "op": "bind", "line": 127, "mutable": false, "name": "pair", "type": "List OF Person", "value": { "kind": "list", "type": "List OF Person", "values": [{ "kind": "local", "name": "sameAda" }, { "kind": "local", "name": "grace" }] } },
+    { "op": "eval", "line": 128, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "sameAda" }] }] } },
+    { "op": "eval", "line": 129, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "sameAda" }] }] }] } },
+    { "op": "eval", "line": 130, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "pair" }] }] }] } },
+    { "op": "bind", "line": 131, "mutable": false, "name": "replaced", "type": "List OF Person", "value": { "kind": "call", "type": "List OF Person", "target": "collections.replace", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "sameAda" }, { "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Katherine" }, { "kind": "const", "type": "String", "value": "Johnson" }] }] } },
+    { "op": "bind", "line": 132, "mutable": false, "name": "replacedFirst", "type": "Person", "value": { "kind": "call", "type": "Person", "target": "collections.get", "args": [{ "kind": "local", "name": "replaced" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 133, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "replacedFirst" }, "member": "name" }] } },
+    { "op": "bind", "line": 135, "mutable": false, "name": "pointLabels", "type": "Map OF Point TO String", "value": { "kind": "map", "type": "Map OF Point TO String", "entries": [{ "key": { "kind": "local", "name": "firstPoint" }, "value": { "kind": "const", "type": "String", "value": "first" } }] } },
+    { "op": "eval", "line": 136, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "pointLabels" }, { "kind": "local", "name": "samePoint" }] }] } },
+    { "op": "bind", "line": 138, "mutable": false, "name": "scores", "type": "Map OF Person TO Integer", "value": { "kind": "map", "type": "Map OF Person TO Integer", "entries": [{ "key": { "kind": "local", "name": "ada" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }, { "key": { "kind": "local", "name": "grace" }, "value": { "kind": "const", "type": "Integer", "value": "2" } }] } },
+    { "op": "eval", "line": 139, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "scores" }, { "kind": "local", "name": "sameAda" }] }] } },
+    { "op": "eval", "line": 140, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "scores" }, { "kind": "local", "name": "sameAda" }] }] }] } },
+    { "op": "bind", "line": 141, "mutable": false, "name": "updated", "type": "Map OF Person TO Integer", "value": { "kind": "call", "type": "Map OF Person TO Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "scores" }, { "kind": "local", "name": "sameAda" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "eval", "line": 142, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "updated" }, { "kind": "local", "name": "ada" }] }] }] } },
+    { "op": "eval", "line": 143, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "updated" }] }] }] } },
+    { "op": "bind", "line": 144, "mutable": false, "name": "removed", "type": "Map OF Person TO Integer", "value": { "kind": "call", "type": "Map OF Person TO Integer", "target": "collections.removeKey", "args": [{ "kind": "local", "name": "updated" }, { "kind": "local", "name": "sameAda" }] } },
+    { "op": "eval", "line": 145, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "removed" }] }] }] } },
+    { "op": "eval", "line": 146, "value": { "kind": "call", "type": "Nothing", "target": "printBoolean", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "removed" }, { "kind": "local", "name": "ada" }] }] } },
+    { "op": "return", "line": 148, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 151,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 152, "mutable": false, "name": "_mut_default_record_valid", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "mut_default_record_valid_run", "args": [] } },
+    { "op": "bind", "line": 153, "mutable": false, "name": "_types_map_entry_valid", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "types_map_entry_valid_run", "args": [] } },
+    { "op": "bind", "line": 154, "mutable": false, "name": "_types_nothing", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "types_nothing_run", "args": [] } },
+    { "op": "bind", "line": 155, "mutable": false, "name": "_types_record_comparable_runtime", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "types_record_comparable_runtime_run", "args": [] } },
+    { "op": "return", "line": 156, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

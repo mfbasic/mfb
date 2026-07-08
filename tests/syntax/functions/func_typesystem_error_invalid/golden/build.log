@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/functions/func_typesystem_error_invalid
+   2 |   ' `Error` and `ErrorLoc` are read-only built-in records: they cannot be
+   3 |   ' constructed with `[...]`, updated with `WITH`, and have no unknown fields.
+   4 |   LET constructed AS Error = Error[100, "message"]
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:4 error[2-203-0039 TYPE_READ_ONLY_RECORD_CONSTRUCTOR]: read-only record cannot be constructed
+               `Error` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error.
+   3 |   ' constructed with `[...]`, updated with `WITH`, and have no unknown fields.
+   4 |   LET constructed AS Error = Error[100, "message"]
+   5 |   LET constructedLoc AS ErrorLoc = ErrorLoc["file", 1, 2]
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:5 error[2-203-0039 TYPE_READ_ONLY_RECORD_CONSTRUCTOR]: read-only record cannot be constructed
+               `ErrorLoc` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error.
+   9 |   LET updatedLoc AS ErrorLoc = WITH base.source { line := 9 }
+  10 | 
+  11 |   LET unknownErrorField AS Integer = base.detail
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `unknownErrorField` does not have a known type.
+  10 | 
+  11 |   LET unknownErrorField AS Integer = base.detail
+  12 |   LET unknownLocField AS Integer = base.source.offset
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `unknownLocField` does not have a known type.
+   6 | 
+   7 |   LET base AS Error = error(100, "message")
+   8 |   LET updated AS Error = WITH base { code := 200 }
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:8 error[2-203-0038 TYPE_READ_ONLY_RECORD_UPDATE]: read-only record cannot be updated
+               `Error` is a read-only built-in record and cannot be updated.
+   7 |   LET base AS Error = error(100, "message")
+   8 |   LET updated AS Error = WITH base { code := 200 }
+   9 |   LET updatedLoc AS ErrorLoc = WITH base.source { line := 9 }
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:9 error[2-203-0038 TYPE_READ_ONLY_RECORD_UPDATE]: read-only record cannot be updated
+               `ErrorLoc` is a read-only built-in record and cannot be updated.
+   9 |   LET updatedLoc AS ErrorLoc = WITH base.source { line := 9 }
+  10 | 
+  11 |   LET unknownErrorField AS Integer = base.detail
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:11 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `Error` has no member `detail`.
+  10 | 
+  11 |   LET unknownErrorField AS Integer = base.detail
+  12 |   LET unknownLocField AS Integer = base.source.offset
+     | ^
+tests/syntax/functions/func_typesystem_error_invalid/src/main.mfb:12 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `ErrorLoc` has no member `offset`.
+[exit 1]

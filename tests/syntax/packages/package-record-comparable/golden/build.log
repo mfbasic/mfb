@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-record-comparable
+Wrote AST to tests/syntax/packages/package-record-comparable/package_record_comparable.ast
+Wrote IR to tests/syntax/packages/package-record-comparable/package_record_comparable.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-record-comparable
+Wrote package to tests/syntax/packages/package-record-comparable/package_record_comparable.mfp
+[exit 0]

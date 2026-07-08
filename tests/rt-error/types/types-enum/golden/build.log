@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/types/types-enum
+Wrote AST to tests/rt-error/types/types-enum/types_enum.ast
+Wrote IR to tests/rt-error/types/types-enum/types_enum.ir
+[exit 0]
+$ mfb build tests/rt-error/types/types-enum
+Wrote executable to tests/rt-error/types/types-enum/types_enum.out
+[exit 0]
+$ tests/rt-error/types/types-enum/types_enum.out
+Color
+Mode
+[exit 64]

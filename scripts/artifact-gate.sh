@@ -8,8 +8,8 @@ MFB="$1"; REPO="$(pwd)"
 host_arch="$(uname -m)"; case "$host_arch" in arm64) A=aarch64;; x86_64) A=x86_64;; *) A=$host_arch;; esac
 case "$(uname -s)" in Darwin) TGT="macos-$A";; Linux) TGT="linux-$A";; *) TGT="unknown-$A";; esac
 diffs=0; checked=0; ran=0
-# Every project.json is a test at any depth (flat, tests/security/*, and nested
-# package suites like tests/builtin-bits/{syntax,runtime}/*). Dirs without a
+# Every project.json is a test at any depth, under tests/{syntax,rt-error,
+# rt-behavior}/<feature>/* (plus the tests/acceptance app). Dirs without a
 # golden/ are skipped below (e.g. behavioral acceptance suites).
 while IFS= read -r pj; do
   td=$(dirname "$pj")

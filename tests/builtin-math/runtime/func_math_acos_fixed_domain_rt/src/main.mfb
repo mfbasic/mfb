@@ -1,7 +1,0 @@
-IMPORT math
-
-FUNC main AS Integer
-  LET outside AS Fixed = toFixed("2.0")
-  LET result AS Fixed = math::acos(outside)
-  RETURN 0
-END FUNC

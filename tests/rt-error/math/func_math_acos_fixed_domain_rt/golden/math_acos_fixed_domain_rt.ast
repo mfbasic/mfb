@@ -1,0 +1,27 @@
+{
+  "project": "math_acos_fixed_domain_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "outside", "type": "Fixed", "value": { "kind": "number", "value": "2.0F" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "Fixed", "value": { "kind": "call", "callee": "math.acos", "arguments": [{ "kind": "identifier", "value": "outside" }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

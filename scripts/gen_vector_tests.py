@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""Generate the tests/func_vector_* acceptance fixtures for plan-06-vector.
+"""LEGACY generator for the plan-06-vector fixtures (pre-tests-reorg).
 
-For every function member: one `func_vector_<fn>_valid` exercising all of its
-type/arity overloads with deterministic inputs, and one `func_vector_<fn>_invalid`
-exercising wrong arity / mismatched-or-non-vector argument types. Plus the
-runtime-trap `_rt` fixtures and the Phase-1 type/constant fixtures.
+NOTE: the vector fixtures this script authored have since been relocated by the
+tests reorganization and now live, split by golden kind, under
+tests/syntax/vector/* (compile diagnostics), tests/rt-error/vector/* (runtime
+traps), and tests/rt-behavior/vector/* (runtime behavior) — NOT the flat
+tests/func_vector_* layout this script still emits. It is kept for historical
+reference only; do not re-run it without re-bucketing its output, or it will
+recreate stale fixtures at the repo-root-relative tests/func_vector_* paths.
+
+For every function member it wrote: one `func_vector_<fn>_valid` exercising all
+of its type/arity overloads with deterministic inputs, and one
+`func_vector_<fn>_invalid` exercising wrong arity / mismatched-or-non-vector
+argument types. Plus the runtime-trap `_rt` fixtures and the Phase-1
+type/constant fixtures.
 
 Golden files (.ast/.ir/.run/build.log) are created empty here and then filled by
 scripts/sync-goldens.sh, so this script only writes project.json + src + empty

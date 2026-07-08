@@ -1,0 +1,97 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_resource_propagate_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "alwaysFail",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "fail", "line": 5, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "propagate fail" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "propagateOnce",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 8, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "alwaysFail", "args": [] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "trapPropagate",
+    "line": 14,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 14, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "propagateOnce", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    {
+      "op": "trap",
+      "line": 17,
+      "name": "err",
+      "body": [
+      {
+        "op": "if",
+        "line": 18,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+        "then": [
+        { "op": "fail", "line": 18, "error": { "kind": "local", "name": "err" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "return", "line": 19, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 24, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 25,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4000" } },
+      "body": [
+      { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "trapPropagate", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/control-flow-resource-propagate-runtime/src/main.mfb" }] } },
+      { "op": "assign", "line": 27, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "propagate" }] } },
+    { "op": "return", "line": 30, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "project": "term_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "term", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "usegetForeground",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "TermColor",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "usegetBackground",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "TermColor",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "callee": "term.getBackground", "arguments": [] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "usegetBold",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "term.getBold", "arguments": [] }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "usegetUnderline",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "term.getUnderline", "arguments": [] }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "useisOn",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "term.isOn", "arguments": [] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "useTerminalSize",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 30 },
+      { "kind": "assignment", "name": "b", "value": { "kind": "identifier", "value": "a" }, "line": 31 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "columns" } }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.hideCursor", "arguments": [] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.showCursor", "arguments": [] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBackground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBold", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setUnderline", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}

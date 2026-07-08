@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/bits/func_bits_popCount_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::popCount()
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `bits.popCount` has 0 argument(s), expected 1.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::popCount()
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::popCount()
+   5 |   LET b AS Integer = bits::popCount(1, 2)
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `bits.popCount` has 2 argument(s), expected 1.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::popCount()
+   5 |   LET b AS Integer = bits::popCount(1, 2)
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   4 |   LET a AS Integer = bits::popCount()
+   5 |   LET b AS Integer = bits::popCount(1, 2)
+   6 |   LET c AS Integer = bits::popCount(1.5)
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `bits.popCount` has argument type(s) (Float), expected Integer.
+   4 |   LET a AS Integer = bits::popCount()
+   5 |   LET b AS Integer = bits::popCount(1, 2)
+   6 |   LET c AS Integer = bits::popCount(1.5)
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+   5 |   LET b AS Integer = bits::popCount(1, 2)
+   6 |   LET c AS Integer = bits::popCount(1.5)
+   7 |   LET d AS Integer = bits::popCount("x")
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `bits.popCount` has argument type(s) (String), expected Integer.
+   5 |   LET b AS Integer = bits::popCount(1, 2)
+   6 |   LET c AS Integer = bits::popCount(1.5)
+   7 |   LET d AS Integer = bits::popCount("x")
+     | ^
+tests/syntax/bits/func_bits_popCount_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+[exit 1]

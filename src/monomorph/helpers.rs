@@ -799,9 +799,7 @@ mod tests {
         // Import a real compiled package whose exports include overload sets
         // (`score$`/`score$Vec2`, `mark$`/`mark$Vec2`) so the by-base grouping,
         // the ≥2 overload gate, and the qualifier collection all run.
-        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("package-simple")
+        let fixture = crate::testutil::fixture_dir("package-simple")
             .join("golden")
             .join("package_simple.mfp");
         let dir = tempfile::tempdir().expect("tempdir");

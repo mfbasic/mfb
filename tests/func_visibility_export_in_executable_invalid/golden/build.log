@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_visibility_export_in_executable_invalid
-src/main.mfb:4 error[2-203-0103 EXPORT_IN_EXECUTABLE]: EXPORT is only valid in a package project; use PUBLIC (the default) in an executable
-               EXPORT is only valid in a package project; use PUBLIC (the default) in an executable.
-[exit 1]

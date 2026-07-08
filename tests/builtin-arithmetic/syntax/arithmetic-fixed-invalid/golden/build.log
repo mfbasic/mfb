@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/builtin-arithmetic/syntax/arithmetic-fixed-invalid
-   2 |   LET text AS String = "2.0"
-   3 |   LET value AS Fixed = 1.0
-   4 |   value + text
-     | ^
-tests/builtin-arithmetic/syntax/arithmetic-fixed-invalid/src/main.mfb:4 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `+` requires numeric operands, got Fixed and String.
-[exit 1]

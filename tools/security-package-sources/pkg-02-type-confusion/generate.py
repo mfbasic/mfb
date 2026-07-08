@@ -5,7 +5,7 @@ Builds this benign base package with `mfb`, applies the `mutate_type_confusion`
 mutation from ../mfp_craft.py (which replaces the MFBR body with a `run`
 function whose IR does a member access on an Integer), and writes the result
 into the consumer fixture at
-tests/security/pkg-02-type-confusion/packages/sec_confused.mfp. Run it after
+tests/syntax/security/pkg-02-type-confusion/packages/sec_confused.mfp. Run it after
 changing the source or the container/IR format:
 
     python3 tools/security-package-sources/pkg-02-type-confusion/generate.py [path/to/mfb]
@@ -21,7 +21,7 @@ import mfp_craft as m
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 MFB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "target", "debug", "mfb")
-FIXTURE = os.path.join(REPO, "tests", "security", "pkg-02-type-confusion")
+FIXTURE = os.path.join(REPO, "tests", "syntax", "security", "pkg-02-type-confusion")
 
 base = m.build_base_package(HERE, MFB)
 malicious = m.mutate_type_confusion(base)

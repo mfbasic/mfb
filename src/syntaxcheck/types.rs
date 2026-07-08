@@ -604,7 +604,7 @@ mod types_tests {
         // A worker whose declared and inferred thread types both carry a resource
         // plane exercises compatible_optional Some/Some.
         assert!(check_project_dir(std::path::Path::new(&format!(
-            "{}/tests/builtin-thread/behavior/func_thread_transfer_valid",
+            "{}/tests/rt-behavior/threads/func_thread_transfer_valid",
             env!("CARGO_MANIFEST_DIR")
         )))
         .is_empty());

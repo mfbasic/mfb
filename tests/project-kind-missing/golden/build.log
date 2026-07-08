@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/project-kind-missing
-  12 |   "entry": "main",
-  13 |   "targets": ["native"]
-  14 | }
-     | ^
-tests/project-kind-missing/project.json:14 error[2-200-0005 PROJECT_JSON_REQUIRED_FIELD]: project.json is missing a required field
-               Required field `kind` is missing.
-[exit 1]

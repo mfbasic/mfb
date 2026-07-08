@@ -1,0 +1,28 @@
+$ mfb build -ast -ir tests/syntax/json/json_read_invalid
+   7 |   fs::writeText(path, "{ bad json }")
+   8 |   io::print(json::stringify(json::parse(fs::readText(path))))
+   9 |   TRAP(err)
+     | ^
+tests/syntax/json/json_read_invalid/src/main.mfb:9 error[2-203-0012 TYPE_TRAP_FALLTHROUGH]: TRAP path can fall through
+               Normal flow in `main` reaches TRAP `err`; body paths before TRAP must end with RETURN or FAIL.
+   3 | IMPORT json
+   4 | 
+   5 | FUNC main AS Integer
+     | ^
+tests/syntax/json/json_read_invalid/src/main.mfb:5 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `main` must return a Integer value.
+[exit 1]
+$ mfb build tests/syntax/json/json_read_invalid
+   7 |   fs::writeText(path, "{ bad json }")
+   8 |   io::print(json::stringify(json::parse(fs::readText(path))))
+   9 |   TRAP(err)
+     | ^
+tests/syntax/json/json_read_invalid/src/main.mfb:9 error[2-203-0012 TYPE_TRAP_FALLTHROUGH]: TRAP path can fall through
+               Normal flow in `main` reaches TRAP `err`; body paths before TRAP must end with RETURN or FAIL.
+   3 | IMPORT json
+   4 | 
+   5 | FUNC main AS Integer
+     | ^
+tests/syntax/json/json_read_invalid/src/main.mfb:5 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `main` must return a Integer value.
+[exit 1]

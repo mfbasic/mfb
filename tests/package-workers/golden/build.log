@@ -1,7 +1,0 @@
-$ mfb build -ast -ir tests/package-workers
-Wrote AST to tests/package-workers/package_workers.ast
-Wrote IR to tests/package-workers/package_workers.ir
-[exit 0]
-$ mfb build tests/package-workers
-Wrote package to tests/package-workers/package_workers.mfp
-[exit 0]

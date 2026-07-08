@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/testing-coverage-valid
-Wrote AST to tests/testing-coverage-valid/testing_coverage.ast
-Wrote IR to tests/testing-coverage-valid/testing_coverage.ir
-[exit 0]

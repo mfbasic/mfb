@@ -1,0 +1,157 @@
+IMPORT collections
+IMPORT io
+
+' Consolidated runtime-behavior coverage (tests reorg). Each former per-case
+' main is a <case>_run helper; main drives them in order so stdout is the
+' concatenation of every case's output.
+
+' ---- from mut-default-record-valid ----
+
+TYPE Inner
+  name AS String
+  values AS List OF Integer
+END TYPE
+
+TYPE Outer
+  inner AS Inner
+  ready AS Boolean
+END TYPE
+
+FUNC mut_default_record_valid_run AS Integer
+  MUT state AS Outer
+  io::print(state.inner.name)
+  io::print(toString(len(state.inner.values)))
+  io::print(toString(state.ready))
+  RETURN 0
+END FUNC
+
+' ---- from types-map-entry-valid ----
+
+SUB printEntry(entry AS MapEntry OF String TO Integer)
+  io::print(entry.key)
+  io::print(toString(entry.value))
+END SUB
+
+FUNC types_map_entry_valid_run AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+
+  FOR EACH entry IN scores
+    LET typed AS MapEntry OF String TO Integer = entry
+    printEntry(typed)
+  NEXT
+
+  RETURN 0
+END FUNC
+
+' ---- from types-nothing ----
+
+FUNC literalNothing AS Nothing
+  RETURN NOTHING
+END FUNC
+
+SUB fallthroughSub
+  io::print("fallthrough")
+END SUB
+
+SUB bareReturnSub
+  io::print("bare-return")
+  EXIT SUB
+END SUB
+
+SUB explicitReturnSub
+  io::print("explicit-return")
+  EXIT SUB
+END SUB
+
+FUNC callSubAsNothing AS Nothing
+  fallthroughSub()
+  bareReturnSub()
+  explicitReturnSub()
+  RETURN literalNothing()
+END FUNC
+
+FUNC types_nothing_run AS Integer
+  LET literal AS Nothing = NOTHING
+  MUT defaulted AS Nothing
+  defaulted = literal
+
+  io::print(typeName(literal))
+  io::print(typeName(defaulted))
+  callSubAsNothing()
+  RETURN 0
+END FUNC
+
+' ---- from types-record-comparable-runtime ----
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Person
+  name AS String
+  city AS String
+END TYPE
+
+TYPE Badge
+  owner AS Person
+  level AS Integer
+END TYPE
+
+FUNC printBoolean(value AS Boolean) AS Nothing
+  io::print(toString(value))
+  RETURN NOTHING
+END FUNC
+
+FUNC types_record_comparable_runtime_run AS Integer
+  LET firstPoint AS Point = Point[1, 2]
+  LET samePoint AS Point = Point[1, 2]
+  LET otherPoint AS Point = Point[2, 1]
+
+  LET ada AS Person = Person["A" & "da", "Love" & "lace"]
+  LET sameAda AS Person = Person["Ad" & "a", "Lovel" & "ace"]
+  LET grace AS Person = Person["Grace", "Hopper"]
+
+  LET firstBadge AS Badge = Badge[ada, 7]
+  LET sameBadge AS Badge = Badge[sameAda, 7]
+  LET otherBadge AS Badge = Badge[sameAda, 8]
+
+  printBoolean(firstPoint = samePoint)
+  printBoolean(firstPoint <> otherPoint)
+  printBoolean(ada = sameAda)
+  printBoolean(ada <> grace)
+  printBoolean(firstBadge = sameBadge)
+  printBoolean(firstBadge <> otherBadge)
+
+  LET people AS List OF Person = [ada, grace]
+  LET pair AS List OF Person = [sameAda, grace]
+  printBoolean(collections::contains(people, sameAda))
+  io::print(toString(collections::find(people, sameAda)))
+  io::print(toString(collections::find(people, pair)))
+  LET replaced AS List OF Person = collections::replace(people, sameAda, Person["Katherine", "Johnson"])
+  LET replacedFirst AS Person = collections::get(replaced, 0)
+  io::print(replacedFirst.name)
+
+  LET pointLabels AS Map OF Point TO String = Map OF Point TO String { firstPoint := "first" }
+  io::print(collections::get(pointLabels, samePoint))
+
+  LET scores AS Map OF Person TO Integer = Map OF Person TO Integer { ada := 1, grace := 2 }
+  printBoolean(collections::hasKey(scores, sameAda))
+  io::print(toString(collections::get(scores, sameAda)))
+  LET updated AS Map OF Person TO Integer = collections::set(scores, sameAda, 10)
+  io::print(toString(collections::get(updated, ada)))
+  io::print(toString(len(updated)))
+  LET removed AS Map OF Person TO Integer = collections::removeKey(updated, sameAda)
+  io::print(toString(len(removed)))
+  printBoolean(collections::hasKey(removed, ada))
+
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET _mut_default_record_valid AS Integer = mut_default_record_valid_run()
+  LET _types_map_entry_valid AS Integer = types_map_entry_valid_run()
+  LET _types_nothing AS Integer = types_nothing_run()
+  LET _types_record_comparable_runtime AS Integer = types_record_comparable_runtime_run()
+  RETURN 0
+END FUNC

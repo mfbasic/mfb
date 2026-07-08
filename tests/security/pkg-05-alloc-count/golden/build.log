@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/security/pkg-05-alloc-count
-uses sec_count - [Unsigned]
-   3 | ' decode/verification rather than producing an executable.
-   4 | IMPORT io
-   5 | IMPORT sec_count AS sec_count
-     | ^
-tests/security/pkg-05-alloc-count/src/main.mfb:5 error[0-000-0000 UNKNOWN_RULE]: unknown diagnostic rule
-               Package `sec_count` type exports could not be read: failed to read 'tests/security/pkg-05-alloc-count/packages/sec_count.mfp': truncated binary representation
-[exit 1]

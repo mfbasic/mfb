@@ -83,7 +83,7 @@ mod tests {
     /// Absolute path to a real, valid `.mfp` fixture in the repository.
     fn valid_mfp_fixture() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/project-with-package-import-as/packages/package_import_as.mfp")
+            .join("tests/rt-behavior/project/project-with-package-import-as/packages/package_import_as.mfp")
     }
 
     /// Build a manifest declaring one package named `name`.

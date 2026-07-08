@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/packages/package-cleanup-audit
+Wrote AST to tests/syntax/packages/package-cleanup-audit/package_cleanup_audit.ast
+Wrote IR to tests/syntax/packages/package-cleanup-audit/package_cleanup_audit.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-cleanup-audit
+Wrote package to tests/syntax/packages/package-cleanup-audit/package_cleanup_audit.mfp
+[exit 0]

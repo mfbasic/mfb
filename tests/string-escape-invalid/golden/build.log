@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/string-escape-invalid
-   4 | ' build with MFB_LEX_INVALID_UNICODE_ESCAPE, never a silent wrong decode.
-   5 | FUNC main AS Integer
-   6 |   io::print("\u{110000}")
-     |             ^^^^^^^^^^^
-tests/string-escape-invalid/src/main.mfb:6 error[1-101-0003 MFB_LEX_INVALID_UNICODE_ESCAPE]: \u{...} string escape is malformed
-               A `\u{...}` escape must name a Unicode scalar value (U+0000..U+D7FF or U+E000..U+10FFFF).
-[exit 1]

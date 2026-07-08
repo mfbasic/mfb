@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/ownership-use-after-move-invalid
+   4 |   RES first = fs::openFile("tests/syntax/resources/ownership-use-after-move-invalid/src/main.mfb")
+   5 |   RES second = first
+   6 |   RES third = first
+     | ^
+tests/syntax/resources/ownership-use-after-move-invalid/src/main.mfb:6 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `first` was moved and cannot be used again.
+[exit 1]

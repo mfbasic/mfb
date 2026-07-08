@@ -1,6 +1,6 @@
 """Shared helpers for crafting malicious `.mfp` packages (audit-1 fixtures).
 
-The security fixtures under `tests/security/pkg-0*` each import a deliberately
+The security fixtures under `tests/syntax/security/pkg-0*` each import a deliberately
 malformed or tampered compiled package to prove the compiler's decode/verify
 path rejects it. The malicious `.mfp` files are *generated* (never hand-typed)
 by the `generate.py` script that lives next to each source package, using the

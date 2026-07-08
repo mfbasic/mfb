@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/security/pkg-07-need-overflow
+uses sec_needlen - [Unsigned]
+Wrote AST to tests/syntax/security/pkg-07-need-overflow/pkg_07_need_overflow.ast
+Wrote IR to tests/syntax/security/pkg-07-need-overflow/pkg_07_need_overflow.ir
+[exit 0]
+$ mfb build tests/syntax/security/pkg-07-need-overflow
+uses sec_needlen - [Unsigned]
+error: failed to read 'tests/syntax/security/pkg-07-need-overflow/packages/sec_needlen.mfp': Binary Representation truncated: needed 4294967295 bytes at offset 10, have 134
+[exit 1]

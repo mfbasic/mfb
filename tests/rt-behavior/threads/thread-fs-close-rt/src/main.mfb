@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT thread
+IMPORT fs_thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(fs_thread_workers::closeWorker, "tests/rt-behavior/threads/thread-fs-close-rt/data/in.txt")
+  LET r AS Integer = thread::waitFor(t)
+  io::print(toString(r))
+  RETURN 0
+END FUNC

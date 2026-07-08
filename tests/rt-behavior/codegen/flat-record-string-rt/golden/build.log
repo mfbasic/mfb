@@ -1,0 +1,24 @@
+$ mfb build -ast -ir tests/rt-behavior/codegen/flat-record-string-rt
+Wrote AST to tests/rt-behavior/codegen/flat-record-string-rt/flat_record_string_rt.ast
+Wrote IR to tests/rt-behavior/codegen/flat-record-string-rt/flat_record_string_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/codegen/flat-record-string-rt
+Wrote executable to tests/rt-behavior/codegen/flat-record-string-rt/flat_record_string_rt.out
+[exit 0]
+$ tests/rt-behavior/codegen/flat-record-string-rt/flat_record_string_rt.out
+Ada/London
+Ada/London
+Ada/London
+Augusta/London
+Ada/NY
+Ada:London:first
+first|second-and-longer
+Ada:London
+2,3
+Augusta/London
+Grace/Newport
+1
+2
+FALSE
+[][x]
+[exit 0]

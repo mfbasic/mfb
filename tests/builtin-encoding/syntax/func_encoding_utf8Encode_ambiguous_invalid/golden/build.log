@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/builtin-encoding/syntax/func_encoding_utf8Encode_ambiguous_invalid
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET x = encoding::utf8Encode("hi")
-     | ^
-tests/builtin-encoding/syntax/func_encoding_utf8Encode_ambiguous_invalid/src/main.mfb:4 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
-               Call to `encoding.utf8Encode` matches overloads that differ only by return type; supply the expected type (e.g. a `LET … AS` annotation) to select one.
-[exit 1]

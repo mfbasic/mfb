@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/testing/testing-parse-invalid
+   4 | 
+   5 | TESTING
+   6 |   LET strayGroup AS Integer = 1
+     |   ^^^
+tests/syntax/testing/testing-parse-invalid/src/main.mfb:6 error[1-102-0010 MFB_PARSE_TESTING_EXPECTED_TGROUP]: a TESTING block may contain only TGROUP groups
+               A TESTING block may contain only TGROUP groups.
+   6 |   LET strayGroup AS Integer = 1
+   7 |   TGROUP "a group"
+   8 |     LET strayCase AS Integer = 2
+     |     ^^^
+tests/syntax/testing/testing-parse-invalid/src/main.mfb:8 error[1-102-0011 MFB_PARSE_TESTING_EXPECTED_TCASE]: a TGROUP may contain only TCASE cases and nested TGROUP groups
+               A TGROUP may contain only TCASE cases and nested TGROUP groups.
+[exit 1]

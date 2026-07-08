@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/app/macos-app-mode-io
+Wrote AST to tests/syntax/app/macos-app-mode-io/macos_app_mode_io.ast
+Wrote IR to tests/syntax/app/macos-app-mode-io/macos_app_mode_io.ir
+[exit 0]
+$ mfb build -app -nir -nplan -ncode tests/syntax/app/macos-app-mode-io
+Wrote native IR to tests/syntax/app/macos-app-mode-io/macos_app_mode_io.nir
+Wrote native plan to tests/syntax/app/macos-app-mode-io/macos_app_mode_io.nplan
+Wrote native code plan to tests/syntax/app/macos-app-mode-io/macos_app_mode_io.ncode
+[exit 0]

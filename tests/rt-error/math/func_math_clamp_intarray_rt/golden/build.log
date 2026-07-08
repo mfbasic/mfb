@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/math/func_math_clamp_intarray_rt
+Wrote AST to tests/rt-error/math/func_math_clamp_intarray_rt/func_math_clamp_intarray_rt.ast
+Wrote IR to tests/rt-error/math/func_math_clamp_intarray_rt/func_math_clamp_intarray_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/math/func_math_clamp_intarray_rt
+Wrote executable to tests/rt-error/math/func_math_clamp_intarray_rt/func_math_clamp_intarray_rt.out
+[exit 0]
+$ tests/rt-error/math/func_math_clamp_intarray_rt/func_math_clamp_intarray_rt.out
+Code: 77050002 Message: invalid argument
+[exit 255]

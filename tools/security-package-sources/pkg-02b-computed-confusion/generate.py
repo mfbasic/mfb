@@ -6,7 +6,7 @@ from ../mfp_craft.py (which replaces the MFBR body with a `run` whose IR does a
 member access on a `Binary` Integer result — the computed-target confusion the
 typed IR lets plan-20-C's verifier catch), and writes the result into the
 consumer fixture at
-tests/security/pkg-02b-computed-confusion/packages/sec_confused_computed.mfp.
+tests/syntax/security/pkg-02b-computed-confusion/packages/sec_confused_computed.mfp.
 
     python3 tools/security-package-sources/pkg-02b-computed-confusion/generate.py [path/to/mfb]
 
@@ -21,7 +21,7 @@ import mfp_craft as m
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 MFB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "target", "debug", "mfb")
-FIXTURE = os.path.join(REPO, "tests", "security", "pkg-02b-computed-confusion")
+FIXTURE = os.path.join(REPO, "tests", "syntax", "security", "pkg-02b-computed-confusion")
 
 base = m.build_base_package(HERE, MFB)
 malicious = m.mutate_type_confusion_computed(base)

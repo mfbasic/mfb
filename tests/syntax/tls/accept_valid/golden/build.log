@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/tls/accept_valid
+Wrote AST to tests/syntax/tls/accept_valid/func_tls_accept_valid.ast
+Wrote IR to tests/syntax/tls/accept_valid/func_tls_accept_valid.ir
+[exit 0]

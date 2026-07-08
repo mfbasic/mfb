@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/syntax/project/import-alias-conflicts
+   1 | IMPORT io AS dup
+   2 | IMPORT math AS dup
+     | ^
+tests/syntax/project/import-alias-conflicts/src/main.mfb:2 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import binding `dup` is already used for package `io` in this file.
+   1 | IMPORT io AS dup
+   2 | IMPORT math AS dup
+   3 | IMPORT strings AS io
+     | ^
+tests/syntax/project/import-alias-conflicts/src/main.mfb:3 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `io` conflicts with built-in package `io`.
+   2 | IMPORT math AS dup
+   3 | IMPORT strings AS io
+   4 | IMPORT json AS helper
+     | ^
+tests/syntax/project/import-alias-conflicts/src/main.mfb:4 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `helper` conflicts with a visible top-level declaration.
+[exit 1]

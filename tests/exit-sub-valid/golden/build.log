@@ -1,9 +1,0 @@
-$ mfb build -ast -ir tests/exit-sub-valid
-Wrote AST to tests/exit-sub-valid/exit_sub_valid.ast
-Wrote IR to tests/exit-sub-valid/exit_sub_valid.ir
-[exit 0]
-$ mfb build tests/exit-sub-valid
-Wrote executable to tests/exit-sub-valid/exit_sub_valid.out
-[exit 0]
-$ tests/exit-sub-valid/exit_sub_valid.out
-[exit 0]

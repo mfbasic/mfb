@@ -1,0 +1,69 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 6
+  LET f1 AS Fixed = 1.50F
+  LET f2 AS Fixed = 2.00F
+  LET fixedNeg AS Fixed = 0 - 4.75F
+  LET fixedLow AS Fixed = 0.25F
+  LET fixedHigh AS Fixed = 1.75F
+
+  io::print(toString(math::pi, p))
+  io::print(toString(math::piFixed, p))
+  io::print(toString(math::twoOverPi, p))
+  io::print(toString(math::twoOverPiFixed, p))
+  io::print(toString(math::pi2, p))
+  io::print(toString(math::pi2Fixed, p))
+  io::print(toString(math::pi4, p))
+  io::print(toString(math::pi4Fixed, p))
+  io::print(toString(math::e, p))
+  io::print(toString(math::eFixed, p))
+  io::print(toString(math::ln2, p))
+  io::print(toString(math::ln2Fixed, p))
+  io::print(toString(math::ln10, p))
+  io::print(toString(math::ln10Fixed, p))
+  io::print(toString(math::abs(-7)))
+  io::print(toString(math::abs(0.0 - 3.50), p))
+  io::print(toString(math::abs(fixedNeg), p))
+  io::print(toString(math::min(2, 4)))
+  io::print(toString(math::min(2.0, 4.0), p))
+  io::print(toString(math::min(f1, f2), p))
+  io::print(toString(math::max(2, 4)))
+  io::print(toString(math::max(2.0, 4.0), p))
+  io::print(toString(math::max(f1, f2), p))
+  io::print(toString(math::clamp(12, 0, 10)))
+  io::print(toString(math::clamp(0.50, 0.0, 1.0), p))
+  io::print(toString(math::clamp(f1, fixedLow, fixedHigh), p))
+  io::print(toString(math::floor(3.75)))
+  io::print(toString(math::floor(3.75F)))
+  io::print(toString(math::ceil(3.25)))
+  io::print(toString(math::ceil(3.25F)))
+  io::print(toString(math::round(3.5)))
+  io::print(toString(math::round(3.5F)))
+  io::print(toString(math::sqrt(9.0), p))
+  io::print(toString(math::sqrt(9.0F), p))
+  io::print(toString(math::pow(2.0, 3.0), p))
+  io::print(toString(math::pow(f1, f2), p))
+  io::print(toString(math::exp(1.0), p))
+  io::print(toString(math::exp(1.0F), p))
+  io::print(toString(math::log(math::e), p))
+  io::print(toString(math::log(1.0F), p))
+  io::print(toString(math::log10(100.0), p))
+  io::print(toString(math::log10(100.0F), p))
+  io::print(toString(math::sin(math::pi), p))
+  io::print(toString(math::sin(math::piFixed), p))
+  io::print(toString(math::cos(math::pi), p))
+  io::print(toString(math::cos(math::piFixed), p))
+  io::print(toString(math::tan(0.0), p))
+  io::print(toString(math::tan(0.0F), p))
+  io::print(toString(math::asin(0.5), p))
+  io::print(toString(math::asin(0.5F), p))
+  io::print(toString(math::acos(0.5), p))
+  io::print(toString(math::acos(0.5F), p))
+  io::print(toString(math::atan(1.0), p))
+  io::print(toString(math::atan(1.0F), p))
+  io::print(toString(math::atan2(1.0, 1.0), p))
+  io::print(toString(math::atan2(1.0F, 1.0F), p))
+  RETURN 0
+END FUNC

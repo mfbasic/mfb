@@ -1,0 +1,7 @@
+$ mfb build -ast -ir -nir -nplan -nobj tests/syntax/project/project-entry-func-args-default
+Wrote AST to tests/syntax/project/project-entry-func-args-default/project_entry_func_args_default.ast
+Wrote IR to tests/syntax/project/project-entry-func-args-default/project_entry_func_args_default.ir
+Wrote native IR to tests/syntax/project/project-entry-func-args-default/project_entry_func_args_default.nir
+Wrote native plan to tests/syntax/project/project-entry-func-args-default/project_entry_func_args_default.nplan
+Wrote native object plan to tests/syntax/project/project-entry-func-args-default/project_entry_func_args_default.nobj
+[exit 0]

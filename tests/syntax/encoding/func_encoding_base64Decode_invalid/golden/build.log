@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/encoding/func_encoding_base64Decode_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS List OF Byte = encoding::base64Decode()
+     | ^
+tests/syntax/encoding/func_encoding_base64Decode_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `encoding.base64Decode` has 0 argument(s), expected 1.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS List OF Byte = encoding::base64Decode()
+     | ^
+tests/syntax/encoding/func_encoding_base64Decode_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET b AS List OF Byte = encoding::base64Decode()
+   5 |   LET c AS List OF Byte = encoding::base64Decode("x", "y")
+     | ^
+tests/syntax/encoding/func_encoding_base64Decode_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `encoding.base64Decode` has 2 argument(s), expected 1.
+   3 | FUNC main AS Integer
+   4 |   LET b AS List OF Byte = encoding::base64Decode()
+   5 |   LET c AS List OF Byte = encoding::base64Decode("x", "y")
+     | ^
+tests/syntax/encoding/func_encoding_base64Decode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+   4 |   LET b AS List OF Byte = encoding::base64Decode()
+   5 |   LET c AS List OF Byte = encoding::base64Decode("x", "y")
+   6 |   LET d AS List OF Byte = encoding::base64Decode(123)
+     | ^
+tests/syntax/encoding/func_encoding_base64Decode_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `encoding.base64Decode` has argument type(s) (Integer), expected String.
+   4 |   LET b AS List OF Byte = encoding::base64Decode()
+   5 |   LET c AS List OF Byte = encoding::base64Decode("x", "y")
+   6 |   LET d AS List OF Byte = encoding::base64Decode(123)
+     | ^
+tests/syntax/encoding/func_encoding_base64Decode_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+[exit 1]

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/trap/inline-trap-infallible-builtin-invalid
+   7 | FUNC main AS Integer
+   8 |   ' 1. a non-call literal expression.
+   9 |   LET a AS Integer = 5 TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-infallible-builtin-invalid/src/main.mfb:9 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a call to trap; this expression is not a call.
+  11 |   END TRAP
+  12 |   ' 2. a package constant (not a runtime call).
+  13 |   LET p AS Float = math::pi() TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-infallible-builtin-invalid/src/main.mfb:13 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a fallible call; a package constant is not a call.
+  11 |   END TRAP
+  12 |   ' 2. a package constant (not a runtime call).
+  13 |   LET p AS Float = math::pi() TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-infallible-builtin-invalid/src/main.mfb:13 error[2-201-0012 SYMBOL_NOT_CALLABLE]: symbol cannot be called
+               Package constant `math.pi` is not callable.
+[exit 1]

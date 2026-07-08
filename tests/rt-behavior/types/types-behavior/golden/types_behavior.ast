@@ -1,0 +1,276 @@
+{
+  "project": "types_behavior",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Inner",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "name", "type": "String", "line": 11 },
+      { "visibility": null, "name": "values", "type": "List OF Integer", "line": 12 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Outer",
+      "line": 15,
+      "fields": [
+      { "visibility": null, "name": "inner", "type": "Inner", "line": 16 },
+      { "visibility": null, "name": "ready", "type": "Boolean", "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "mut_default_record_valid_run",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "state", "type": "Outer", "value": null, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "state" }, "member": "inner" }, "member": "name" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "state" }, "member": "inner" }, "member": "values" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "state" }, "member": "ready" }] }] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "printEntry",
+      "line": 30,
+      "params": [
+      { "name": "entry", "type": "MapEntry OF String TO Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "key" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "value" }] }] }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "types_map_entry_valid_run",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "scores", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "Grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 36 },
+      {
+        "kind": "forEach",
+        "name": "entry",
+        "iterable": { "kind": "identifier", "value": "scores" },
+        "line": 38,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "typed", "type": "MapEntry OF String TO Integer", "value": { "kind": "identifier", "value": "entry" }, "line": 39 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "printEntry", "arguments": [{ "kind": "identifier", "value": "typed" }] }, "line": 40 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "literalNothing",
+      "line": 48,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 49 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "fallthroughSub",
+      "line": 52,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "fallthrough" }] }, "line": 53 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "bareReturnSub",
+      "line": 56,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bare-return" }] }, "line": 57 },
+      { "kind": "exit", "target": "sub", "code": null, "line": 58 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "explicitReturnSub",
+      "line": 61,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "explicit-return" }] }, "line": 62 },
+      { "kind": "exit", "target": "sub", "code": null, "line": 63 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "callSubAsNothing",
+      "line": 66,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fallthroughSub", "arguments": [] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "bareReturnSub", "arguments": [] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "explicitReturnSub", "arguments": [] }, "line": 69 },
+      { "kind": "return", "value": { "kind": "call", "callee": "literalNothing", "arguments": [] }, "line": 70 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "types_nothing_run",
+      "line": 73,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "literal", "type": "Nothing", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 74 },
+      { "kind": "binding", "mutable": true, "name": "defaulted", "type": "Nothing", "value": null, "line": 75 },
+      { "kind": "assignment", "name": "defaulted", "value": { "kind": "identifier", "value": "literal" }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "literal" }] }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "defaulted" }] }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "callSubAsNothing", "arguments": [] }, "line": 80 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 81 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 86,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 87 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 88 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Person",
+      "line": 91,
+      "fields": [
+      { "visibility": null, "name": "name", "type": "String", "line": 92 },
+      { "visibility": null, "name": "city", "type": "String", "line": 93 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Badge",
+      "line": 96,
+      "fields": [
+      { "visibility": null, "name": "owner", "type": "Person", "line": 97 },
+      { "visibility": null, "name": "level", "type": "Integer", "line": 98 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "printBoolean",
+      "line": 101,
+      "params": [
+      { "name": "value", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 102 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 103 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "types_record_comparable_runtime_run",
+      "line": 106,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "firstPoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 107 },
+      { "kind": "binding", "mutable": false, "name": "samePoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 108 },
+      { "kind": "binding", "mutable": false, "name": "otherPoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }] }, "line": 109 },
+      { "kind": "binding", "mutable": false, "name": "ada", "type": "Person", "value": { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "A" }, "right": { "kind": "string", "value": "da" } }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Love" }, "right": { "kind": "string", "value": "lace" } }] }, "line": 111 },
+      { "kind": "binding", "mutable": false, "name": "sameAda", "type": "Person", "value": { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Ad" }, "right": { "kind": "string", "value": "a" } }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Lovel" }, "right": { "kind": "string", "value": "ace" } }] }, "line": 112 },
+      { "kind": "binding", "mutable": false, "name": "grace", "type": "Person", "value": { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Hopper" }] }, "line": 113 },
+      { "kind": "binding", "mutable": false, "name": "firstBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "arguments": [{ "kind": "identifier", "value": "ada" }, { "kind": "number", "value": "7" }] }, "line": 115 },
+      { "kind": "binding", "mutable": false, "name": "sameBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "arguments": [{ "kind": "identifier", "value": "sameAda" }, { "kind": "number", "value": "7" }] }, "line": 116 },
+      { "kind": "binding", "mutable": false, "name": "otherBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "arguments": [{ "kind": "identifier", "value": "sameAda" }, { "kind": "number", "value": "8" }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "firstPoint" }, "right": { "kind": "identifier", "value": "samePoint" } }] }, "line": 119 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "firstPoint" }, "right": { "kind": "identifier", "value": "otherPoint" } }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "ada" }, "right": { "kind": "identifier", "value": "sameAda" } }] }, "line": 121 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "ada" }, "right": { "kind": "identifier", "value": "grace" } }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "firstBadge" }, "right": { "kind": "identifier", "value": "sameBadge" } }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "firstBadge" }, "right": { "kind": "identifier", "value": "otherBadge" } }] }, "line": 124 },
+      { "kind": "binding", "mutable": false, "name": "people", "type": "List OF Person", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "ada" }, { "kind": "identifier", "value": "grace" }] }, "line": 126 },
+      { "kind": "binding", "mutable": false, "name": "pair", "type": "List OF Person", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "sameAda" }, { "kind": "identifier", "value": "grace" }] }, "line": 127 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "people" }, { "kind": "identifier", "value": "sameAda" }] }] }, "line": 128 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "people" }, { "kind": "identifier", "value": "sameAda" }] }] }] }, "line": 129 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "people" }, { "kind": "identifier", "value": "pair" }] }] }] }, "line": 130 },
+      { "kind": "binding", "mutable": false, "name": "replaced", "type": "List OF Person", "value": { "kind": "call", "callee": "collections.replace", "arguments": [{ "kind": "identifier", "value": "people" }, { "kind": "identifier", "value": "sameAda" }, { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "string", "value": "Katherine" }, { "kind": "string", "value": "Johnson" }] }] }, "line": 131 },
+      { "kind": "binding", "mutable": false, "name": "replacedFirst", "type": "Person", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "replaced" }, { "kind": "number", "value": "0" }] }, "line": 132 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "replacedFirst" }, "member": "name" }] }, "line": 133 },
+      { "kind": "binding", "mutable": false, "name": "pointLabels", "type": "Map OF Point TO String", "value": { "kind": "map", "keyType": "Point", "valueType": "String", "entries": [{ "key": { "kind": "identifier", "value": "firstPoint" }, "value": { "kind": "string", "value": "first" } }] }, "line": 135 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "pointLabels" }, { "kind": "identifier", "value": "samePoint" }] }] }, "line": 136 },
+      { "kind": "binding", "mutable": false, "name": "scores", "type": "Map OF Person TO Integer", "value": { "kind": "map", "keyType": "Person", "valueType": "Integer", "entries": [{ "key": { "kind": "identifier", "value": "ada" }, "value": { "kind": "number", "value": "1" } }, { "key": { "kind": "identifier", "value": "grace" }, "value": { "kind": "number", "value": "2" } }] }, "line": 138 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "scores" }, { "kind": "identifier", "value": "sameAda" }] }] }, "line": 139 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "scores" }, { "kind": "identifier", "value": "sameAda" }] }] }] }, "line": 140 },
+      { "kind": "binding", "mutable": false, "name": "updated", "type": "Map OF Person TO Integer", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "scores" }, { "kind": "identifier", "value": "sameAda" }, { "kind": "number", "value": "10" }] }, "line": 141 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "updated" }, { "kind": "identifier", "value": "ada" }] }] }] }, "line": 142 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "updated" }] }] }] }, "line": 143 },
+      { "kind": "binding", "mutable": false, "name": "removed", "type": "Map OF Person TO Integer", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "updated" }, { "kind": "identifier", "value": "sameAda" }] }, "line": 144 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "removed" }] }] }] }, "line": 145 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "removed" }, { "kind": "identifier", "value": "ada" }] }] }, "line": 146 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 148 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 151,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "_mut_default_record_valid", "type": "Integer", "value": { "kind": "call", "callee": "mut_default_record_valid_run", "arguments": [] }, "line": 152 },
+      { "kind": "binding", "mutable": false, "name": "_types_map_entry_valid", "type": "Integer", "value": { "kind": "call", "callee": "types_map_entry_valid_run", "arguments": [] }, "line": 153 },
+      { "kind": "binding", "mutable": false, "name": "_types_nothing", "type": "Integer", "value": { "kind": "call", "callee": "types_nothing_run", "arguments": [] }, "line": 154 },
+      { "kind": "binding", "mutable": false, "name": "_types_record_comparable_runtime", "type": "Integer", "value": { "kind": "call", "callee": "types_record_comparable_runtime_run", "arguments": [] }, "line": 155 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 156 }
+      ]
+    }
+    ]
+  }
+  ]
+}

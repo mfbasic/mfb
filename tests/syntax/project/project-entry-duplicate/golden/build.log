@@ -1,0 +1,6 @@
+$ mfb build -ast -ir tests/syntax/project/project-entry-duplicate
+   1 | FUNC main AS Integer
+     | ^
+tests/syntax/project/project-entry-duplicate/src/b_main.mfb:1 error[2-201-0010 SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once
+               Top-level symbol `main` was already declared in src/a_main.mfb:1.
+[exit 1]

@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  RES file = fs::openFile("tests/rt-behavior/resources/ownership-resource-manual-close-valid/src/main.mfb")
+  fs::close(file)
+  io::print("closed")
+  RETURN 0
+END FUNC

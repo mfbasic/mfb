@@ -3,7 +3,7 @@
 
 Builds this benign base package with `mfb`, applies the `mutate_string_pool_count` byte-level
 mutation from ../mfp_craft.py, and writes the result into the consumer fixture
-at tests/security/pkg-05-alloc-count/packages/sec_count.mfp. Run it after changing the source or
+at tests/syntax/security/pkg-05-alloc-count/packages/sec_count.mfp. Run it after changing the source or
 the container format:
 
     python3 tools/security-package-sources/pkg-05-alloc-count/generate.py [path/to/mfb]
@@ -19,7 +19,7 @@ import mfp_craft as m
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 MFB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "target", "debug", "mfb")
-FIXTURE = os.path.join(REPO, "tests", "security", "pkg-05-alloc-count")
+FIXTURE = os.path.join(REPO, "tests", "syntax", "security", "pkg-05-alloc-count")
 
 base = m.build_base_package(HERE, MFB)
 malicious = m.mutate_string_pool_count(base)

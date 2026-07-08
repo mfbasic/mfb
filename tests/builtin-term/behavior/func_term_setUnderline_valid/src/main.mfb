@@ -1,6 +1,0 @@
-IMPORT term
-
-FUNC main AS Integer
-  term::setUnderline(FALSE)
-  RETURN 0
-END FUNC

@@ -1,0 +1,47 @@
+' Consolidated compile-shape coverage for every term:: builtin (plan: tests reorg).
+' Value-returning ops are wrapped in typed helpers (uncalled helpers are legal);
+' void ops are exercised directly in main. Compile-only: the fixture is never run.
+IMPORT term
+
+FUNC usegetForeground AS TermColor
+  LET c AS TermColor = term::getForeground()
+  RETURN c
+END FUNC
+
+FUNC usegetBackground AS TermColor
+  LET c AS TermColor = term::getBackground()
+  RETURN c
+END FUNC
+
+FUNC usegetBold AS Boolean
+  RETURN term::getBold()
+END FUNC
+
+FUNC usegetUnderline AS Boolean
+  RETURN term::getUnderline()
+END FUNC
+
+FUNC useisOn AS Boolean
+  RETURN term::isOn()
+END FUNC
+
+FUNC useTerminalSize AS Integer
+  LET a AS TermSize = term::terminalSize()
+  MUT b AS TermSize = term::terminalSize()
+  b = a
+  RETURN a.rows + a.columns + b.rows + b.columns
+END FUNC
+
+FUNC main AS Integer
+  term::on()
+  term::off()
+  term::clear()
+  term::moveTo(0, 0)
+  term::hideCursor()
+  term::showCursor()
+  term::setForeground(255, 0, 0)
+  term::setBackground(0, 0, 0)
+  term::setBold(TRUE)
+  term::setUnderline(FALSE)
+  RETURN 0
+END FUNC
