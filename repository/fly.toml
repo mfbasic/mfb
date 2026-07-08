@@ -1,0 +1,44 @@
+# Fly.io deployment for the mfb-repo package-registry server.
+# Rename `app` to your own unique name before first deploy (or run `fly launch`
+# which fills it in). See DEPLOY.md for the full walkthrough.
+
+app = "mfb-repo"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MFB_REPO_DBPATH = "/data/meta.db"
+  MFB_REPO_LISTEN = "0.0.0.0:8080"
+  # Blob storage. Leave these unset to auto-derive an s3:// path from Fly object
+  # storage (Tigris) — provisioning sets BUCKET_NAME + AWS_ENDPOINT_URL_S3 and
+  # the AWS_* credential secrets for you. To use a specific bucket/prefix or an
+  # external S3, set MFB_REPO_DATAPATH (and MFB_REPO_S3_ENDPOINT if needed).
+  MFB_REPO_S3_PREFIX = "packages"
+
+# Metadata SQLite lives on a volume (it also holds the server keypair, so the
+# server identity is stable across restarts). SQLite is single-writer and a Fly
+# volume binds to one machine: run exactly one machine (`fly scale count 1`).
+[[mounts]]
+  source = "mfb_repo_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1

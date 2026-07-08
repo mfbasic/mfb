@@ -1,0 +1,10 @@
+# Keep the build context small and reproducible: never ship local build output,
+# databases, or local blob data into the image builder.
+target/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+data/
+.git/
+fly.toml
+DEPLOY.md
