@@ -60,7 +60,4 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   for function/type pages, `scripts/update_man_package.sh` for package overviews).
 - The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
   current with every compiler change).
-- Writing a feature plan → `.ai/planning.md` (template `.ai/plan_template.md`).
-- Finding a bug while doing any task → `.ai/bugs.md` (test-first fix when small-ish,
-  otherwise a `planning/plan-NN` fix).
 - Remote test machines → `.ai/remote_systems.md`.
