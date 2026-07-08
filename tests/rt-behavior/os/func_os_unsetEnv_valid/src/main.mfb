@@ -1,0 +1,12 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  os::setEnv("MFB_OS_UNSETENV", "x")
+  io::print(toString(os::hasEnv("MFB_OS_UNSETENV")))
+  os::unsetEnv("MFB_OS_UNSETENV")
+  io::print(toString(os::hasEnv("MFB_OS_UNSETENV")))
+  os::unsetEnv("MFB_OS_UNSETENV_ABSENT_ZZZ")
+  io::print("ok")
+  RETURN 0
+END FUNC

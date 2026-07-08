@@ -93,6 +93,16 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             );
         }
+        if builtins::os::is_os_call(callee) {
+            return self.check_os_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
+        }
         if builtins::net::is_net_call(callee) {
             return self.check_net_builtin_call(
                 file,
@@ -314,6 +324,62 @@ impl<'a> SyntaxChecker<'a> {
 
         let Some(resolved) = builtins::fs::resolve_call(callee, &arg_types) else {
             let expected = builtins::fs::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    pub(super) fn check_os_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line, ExprMode::Borrow);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::os::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::os::resolve_call(callee, &arg_types) else {
+            let expected = builtins::os::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(

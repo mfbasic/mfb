@@ -12,6 +12,7 @@ pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;
 pub(crate) mod net;
+pub(crate) mod os;
 pub(crate) mod regex;
 pub(crate) mod resource;
 pub(crate) mod strings;
@@ -39,6 +40,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "json"
             | "math"
             | "net"
+            | "os"
             | "regex"
             | "strings"
             | "term"
@@ -280,6 +282,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| regex::call_return_type_name(name))
         .or_else(|| datetime::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
+        .or_else(|| os::call_return_type_name(name))
         .or_else(|| http::call_return_type_name(name))
         .or_else(|| term::call_return_type_name(name))
         .or_else(|| tls::call_return_type_name(name))
@@ -315,6 +318,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || regex::is_regex_call(name)
         || datetime::is_datetime_call(name)
         || net::is_net_call(name)
+        || os::is_os_call(name)
         || http::is_http_call(name)
         || term::is_term_call(name)
         || thread::is_thread_call(name)
@@ -361,6 +365,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))
         .or_else(|| net::call_param_names(name))
+        .or_else(|| os::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))

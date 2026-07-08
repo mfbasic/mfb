@@ -1,0 +1,12 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  os::setEnv("MFB_OS_GETENV", "value-123")
+  io::print(os::getEnv("MFB_OS_GETENV"))
+  LET missing = os::getEnv("MFB_OS_GETENV_UNSET_ZZZ") TRAP(err)
+    RECOVER "notfound:" & toString(err.code)
+  END TRAP
+  io::print(missing)
+  RETURN 0
+END FUNC

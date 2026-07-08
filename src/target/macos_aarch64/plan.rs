@@ -153,6 +153,33 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_localtime_r".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
+            "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_getenv".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "os.setEnv" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_setenv".to_string(),
+                    required_by: spec.symbol.to_string(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "___error".to_string(),
+                    required_by: spec.symbol.to_string(),
+                },
+            ],
+            "os.unsetEnv" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_unsetenv".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "os.environ" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "__NSGetEnviron".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),

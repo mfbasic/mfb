@@ -1,0 +1,6 @@
+IMPORT os
+
+FUNC main() AS Integer
+  os::setEnv("NAME")
+  RETURN 0
+END FUNC

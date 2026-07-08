@@ -1,0 +1,6 @@
+IMPORT os
+
+FUNC main() AS Integer
+  os::unsetEnv("A", "B")
+  RETURN 0
+END FUNC

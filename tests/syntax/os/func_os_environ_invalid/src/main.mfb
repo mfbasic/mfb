@@ -1,0 +1,7 @@
+IMPORT os
+IMPORT collections
+
+FUNC main() AS Integer
+  LET env AS Map OF String TO String = os::environ("x")
+  RETURN 0
+END FUNC

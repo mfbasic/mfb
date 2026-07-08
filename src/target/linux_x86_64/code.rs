@@ -445,6 +445,36 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_environ_pointer(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // `environ` is an imported libc data global. On x86-64 the fused
+        // `adrp`/`add` pair lowers to a single GOTPCREL `mov` that loads
+        // `&environ` from the GOT slot; one further deref gives the `char**`.
+        let library = platform_imports
+            .get("environ")
+            .ok_or_else(|| "os.environ runtime helper requires environ import".to_string())?
+            .clone();
+        let dst = abi::return_register();
+        instructions.push(abi::load_page_address(dst, "environ"));
+        instructions.push(abi::add_page_offset(dst, dst, "environ"));
+        for kind in [RelocIntent::GotLoadHi, RelocIntent::GotLoadLo] {
+            relocations.push(CodeRelocation {
+                from: from.to_string(),
+                to: "environ".to_string(),
+                kind,
+                binding: "external".to_string(),
+                library: Some(library.clone()),
+            });
+        }
+        instructions.push(abi::load_u64(dst, dst, 0));
+        Ok(())
+    }
+
     fn emit_fs_path_operation(
         &self,
         from: &str,

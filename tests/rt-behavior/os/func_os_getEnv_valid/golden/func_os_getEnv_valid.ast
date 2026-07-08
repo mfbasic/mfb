@@ -1,0 +1,38 @@
+{
+  "project": "func_os_getEnv_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_GETENV" }, { "kind": "string", "value": "value-123" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_GETENV" }] }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "missing", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 7,
+        "expression": { "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_GETENV_UNSET_ZZZ" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "notfound:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 8 }
+        ]
+      }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "missing" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

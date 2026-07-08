@@ -1,0 +1,34 @@
+{
+  "project": "func_os_environ_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_ENVIRON" }, { "kind": "string", "value": "snapshot-val" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_ENVIRON_EQ" }, { "kind": "string", "value": "a=b=c" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "env", "type": "Map OF String TO String", "value": { "kind": "call", "callee": "os.environ", "arguments": [] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB_OS_ENVIRON" }] }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB_OS_ENVIRON" }, { "kind": "string", "value": "missing" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB_OS_ENVIRON_EQ" }, { "kind": "string", "value": "missing" }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB_OS_ENVIRON_UNSET_ZZZ" }] }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_os_getEnvOr_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENVOR_UNSET_ZZZ" }, { "kind": "const", "type": "String", "value": "fallback" }] }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENVOR" }, { "kind": "const", "type": "String", "value": "present" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENVOR" }, { "kind": "const", "type": "String", "value": "fallback" }] }] } },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

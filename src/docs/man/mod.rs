@@ -43,6 +43,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("encoding", "mfb man encoding [function]"),
     ("crypto", "mfb man crypto [function]"),
     ("fs", "mfb man fs [function]"),
+    ("os", "mfb man os [function]"),
     ("thread", "mfb man thread [function]"),
     ("json", "mfb man json [function]"),
     ("csv", "mfb man csv [function]"),

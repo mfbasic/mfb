@@ -1,0 +1,6 @@
+IMPORT os
+
+FUNC main() AS Integer
+  LET wrongArity AS String = os::getEnvOr("NAME")
+  RETURN 0
+END FUNC

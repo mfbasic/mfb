@@ -218,8 +218,10 @@ fn patch_relocations(
             }
             // x86-64 imported data global via GOTPCREL: the rel32 targets the
             // symbol's GOT slot (filled by a GLOB_DAT reloc); the instruction
-            // loads the symbol address from there.
-            "external" if relocation.kind == "data_pc32" => {
+            // loads the symbol address from there. The encoder emits this as
+            // `got_pc32` (the canonical GOT kind); `data_pc32` is accepted as its
+            // historical alias.
+            "external" if relocation.kind == "data_pc32" || relocation.kind == "got_pc32" => {
                 let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
                     return Err(format!(
                         "linux-x86_64 linker cannot bind external data symbol '{}' from {}",

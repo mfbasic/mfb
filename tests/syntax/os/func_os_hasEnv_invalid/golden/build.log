@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_hasEnv_invalid
+   2 | 
+   3 | FUNC main() AS Integer
+   4 |   LET wrongType AS Boolean = os::hasEnv(42)
+     | ^
+tests/syntax/os/func_os_hasEnv_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `os.hasEnv` has argument type(s) (Integer), expected String.
+   2 | 
+   3 | FUNC main() AS Integer
+   4 |   LET wrongType AS Boolean = os::hasEnv(42)
+     | ^
+tests/syntax/os/func_os_hasEnv_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+[exit 1]

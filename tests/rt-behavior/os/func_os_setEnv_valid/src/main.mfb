@@ -1,0 +1,10 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  os::setEnv("MFB_OS_SETENV", "first")
+  io::print(os::getEnv("MFB_OS_SETENV"))
+  os::setEnv("MFB_OS_SETENV", "second")
+  io::print(os::getEnv("MFB_OS_SETENV"))
+  RETURN 0
+END FUNC

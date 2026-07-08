@@ -142,6 +142,12 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "fs.currentDirectory") {
         push_string_value(&mut values, ERR_READ_MESSAGE.to_string());
     }
+    // `os::getEnv` raises `ErrNotFound` for an unset variable; `os::setEnv`
+    // reuses the always-emitted `ErrInvalidArgument`/allocation messages
+    // (plan-31-A).
+    if module_uses_call(module, "os.getEnv") {
+        push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
+    }
     if module_uses_any_call(
         module,
         &[

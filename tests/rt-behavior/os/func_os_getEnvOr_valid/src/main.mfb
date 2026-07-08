@@ -1,0 +1,9 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  io::print(os::getEnvOr("MFB_OS_GETENVOR_UNSET_ZZZ", "fallback"))
+  os::setEnv("MFB_OS_GETENVOR", "present")
+  io::print(os::getEnvOr("MFB_OS_GETENVOR", "fallback"))
+  RETURN 0
+END FUNC

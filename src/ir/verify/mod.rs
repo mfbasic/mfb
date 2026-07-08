@@ -3244,6 +3244,8 @@ impl TypeEnv {
             builtins::fs::resolve_call(target, &arg_types).is_none()
         } else if builtins::net::is_net_call(target) {
             builtins::net::resolve_call(target, &arg_types).is_none()
+        } else if builtins::os::is_os_call(target) {
+            builtins::os::resolve_call(target, &arg_types).is_none()
         } else {
             return;
         };

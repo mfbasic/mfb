@@ -2230,6 +2230,15 @@ fn expression_type(
                 return builtins::net::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::os::is_os_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::os::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::tls::is_tls_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2443,6 +2452,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::math::expected_arguments(callee))
         .or_else(|| builtins::bits::expected_arguments(callee))
         .or_else(|| builtins::fs::expected_arguments(callee))
+        .or_else(|| builtins::os::expected_arguments(callee))
         .or_else(|| builtins::io::expected_arguments(callee))
         .or_else(|| builtins::json::expected_arguments(callee))
         .or_else(|| builtins::csv::expected_arguments(callee))

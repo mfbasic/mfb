@@ -1,0 +1,16 @@
+IMPORT os
+IMPORT io
+IMPORT collections
+
+FUNC main() AS Integer
+  os::setEnv("MFB_OS_ENVIRON", "snapshot-val")
+  ' A value containing '=' must round-trip: environ() splits only at the first
+  ' '=', so embedded separators stay part of the value.
+  os::setEnv("MFB_OS_ENVIRON_EQ", "a=b=c")
+  LET env AS Map OF String TO String = os::environ()
+  io::print(toString(collections::hasKey(env, "MFB_OS_ENVIRON")))
+  io::print(collections::getOr(env, "MFB_OS_ENVIRON", "missing"))
+  io::print(collections::getOr(env, "MFB_OS_ENVIRON_EQ", "missing"))
+  io::print(toString(collections::hasKey(env, "MFB_OS_ENVIRON_UNSET_ZZZ")))
+  RETURN 0
+END FUNC

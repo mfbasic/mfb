@@ -9,6 +9,7 @@ pub enum RuntimeHelper {
     Io,
     Math,
     Net,
+    Os,
     Strings,
     Term,
     Thread,
@@ -25,6 +26,7 @@ impl RuntimeHelper {
             RuntimeHelper::Io => "io",
             RuntimeHelper::Math => "math",
             RuntimeHelper::Net => "net",
+            RuntimeHelper::Os => "os",
             RuntimeHelper::Strings => "strings",
             RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
@@ -78,6 +80,7 @@ mod datetime_specs;
 mod fs_specs;
 mod io_specs;
 mod net_specs;
+mod os_specs;
 mod strings_specs;
 mod term_specs;
 mod thread_specs;
@@ -91,6 +94,7 @@ use datetime_specs::*;
 use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
+use os_specs::*;
 use strings_specs::*;
 use term_specs::*;
 use thread_specs::*;
@@ -119,6 +123,8 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Thread)
     } else if builtins::net::is_net_call(name) {
         Some(RuntimeHelper::Net)
+    } else if builtins::os::is_os_call(name) {
+        Some(RuntimeHelper::Os)
     } else if builtins::tls::is_tls_call(name) {
         Some(RuntimeHelper::Tls)
     } else {

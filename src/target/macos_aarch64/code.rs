@@ -374,6 +374,27 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_environ_pointer(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // `_NSGetEnviron()` returns `char***`; one deref yields the live `char**`.
+        // The C source name already starts with an underscore, so the asm symbol
+        // is `__NSGetEnviron` (the libSystem `_`-prefix over `_NSGetEnviron`).
+        self.emit_libc_call(
+            "_NSGetEnviron",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::load_u64(abi::return_register(), abi::return_register(), 0));
+        Ok(())
+    }
+
     fn emit_fs_path_operation(
         &self,
         from: &str,

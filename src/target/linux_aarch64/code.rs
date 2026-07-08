@@ -311,6 +311,23 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_environ_pointer(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // `environ` is an imported libc data global. `adrp`/`add` (external =
+        // GOT) yield the GOT slot address; one deref gives `&environ`, a second
+        // gives the live `char**`.
+        emit_linux_environ_got(from, platform_imports, instructions, relocations)?;
+        let dst = abi::return_register();
+        instructions.push(abi::load_u64(dst, dst, 0));
+        instructions.push(abi::load_u64(dst, dst, 0));
+        Ok(())
+    }
+
     fn emit_fs_path_operation(
         &self,
         from: &str,
@@ -716,5 +733,33 @@ fn emit_linux_c_call(
         binding: "external".to_string(),
         library: Some(library),
     });
+    Ok(())
+}
+
+/// Address the imported `environ` data global through its GOT slot, leaving the
+/// GOT slot address in `x0` (`adrp`/`add` external = GOT). Shared by the
+/// aarch64 backend; the caller adds the appropriate dereferences.
+fn emit_linux_environ_got(
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let library = platform_imports
+        .get("environ")
+        .ok_or_else(|| "os.environ runtime helper requires environ import".to_string())?
+        .clone();
+    let dst = abi::return_register();
+    instructions.push(abi::load_page_address(dst, "environ"));
+    instructions.push(abi::add_page_offset(dst, dst, "environ"));
+    for kind in [RelocIntent::GotLoadHi, RelocIntent::GotLoadLo] {
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: "environ".to_string(),
+            kind,
+            binding: "external".to_string(),
+            library: Some(library.clone()),
+        });
+    }
     Ok(())
 }

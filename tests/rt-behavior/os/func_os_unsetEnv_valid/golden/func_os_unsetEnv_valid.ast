@@ -1,0 +1,32 @@
+{
+  "project": "func_os_unsetEnv_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_UNSETENV" }, { "kind": "string", "value": "x" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.hasEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_UNSETENV" }] }] }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_UNSETENV" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.hasEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_UNSETENV" }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_UNSETENV_ABSENT_ZZZ" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

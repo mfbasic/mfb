@@ -192,6 +192,18 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+    /// Leave the live process `char **environ` pointer in the return register
+    /// (`os::environ`, plan-31-A). macOS reads it through the PIE-safe
+    /// `_NSGetEnviron()` accessor (`char*** → *`); the Linux backends load the
+    /// `environ` data global through its GOT slot and dereference once. Both land
+    /// the same `char**` in `x0`.
+    fn emit_environ_pointer(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
     fn emit_fs_path_operation(
         &self,
         from: &str,

@@ -1196,6 +1196,29 @@ fn lower_runtime_helper(
                 relocations,
             })
         }
+        call if builtins::os::is_os_call(call) => {
+            let (frame, instructions, relocations, stack_slots) =
+                os::lower_os_helper(spec.call, symbol, platform_imports, platform)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
         "io.print" | "io.write" | "io.printError" | "io.writeError" => {
             let stderr = matches!(spec.call, "io.printError" | "io.writeError");
             let newline = matches!(spec.call, "io.print" | "io.printError");
@@ -2771,6 +2794,7 @@ mod crypto_ec;
 mod datetime;
 mod link_thunk;
 mod net;
+mod os;
 mod private;
 mod simd_kernel_coeffs;
 mod term;

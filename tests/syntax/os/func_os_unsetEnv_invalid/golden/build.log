@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_unsetEnv_invalid
+   2 | 
+   3 | FUNC main() AS Integer
+   4 |   os::unsetEnv("A", "B")
+     | ^
+tests/syntax/os/func_os_unsetEnv_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.unsetEnv` has 2 argument(s), expected 1.
+[exit 1]

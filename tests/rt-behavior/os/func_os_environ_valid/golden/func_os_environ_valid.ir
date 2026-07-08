@@ -1,0 +1,33 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_os_environ_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_ENVIRON" }, { "kind": "const", "type": "String", "value": "snapshot-val" }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_ENVIRON_EQ" }, { "kind": "const", "type": "String", "value": "a=b=c" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "env", "type": "Map OF String TO String", "value": { "kind": "call", "type": "Map OF String TO String", "target": "os.environ", "args": [] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "env" }, { "kind": "const", "type": "String", "value": "MFB_OS_ENVIRON" }] }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "collections.getOr", "args": [{ "kind": "local", "name": "env" }, { "kind": "const", "type": "String", "value": "MFB_OS_ENVIRON" }, { "kind": "const", "type": "String", "value": "missing" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "collections.getOr", "args": [{ "kind": "local", "name": "env" }, { "kind": "const", "type": "String", "value": "MFB_OS_ENVIRON_EQ" }, { "kind": "const", "type": "String", "value": "missing" }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "env" }, { "kind": "const", "type": "String", "value": "MFB_OS_ENVIRON_UNSET_ZZZ" }] }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

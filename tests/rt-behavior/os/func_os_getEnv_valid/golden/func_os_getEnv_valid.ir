@@ -1,0 +1,44 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_os_getEnv_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV" }, { "kind": "const", "type": "String", "value": "value-123" }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV" }] }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV_UNSET_ZZZ" }] } },
+    { "op": "bind", "line": 7, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
+    {
+      "op": "if",
+      "line": 7,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 7, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 7, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 8, "name": "$trap_val1", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "notfound:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }] } } }
+      ]
+    },
+    { "op": "bind", "line": 7, "mutable": false, "name": "missing", "type": "String", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "missing" }] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

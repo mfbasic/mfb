@@ -1,0 +1,29 @@
+{
+  "project": "func_os_getEnvOr_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getEnvOr", "arguments": [{ "kind": "string", "value": "MFB_OS_GETENVOR_UNSET_ZZZ" }, { "kind": "string", "value": "fallback" }] }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB_OS_GETENVOR" }, { "kind": "string", "value": "present" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getEnvOr", "arguments": [{ "kind": "string", "value": "MFB_OS_GETENVOR" }, { "kind": "string", "value": "fallback" }] }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }
+      ]
+    }
+    ]
+  }
+  ]
+}

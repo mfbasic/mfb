@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_setEnv_invalid
+   2 | 
+   3 | FUNC main() AS Integer
+   4 |   os::setEnv("NAME")
+     | ^
+tests/syntax/os/func_os_setEnv_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.setEnv` has 1 argument(s), expected 2.
+[exit 1]

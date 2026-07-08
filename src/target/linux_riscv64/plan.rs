@@ -85,6 +85,15 @@ impl plan::NativePlanPlatform for Platform {
                 vec![self.libc_import("clock_gettime", spec.symbol)]
             }
             "datetime.localOffset" => vec![self.libc_import("localtime_r", spec.symbol)],
+            "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => {
+                vec![self.libc_import("getenv", spec.symbol)]
+            }
+            "os.setEnv" => vec![
+                self.libc_import("setenv", spec.symbol),
+                self.libc_import("__errno_location", spec.symbol),
+            ],
+            "os.unsetEnv" => vec![self.libc_import("unsetenv", spec.symbol)],
+            "os.environ" => vec![self.libc_import("environ", spec.symbol)],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
