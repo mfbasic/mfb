@@ -7,3 +7,4 @@
 - ssh -p 2226 test@127.0.0.1 # Debian 12 gtk (libc)
 - ssh -p 2227 test@127.0.0.1 # Alipine x86_64 (musl)
 - ssh -p 2228 test@127.0.0.1 # Ubuntu x86_64 gtk (libc)
+- ssh -p 2229 test@127.0.0.1 # Alipine riscv64 (musl)
