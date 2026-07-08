@@ -1,4 +1,5 @@
 pub mod abi;
+pub mod blobstore;
 pub mod client;
 pub mod crypto;
 pub mod local;

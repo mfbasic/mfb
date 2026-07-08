@@ -1,3 +1,4 @@
+use mfb_repository::blobstore::BlobBackend;
 use mfb_repository::server;
 use mfb_repository::store::Store;
 use std::env;
@@ -6,9 +7,16 @@ use std::path::PathBuf;
 use std::process;
 
 const USAGE: &str = "\
-Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>]
+Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>] [--s3-endpoint <url>]
        mfb-repo reanchor --dbpath <db_path> --datapath <data_path> --owner <owner> --ident-key <base64url>
        mfb-repo init-root --dbpath <db_path> --datapath <data_path> --registry-id <id> [--expires-days <n>]
+
+<data_path> is either a local directory or an `s3://<bucket>/<prefix>` URL for
+S3 (or S3-compatible) blob storage. In S3 mode blob downloads are served as a
+redirect to a short-lived presigned URL. `--s3-endpoint <url>` overrides the
+endpoint for S3-compatible stores (MinIO/R2/Ceph) and requires an s3:// data
+path; the package metadata database (--dbpath) always stays on local disk. S3
+support must be compiled in (`cargo build -p mfb_repository --features s3`).
 
 `reanchor` is the registry-operator ceremony for a totally lost ident
 (plan-23 §3.6): after out-of-band verification it binds <owner> to the given
@@ -129,7 +137,15 @@ async fn main() {
         }
     };
 
-    if let Err(err) = server::serve(opened.store, opened.packages_dir, options.listen).await {
+    let blob_store = match options.blob_backend.into_store().await {
+        Ok(blob_store) => blob_store,
+        Err(err) => {
+            eprintln!("error: {err}");
+            process::exit(1);
+        }
+    };
+
+    if let Err(err) = server::serve(opened.store, blob_store, options.listen).await {
         eprintln!("error: {err}");
         process::exit(1);
     }
@@ -194,12 +210,14 @@ fn parse_init_root_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, 
 struct Options {
     dbpath: PathBuf,
     datapath: PathBuf,
+    blob_backend: BlobBackend,
     listen: SocketAddr,
 }
 
 fn parse_args(args: Vec<String>) -> Result<Options, String> {
     let mut dbpath = None;
-    let mut datapath = None;
+    let mut datapath: Option<String> = None;
+    let mut s3_endpoint: Option<String> = None;
     let mut listen = "127.0.0.1:7777".parse::<SocketAddr>().unwrap();
     let mut iter = args.into_iter();
 
@@ -215,7 +233,13 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
                 let Some(value) = iter.next() else {
                     return Err("--datapath requires <data_path>".to_string());
                 };
-                datapath = Some(PathBuf::from(value));
+                datapath = Some(value);
+            }
+            "--s3-endpoint" => {
+                let Some(value) = iter.next() else {
+                    return Err("--s3-endpoint requires <url>".to_string());
+                };
+                s3_endpoint = Some(value);
             }
             "--listen" => {
                 let Some(value) = iter.next() else {
@@ -229,7 +253,10 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
                 dbpath = Some(PathBuf::from(arg.trim_start_matches("--dbpath=")));
             }
             _ if arg.starts_with("--datapath=") => {
-                datapath = Some(PathBuf::from(arg.trim_start_matches("--datapath=")));
+                datapath = Some(arg.trim_start_matches("--datapath=").to_string());
+            }
+            _ if arg.starts_with("--s3-endpoint=") => {
+                s3_endpoint = Some(arg.trim_start_matches("--s3-endpoint=").to_string());
             }
             _ if arg.starts_with("--listen=") => {
                 let value = arg.trim_start_matches("--listen=");
@@ -247,7 +274,13 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
     let Some(datapath) = datapath else {
         return Err("--datapath is required".to_string());
     };
-    Ok(Options { dbpath, datapath, listen })
+    let blob_backend = BlobBackend::parse(&datapath, s3_endpoint)?;
+    Ok(Options {
+        dbpath,
+        datapath: PathBuf::from(datapath),
+        blob_backend,
+        listen,
+    })
 }
 
 #[cfg(test)]
@@ -312,6 +345,51 @@ mod tests {
             .unwrap_err()
             .contains("--datapath is required"));
         assert!(parse_args(args(&["--bogus"])).unwrap_err().contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_args_reads_s3_datapath_and_endpoint() {
+        let options = parse_args(args(&[
+            "--dbpath", "/db", "--datapath", "s3://my-bucket/packages",
+            "--s3-endpoint", "https://minio.example:9000",
+        ]))
+        .unwrap();
+        assert_eq!(
+            options.blob_backend,
+            BlobBackend::S3 {
+                bucket: "my-bucket".to_string(),
+                prefix: "packages/".to_string(),
+                endpoint: Some("https://minio.example:9000".to_string()),
+            }
+        );
+
+        // Real-AWS form: s3:// with no endpoint is valid.
+        let options = parse_args(args(&[
+            "--dbpath=/db", "--datapath=s3://my-bucket",
+        ]))
+        .unwrap();
+        assert_eq!(
+            options.blob_backend,
+            BlobBackend::S3 {
+                bucket: "my-bucket".to_string(),
+                prefix: String::new(),
+                endpoint: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_s3_endpoint_without_s3_datapath() {
+        let err = parse_args(args(&[
+            "--dbpath", "/db", "--datapath", "/local/data",
+            "--s3-endpoint", "https://minio.example",
+        ]))
+        .unwrap_err();
+        assert!(err.contains("--s3-endpoint requires an s3://"));
+
+        assert!(parse_args(args(&["--dbpath", "/db", "--datapath", "/d", "--s3-endpoint"]))
+            .unwrap_err()
+            .contains("--s3-endpoint requires <url>"));
     }
 
     #[test]

@@ -8,8 +8,18 @@ license = "MIT"
 name = "mfb-repo"
 path = "src/main.rs"
 
+[features]
+default = []
+# Optional S3 (and S3-compatible) blob backend. Off by default so the AWS SDK
+# is not compiled into the core `mfb` build, which depends on this crate; enable
+# it when building the `mfb-repo` server (`cargo build -p mfb_repository
+# --features s3`) to allow an `s3://` --datapath.
+s3 = ["dep:aws-config", "dep:aws-sdk-s3"]
+
 [dependencies]
 argon2 = "0.5"
+aws-config = { version = "1", optional = true, features = ["behavior-version-latest"] }
+aws-sdk-s3 = { version = "1", optional = true, features = ["behavior-version-latest"] }
 axum = "0.7"
 base64 = "0.22"
 chacha20poly1305 = "0.10"
@@ -18,7 +28,10 @@ hex = "0.4"
 jsonwebtoken = "9.3"
 rand = "0.8"
 rand_core = "0.6"
-reqwest = { version = "0.12", features = ["blocking", "json"], default-features = false }
+# `rustls-tls` lets the package client reach https registries and, in S3 mode,
+# follow the `GET /blob` redirect to the https presigned URL (rustls avoids a
+# system-OpenSSL build dependency).
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

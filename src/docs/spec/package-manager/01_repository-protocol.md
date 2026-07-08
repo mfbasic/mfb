@@ -34,12 +34,17 @@ response. On a non-success status it reads the body, and if the body parses as
 returns `failed to connect to repository service: <err>`.[[repository/src/client.rs:post_json]][[repository/src/server.rs:ErrorResponse]]
 
 The reference server ships as the `mfb-repo` binary: `mfb-repo --dbpath
-<db_path> --datapath <data_path> [--listen <addr:port>]`. It listens on
-`127.0.0.1:7777` by default, prints `MFB_REPO_LISTEN=<actual addr>` once bound,
-and keeps its state as a SQLite database at `<db_path>` plus a blob directory
-at `<data_path>`. On first run it generates its own Ed25519 **server keypair**
-— the only private key the server ever holds; the private half never appears
-in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]][[repository/src/store.rs:open_repository]]
+<db_path> --datapath <data_path> [--listen <addr:port>] [--s3-endpoint <url>]`.
+It listens on `127.0.0.1:7777` by default, prints `MFB_REPO_LISTEN=<actual
+addr>` once bound, and keeps its state as a SQLite database at `<db_path>` plus
+package blobs at `<data_path>`. `<data_path>` is either a local directory or an
+`s3://<bucket>/<prefix>` URL selecting the S3 blob backend (built with `cargo
+build -p mfb_repository --features s3`); `--s3-endpoint` overrides the endpoint
+for S3-compatible stores (MinIO/R2/Ceph) and is only valid with an `s3://` data
+path. The metadata database always stays on local disk. On first run it
+generates its own Ed25519 **server keypair** — the only private key the server
+ever holds; the private half never appears in any
+response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]][[repository/src/store.rs:open_repository]][[repository/src/blobstore.rs:BlobBackend]]
 
 ### Encoding
 
@@ -67,7 +72,7 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/log/consistency` | GET | none | `?from=M&to=N` | `ConsistencyProofResponse` | append-only audit |
 | `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
 | `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
-| `/blob/<hash>` | GET | none | — | raw `.mfp` bytes | `pkg add` (registry) |
+| `/blob/<hash>` | GET | none | — | raw `.mfp` bytes (or `302` to a presigned URL in S3 mode) | `pkg add` (registry) |
 | `/release-state` | POST | session + ident signature | `ReleaseStateRequest` | `ReleaseStateResponse` | `pkg release-state` |
 | `/orgs/members` | POST | session + ident signature | `OrgMemberRequest` | `OrgMemberResponse` | `org grant`/`org remove` |
 | `/tokens` | POST | session + ident signature | `TokenIssueRequest` | `TokenIssueResponse` | `token issue` |
@@ -581,18 +586,25 @@ or `deprecated`.[[src/cli/pkg.rs:select_index_version]]
 
 ### Blob — `GET /blob/<hash>`
 
-Streams `packages/<hash>.mfp` with immutable, long-cache headers
-(`Cache-Control: public, max-age=31536000, immutable`). The hash must be 64
-lowercase hex characters (else `400`); an absent blob is `404`. The server
-recomputes the SHA-256 of the file and refuses to serve it if it does not match
-the path (`500`, blob-store corruption defense); the client independently
-re-checks the downloaded bytes against the requested
-hash.[[repository/src/server.rs:package_blob]][[repository/src/client.rs:fetch_blob]]
+Serves the content-addressed `<hash>.mfp` blob with immutable, long-cache
+headers (`Cache-Control: public, max-age=31536000, immutable`). The hash must be
+64 lowercase hex characters (else `400`); an absent blob is `404`. With the
+local backend the server streams the bytes, recomputing the SHA-256 and refusing
+to serve it if it does not match the hash (`500`, blob-store corruption
+defense). With the S3 backend the server instead answers `302` with a `Location`
+of a short-lived presigned URL (`Cache-Control: no-store`), so the bytes never
+transit the app server and the bucket can stay private; the corruption re-check
+moves to the client. Either way the client independently re-checks the
+downloaded bytes against the requested
+hash.[[repository/src/server.rs:package_blob]][[repository/src/client.rs:fetch_blob]][[repository/src/blobstore.rs:BlobStore]]
 
-The publish path stages the blob to a temp file, commits the `package_versions`
-row, and only then renames it into place, so a failed transaction leaves no
-orphan blob and a served blob always has a committed version
-row.[[repository/src/server.rs:publish_package]]
+The publish path stages the blob, commits the `package_versions` row, and only
+then promotes it to servable, so a failed transaction leaves no orphan blob and
+a served blob always has a committed version row. The local backend stages to a
+temp file and promotes with an atomic rename; the S3 backend PUTs the immutable
+content-addressed object (unreachable until the committed index row exposes its
+hash) and deletes it on
+failure.[[repository/src/server.rs:publish_package]][[repository/src/blobstore.rs:BlobStore]]
 
 ## Release States — `POST /release-state`
 

@@ -77,18 +77,26 @@ impl Store {
                 )
             })?;
         }
-        if datapath.exists() && !datapath.is_dir() {
-            return Err(format!(
-                "data path '{}' exists but is not a directory",
-                datapath.display()
-            ));
+        // A remote (`s3://…`) data path has no local directory to create; the
+        // blob backend is constructed separately (see `blobstore`). Operator
+        // subcommands that only touch the metadata DB still work in S3 mode.
+        let is_remote = datapath
+            .to_str()
+            .is_some_and(|path| path.starts_with("s3://"));
+        if !is_remote {
+            if datapath.exists() && !datapath.is_dir() {
+                return Err(format!(
+                    "data path '{}' exists but is not a directory",
+                    datapath.display()
+                ));
+            }
+            fs::create_dir_all(datapath).map_err(|err| {
+                format!(
+                    "failed to create data directory '{}': {err}",
+                    datapath.display()
+                )
+            })?;
         }
-        fs::create_dir_all(datapath).map_err(|err| {
-            format!(
-                "failed to create data directory '{}': {err}",
-                datapath.display()
-            )
-        })?;
         let conn = Connection::open(dbpath)
             .map_err(|err| format!("failed to open '{}': {err}", dbpath.display()))?;
         conn.pragma_update(None, "foreign_keys", "ON")

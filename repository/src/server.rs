@@ -1,5 +1,6 @@
-use crate::{crypto, package};
+use crate::blobstore::{BlobFetch, BlobStore};
 use crate::store::{now_unix, NewSession, Store};
+use crate::{crypto, package};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -7,14 +8,13 @@ use axum::{Json, Router};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct AppState {
     store: Store,
-    packages_dir: PathBuf,
+    blob_store: BlobStore,
     rate_limiter: RateLimiter,
 }
 
@@ -596,10 +596,10 @@ const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 // unit test. The individual route handlers it wires up are tested directly by
 // constructing AppState and calling them, which is where the request/response
 // logic lives.
-pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> Result<SocketAddr, String> {
+pub async fn serve(store: Store, blob_store: BlobStore, listen: SocketAddr) -> Result<SocketAddr, String> {
     let state = AppState {
         store,
-        packages_dir,
+        blob_store,
         rate_limiter: RateLimiter::new(),
     };
     // Background reaper (plan-10-D2): sweep expired challenges/sessions/pairing
@@ -1270,9 +1270,12 @@ async fn release_state(
     }))
 }
 
-/// `GET /blob/<hash>` (plan-10-A): stream `packages/<hash>.mfp`. The blob is
-/// content-addressed and immutable; the recomputed hash is checked against the
-/// path on read as a blob-store corruption defense.
+/// `GET /blob/<hash>` (plan-10-A): serve the content-addressed `<hash>.mfp`
+/// blob. The local backend streams the bytes inline, re-checking the recomputed
+/// hash as a blob-store corruption defense. The S3 backend answers with a `302`
+/// redirect to a short-lived presigned URL, so the bytes never transit the app
+/// server; the client re-hashes what it downloads, so the integrity check moves
+/// to the client on that path.
 async fn package_blob(
     State(state): State<AppState>,
     axum::extract::Path(hash): axum::extract::Path<String>,
@@ -1284,10 +1287,9 @@ async fn package_blob(
     {
         return Err(bad_request("blob hash must be 64 lowercase hex characters".to_string()));
     }
-    let path = state.packages_dir.join(format!("{hash}.mfp"));
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(_) => {
+    let fetch = match state.blob_store.get(&hash).await.map_err(internal)? {
+        Some(fetch) => fetch,
+        None => {
             return Err((
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -1296,17 +1298,27 @@ async fn package_blob(
             ));
         }
     };
-    if hex::encode(crypto::sha256(&bytes)) != hash {
-        return Err(internal(
-            "stored blob hash does not match its path (blob-store corruption)".to_string(),
-        ));
+    match fetch {
+        BlobFetch::Bytes(bytes) => {
+            if hex::encode(crypto::sha256(&bytes)) != hash {
+                return Err(internal(
+                    "stored blob hash does not match its path (blob-store corruption)".to_string(),
+                ));
+            }
+            axum::response::Response::builder()
+                .status(StatusCode::OK)
+                .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+                .header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+                .body(axum::body::Body::from(bytes))
+                .map_err(|err| internal(format!("failed to build blob response: {err}")))
+        }
+        BlobFetch::Redirect(url) => axum::response::Response::builder()
+            .status(StatusCode::FOUND)
+            .header(axum::http::header::LOCATION, url)
+            .header(axum::http::header::CACHE_CONTROL, "no-store")
+            .body(axum::body::Body::empty())
+            .map_err(|err| internal(format!("failed to build blob redirect: {err}"))),
     }
-    axum::response::Response::builder()
-        .status(StatusCode::OK)
-        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
-        .header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
-        .body(axum::body::Body::from(bytes))
-        .map_err(|err| internal(format!("failed to build blob response: {err}")))
 }
 
 async fn rotate_ident(
@@ -1718,18 +1730,23 @@ async fn publish_package(
     }
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let hash = report.content_hash;
-    let path = state.packages_dir.join(format!("{hash}.mfp"));
-    let already_present = path.exists();
-    // Blob-ordering fix (plan-10-A §2.6): stage the blob to a temp file, commit
-    // the DB row, and only then rename into place — a failed transaction leaves
-    // no orphan blob, and a served blob always has a committed version row.
-    let temp_path = state
-        .packages_dir
-        .join(format!("{hash}.mfp.tmp-{}", Uuid::new_v4()));
-    if !already_present {
-        std::fs::write(&temp_path, &artifact)
-            .map_err(|err| internal(format!("failed to stage package blob: {err}")))?;
-    }
+    let already_present = state.blob_store.exists(&hash).await.map_err(internal)?;
+    // Blob-ordering fix (plan-10-A §2.6): stage the blob, commit the DB row, and
+    // only then promote it to servable — a failed transaction leaves no orphan
+    // blob, and a served blob always has a committed version row. The blob
+    // backend (local file or S3 object) implements the stage/promote/abort
+    // protocol.
+    let staged = if already_present {
+        None
+    } else {
+        Some(
+            state
+                .blob_store
+                .stage(&hash, artifact)
+                .await
+                .map_err(internal)?,
+        )
+    };
     let owner_id = verify_session_token(&state.store, &request.session_token)
         .map_err(bad_request)?
         .owner_id;
@@ -1741,25 +1758,22 @@ async fn publish_package(
         &request.ident,
         &request.version,
         &hash,
-        &path.to_string_lossy(),
+        &state.blob_store.blob_ref(&hash),
         &abi_index,
     ) {
         Ok(published) => published,
         Err(err) => {
-            if !already_present {
-                let _ = std::fs::remove_file(&temp_path);
+            if let Some(staged) = staged {
+                state.blob_store.abort(staged).await;
             }
             return Err(conflict_or_bad_request(err));
         }
     };
-    let blob_stored = if already_present {
-        false
-    } else {
-        std::fs::rename(&temp_path, &path).map_err(|err| {
-            let _ = std::fs::remove_file(&temp_path);
-            internal(format!("failed to persist package blob: {err}"))
-        })?;
+    let blob_stored = if let Some(staged) = staged {
+        state.blob_store.promote(staged).await.map_err(internal)?;
         true
+    } else {
+        false
     };
     // Warn-only typosquat check (plan-10-D2): surface near-duplicate idents so
     // the publisher can notice an impersonation attempt; never blocks.
@@ -2103,7 +2117,7 @@ mod tests {
         let token = open_session(&store, "alice", &private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: temp.path().join("data"),
+            blob_store: BlobStore::local(temp.path().join("data")),
             rate_limiter: RateLimiter::new(),
         };
         let (signing_public, _signing_private) = crypto::generate_keypair();
@@ -2281,7 +2295,7 @@ mod tests {
         let token = open_session(&store, "alice", &keys.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: temp.path().join("data"),
+            blob_store: BlobStore::local(temp.path().join("data")),
             rate_limiter: RateLimiter::new(),
         };
 
@@ -2525,7 +2539,7 @@ mod tests {
         let token = open_session(&store, "alice", &keys.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: opened.packages_dir.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
 
@@ -2643,7 +2657,7 @@ mod tests {
         register_owner_with_all_keys(&store, "alice");
         let state = AppState {
             store: store.clone(),
-            packages_dir: opened.packages_dir.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
         // The challenge cap is 20 per window; the 21st is refused with 429.
@@ -2681,7 +2695,7 @@ mod tests {
         let mallory_token = open_session(&store, "mallory", &mallory.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: opened.packages_dir.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
 
@@ -2748,7 +2762,7 @@ mod tests {
         let owner_token = open_session(&store, "alice", &alice.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: opened.packages_dir.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
 
@@ -2853,7 +2867,7 @@ mod tests {
         let bob_token = open_session(&store, "bob", &bob.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: opened.packages_dir.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
         publish_valid_package(&state, &alice, &alice_token, "1.0.0").await;
@@ -2910,7 +2924,7 @@ mod tests {
         let token = open_session(&store, "alice", &keys.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: opened.packages_dir.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
         publish_valid_package(&state, &keys, &token, "1.0.0").await;
@@ -3005,7 +3019,7 @@ mod tests {
         let token = open_session(&store, "alice", &keys.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: temp.path().join("data"),
+            blob_store: BlobStore::local(temp.path().join("data")),
             rate_limiter: RateLimiter::new(),
         };
 
@@ -3177,7 +3191,7 @@ mod tests {
         let token = open_session(&store, "alice", &keys.auth_private);
         let state = AppState {
             store: store.clone(),
-            packages_dir: temp.path().join("data"),
+            blob_store: BlobStore::local(temp.path().join("data")),
             rate_limiter: RateLimiter::new(),
         };
         // Grow the log: register (1) + three attestations (4 total).
