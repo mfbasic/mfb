@@ -44,6 +44,22 @@ const T2: &str = "t2";
 const FT1: &str = "ft1";
 /// The hardware zero register.
 const ZERO: &str = "zero";
+/// The flag register (plan-99): a bare `cmp`/`cmp_imm` whose flag-reading branch
+/// is NOT adjacent (fusion missed it — the flags outlive intervening loads in a
+/// few hand-written net/link helpers) saves its left operand here at the compare
+/// and the standalone branch re-derives the condition from it. `gp` (x3) is never
+/// used by the codegen (no gp-relative addressing) and is preserved across calls,
+/// so it survives the whole compare→branch span.
+const GP: &str = "gp";
+
+/// The value of a named field (empty string if absent).
+fn field_value(fields: &[(&'static str, String)], name: &str) -> String {
+    fields
+        .iter()
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default()
+}
 
 /// Build a `CodeInstruction` from a mnemonic and `(field, value)` pairs.
 fn ci(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
@@ -279,10 +295,90 @@ fn overflow_branch_cond(cond: &str) -> &'static str {
     }
 }
 
+/// The right-hand side of a pending (non-fused) integer compare, saved so a
+/// later standalone flag-reading branch can re-derive its condition (plan-99).
+enum FlagRhs {
+    /// Compare against the hardware zero register.
+    Zero,
+    /// Compare against an immediate, re-materialized at the branch.
+    Imm(String),
+    /// Compare against a register whose value survives to the branch.
+    Reg(String),
+}
+
 /// Select neutral MIR into RV64GC machine ops (plan-99).
 pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
+    // A bare `cmp`/`cmp_imm` whose flag-reading branch is not adjacent (fusion
+    // missed it) saves its left operand into `gp` here; the standalone branch
+    // that follows consumes `pending` to build a native `rv.br`. Multiple
+    // branches may read one compare (`gp`/rhs persist until the next compare).
+    let mut pending: Option<FlagRhs> = None; // the compare's rhs; lhs is always GP
     for instruction in instructions {
+        // Bare (non-fused) integer compare: save the left operand into the flag
+        // register `gp`. RISC-V has no flags, so the comparison itself emits
+        // nothing yet — the following standalone branch reconstructs it.
+        match instruction.op.to_code() {
+            Some(CodeOp::Cmp) => {
+                let lhs = field_value(&instruction.fields, "lhs");
+                let rhs = field_value(&instruction.fields, "rhs");
+                out.push(ci("mov", &[("dst", GP), ("src", &lhs)]));
+                pending = Some(FlagRhs::Reg(rhs));
+                continue;
+            }
+            Some(CodeOp::CmpImm) => {
+                let lhs = field_value(&instruction.fields, "lhs");
+                let rhs = field_value(&instruction.fields, "rhs");
+                out.push(ci("mov", &[("dst", GP), ("src", &lhs)]));
+                pending = Some(if rhs == "0" { FlagRhs::Zero } else { FlagRhs::Imm(rhs) });
+                continue;
+            }
+            Some(
+                op @ (CodeOp::BranchEq
+                | CodeOp::BranchNe
+                | CodeOp::BranchGe
+                | CodeOp::BranchLt
+                | CodeOp::BranchGt
+                | CodeOp::BranchLe
+                | CodeOp::BranchHi
+                | CodeOp::BranchLo
+                | CodeOp::BranchLs),
+            ) => {
+                // A standalone integer flag-reading branch consuming a bare
+                // compare. Re-derive the native compare-and-branch from `pending`.
+                let rhs = pending
+                    .as_ref()
+                    .expect("rv64: standalone flag branch without a preceding compare");
+                let target = field_value(&instruction.fields, "target");
+                let cond = op.mnemonic();
+                match rhs {
+                    FlagRhs::Zero => {
+                        let (a, b, rvcond) = int_branch(cond, GP, ZERO);
+                        out.push(ci(
+                            "rv.br",
+                            &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                        ));
+                    }
+                    FlagRhs::Imm(v) => {
+                        out.push(ci("mov_imm", &[("dst", T0), ("value", v)]));
+                        let (a, b, rvcond) = int_branch(cond, GP, T0);
+                        out.push(ci(
+                            "rv.br",
+                            &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                        ));
+                    }
+                    FlagRhs::Reg(r) => {
+                        let (a, b, rvcond) = int_branch(cond, GP, r);
+                        out.push(ci(
+                            "rv.br",
+                            &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                        ));
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
         if instruction.op == MirOp::AddrOf {
             // PC-relative symbol address as the `auipc; addi` pair (the encoder
             // realizes `adrp` as `auipc rd, %pcrel_hi` and `add_pageoff` as
