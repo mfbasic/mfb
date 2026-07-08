@@ -25,6 +25,73 @@ pub(super) fn li_step_count(value: i64) -> usize {
     li_steps(value).len()
 }
 
+// --- Base-ISA bit-manipulation expansions (no Zbb) ---------------------------
+//
+// RV64GC (RVA20) has no `clz`/`ctz`/`rev8`/`brev8`, so `Clz`/`Rbit`/`RevX`/`RevW`
+// lower to base-ISA sequences of parallel masked swaps (and, for `clz`, a SWAR
+// popcount of the down-smeared value). The `(shift, mask)` levels below are the
+// single source of truth: the emitter iterates them to produce the words, and
+// the sizer sums `li_step_count(mask) + 5` per level, so the two passes agree.
+
+/// One masked swap level emits `li t2,mask` (variable) plus a fixed 5 words
+/// (`srli t1; and t1; and run; slli run; or run`).
+fn swap_level_words(mask: u64) -> usize {
+    li_step_count(mask as i64) + 5
+}
+
+/// `rev_x` (64-bit byte reverse): swap adjacent bytes, then adjacent 16-bit
+/// halves, then the two 32-bit halves.
+pub(super) const REV_X_LEVELS: &[(u32, u64)] = &[
+    (8, 0x00FF_00FF_00FF_00FF),
+    (16, 0x0000_FFFF_0000_FFFF),
+];
+
+/// `rbit` (64-bit bit reverse): the six granularity levels (1,2,4,8,16 masked,
+/// then the 32-bit half swap).
+pub(super) const RBIT_LEVELS: &[(u32, u64)] = &[
+    (1, 0x5555_5555_5555_5555),
+    (2, 0x3333_3333_3333_3333),
+    (4, 0x0F0F_0F0F_0F0F_0F0F),
+    (8, 0x00FF_00FF_00FF_00FF),
+    (16, 0x0000_FFFF_0000_FFFF),
+];
+
+/// `rev_w` (32-bit byte reverse, zero-extended) swaps adjacent bytes with this
+/// mask, then swaps the two 16-bit halves.
+pub(super) const REV_W_MASK: u64 = 0x00FF_00FF;
+
+/// The four SWAR popcount masks `clz` uses on the down-smeared value.
+pub(super) const CLZ_POPCOUNT_MASKS: [u64; 4] = [
+    0x5555_5555_5555_5555,
+    0x3333_3333_3333_3333,
+    0x0F0F_0F0F_0F0F_0F0F,
+    0x0101_0101_0101_0101,
+];
+
+pub(super) fn rev_x_words() -> usize {
+    // mv + levels + (srli; slli; or) for the 32-bit half swap.
+    1 + REV_X_LEVELS.iter().map(|&(_, m)| swap_level_words(m)).sum::<usize>() + 3
+}
+
+pub(super) fn rbit_words() -> usize {
+    1 + RBIT_LEVELS.iter().map(|&(_, m)| swap_level_words(m)).sum::<usize>() + 3
+}
+
+pub(super) fn rev_w_words() -> usize {
+    // (slli; srli) zero-extend + one swap level + (slli; srli; or) 16-swap +
+    // (slli; srli) final zero-extend.
+    2 + swap_level_words(REV_W_MASK) + 3 + 2
+}
+
+pub(super) fn clz_words() -> usize {
+    // mv + 6×(srli; or) smear + popcount + (li 64; sub).
+    let popcount = (li_step_count(CLZ_POPCOUNT_MASKS[0] as i64) + 3)
+        + (li_step_count(CLZ_POPCOUNT_MASKS[1] as i64) + 4)
+        + (li_step_count(CLZ_POPCOUNT_MASKS[2] as i64) + 3)
+        + (li_step_count(CLZ_POPCOUNT_MASKS[3] as i64) + 2);
+    1 + 12 + popcount + (li_step_count(64) + 1)
+}
+
 fn build_li(value: i64, steps: &mut Vec<LiStep>) {
     if (-2048..=2047).contains(&value) {
         steps.push(LiStep::Addi(value as i32));
@@ -81,6 +148,13 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
         // 2-word zero-extension.
         CodeOp::Rorv => 16,
         CodeOp::RorvW => 24,
+        // Base-ISA bit-manipulation expansions (no Zbb): masked parallel swaps
+        // (plus a SWAR popcount for `clz`). Sizes computed from the shared level
+        // tables so they match the emitter's `li` sequences exactly.
+        CodeOp::Clz => clz_words() * 4,
+        CodeOp::Rbit => rbit_words() * 4,
+        CodeOp::RevX => rev_x_words() * 4,
+        CodeOp::RevW => rev_w_words() * 4,
         _ => 4,
     };
     Ok(bytes)

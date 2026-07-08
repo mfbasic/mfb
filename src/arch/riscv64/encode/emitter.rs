@@ -204,6 +204,12 @@ impl Encoder {
                 // srai: funct6 = 010000 in the top of the shamt field.
                 self.emit_word(i_type((0b0100000 << 5) | sh as i32, rs as u32, 0b101, rd as u32, OP_IMM))
             }
+            // Base-ISA bit manipulation (no Zbb): parallel masked swaps, and a
+            // SWAR popcount of the down-smeared value for `clz` (plan-99).
+            "clz" => self.emit_clz(r("dst")?, r("src")?),
+            "rbit" => self.emit_reversal(r("dst")?, r("src")?, super::sizing::RBIT_LEVELS),
+            "rev_x" => self.emit_reversal(r("dst")?, r("src")?, super::sizing::REV_X_LEVELS),
+            "rev_w" => self.emit_rev_w(r("dst")?, r("src")?),
             "add_imm" => self.emit_add_imm(r("dst")?, r("src")?, imm("imm")?),
             "sub_imm" => self.emit_sub_imm(r("dst")?, r("src")?, imm("imm")?),
             "sub_sp" => self.emit_sub_imm(2, 2, imm("imm")?),
@@ -308,6 +314,86 @@ impl Encoder {
 
     fn emit_r(&mut self, opcode: u32, funct3: u32, funct7: u32, rd: u8, rs1: u8, rs2: u8) -> Result<(), String> {
         self.emit_word(r_type(funct7, rs2 as u32, rs1 as u32, funct3, rd as u32, opcode))
+    }
+
+    /// `slli`/`srli rd, rs, shift` (logical shift by a constant).
+    fn emit_shift_imm(&mut self, rd: u8, rs: u8, shift: u32, left: bool) -> Result<(), String> {
+        let funct3 = if left { 0b001 } else { 0b101 };
+        self.emit_word(i_type(shift as i32, rs as u32, funct3, rd as u32, OP_IMM))
+    }
+
+    /// One parallel-swap level in `T0`, with `T1`/`T2` as scratch:
+    /// `T0 = ((T0 & mask) << shift) | ((T0 >> shift) & mask)`.
+    fn emit_swap_level(&mut self, shift: u32, mask: u64) -> Result<(), String> {
+        self.emit_li(T2, mask)?; // li   t2, mask
+        self.emit_shift_imm(T1, T0, shift, false)?; // srli t1, t0, shift
+        self.emit_r(OP, 0b111, 0, T1, T1, T2)?; // and  t1, t1, t2
+        self.emit_r(OP, 0b111, 0, T0, T0, T2)?; // and  t0, t0, t2
+        self.emit_shift_imm(T0, T0, shift, true)?; // slli t0, t0, shift
+        self.emit_r(OP, 0b110, 0, T0, T0, T1) // or   t0, t0, t1
+    }
+
+    /// Swap the two 32-bit halves of `T0` in place (`T0 = (T0 << 32) | (T0 >> 32)`),
+    /// the final level shared by `rev_x`/`rbit` (no mask needed).
+    fn emit_swap_halves(&mut self, rd: u8) -> Result<(), String> {
+        self.emit_shift_imm(T1, T0, 32, false)?; // srli t1, t0, 32
+        self.emit_shift_imm(T0, T0, 32, true)?; // slli t0, t0, 32
+        self.emit_r(OP, 0b110, 0, rd, T0, T1) // or   rd, t0, t1
+    }
+
+    /// `rev_x`/`rbit`: reverse bytes / bits of a 64-bit value via parallel masked
+    /// swaps at each granularity, finishing with the 32-bit half swap. `src` is
+    /// copied to `T0` first so `rd == src` is safe.
+    fn emit_reversal(&mut self, rd: u8, src: u8, levels: &[(u32, u64)]) -> Result<(), String> {
+        self.emit_word(i_type(0, src as u32, 0, T0 as u32, OP_IMM))?; // mv t0, src
+        for &(shift, mask) in levels {
+            self.emit_swap_level(shift, mask)?;
+        }
+        self.emit_swap_halves(rd)
+    }
+
+    /// `rev_w`: reverse the bytes of the low 32 bits, zero-extending the result.
+    fn emit_rev_w(&mut self, rd: u8, src: u8) -> Result<(), String> {
+        self.emit_shift_imm(T0, src, 32, true)?; // slli t0, src, 32  \ zero-extend
+        self.emit_shift_imm(T0, T0, 32, false)?; // srli t0, t0, 32   / low 32 bits
+        self.emit_swap_level(8, super::sizing::REV_W_MASK)?; // swap adjacent bytes
+        self.emit_shift_imm(T1, T0, 16, true)?; // slli t1, t0, 16    \ swap the two
+        self.emit_shift_imm(T0, T0, 16, false)?; // srli t0, t0, 16   / 16-bit halves
+        self.emit_r(OP, 0b110, 0, T0, T0, T1)?; // or   t0, t0, t1
+        self.emit_shift_imm(T0, T0, 32, true)?; // slli t0, t0, 32    \ zero-extend
+        self.emit_shift_imm(rd, T0, 32, false) // srli rd, t0, 32     / to 32 bits
+    }
+
+    /// `clz`: count leading zeros of a 64-bit value. Smear the highest set bit
+    /// down to bit 0, then `64 - popcount` counts the leading zeros (`64` when the
+    /// input is zero). Runs entirely in `T0`/`T1`/`T2`, writing `rd` only at the
+    /// end so `rd == src` is safe.
+    fn emit_clz(&mut self, rd: u8, src: u8) -> Result<(), String> {
+        use super::sizing::CLZ_POPCOUNT_MASKS as M;
+        self.emit_word(i_type(0, src as u32, 0, T0 as u32, OP_IMM))?; // mv t0, src
+        for sh in [1u32, 2, 4, 8, 16, 32] {
+            self.emit_shift_imm(T1, T0, sh, false)?; // srli t1, t0, sh
+            self.emit_r(OP, 0b110, 0, T0, T0, T1)?; // or   t0, t0, t1
+        }
+        // popcount(T0) — SWAR, result in T0.
+        self.emit_li(T2, M[0])?; // t0 = t0 - ((t0>>1) & 0x5555…)
+        self.emit_shift_imm(T1, T0, 1, false)?;
+        self.emit_r(OP, 0b111, 0, T1, T1, T2)?;
+        self.emit_r(OP, 0b000, 0b0100000, T0, T0, T1)?;
+        self.emit_li(T2, M[1])?; // t0 = (t0 & 0x3333…) + ((t0>>2) & 0x3333…)
+        self.emit_r(OP, 0b111, 0, T1, T0, T2)?;
+        self.emit_shift_imm(T0, T0, 2, false)?;
+        self.emit_r(OP, 0b111, 0, T0, T0, T2)?;
+        self.emit_r(OP, 0b000, 0, T0, T0, T1)?;
+        self.emit_shift_imm(T1, T0, 4, false)?; // t0 = (t0 + (t0>>4)) & 0x0F0F…
+        self.emit_r(OP, 0b000, 0, T0, T0, T1)?;
+        self.emit_li(T2, M[2])?;
+        self.emit_r(OP, 0b111, 0, T0, T0, T2)?;
+        self.emit_li(T2, M[3])?; // t0 = (t0 * 0x0101…) >> 56
+        self.emit_r(OP, 0b000, 0b0000001, T0, T0, T2)?;
+        self.emit_shift_imm(T0, T0, 56, false)?;
+        self.emit_li(T1, 64)?; // clz = 64 - popcount
+        self.emit_r(OP, 0b000, 0b0100000, rd, T1, T0)
     }
 
     /// FP three-register op (double): `funct7` selects the operation, `rm` the

@@ -123,6 +123,25 @@ fn conditional_branch_is_long_form() {
     assert_eq!((w[1] >> 7) & 0x1f, 0); // rd = zero
 }
 
+/// The base-ISA bit-manipulation expansions (`clz`/`rbit`/`rev_x`/`rev_w`, no
+/// Zbb) emit multi-word sequences whose length varies with the `li` mask
+/// materializations. The two-pass encoder relies on `instruction_size` predicting
+/// that length exactly — a mismatch silently misplaces every later label — so
+/// assert the prediction equals the bytes actually emitted for each.
+#[test]
+fn bitmanip_expansions_size_matches_emitted_bytes() {
+    for op in ["clz", "rbit", "rev_x", "rev_w"] {
+        let inst = ci(op, &[("dst", "a0"), ("src", "a1")]);
+        let predicted = sizing::instruction_size(&inst).expect("size");
+        let emitted = encode_text(vec![inst]).len();
+        assert_eq!(
+            predicted, emitted,
+            "{op}: sizing predicted {predicted} bytes but emitted {emitted}"
+        );
+        assert_eq!(emitted % 4, 0, "{op}: emitted a non-word-aligned length");
+    }
+}
+
 /// Simulate a `li` sequence and check it reconstructs the exact 64-bit value —
 /// for small values, powers of ten (the float formatter's divisors), negatives,
 /// and float bit patterns near the extremes.
