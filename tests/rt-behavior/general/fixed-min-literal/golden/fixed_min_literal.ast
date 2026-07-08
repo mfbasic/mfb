@@ -1,0 +1,39 @@
+{
+  "project": "fixed_min_literal",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "viaLiteral", "type": "Fixed", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648.0F" } }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "viaString", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "-2147483648.0" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "viaLiteral" }] }] }, "line": 10 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "viaLiteral" }, "right": { "kind": "identifier", "value": "viaString" } },
+        "line": 11,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "equal" }] }, "line": 12 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "MISMATCH" }] }, "line": 14 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,17 @@
+IMPORT io
+
+' bug-07: the minimum Fixed (-2147483648.0) must be writable as an `F` literal.
+' `-2147483648.0F` parses as -(2147483648.0F); the positive magnitude overflows
+' the i64 raw (2^63), so the negation has to be folded into the constant. This
+' proves the literal compiles and equals the string-built minimum.
+FUNC main AS Integer
+  LET viaLiteral AS Fixed = -2147483648.0F
+  LET viaString AS Fixed = toFixed("-2147483648.0")
+  io::print(toString(viaLiteral))
+  IF viaLiteral = viaString THEN
+    io::print("equal")
+  ELSE
+    io::print("MISMATCH")
+  END IF
+  RETURN 0
+END FUNC

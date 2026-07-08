@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fixed_min_literal",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "viaLiteral", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "-2147483648.0" } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "viaString", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "-2147483648.0" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "viaLiteral" }] }] } },
+    {
+      "op": "if",
+      "line": 11,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "viaLiteral" }, "right": { "kind": "local", "name": "viaString" } },
+      "then": [
+      { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "equal" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "MISMATCH" }] } }
+      ]
+    },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

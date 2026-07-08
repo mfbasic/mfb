@@ -3257,9 +3257,32 @@ fn lower_expression_with_expected(
         } => {
             let result_type = expression_type(expression, locals, context)
                 .unwrap_or_else(|| "Unknown".to_string());
+            let lowered_operand = lower_expression(operand, locals, context);
+            // bug-07: the minimum `Fixed` (`-2147483648.0`) parses as
+            // `-(2147483648.0F)`, but the positive magnitude overflows the i64
+            // raw (2^63), so the constant can never materialize on its own. Fold
+            // the negation into the literal here — `fixed_raw_from_decimal`
+            // handles the signed string correctly. The guard is exact: it fires
+            // only when the positive magnitude overflows *and* the negated value
+            // fits, which is true solely at the min boundary (raw == 2^63), so
+            // every in-range negated literal keeps its `Unary` shape and no
+            // existing codegen/golden shifts.
+            if operator == "-" {
+                if let IrValue::Const { type_, value } = &lowered_operand {
+                    if type_ == "Fixed"
+                        && numeric::fixed_raw_from_decimal(value).is_err()
+                        && numeric::fixed_raw_from_decimal(&format!("-{value}")).is_ok()
+                    {
+                        return IrValue::Const {
+                            type_: "Fixed".to_string(),
+                            value: format!("-{value}"),
+                        };
+                    }
+                }
+            }
             IrValue::Unary {
                 op: operator.clone(),
-                operand: Box::new(lower_expression(operand, locals, context)),
+                operand: Box::new(lowered_operand),
                 type_: result_type,
                 loc: IrSourceLoc {
                     line: *line as u32,

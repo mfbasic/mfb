@@ -82,6 +82,67 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
     result
 }
 
+/// Convert a decimal `Fixed` literal string into its 32.32 fixed-point `i64` raw
+/// value (round-half-up on the fractional part). Handles a leading `-` and
+/// scientific notation. `Err` when the value is malformed or out of the `i64`
+/// raw range. This is the single source of truth for `Fixed` constant lowering,
+/// shared by native codegen (`native_immediate_value`) and the fold in
+/// `ir::lower` (bug-07: the minimum `Fixed` has no positive-magnitude literal).
+pub(crate) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
+    const SCALE: i128 = 1_i128 << 32;
+
+    let expanded = expand_scientific_notation(value);
+    let value = expanded.as_str();
+    let (negative, digits) = value
+        .strip_prefix('-')
+        .map(|rest| (true, rest))
+        .unwrap_or((false, value));
+    let (whole, fractional) = digits.split_once('.').unwrap_or((digits, ""));
+    if whole.is_empty() && fractional.is_empty() {
+        return Err(format!("invalid Fixed constant `{value}`"));
+    }
+    let mut whole_value = if whole.is_empty() {
+        0_i128
+    } else {
+        whole
+            .parse::<i128>()
+            .map_err(|_| format!("invalid Fixed constant `{value}`"))?
+    };
+    let mut fractional_value = 0_i128;
+    if !fractional.is_empty() {
+        let mut denominator = 1_i128;
+        for digit in fractional.bytes() {
+            if !digit.is_ascii_digit() {
+                return Err(format!("invalid Fixed constant `{value}`"));
+            }
+            fractional_value = fractional_value
+                .checked_mul(10)
+                .and_then(|current| current.checked_add((digit - b'0') as i128))
+                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+            denominator = denominator
+                .checked_mul(10)
+                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        }
+        let scaled = fractional_value
+            .checked_mul(SCALE)
+            .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        fractional_value = scaled / denominator;
+        if (scaled % denominator) * 2 >= denominator {
+            fractional_value += 1;
+        }
+        if fractional_value == SCALE {
+            whole_value += 1;
+            fractional_value = 0;
+        }
+    }
+    let raw = whole_value
+        .checked_mul(SCALE)
+        .and_then(|current| current.checked_add(fractional_value))
+        .ok_or_else(|| format!("Fixed constant `{value}` is out of range"))?;
+    let raw = if negative { -raw } else { raw };
+    i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
+}
+
 pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
     if !is_numeric_type(left) || !is_numeric_type(right) {
         return None;
