@@ -536,9 +536,21 @@ pub(super) fn finalize_vreg_body_with_locals(
 /// with `str d`/`ldr d` in the callee-save area rather than the GPR `str`/`ldr`
 /// (plan-03 Stage D callee-saved FP).
 fn is_fp_register(register: &str) -> bool {
-    register
+    // AArch64 scalar `d0`–`d31`.
+    if register
         .strip_prefix('d')
         .is_some_and(|rest| rest.parse::<u8>().is_ok())
+    {
+        return true;
+    }
+    // RISC-V FP ABI names `ft*`/`fs*`/`fa*` (plan-99). The integer saved/temp/arg
+    // registers `s*`/`t*`/`a*` have no `f` prefix, so this does not confuse them
+    // (e.g. `fs0` is FP, `s0` is integer).
+    ["ft", "fs", "fa"].iter().any(|prefix| {
+        register
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.parse::<u8>().is_ok())
+    })
 }
 
 fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {

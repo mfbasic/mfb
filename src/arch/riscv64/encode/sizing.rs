@@ -31,8 +31,16 @@ fn build_li(value: i64, steps: &mut Vec<LiStep>) {
         return;
     }
     let lo12 = ((value & 0xfff) as i32) << 20 >> 20; // sign-extend from bit 11
-    let hi = (value - lo12 as i64) >> 12;
-    if value == value as i32 as i64 {
+    // `wrapping_sub` is correct here: `li` materializes the exact 64-bit pattern,
+    // so wrap-around at the i64 extremes (e.g. MAX with lo12 = -1) reconstructs
+    // the same bits after the `slli 12; addi lo12` — and it avoids a debug panic
+    // on float bit patterns that sit near i64::MAX/MIN.
+    let hi = value.wrapping_sub(lo12 as i64) >> 12;
+    // Fast path `lui hi; addi lo` — valid only when `hi` fits the signed 20-bit
+    // `lui` field. `lui` sign-extends bit 19, so a `hi` at/above 2^19 (e.g.
+    // 0x7fffffff needs hi = 0x80000) would sign-extend negative and corrupt the
+    // value; those fall through to the 64-bit recursion, which is always correct.
+    if value == value as i32 as i64 && (-(1i64 << 19)..(1i64 << 19)).contains(&hi) {
         let hi20 = (hi as u32) & 0xfffff;
         steps.push(LiStep::Lui(hi20));
         if lo12 != 0 {

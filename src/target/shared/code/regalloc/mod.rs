@@ -208,15 +208,21 @@ pub(crate) fn allocate(
             // already-integer-colored stream. The two physical files never
             // interfere, so each pass sees only its own operands; FP spill slots
             // are placed after the integer ones.
+            // rv64's caller-saved set lives at different physical indices than
+            // AArch64/x86, so the call-clobber masks are ISA-specific (plan-99).
+            // The arena-base register identifies the ISA (`s11` on rv64).
+            let is_riscv = model.arena_base() == "s11";
             let int_model = ClassModel {
                 parse_vreg,
                 physical_index: analysis::int_physical_index,
                 is_fp: false,
+                is_riscv,
             };
             let fp_model = ClassModel {
                 parse_vreg: parse_fp_vreg,
                 physical_index: analysis::fp_physical_index,
                 is_fp: true,
+                is_riscv,
             };
             // Uniform per-slot stride so any class fits (x86 16 for a 128-bit FP
             // spill; AArch64 8 — a no-op, byte-identical).

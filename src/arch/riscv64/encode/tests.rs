@@ -122,3 +122,33 @@ fn conditional_branch_is_long_form() {
     assert_eq!(w[1] & 0x7f, 0x6f);
     assert_eq!((w[1] >> 7) & 0x1f, 0); // rd = zero
 }
+
+/// Simulate a `li` sequence and check it reconstructs the exact 64-bit value —
+/// for small values, powers of ten (the float formatter's divisors), negatives,
+/// and float bit patterns near the extremes.
+#[test]
+fn li_reconstructs_all_values() {
+    fn simulate(value: i64) -> i64 {
+        let mut rd: i64 = 0;
+        for step in super::sizing::li_steps(value) {
+            rd = match step {
+                super::sizing::LiStep::Lui(hi20) => {
+                    // sign-extend the 20-bit field, then <<12.
+                    (((hi20 << 12) as i32) as i64)
+                }
+                super::sizing::LiStep::Addi(imm) => imm as i64,
+                super::sizing::LiStep::Slli(sh) => rd.wrapping_shl(sh),
+                super::sizing::LiStep::AddiFrom(imm) => rd.wrapping_add(imm as i64),
+            };
+        }
+        rd
+    }
+    let mut cases: Vec<i64> = vec![0, 1, -1, 2047, 2048, -2048, -2049, 4095, i32::MAX as i64,
+        i32::MIN as i64, i64::MAX, i64::MIN, 0x400C_0000_0000_0000u64 as i64,
+        0x3FF8_0000_0000_0000, 0x4004_0000_0000_0000];
+    let mut p: i64 = 1;
+    for _ in 0..19 { cases.push(p); p = p.wrapping_mul(10); }
+    for v in cases {
+        assert_eq!(simulate(v), v, "li mismatch for {v} ({v:#018x})");
+    }
+}

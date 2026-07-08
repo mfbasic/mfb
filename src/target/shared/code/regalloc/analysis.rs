@@ -47,10 +47,23 @@ pub(super) struct ClassModel {
     pub(super) physical_index: fn(&str) -> Option<u32>,
     /// Whether this is the FP class (selects the FP vs integer clobber sets).
     pub(super) is_fp: bool,
+    /// Whether the target is rv64 (plan-99). The call-clobber masks are indexed
+    /// by physical-register number, and RISC-V's lp64d caller-saved set differs
+    /// from AArch64/x86 (its caller-saved live at bit positions 28–31 = `t3`–`t6`
+    /// and 10–17 = `a*`), so the masks are selected per-ISA.
+    pub(super) is_riscv: bool,
 }
 
 /// Caller-saved integer registers `x0`–`x17` (clobbered by any call per the PCS).
 const CALLER_SAVED_INT: PhysMask = 0x3_ffff;
+// --- RISC-V lp64d clobber masks (plan-99), indexed by register number ---------
+/// Caller-saved GPRs: `ra`(1), `t0`–`t2`(5–7), `a0`–`a7`(10–17), `t3`–`t6`(28–31).
+const RISCV_CALLER_SAVED_INT: PhysMask = 0xf003_fce2;
+/// Caller-saved FP regs: `ft0`–`ft7`(0–7), `fa0`–`fa7`(10–17), `ft8`–`ft11`(28–31).
+const RISCV_CALLER_SAVED_FP: PhysMask = 0xf003_fcff;
+/// Every GPR — forbidding all of them forces a spill across an internal helper
+/// call (`_mfb_arena_alloc` tramples callee-saved registers too).
+const RISCV_ALL_INT: PhysMask = 0xffff_ffff;
 /// Caller-saved FP registers `d0`–`d7` and `d16`–`d31` (`d8`–`d15` are
 /// callee-saved by the PCS; the inlined NEON kernels also avoid `v8`–`v15`).
 const CALLER_SAVED_FP: PhysMask = 0xffff_00ff;
@@ -71,21 +84,38 @@ const ALL_INT: PhysMask = 0x7fff_ffff;
 ///   Their FP clobber still follows the PCS (caller-saved only) — `_mfb_arena_alloc`
 ///   touches no FP on its fast path and reaches `mmap` (PCS) when it grows.
 /// - `blr` is an indirect call to a PCS function; `svc` is a syscall (no FP).
-pub(super) fn call_clobber_mask(instruction: &CodeInstruction, is_fp: bool) -> PhysMask {
+pub(super) fn call_clobber_mask(
+    instruction: &CodeInstruction,
+    is_fp: bool,
+    is_riscv: bool,
+) -> PhysMask {
+    // Per-ISA clobber sets (RISC-V's caller-saved live at different physical
+    // indices than AArch64/x86, plan-99).
+    let caller_saved_int = if is_riscv {
+        RISCV_CALLER_SAVED_INT
+    } else {
+        CALLER_SAVED_INT
+    };
+    let caller_saved_fp = if is_riscv {
+        RISCV_CALLER_SAVED_FP
+    } else {
+        CALLER_SAVED_FP
+    };
+    let all_int = if is_riscv { RISCV_ALL_INT } else { ALL_INT };
     match instruction.op {
         CodeOp::Svc => {
             // A syscall preserves callee-saved integer registers and touches no FP.
             if is_fp {
                 0
             } else {
-                CALLER_SAVED_INT
+                caller_saved_int
             }
         }
         CodeOp::BranchLinkRegister => {
             if is_fp {
-                CALLER_SAVED_FP
+                caller_saved_fp
             } else {
-                CALLER_SAVED_INT
+                caller_saved_int
             }
         }
         CodeOp::BranchLink => {
@@ -93,25 +123,25 @@ pub(super) fn call_clobber_mask(instruction: &CodeInstruction, is_fp: bool) -> P
             if target.starts_with("_mfb_fn_") || target.starts_with("_mfb_ifn_") {
                 // A compiled user/built-in function: PCS, preserves callee-saved.
                 if is_fp {
-                    CALLER_SAVED_FP
+                    caller_saved_fp
                 } else {
-                    CALLER_SAVED_INT
+                    caller_saved_int
                 }
             } else if target.starts_with("_mfb_") {
                 // A runtime helper: every integer register is treated as
                 // destroyed (`_mfb_arena_alloc` tramples callee-saved `x20`–`x28`),
                 // while FP follows the PCS — caller-saved gone, `d8`–`d15` kept.
                 if is_fp {
-                    CALLER_SAVED_FP
+                    caller_saved_fp
                 } else {
-                    ALL_INT
+                    all_int
                 }
             } else {
                 // libc (PCS).
                 if is_fp {
-                    CALLER_SAVED_FP
+                    caller_saved_fp
                 } else {
-                    CALLER_SAVED_INT
+                    caller_saved_int
                 }
             }
         }
@@ -174,6 +204,21 @@ pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
     // plan-99). ABI names start with `f` and are distinct from the AArch64
     // `d*`/`v*` and x86 `xmm*` spellings.
     riscv_fp_index(name)
+}
+
+/// Whether an instruction stream is rv64 code, detected by any operand naming a
+/// RISC-V-distinctive ABI register (`ra`/`t0`–`t6`/`s0`–`s11`/`a0`–`a7`/`ft*`/
+/// `fs*`/`fa*`). These names never appear in AArch64 (`x*`/`d*`/`v*`) or x86
+/// (`r*`/`xmm*`) streams; the only shared spellings (`sp`, `zero`) are excluded,
+/// so there are no false positives. Used to pick the per-ISA call-clobber masks
+/// where the arch is not otherwise threaded in (`integer_live_out`).
+pub(super) fn stream_is_riscv(instructions: &[CodeInstruction]) -> bool {
+    instructions.iter().any(|inst| {
+        inst.fields.iter().any(|(_, v)| {
+            let v = v.as_str();
+            v != "sp" && v != "zero" && (riscv_int_index(v).is_some() || riscv_fp_index(v).is_some())
+        })
+    })
 }
 
 /// The RISC-V FP register index (0–31) for an ABI register name, or `None`.
@@ -387,10 +432,12 @@ pub(super) fn physical_busy(bits: PhysMask, index: u32) -> bool {
 /// A call destroys its caller-saved registers, so they are modeled as definitions
 /// (killed) at the call — a value left in one is not live across it.
 pub(super) fn integer_live_out(instructions: &[CodeInstruction]) -> Vec<PhysMask> {
+    let is_riscv = stream_is_riscv(instructions);
     let model = ClassModel {
         parse_vreg: |_| None,
         physical_index: int_physical_index,
         is_fp: false,
+        is_riscv,
     };
     let n = instructions.len();
     let blocks = build_cfg(instructions);
@@ -401,7 +448,7 @@ pub(super) fn integer_live_out(instructions: &[CodeInstruction]) -> Vec<PhysMask
     for (i, instruction) in instructions.iter().enumerate() {
         let eff = effect(instruction, &model);
         if eff.is_call {
-            phys_def[i] |= call_clobber_mask(instruction, false);
+            phys_def[i] |= call_clobber_mask(instruction, false, is_riscv);
         }
         for d in &eff.defs {
             if let Some(p) = (model.physical_index)(d) {
@@ -482,7 +529,7 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     for (i, instruction) in instructions.iter().enumerate() {
         let eff = effect(instruction, model);
         if eff.is_call {
-            call_clobber.push((i, call_clobber_mask(instruction, model.is_fp)));
+            call_clobber.push((i, call_clobber_mask(instruction, model.is_fp, model.is_riscv)));
         }
         for d in &eff.defs {
             if let Some(p) = (model.physical_index)(d) {

@@ -335,19 +335,36 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
 }
 
 /// The scratch register an AArch64 physical `xN` (N ≥ 9, N ≠ 30) maps to in a
-/// hand-written helper. AArch64 treats `x9`–`x18` as caller-saved and `x19`–`x28`
-/// as callee-saved; the pool preserves that so a value parked across a `call`
-/// still survives (`x19`–`x28` → the RISC-V callee-saved `s1`–`s10`). The
-/// low scratch (`x9`–`x18`) takes the caller-saved `t3`–`t6` (wrapping). `t0`–`t2`
-/// (lowering scratch), `a0`–`a7` (ABI), and `s11` (arena) are never used.
+/// hand-written helper (routed through `route_function_through_mir`, post-
+/// allocation, so these are fixed physicals with no allocator to place them).
+///
+/// AArch64 treats `x9`–`x17` as caller-saved scratch and `x19`–`x28` as
+/// callee-saved; a value parked across a `call` must survive, so `x19`–`x28` map
+/// to the RISC-V callee-saved `s1`–`s10` (1:1). The caller scratch maps to the
+/// four caller-saved temporaries `t3`–`t6` plus callee-saved substitutes
+/// (over-preserving is safe). RISC-V has fewer non-ABI registers than AArch64
+/// (15 vs 20 after reserving `a0`–`a7`, the `t0`–`t2` lowering scratch, and the
+/// `s11` arena base), so a fully distinct 20-register mapping is impossible — but
+/// no machine-floor helper uses more than 13 distinct scratch registers, and the
+/// homes are arranged so every helper's *co-occurring* registers stay distinct:
+/// `x9`–`x11` (used with the full callee set in `_main`) avoid all `s*`, and
+/// `x12`–`x17` (used with at most `x19`/`x20` in the formatter/arena helpers)
+/// avoid `s1`/`s2`. Shared homes (e.g. `x14`↔`x21` both `s3`) never appear in the
+/// same function.
 fn map_scratch_register(n: usize) -> String {
     match n {
+        9 => "t3".to_string(),
+        10 => "t4".to_string(),
+        11 => "t5".to_string(),
+        12 => "t6".to_string(),
+        13 => "s0".to_string(),
+        14 => "s3".to_string(),
+        15 => "s4".to_string(),
+        16 => "s5".to_string(),
+        17 => "s6".to_string(),
+        18 => "s7".to_string(),
         19..=28 => format!("s{}", n - 18), // x19→s1 … x28→s10
-        29 => "s0".to_string(),            // frame pointer (rare)
-        _ => {
-            const POOL: &[&str] = &["t3", "t4", "t5", "t6"];
-            POOL[(n - 9) % POOL.len()].to_string()
-        }
+        _ => "t6".to_string(),             // x29 (fp) / stragglers — rare
     }
 }
 
