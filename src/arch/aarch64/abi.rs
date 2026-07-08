@@ -13,6 +13,40 @@ pub(crate) fn argument_register(index: usize) -> Result<String, String> {
     }
 }
 
+/// The first register-passed argument index; arguments at or beyond this go on
+/// the stack (bug-08). The custom calling convention (`mfb spec memory
+/// 06_native-calling-convention`) delivers arguments 0..[`REGISTER_ARGUMENT_COUNT`]
+/// in `x0`–`x7` and the rest in a stack tail.
+pub(crate) const REGISTER_ARGUMENT_COUNT: usize = 8;
+
+/// Sentinel base register naming the callee's *incoming* stack-argument area —
+/// the caller's outgoing tail, read relative to the entry stack pointer. The
+/// real `sp`-relative offset is not known until the frame is finalized (it sits
+/// above the whole frame), so `finalize_frame` rewrites this base to `sp` and
+/// resolves the offset to `frame_size + entry_padding + k*8` (bug-08).
+pub(crate) const INCOMING_ARGS_BASE: &str = "incoming_args";
+
+/// Sentinel base register naming the caller's *outgoing* stack-argument area,
+/// reserved at the very bottom of the caller frame so that at the call the args
+/// sit at `[sp+0..]` where the callee expects them. `finalize_frame` rewrites
+/// this base to `sp` (the offset `k*8` is already frame-bottom-relative and is
+/// left unshifted) (bug-08).
+pub(crate) const OUTGOING_ARGS_BASE: &str = "outgoing_args";
+
+/// Load the `k`-th incoming stack argument (0-based beyond the 8 register
+/// arguments) into `dst`. Resolved to a concrete `sp`-relative load in
+/// `finalize_frame` (bug-08).
+pub(crate) fn incoming_stack_arg_load(dst: &str, k: usize) -> CodeInstruction {
+    load_u64(dst, INCOMING_ARGS_BASE, k * 8)
+}
+
+/// Store `src` as the `k`-th outgoing stack argument (0-based beyond the 8
+/// register arguments) into the caller's reserved outgoing area. Resolved to a
+/// concrete `sp`-relative store in `finalize_frame` (bug-08).
+pub(crate) fn outgoing_stack_arg_store(src: &str, k: usize) -> CodeInstruction {
+    store_u64(src, OUTGOING_ARGS_BASE, k * 8)
+}
+
 pub(crate) fn temporary_register(allocation: usize) -> Result<String, String> {
     let register = match allocation {
         8..=17 => format!("x{allocation}"),
@@ -809,6 +843,19 @@ mod tests {
         assert_eq!(argument_register(0).unwrap(), "x0");
         assert_eq!(argument_register(7).unwrap(), "x7");
         assert!(argument_register(8).is_err());
+        // bug-08: arguments beyond the register window go through the stack-tail
+        // sentinels, resolved to concrete `sp`-relative accesses in the frame.
+        assert_eq!(REGISTER_ARGUMENT_COUNT, 8);
+        let incoming = incoming_stack_arg_load("x9", 2);
+        assert_eq!(incoming.op.mnemonic(), "ldr_u64");
+        assert_eq!(get(&incoming, "base"), Some(INCOMING_ARGS_BASE));
+        assert_eq!(get(&incoming, "offset"), Some("16"));
+        assert_eq!(get(&incoming, "dst"), Some("x9"));
+        let outgoing = outgoing_stack_arg_store("x9", 0);
+        assert_eq!(outgoing.op.mnemonic(), "str_u64");
+        assert_eq!(get(&outgoing, "base"), Some(OUTGOING_ARGS_BASE));
+        assert_eq!(get(&outgoing, "offset"), Some("0"));
+        assert_eq!(get(&outgoing, "src"), Some("x9"));
         // Temporary allocations cover the caller-saved run and the callee-saved remap.
         assert_eq!(temporary_register(8).unwrap(), "x8");
         assert_eq!(temporary_register(17).unwrap(), "x17");

@@ -1,0 +1,150 @@
+{
+  "project": "user_function_stack_args_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "weigh",
+      "line": 10,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null },
+      { "name": "c", "type": "Integer", "default": null },
+      { "name": "d", "type": "Integer", "default": null },
+      { "name": "e", "type": "Integer", "default": null },
+      { "name": "f", "type": "Integer", "default": null },
+      { "name": "g", "type": "Integer", "default": null },
+      { "name": "h", "type": "Integer", "default": null },
+      { "name": "i", "type": "Integer", "default": null },
+      { "name": "j", "type": "Integer", "default": null },
+      { "name": "k", "type": "Integer", "default": null },
+      { "name": "l", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "2" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "c" }, "right": { "kind": "number", "value": "3" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "d" }, "right": { "kind": "number", "value": "4" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "e" }, "right": { "kind": "number", "value": "5" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "f" }, "right": { "kind": "number", "value": "6" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "g" }, "right": { "kind": "number", "value": "7" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "h" }, "right": { "kind": "number", "value": "8" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "9" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "10" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "11" } } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "l" }, "right": { "kind": "number", "value": "12" } } }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "label9",
+      "line": 15,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null },
+      { "name": "c", "type": "Integer", "default": null },
+      { "name": "d", "type": "Integer", "default": null },
+      { "name": "e", "type": "Integer", "default": null },
+      { "name": "f", "type": "Integer", "default": null },
+      { "name": "g", "type": "Integer", "default": null },
+      { "name": "h", "type": "String", "default": null },
+      { "name": "i", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "h" }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "identifier", "value": "i" } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }] } }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "fsum10",
+      "line": 20,
+      "params": [
+      { "name": "a", "type": "Float", "default": null },
+      { "name": "b", "type": "Float", "default": null },
+      { "name": "c", "type": "Float", "default": null },
+      { "name": "d", "type": "Float", "default": null },
+      { "name": "e", "type": "Float", "default": null },
+      { "name": "f", "type": "Float", "default": null },
+      { "name": "g", "type": "Float", "default": null },
+      { "name": "h", "type": "Float", "default": null },
+      { "name": "i", "type": "Float", "default": null },
+      { "name": "j", "type": "Float", "default": null }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }, "right": { "kind": "identifier", "value": "h" } }, "right": { "kind": "identifier", "value": "i" } }, "right": { "kind": "identifier", "value": "j" } }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "report",
+      "line": 25,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null },
+      { "name": "c", "type": "Integer", "default": null },
+      { "name": "d", "type": "Integer", "default": null },
+      { "name": "e", "type": "Integer", "default": null },
+      { "name": "f", "type": "Integer", "default": null },
+      { "name": "g", "type": "Integer", "default": null },
+      { "name": "h", "type": "Integer", "default": null },
+      { "name": "i", "type": "Integer", "default": null },
+      { "name": "j", "type": "Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "report " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }, "right": { "kind": "identifier", "value": "h" } }, "right": { "kind": "identifier", "value": "i" } }, "right": { "kind": "identifier", "value": "j" } }] } }] }, "line": 26 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "countdown",
+      "line": 30,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null },
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null },
+      { "name": "c", "type": "Integer", "default": null },
+      { "name": "d", "type": "Integer", "default": null },
+      { "name": "e", "type": "Integer", "default": null },
+      { "name": "f", "type": "Integer", "default": null },
+      { "name": "g", "type": "Integer", "default": null },
+      { "name": "acc", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 31,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "acc" }, "line": 32 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "countdown", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, { "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }, { "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "d" }, { "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "g" }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "identifier", "value": "n" } }] }, "line": 34 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 37,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "weigh " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "weigh", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "11" }, { "kind": "number", "value": "12" }] }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "label9", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }, { "kind": "string", "value": "hi" }, { "kind": "string", "value": "yo" }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fsum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fsum10", "arguments": [{ "kind": "number", "value": "0.5" }, { "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "3.0" }, { "kind": "number", "value": "4.0" }, { "kind": "number", "value": "5.0" }, { "kind": "number", "value": "6.0" }, { "kind": "number", "value": "7.0" }, { "kind": "number", "value": "8.0" }, { "kind": "number", "value": "9.5" }] }] } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "40" }, { "kind": "number", "value": "50" }, { "kind": "number", "value": "60" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "80" }, { "kind": "number", "value": "90" }, { "kind": "number", "value": "100" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "countdown " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "countdown", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

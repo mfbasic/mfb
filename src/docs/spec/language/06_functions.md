@@ -16,12 +16,10 @@ END SUB
 - **Default args** allowed (trailing). A non-default parameter may not follow a
   defaulted one (`ir::verify` rejects it with `TYPE_DEFAULT_ARG_ORDER`:
   "Parameter … must have a default because an earlier parameter has one").
-- **Parameter-count limit (codegen).** The current aarch64 backend passes
-  arguments only in registers `x0`–`x7`, so a callable may take **at most 8
-  parameters**; a 9th is rejected at code-plan time ("aarch64 code plan cannot
-  pass argument 8; stack arguments are not implemented",
-  `src/arch/aarch64/abi.rs` `argument_register`). This is an implementation
-  limit, not a type-system rule.
+- **Many parameters allowed.** A callable may take **any number of parameters**.
+  The first eight are passed in registers and the rest in a stack tail, on every
+  native target (bug-08); there is no parameter-count limit. (See `./mfb spec
+  memory 06_native-calling-convention` for the register/stack layout.)
 - **Named args** at call site: `greet("Ada", greeting := "Hi")`. Named arguments bind by parameter name, may be mixed with positional arguments, and are evaluated/lowered in declaration order after omitted default parameters are filled.
 - **Overloading.** Several `FUNC`s or `SUB`s may share one name as long as their signatures differ. A callable's identity is its name together with its **ordered parameter types and return type**; two declarations collide (`SYMBOL_DUPLICATE_TOP_LEVEL`) only when *all three* match (default values never distinguish an overload). A name sharing parameter types but differing in return type is a legal return-type overload set. Overloads usually differ by **arity** or **parameter type** and are selected from the argument types. They may also differ **only by return type** (identical parameter lists): such a *return-type overload set* is selected by the call's **expected (contextual) type** (the declared type of the assignment/`LET`/`DIM` target, the parameter type of an argument slot, the enclosing function's return type for a `RETURN` operand, or the element/field type of a typed initializer). When two or more return-type overloads remain and no expected type uniquely selects one, the call is a `TYPE_OVERLOAD_AMBIGUOUS` error; the fix is a type annotation (e.g. `LET b AS List OF Byte = utf8Encode(s)`). Overloads may be declared across the files of one package, and an `EXPORT`ed overload set is resolved across the package boundary by importers. (For how expected types are propagated, see `./mfb spec language type-inference`.)
 

@@ -1,0 +1,44 @@
+IMPORT io
+
+' bug-08: a callable may take more than 8 parameters. Arguments 0..8 arrive in
+' registers (x0-x7 / the SysV set), the rest in the stack tail. This proves the
+' whole matrix — integer, string and float stack arguments, a many-parameter
+' `SUB`, and recursion through a stack-argument callable — computes the same on
+' every native target.
+
+' 12 integer parameters: 8 register + 4 stack.
+FUNC weigh(a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, h AS Integer, i AS Integer, j AS Integer, k AS Integer, l AS Integer) AS Integer
+  RETURN a + b * 2 + c * 3 + d * 4 + e * 5 + f * 6 + g * 7 + h * 8 + i * 9 + j * 10 + k * 11 + l * 12
+END FUNC
+
+' String stack arguments (parameters 8 and 9 land on the stack).
+FUNC label9(a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, h AS String, i AS String) AS String
+  RETURN h & "/" & i & "/" & toString(a + b + c + d + e + f + g)
+END FUNC
+
+' Float stack arguments (parameters 8 and 9 land on the stack).
+FUNC fsum10(a AS Float, b AS Float, c AS Float, d AS Float, e AS Float, f AS Float, g AS Float, h AS Float, i AS Float, j AS Float) AS Float
+  RETURN a + b + c + d + e + f + g + h + i + j
+END FUNC
+
+' Ten-parameter SUB (Nothing return).
+SUB report(a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, h AS Integer, i AS Integer, j AS Integer)
+  io::print("report " & toString(a + b + c + d + e + f + g + h + i + j))
+END SUB
+
+' Recursion through a nine-parameter callable (one stack argument).
+FUNC countdown(n AS Integer, a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, acc AS Integer) AS Integer
+  IF n <= 0 THEN
+    RETURN acc
+  END IF
+  RETURN countdown(n - 1, a, b, c, d, e, f, g, acc + n)
+END FUNC
+
+FUNC main AS Integer
+  io::print("weigh " & toString(weigh(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)))
+  io::print(label9(1, 2, 3, 4, 5, 6, 7, "hi", "yo"))
+  io::print("fsum " & toString(fsum10(0.5, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.5)))
+  report(10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+  io::print("countdown " & toString(countdown(5, 0, 0, 0, 0, 0, 0, 0, 0)))
+  RETURN 0
+END FUNC

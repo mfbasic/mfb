@@ -2,24 +2,39 @@
 
 MFBASIC native functions on AArch64 use a **custom, non-AAPCS64 calling
 convention**. The contract in one line: every scalar argument — integer, pointer,
-**and** floating/fixed — is passed in a general-purpose register `x0..x7`, there
-are no stack arguments, an infallible result comes back in `x0`, and a fallible
-result comes back in the four-register form. The deliberate divergences from
-AAPCS64 below exist so the whole code plan can treat every value as a single
-8-byte slot in a general register; the floating-point register file is touched
-only at arithmetic sites.
+**and** floating/fixed — occupies a single 8-byte positional slot, the first
+eight are passed in general-purpose registers `x0..x7` and any beyond that in a
+stack tail, an infallible result comes back in `x0`, and a fallible result comes
+back in the four-register form. The deliberate divergences from AAPCS64 below
+exist so the whole code plan can treat every value as a single 8-byte slot in a
+general register; the floating-point register file is touched only at arithmetic
+sites.
 
 ## Argument Passing
 
-Arguments are assigned to `x0`, `x1`, … `x7` strictly by position, regardless of
-type. There are **no stack arguments**: requesting argument index ≥ 8 is a hard
-codegen error (`stack arguments are not implemented`). [[src/arch/aarch64/abi.rs:argument_register]] A native function with
-more than 8 parameters cannot be lowered.
+Arguments are assigned to positional slots strictly by position, regardless of
+type. The first eight (`REGISTER_ARGUMENT_COUNT`) go in `x0`, `x1`, … `x7`; every
+argument at index ≥ 8 goes on the **stack tail** — one 8-byte slot per argument,
+in ascending index order, laid out at `[sp+0..]` at the moment of the call
+(bug-08). [[src/arch/aarch64/abi.rs:argument_register]] The tail keeps the same one-slot-per-value model as the register
+window: a `Float`/`Fixed` stack argument is its raw 8-byte bit pattern, exactly
+like an integer or pointer. There is no separate floating-point argument area and
+no struct-by-value classification — this is **not** AAPCS64/SysV stack passing.
 
-In the prologue, parameter *N* is simply read from `x{N}`; the parameter's type
-plays no part in choosing its register. [[src/target/shared/code/function_lowering.rs:lower_function]] At a call site, each argument is
-lowered, spilled to a stack slot, then reloaded into a scratch register and moved
-into the positional `x{index}` — again with no type dispatch. [[src/target/shared/code/builder_emit_helpers.rs:emit_prepared_call_args]]
+In the prologue, register parameter *N* (`N < 8`) is read from `x{N}`; a stack
+parameter is loaded from the caller's tail (an `sp`-relative load resolved once
+the frame size is known) and spilled into its local slot like any register
+parameter. The parameter's type plays no part in choosing its slot. [[src/target/shared/code/function_lowering.rs:lower_function]] At a call
+site, each argument is lowered and spilled to a marshalling slot; the first eight
+are then reloaded and moved into the positional `x{index}`, and the rest are
+stored into the caller's reserved outgoing tail — again with no type dispatch. [[src/target/shared/code/builder_emit_helpers.rs:emit_prepared_call_args]]
+
+The stack tail is realized entirely at frame finalization: a call passing more
+than eight arguments reserves a 16-byte-aligned outgoing area at the very bottom
+of the caller frame (below the callee-saved registers), and the callee reads its
+incoming arguments from just above its own frame, past the entry return-address
+padding (8 bytes on x86-64, 0 on AArch64). The register-only path — every call of
+eight or fewer arguments — is byte-for-byte unchanged. [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
 
 ### Float and Fixed arguments go in `x` registers
 
@@ -146,29 +161,38 @@ the body is lowered: [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
 
 1. If the body contains **any** `bl`/`blr` and `x30` (the link register) is not
    already in the callee-saved set, `x30` is added to it automatically. [[src/arch/aarch64/abi.rs:link_register]]
-2. `save_size = callee_saved.len() * 8`; the total frame is
-   `align(save_size + local_stack_size, 16)`, rounded up to **16 bytes**. A
-   zero-size frame emits no prologue/epilogue.
-3. Layout places **callee-saved registers at the bottom** of the frame
-   (`sp+0`, `sp+8`, …) and **local slots above** them — every local slot offset is
-   shifted up by `save_size`.
+2. `save_size = callee_saved.len() * 8`; the frame reserves an **outgoing
+   stack-argument tail** of `outgoing_bytes` at its very bottom (the widest call
+   that passes more than eight arguments, 16-aligned; zero when no such call
+   exists), and the total frame is
+   `outgoing_bytes + align(save_size + local_stack_size, 16)`, rounded up to
+   **16 bytes** (plus an 8-byte return-address pad on x86-64). A zero-size frame
+   emits no prologue/epilogue.
+3. Layout places the **outgoing argument tail at the bottom** (`sp+0`, `sp+8`, …),
+   the **callee-saved registers above it**, and **local slots above those** —
+   every callee-save and local offset is shifted up by
+   `outgoing_bytes + save_size`.
 
 ```text
 frame layout (higher addresses up)
-  sp + total          <- caller's sp
-  ...                     local slots (shifted up by save_size)
-  sp + save_size      <- first local slot
-  sp + (n-1)*8           callee_saved[n-1]
+  sp + total          <- caller's sp; incoming stack args live here and up
+  ...                     local slots (shifted up by outgoing_bytes + save_size)
+  sp + off + save_size <- first local slot   (off = outgoing_bytes)
+  sp + off + (n-1)*8      callee_saved[n-1]
   ...
-  sp + 8                 callee_saved[1]
-  sp + 0                 callee_saved[0]   <- sp after prologue
+  sp + off + 0           callee_saved[0]
+  sp + (m-1)*8           outgoing arg m-1  (this frame's calls write here)
+  ...
+  sp + 0                 outgoing arg 0    <- sp after prologue
 ```
 
 The prologue is `sub sp, sp, #total` followed by one `str` per callee-saved
-register at `sp + index*8`. **Every `ret`** is rewritten to first reload all
-callee-saved registers (in reverse), then `add sp, sp, #total`, then return — so
-the save/restore is repeated at each return site rather than via a single shared
-epilogue. [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
+register at `sp + outgoing_bytes + index*8`. **Every `ret`** is rewritten to first
+reload all callee-saved registers (in reverse), then `add sp, sp, #total`, then
+return — so the save/restore is repeated at each return site rather than via a
+single shared epilogue. A callee reads incoming stack argument `k` from
+`sp + total + entry_padding + k*8`, where `entry_padding` is the entry
+return-address slot (8 on x86-64, 0 on AArch64). [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
 
 The callee-saved set the convention preserves is **`x19..x28`**
 (`is_callee_saved`); `x0..x17` and `x30` are caller-saved (`x30` only auto-added

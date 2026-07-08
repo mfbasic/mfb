@@ -43,7 +43,26 @@ impl CodeBuilder<'_> {
             self.reset_temporary_registers();
         }
         self.reset_temporary_registers();
+        // Arguments beyond the 8 register slots are marshalled first into the
+        // caller's reserved outgoing stack tail (bug-08); doing the stack stores
+        // before the register moves keeps `x0`–`x7` set last, immediately before
+        // the call, so nothing clobbers them. For a call of 8 or fewer arguments
+        // this loop is empty and the code below is byte-identical to the
+        // register-only convention.
         for (index, slot) in arg_slots.iter().enumerate() {
+            if index < abi::REGISTER_ARGUMENT_COUNT {
+                continue;
+            }
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
+            self.emit(abi::outgoing_stack_arg_store(
+                &scratch9,
+                index - abi::REGISTER_ARGUMENT_COUNT,
+            ));
+        }
+        for (index, slot) in arg_slots.iter().enumerate() {
+            if index >= abi::REGISTER_ARGUMENT_COUNT {
+                continue;
+            }
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
             self.emit(abi::move_register(
                 &abi::argument_register(index)?,

@@ -571,7 +571,15 @@ pub(super) fn lower_function(
         .iter()
         .enumerate()
         .map(|(index, param)| {
-            let location = abi::argument_register(index)?;
+            // Arguments 0..8 arrive in `x0`–`x7`; the rest arrive in the caller's
+            // stack tail (bug-08). A stack parameter has no argument register, so
+            // its `location` records the tail slot instead (never emitted as a
+            // register — the prologue below loads it via `incoming_stack_arg_load`).
+            let location = if index < abi::REGISTER_ARGUMENT_COUNT {
+                abi::argument_register(index)?
+            } else {
+                format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT)
+            };
             Ok(CodeParam {
                 name: param.name.clone(),
                 type_: param.type_.clone(),
@@ -636,7 +644,7 @@ pub(super) fn lower_function(
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
     };
-    for param in &params {
+    for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
         builder.locals.insert(
             param.name.clone(),
@@ -647,11 +655,24 @@ pub(super) fn lower_function(
                 by_ref: false,
             },
         );
-        builder.emit(abi::store_u64(
-            &param.location,
-            abi::stack_pointer(),
-            stack_offset,
-        ));
+        if index < abi::REGISTER_ARGUMENT_COUNT {
+            builder.emit(abi::store_u64(
+                &param.location,
+                abi::stack_pointer(),
+                stack_offset,
+            ));
+        } else {
+            // A stack parameter is loaded from the incoming stack tail (resolved
+            // to an `sp`-relative offset in `finalize_frame`) and spilled into its
+            // local slot like a register parameter (bug-08).
+            let scratch = builder.temporary_vreg();
+            builder.emit(abi::incoming_stack_arg_load(
+                &scratch,
+                index - abi::REGISTER_ARGUMENT_COUNT,
+            ));
+            builder.emit(abi::store_u64(&scratch, abi::stack_pointer(), stack_offset));
+            builder.reset_temporary_registers();
+        }
         if CodeBuilder::is_thread_type(&param.type_) {
             builder
                 .active_cleanups

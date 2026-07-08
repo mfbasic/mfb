@@ -370,7 +370,18 @@ pub(super) fn finalize_frame(
     } else {
         0
     };
-    let total_stack_size = align(save_size + local_stack_size, 16) + call_padding;
+    // Outgoing stack-argument tail (bug-08): the widest call in this function that
+    // passes more than 8 arguments needs its extra arguments laid out at `[sp+0..]`
+    // at the moment of the call, so reserve that many bytes at the very bottom of
+    // the frame (below the callee-saved area). 16-aligned to keep the save area's
+    // alignment and the stack pointer 16-aligned at call sites. Zero — and the
+    // whole frame byte-identical to the register-only convention — when no call
+    // passes stack arguments.
+    let outgoing_bytes = match max_outgoing_arg_offset(instructions) {
+        Some(max_offset) => align(max_offset + 8, 16),
+        None => 0,
+    };
+    let total_stack_size = outgoing_bytes + align(save_size + local_stack_size, 16) + call_padding;
     if total_stack_size == 0 {
         return CodeFrame {
             stack_size: 0,
@@ -378,15 +389,27 @@ pub(super) fn finalize_frame(
         };
     }
 
+    // Body `sp`-relative accesses and stack-slot metadata clear both the outgoing
+    // tail (frame bottom) and the callee-saved area above it.
+    let body_shift = outgoing_bytes + save_size;
     for slot in stack_slots {
-        slot.offset += save_size as i32;
+        slot.offset += body_shift as i32;
     }
-    adjust_stack_instruction_offsets(instructions, save_size);
+    adjust_stack_instruction_offsets(instructions, body_shift);
+
+    // Resolve the incoming/outgoing stack-argument sentinels now that the final
+    // frame size is known (bug-08). Incoming arguments sit above the whole frame,
+    // past the entry return-address padding (8 on x86-64, 0 on AArch64); outgoing
+    // arguments sit at the reserved frame bottom (`[sp+0..]`, already unshifted).
+    if outgoing_bytes != 0 || has_incoming_stack_args(instructions) {
+        let entry_padding = super::mir::active_backend().frame_call_padding();
+        resolve_stack_arg_sentinels(instructions, total_stack_size, entry_padding);
+    }
 
     let mut prologue = Vec::new();
     prologue.push(abi::subtract_stack(total_stack_size));
     for (index, register) in callee_saved.iter().enumerate() {
-        prologue.push(save_callee_saved(register, index * 8));
+        prologue.push(save_callee_saved(register, outgoing_bytes + index * 8));
     }
 
     let insert_at = if instructions
@@ -403,7 +426,7 @@ pub(super) fn finalize_frame(
     for instruction in instructions.drain(..) {
         if instruction.op == CodeOp::Ret {
             for (index, register) in callee_saved.iter().enumerate().rev() {
-                rewritten.push(restore_callee_saved(register, index * 8));
+                rewritten.push(restore_callee_saved(register, outgoing_bytes + index * 8));
             }
             rewritten.push(abi::add_stack(total_stack_size));
             rewritten.push(instruction);
@@ -582,6 +605,81 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
                 if let Ok(offset) = value.parse::<usize>() {
                     *value = (offset + offset_delta).to_string();
                 }
+            }
+        }
+    }
+}
+
+/// Read the `base`/`offset` of a stack-argument sentinel load/store (bug-08).
+fn base_of(instruction: &CodeInstruction) -> Option<&str> {
+    instruction
+        .fields
+        .iter()
+        .find(|(name, _)| *name == "base")
+        .map(|(_, value)| value.as_str())
+}
+
+fn offset_of(instruction: &CodeInstruction) -> usize {
+    instruction
+        .fields
+        .iter()
+        .find(|(name, _)| *name == "offset")
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+/// The widest outgoing stack-argument byte offset any call in this function
+/// writes (bug-08), or `None` when no call passes stack arguments. Drives the
+/// size of the reserved outgoing tail at the frame bottom.
+fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
+    instructions
+        .iter()
+        .filter(|instruction| base_of(instruction) == Some(abi::OUTGOING_ARGS_BASE))
+        .map(offset_of)
+        .max()
+}
+
+/// Whether any instruction reads an incoming stack argument (bug-08).
+fn has_incoming_stack_args(instructions: &[CodeInstruction]) -> bool {
+    instructions
+        .iter()
+        .any(|instruction| base_of(instruction) == Some(abi::INCOMING_ARGS_BASE))
+}
+
+/// Rewrite the stack-argument sentinel bases (`incoming_args`/`outgoing_args`)
+/// to concrete `sp`-relative accesses now that the frame size is known (bug-08).
+/// An incoming argument `k` lives above the whole frame, past the entry
+/// return-address padding: `[sp + frame_size + entry_padding + k*8]`. An outgoing
+/// argument keeps its frame-bottom offset (`[sp + k*8]`), which the body shift
+/// deliberately skipped, and only has its base rewritten. Runs after
+/// [`adjust_stack_instruction_offsets`], so the rewritten `sp` offsets are final.
+fn resolve_stack_arg_sentinels(
+    instructions: &mut [CodeInstruction],
+    frame_size: usize,
+    entry_padding: usize,
+) {
+    for instruction in instructions.iter_mut() {
+        let base = match base_of(instruction) {
+            Some(base) => base,
+            None => continue,
+        };
+        let incoming = if base == abi::INCOMING_ARGS_BASE {
+            true
+        } else if base == abi::OUTGOING_ARGS_BASE {
+            false
+        } else {
+            continue;
+        };
+        let resolved_offset = if incoming {
+            frame_size + entry_padding + offset_of(instruction)
+        } else {
+            offset_of(instruction)
+        };
+        for (name, value) in &mut instruction.fields {
+            match *name {
+                "base" => *value = abi::stack_pointer().to_string(),
+                "offset" => *value = resolved_offset.to_string(),
+                _ => {}
             }
         }
     }
