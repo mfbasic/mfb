@@ -52,10 +52,12 @@ pub(crate) trait RegisterModel {
     /// Emit a register-to-register move within a class.
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction;
 
-    /// Bytes reserved per stack spill slot. AArch64 spills are 64-bit, so 8. x86
-    /// returns 16: its FP spills carry 128-bit SIMD vectors (vregified v16-v31)
-    /// that a 64-bit `movsd` would truncate — `movups` into a 16-byte slot keeps
-    /// both lanes. Every spill slot (int and fp) uses this stride uniformly.
+    /// Bytes reserved per stack spill slot — the widest spill this ISA performs.
+    /// Every shipping backend (AArch64 and x86-64) overrides this to 16: their FP
+    /// spills carry 128-bit SIMD vectors that a 64-bit `str d`/`movsd` would
+    /// truncate, so a `str q`/`movups` into a 16-byte slot keeps both lanes. The
+    /// `8` default is the scalar-only fallback. Every spill slot (int and fp)
+    /// uses this stride uniformly.
     fn spill_slot_bytes(&self) -> usize {
         8
     }
