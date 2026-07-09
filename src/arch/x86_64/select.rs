@@ -557,7 +557,14 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
 /// - `<>` (`b.ne`) → `jp target; jne target`: true on unordered *or* ordered-≠.
 /// - `b.lt`/`b.le` (integer-style `<`/`<=`, unordered ⇒ true) → `jb`/`jbe`.
 /// - `b.vs`/`b.vc` (NaN / not-NaN finiteness checks) → `jp`/`jnp`.
-fn x86_float_branch(cond: &str, target: &str) -> Vec<CodeInstruction> {
+///
+/// `site` is a per-function index that makes each synthesized skip label unique.
+/// Naming it from `target` alone let two ordered-only branches to the same label
+/// (e.g. `IF a < b OR c < d THEN GOTO L`) emit two labels of the same name; the
+/// encoder's name-keyed label map is last-writer-wins, so the first `jp` resolved
+/// to the *second* label and a NaN first operand jumped clean over the second
+/// comparison (bug-15).
+fn x86_float_branch(cond: &str, target: &str, site: usize) -> Vec<CodeInstruction> {
     // Emit ONLY `x86.*`-namespaced branches: this function's output is re-lowered
     // (`route_function_through_mir`) after selection, and a real AArch64 `b.cc`
     // sitting right after the `fcmp` would re-fuse and be remapped a second time.
@@ -566,7 +573,7 @@ fn x86_float_branch(cond: &str, target: &str) -> Vec<CodeInstruction> {
     let br = |mnemonic: &str, tgt: &str| CodeInstruction::new(mnemonic).field("target", tgt);
     // `jp skip; <cc> target; skip:` — take <cc> only when ordered (PF clear).
     let ordered_only = |cc: &str| {
-        let skip = format!("{target}__x86ford");
+        let skip = format!("{target}__x86ford{site}");
         vec![
             br("x86.jp", &skip),
             br(cc, target),
@@ -599,6 +606,9 @@ fn x86_float_branch(cond: &str, target: &str) -> Vec<CodeInstruction> {
 /// ABI registers to their SysV homes ([`remap_x86_abi`]).
 pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
+    // Distinguishes the skip label of every ordered-only float branch in this
+    // function (see `x86_float_branch`).
+    let mut float_branch_site = 0_usize;
     for instruction in instructions {
         if instruction.op == MirOp::AddrOf {
             // Single RIP-relative reference (no aarch64 page pair): the x86
@@ -644,9 +654,11 @@ pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction
                     .find(|(k, _)| *k == "target")
                     .map(|(_, v)| v.clone())
                     .expect("float compare branch carries a target");
-                for inst in x86_float_branch(&instruction.fields[split].1, &target) {
+                for inst in x86_float_branch(&instruction.fields[split].1, &target, float_branch_site)
+                {
                     out.push(inst);
                 }
+                float_branch_site += 1;
             } else {
                 out.push(CodeInstruction {
                     op: branch_op,
@@ -895,6 +907,39 @@ mod tests {
     }
 
     #[test]
+    fn ordered_only_skip_labels_are_unique_per_branch_site() {
+        // bug-15: two ordered-only float branches to the SAME target (e.g.
+        // `IF a < b OR c < d THEN GOTO L`) once emitted two labels both named
+        // `L__x86ford`. The encoder's label map is last-writer-wins, so the first
+        // `jp` resolved to the second label and a NaN first operand skipped the
+        // second comparison entirely.
+        let out = sel(&[
+            ci("fcmp_d", &[("lhs", "d0"), ("rhs", "d1")]),
+            ci("b.mi", &[("target", "L")]),
+            ci("fcmp_d", &[("lhs", "d2"), ("rhs", "d3")]),
+            ci("b.mi", &[("target", "L")]),
+            ci("label", &[("name", "L")]),
+            ci("ret", &[]),
+        ]);
+        let labels: Vec<String> = out
+            .iter()
+            .filter(|i| i.op == CodeOp::Label)
+            .map(|i| i.fields[0].1.clone())
+            .collect();
+        assert_eq!(labels.len(), 3, "two skip labels + the shared target: {labels:?}");
+        let skips: Vec<&String> = labels.iter().filter(|n| n.contains("__x86ford")).collect();
+        assert_eq!(skips.len(), 2);
+        assert_ne!(skips[0], skips[1], "skip labels collide: {skips:?}");
+        // Each `jp` targets its own skip label, which sits right after its `jb`.
+        let jps: Vec<&String> = out
+            .iter()
+            .filter(|i| i.op.mnemonic() == "x86.jp")
+            .map(|i| &i.fields[0].1)
+            .collect();
+        assert_eq!(jps, skips);
+    }
+
+    #[test]
     fn fcmp_zero_branch_rewrite() {
         // A compare-against-zero fused branch also takes the float remap.
         let out = sel(&[
@@ -910,7 +955,7 @@ mod tests {
     #[should_panic(expected = "unmapped x86 float-compare branch condition")]
     fn float_branch_unmapped_condition_panics() {
         // A non-flag condition reaching x86_float_branch panics.
-        x86_float_branch("b.pl", "L");
+        x86_float_branch("b.pl", "L", 0);
     }
 
     #[test]

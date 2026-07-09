@@ -97,9 +97,15 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
         // non-label instruction's exact size.
         for instruction in &function.instructions {
             if instruction.op == CodeOp::Label {
-                encoder
-                    .labels
-                    .insert(field(instruction, "name")?, encoder.text.len());
+                let name = field(instruction, "name")?;
+                // A duplicate name would be last-writer-wins here, silently
+                // resolving every reference to the final definition (bug-15).
+                if let Some(first) = encoder.labels.insert(name.clone(), encoder.text.len()) {
+                    return Err(format!(
+                        "x86_64: duplicate label '{name}' in function '{}' (first at byte {first})",
+                        function.name
+                    ));
+                }
             } else {
                 encoder
                     .text

@@ -2150,6 +2150,66 @@ fn encode_full_plan_labels_calls_and_data() {
 }
 
 #[test]
+fn duplicate_label_in_a_function_is_rejected() {
+    // bug-15: `labels.insert` is last-writer-wins, so a duplicate name silently
+    // resolved every reference to the final definition. Reject it instead.
+    let plan = plan_with(
+        vec![
+            ci("x86.jp", &[("target", "dup")]),
+            ci("label", &[("name", "dup")]),
+            ci("label", &[("name", "dup")]),
+            ci("ret", &[]),
+        ],
+        vec![],
+        vec![],
+    );
+    let error = match super::encode(&plan) {
+        Ok(_) => panic!("duplicate label must not encode"),
+        Err(error) => error,
+    };
+    assert!(error.contains("duplicate label 'dup'"), "{error}");
+}
+
+#[test]
+fn ordered_only_float_branch_jp_skips_only_its_own_jcc() {
+    // bug-15: two ordered-only float branches to the same target. Each `jp` must
+    // resolve to its OWN skip label — i.e. jump exactly over the 6-byte `jcc`
+    // that follows it — not to the second branch's label.
+    let plan = plan_with(
+        vec![
+            ci("fcmp_d", &[("lhs", "xmm0"), ("rhs", "xmm1")]),
+            ci("x86.jp", &[("target", "L__x86ford0")]),
+            ci("x86.jb", &[("target", "L")]),
+            ci("label", &[("name", "L__x86ford0")]),
+            ci("fcmp_d", &[("lhs", "xmm2"), ("rhs", "xmm3")]),
+            ci("x86.jp", &[("target", "L__x86ford1")]),
+            ci("x86.jb", &[("target", "L")]),
+            ci("label", &[("name", "L__x86ford1")]),
+            ci("label", &[("name", "L")]),
+            ci("ret", &[]),
+        ],
+        vec![],
+        vec![],
+    );
+    let image = super::encode(&plan).expect("encode");
+    // Both `jp`s and `jb`s are 6-byte near jumps (0x0f 0x8a/0x82 + rel32). Find
+    // each `jp` (0x0f 0x8a) and assert its displacement is 6 — over its own jcc.
+    let jps: Vec<usize> = (0..image.text.len().saturating_sub(6))
+        .filter(|&i| image.text[i] == 0x0f && image.text[i + 1] == 0x8a)
+        .collect();
+    assert_eq!(jps.len(), 2, "two jp instructions");
+    for at in jps {
+        let disp = i32::from_le_bytes([
+            image.text[at + 2],
+            image.text[at + 3],
+            image.text[at + 4],
+            image.text[at + 5],
+        ]);
+        assert_eq!(disp, 6, "jp at {at} must skip only its own 6-byte jcc");
+    }
+}
+
+#[test]
 fn encode_external_call_and_got_load() {
     // An imported symbol: `bl` routes to an external reloc, and an `adrp` against
     // the same import re-routes through the GOT (`got_pc32`).
