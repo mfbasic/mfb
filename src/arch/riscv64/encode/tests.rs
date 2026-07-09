@@ -166,6 +166,31 @@ fn large_offset_load_uses_rd_not_t0_as_address_scratch() {
 }
 
 #[test]
+fn large_offset_load_with_rd_aliasing_base_stages_through_t0() {
+    // bug-14: when the allocator coalesces `dst == base`, staging the address in
+    // `rd` would `li` over `base` first and load from `2 * offset`. Stage through
+    // `t0` in that one case. (`rd == base` never occurs inside a v128 lane
+    // sequence — those load from the `t2` slot base — so `t0` is dead here.)
+    let w = words(&encode_text(vec![
+        ci("ldr_u64", &[("dst", "a1"), ("base", "a1"), ("offset", "7472")]),
+        ci("ret", &[]),
+    ]));
+    let (a1, t0) = (11u32, 5u32);
+    // li t0, 7472 (lui+addi or addi) ; add t0, a1, t0 ; ld a1, 0(t0)
+    let add = (t0 << 20) | (a1 << 15) | (t0 << 7) | 0x33;
+    assert_eq!(w[w.len() - 3], add, "address add reads base before writing rd");
+    assert_eq!(
+        w[w.len() - 2],
+        (t0 << 15) | (0b011 << 12) | (a1 << 7) | 0x03,
+        "ld a1, 0(t0)"
+    );
+    // `base` (a1) is never written before the final load.
+    for &word in &w[..w.len() - 2] {
+        assert_ne!((word >> 7) & 0x1f, a1, "base clobbered: {word:#010x}");
+    }
+}
+
+#[test]
 fn conditional_branch_is_long_form() {
     let w = words(&encode_text(vec![
         ci("label", &[("name", "top")]),

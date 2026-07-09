@@ -502,7 +502,19 @@ impl Encoder {
         }
         // Materialize the address in `rd` itself (it is overwritten by the load),
         // never in `t0` — a large frame's spill/reload can land amid a scalarized
-        // `v128` sequence that holds live lanes in the `t0`/`t1` scratch.
+        // `v128` sequence that holds live lanes in the `t0`/`t1` scratch (the
+        // `v128.rs` integer lanes load `a` into `t0` and then `b` into `t1`).
+        //
+        // That is only safe while `rd != base`: when the allocator coalesces them
+        // (a normal outcome once `base`'s live range ends at the load), `li rd`
+        // destroys `base` and the `add` computes `2 * offset` (bug-14). In that
+        // one case stage through `t0` — `rd == base` cannot occur inside a v128
+        // lane sequence, whose loads always read the `t2` slot base.
+        if rd == base {
+            self.emit_li(T0, offset)?;
+            self.emit_r(OP, 0b000, 0, T0, base, T0)?; // add t0, base, t0
+            return self.emit_word(i_type(0, T0 as u32, funct3, rd as u32, LOAD));
+        }
         self.emit_li(rd, offset)?;
         self.emit_r(OP, 0b000, 0, rd, base, rd)?; // add rd, base, rd
         self.emit_word(i_type(0, rd as u32, funct3, rd as u32, LOAD))
