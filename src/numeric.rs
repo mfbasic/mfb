@@ -38,11 +38,21 @@ pub(crate) fn classify_literal(text: &str) -> (String, LiteralType) {
     }
 }
 
+/// Longest plain-decimal expansion `expand_scientific_notation` will materialize.
+/// The widest legal expansion of an `f64` literal is ~325 characters (the
+/// smallest subnormal, `5e-324`) and ~310 for the largest finite magnitude, so
+/// this budget leaves an order of magnitude of headroom while bounding the work
+/// an adversarial exponent (`1e-1000000000`) can demand (bug-11).
+const MAX_EXPANDED_DIGITS: usize = 8192;
+
 /// Expand a decimal scientific-notation string (`2.5e2`, `1e-3`) into a plain
 /// decimal string (`250`, `0.001`) by shifting the decimal point — exact digit
-/// arithmetic, no `f64` rounding. A string with no `e`/`E` is returned unchanged.
-/// Used to keep the exact Fixed conversion precise for exponent literals and to
-/// fold a scientific-notation literal's `toString` to a plain decimal (plan-28-B).
+/// arithmetic, no `f64` rounding. A string with no `e`/`E` is returned unchanged,
+/// as is one whose exponent is so extreme that the expansion would exceed
+/// [`MAX_EXPANDED_DIGITS`] (callers reject the still-exponential text rather than
+/// materializing gigabytes of zeros). Used to keep the exact Fixed conversion
+/// precise for exponent literals and to fold a scientific-notation literal's
+/// `toString` to a plain decimal (plan-28-B).
 pub(crate) fn expand_scientific_notation(value: &str) -> String {
     let Some((mantissa, exponent_text)) = value.split_once(['e', 'E']) else {
         return value.to_string();
@@ -56,9 +66,26 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
         .unwrap_or((false, mantissa));
     let (int_part, frac_part) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     let digits = format!("{int_part}{frac_part}");
+    // A zero mantissa is zero at every exponent — fold it without shifting, so
+    // `0e-1000000000` costs nothing.
+    if !digits.is_empty() && digits.bytes().all(|digit| digit == b'0') {
+        return if negative { "-0".to_string() } else { "0".to_string() };
+    }
     // The decimal point starts after `int_part.len()` significant digits; the
-    // exponent shifts it right by `exponent`.
-    let point = int_part.len() as i32 + exponent;
+    // exponent shifts it right by `exponent`. Compute in i64: `int_part.len() as
+    // i32 + exponent` overflows for an exponent near `i32::MAX`.
+    let point = int_part.len() as i64 + exponent as i64;
+    // Zeros shifted in on either side, and thus the whole expansion, grow with
+    // |point|. Refuse to build one past the budget.
+    let zeros = if point <= 0 {
+        (-point) as u64
+    } else {
+        (point as u64).saturating_sub(digits.len() as u64)
+    };
+    if zeros > MAX_EXPANDED_DIGITS as u64 {
+        return value.to_string();
+    }
+    let point = point as isize;
     let mut result = String::new();
     if negative {
         result.push('-');
@@ -82,6 +109,16 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
     result
 }
 
+/// The plain-decimal text of a scientific-notation `Float`/`Fixed` literal, for
+/// the constant `toString` fold (plan-28-B). `None` when the exponent is too
+/// extreme to expand ([`MAX_EXPANDED_DIGITS`]) — the fold is then skipped and the
+/// runtime formatter handles the value, rather than folding to the raw
+/// exponential text or materializing gigabytes of zeros (bug-11).
+pub(crate) fn expanded_literal_text(value: &str) -> Option<String> {
+    let expanded = expand_scientific_notation(value);
+    (!expanded.contains(['e', 'E'])).then_some(expanded)
+}
+
 /// Convert a decimal `Fixed` literal string into its 32.32 fixed-point `i64` raw
 /// value (round-half-up on the fractional part). Handles a leading `-` and
 /// scientific notation. `Err` when the value is malformed or out of the `i64`
@@ -92,6 +129,14 @@ pub(crate) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
     const SCALE: i128 = 1_i128 << 32;
 
     let expanded = expand_scientific_notation(value);
+    // The expansion only leaves an exponent marker behind when the exponent does
+    // not fit an i32 or is too extreme to expand within the digit budget. Either
+    // way (the zero mantissa having been folded) the magnitude is far outside the
+    // 32.32 range — reject in O(1) rather than parse the exponential text
+    // (bug-11).
+    if expanded.contains(['e', 'E']) {
+        return Err(format!("Fixed constant `{value}` is out of range"));
+    }
     let value = expanded.as_str();
     let (negative, digits) = value
         .strip_prefix('-')
@@ -167,6 +212,48 @@ fn is_numeric_type(type_: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expand_scientific_notation_bounds_extreme_exponents() {
+        // In-range literals expand exactly as before.
+        assert_eq!(expand_scientific_notation("2.5e2"), "250");
+        assert_eq!(expand_scientific_notation("1e-3"), "0.001");
+        assert_eq!(expand_scientific_notation("-1.5e1"), "-15");
+        // A zero mantissa is zero at any exponent — folded, never shifted.
+        assert_eq!(expand_scientific_notation("0e-1000000000"), "0");
+        assert_eq!(expand_scientific_notation("0.00e999999999"), "0");
+        // Beyond the digit budget the text is returned unchanged: no multi-GB
+        // string, and `point` is computed in i64 so `i32::MAX` cannot overflow.
+        assert_eq!(
+            expand_scientific_notation("1e-1000000000"),
+            "1e-1000000000"
+        );
+        assert_eq!(expand_scientific_notation("1e2147483647"), "1e2147483647");
+        assert_eq!(expand_scientific_notation("1e-2147483648"), "1e-2147483648");
+        // The widest f64 literal still expands (325 characters).
+        assert_eq!(expand_scientific_notation("5e-324").len(), 326);
+        // The fold helper declines rather than yielding exponential text.
+        assert_eq!(expanded_literal_text("2.5e2").as_deref(), Some("250"));
+        assert_eq!(expanded_literal_text("1e-1000000000"), None);
+    }
+
+    #[test]
+    fn fixed_raw_from_decimal_rejects_extreme_exponents_in_o1() {
+        for literal in [
+            "1e-1000000000",
+            "1e2147483647",
+            "1e-2147483648",
+            "1e9999999999",
+        ] {
+            let error = fixed_raw_from_decimal(literal).expect_err("must be out of range");
+            assert!(error.contains("is out of range"), "{literal}: {error}");
+        }
+        // A zero mantissa with an extreme exponent is still exactly zero.
+        assert_eq!(fixed_raw_from_decimal("0e-1000000000").unwrap(), 0);
+        // In-range scientific literals are unaffected.
+        assert_eq!(fixed_raw_from_decimal("2.5e2").unwrap(), 250 << 32);
+        assert_eq!(fixed_raw_from_decimal("-1e1").unwrap(), -(10 << 32));
+    }
 
     #[test]
     fn classify_literal_types_integers_and_floats() {

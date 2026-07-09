@@ -195,7 +195,7 @@ pub(super) fn static_primitive_text_with_constants(
             // plain decimal (`2.5e2` -> `250`), so `toString` on a constant reads
             // the same as the equivalent plain literal (plan-28-B).
             "Float" | "Fixed" if value.contains('e') || value.contains('E') => {
-                Some(numeric::expand_scientific_notation(value))
+                numeric::expanded_literal_text(value)
             }
             "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
             "Boolean" => match value.as_str() {

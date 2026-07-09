@@ -552,7 +552,7 @@ fn native_primitive_text(
             // Scientific-notation Float/Fixed literals fold to their expanded
             // plain decimal (`2.5e2` -> `250`; plan-28-B).
             "Float" | "Fixed" if value.contains('e') || value.contains('E') => {
-                Some(crate::numeric::expand_scientific_notation(value))
+                crate::numeric::expanded_literal_text(value)
             }
             "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
             "Boolean" => match value.as_str() {
