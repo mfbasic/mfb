@@ -2530,3 +2530,21 @@ END FUNC
         );
     }
 }
+
+#[test]
+fn doc_example_dedent_handles_multibyte_whitespace() {
+    // bug-19: `dedent` measured indentation in BYTES but sliced every line at the
+    // byte minimum. `trim_start` is Unicode-whitespace-aware, so an EXAMPLE mixing
+    // a one-byte space with a two-byte NBSP (U+00A0) put the minimum (1) inside
+    // the NBSP line's first char and panicked "byte index 1 is not a char
+    // boundary", aborting the whole compile. Indentation is now a CHAR prefix.
+    let src = "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n";
+    let json = project_json(src);
+    // One char stripped from each line: " a" -> "a", "\u{a0}\u{a0}b" -> "\u{a0}b".
+    assert!(json.contains("\"example\""), "doc block parsed: {json}");
+    assert!(json.contains("a\\n\u{a0}b"), "dedent by one char: {json}");
+
+    // All-ASCII indentation is unchanged (the overwhelmingly common case).
+    let ascii = project_json("DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n");
+    assert!(ascii.contains("a\\n  b"), "ascii dedent: {ascii}");
+}

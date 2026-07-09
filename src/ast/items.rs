@@ -1299,18 +1299,29 @@ fn split_first_word(text: &str) -> (&str, &str) {
 }
 
 /// Strip the common leading indentation from EXAMPLE body lines and join them.
+///
+/// Indentation is measured and stripped in **characters**, not bytes. `trim_start`
+/// is Unicode-whitespace-aware, so a byte-count minimum taken across lines indented
+/// with different-width whitespace (a space on one line, U+00A0 on another) could
+/// land inside a multibyte char and panic the byte slice `l[min_indent..]` with
+/// "byte index N is not a char boundary" (bug-19). A char prefix is also the
+/// semantically intended "common indentation".
 fn dedent(lines: &[&str]) -> String {
+    let leading_whitespace = |l: &str| l.chars().take_while(|c| c.is_whitespace()).count();
     let min_indent = lines
         .iter()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
+        .map(|l| leading_whitespace(l))
         .min()
         .unwrap_or(0);
     lines
         .iter()
         .map(|l| {
-            if l.len() >= min_indent {
-                l[min_indent..].trim_end().to_string()
+            // Only a blank line can be shorter than the common indentation (it is
+            // excluded from the minimum); trim it away entirely.
+            let mut chars = l.chars();
+            if chars.by_ref().take(min_indent).count() == min_indent {
+                chars.as_str().trim_end().to_string()
             } else {
                 l.trim().to_string()
             }
