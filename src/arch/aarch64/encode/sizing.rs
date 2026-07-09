@@ -1,4 +1,4 @@
-use super::operand::{field, immediate};
+use super::operand::{field, immediate, reg};
 use super::*;
 
 pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
@@ -10,15 +10,19 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
         CodeOp::AddImm | CodeOp::SubImm => {
             return Ok(sized_add_sub_imm(immediate(field(instruction, "imm")?)?));
         }
-        CodeOp::AddSp | CodeOp::SubSp | CodeOp::CmpImm => {
-            return Ok(sized_add_sub_imm(immediate(field(
-                instruction,
-                if instruction.op == CodeOp::CmpImm {
-                    "rhs"
-                } else {
-                    "imm"
-                },
-            )?)?));
+        CodeOp::AddSp | CodeOp::SubSp => {
+            return Ok(sized_add_sub_imm(immediate(field(instruction, "imm")?)?));
+        }
+        // `cmp_imm` is not chunked like add/sub: out of imm12 range `emit_cmp_imm`
+        // materializes the immediate with `mov_imm` (1–4 words) and emits a
+        // register `cmp`, so its length follows the mov_imm word count.
+        CodeOp::CmpImm => {
+            let rhs = immediate(field(instruction, "rhs")?)?;
+            return Ok(if checked_imm12(rhs).is_ok() {
+                4
+            } else {
+                wide_imm_word_count(rhs) * 4 + 4
+            });
         }
         CodeOp::LdrU64 | CodeOp::StrU64 | CodeOp::LdrD | CodeOp::StrD => {
             return Ok(sized_memory_imm(
@@ -57,8 +61,11 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
         // `cmp; adcs; cset` (carry-in register) — the no-carry-in form avoids
         // `cmp xzr,#1` (x31 = SP in the immediate form). Explicit-borrow sub is
         // always `subs; sbcs; cset` (register form, no SP hazard).
+        // Key the size on the *resolved* register number, exactly as
+        // `emit_add_carry` does — `"xzr"`, `"sp"`, `"raw_sp"` and `"x31"` all
+        // resolve to 31, so a spelling test would disagree with the emitter.
         CodeOp::AddCarry => {
-            return Ok(if field(instruction, "carry_in")? == "xzr" {
+            return Ok(if reg(field(instruction, "carry_in")?)? == 31 {
                 8
             } else {
                 12

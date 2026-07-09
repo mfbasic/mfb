@@ -747,6 +747,44 @@ fn add_carry_and_sub_borrow_sizes() {
         .len(),
         3
     );
+    // The no-carry-in predicate is the resolved register (31), not the spelling:
+    // "sp"/"x31" must size the same as "xzr" (emit_words asserts size == emit).
+    for spelling in ["xzr", "sp", "x31"] {
+        assert_eq!(
+            emit_words(
+                "add_carry",
+                &[
+                    ("dst", "x0"),
+                    ("carry_out", "x1"),
+                    ("lhs", "x2"),
+                    ("rhs", "x3"),
+                    ("carry_in", spelling)
+                ]
+            )
+            .len(),
+            2
+        );
+    }
+}
+
+#[test]
+fn cmp_imm_size_matches_emit_for_out_of_range_immediates() {
+    // `emit_words` asserts instruction_size == emitted bytes. Out of imm12 range
+    // `emit_cmp_imm` is `mov_imm` (1–4 words) + `cmp`, not the add/sub chunking.
+    assert_eq!(emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4095")]).len(), 1);
+    assert_eq!(emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4096")]).len(), 2);
+    assert_eq!(
+        emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4294967296")]).len(),
+        3
+    );
+    assert_eq!(
+        emit_words(
+            "cmp_imm",
+            &[("lhs", "x0"), ("rhs", "18446744073709551615")]
+        )
+        .len(),
+        5
+    );
 }
 
 #[test]
