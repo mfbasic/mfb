@@ -47,7 +47,14 @@ fn hex_digit(value: u8) -> Result<u8, String> {
     }
 }
 
+/// Round `value` up to a multiple of `alignment`. An alignment of 0 (only
+/// reachable from a malformed plan — decoded `.mfp` IR is not re-validated
+/// before codegen, see audit-1 PKG-02) means "no alignment": return `value`
+/// unchanged rather than panicking in `div_ceil` with a divide-by-zero (bug-18).
 pub(super) fn align(value: usize, alignment: usize) -> usize {
+    if alignment <= 1 {
+        return value;
+    }
     value.div_ceil(alignment) * alignment
 }
 

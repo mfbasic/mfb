@@ -263,3 +263,17 @@ fn li_reconstructs_all_values() {
         assert_eq!(simulate(v), v, "li mismatch for {v} ({v:#018x})");
     }
 }
+
+#[test]
+fn align_zero_does_not_divide_by_zero() {
+    // bug-18: a malformed plan (decoded `.mfp` IR is not re-validated before
+    // codegen) could carry a data object with align 0, panicking `div_ceil(0)`.
+    // Treat 0 (and 1) as "no alignment".
+    assert_eq!(super::data::align(1, 0), 1);
+    assert_eq!(super::data::align(0, 0), 0);
+    assert_eq!(super::data::align(7, 1), 7);
+    // Real alignments are unchanged.
+    assert_eq!(super::data::align(1, 8), 8);
+    assert_eq!(super::data::align(16, 16), 16);
+    assert_eq!(super::data::align(17, 16), 32);
+}
