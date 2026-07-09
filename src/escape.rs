@@ -278,31 +278,25 @@ impl Analyzer {
         // fixpoint: `membership[c]` is the set of resources reachable from
         // collection binding `c`.
         let mut membership: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut returned: HashSet<String> = HashSet::new();
         loop {
             let mut changed = false;
             for routing in &self.routings {
+                // A `Target::Returned` routing contributes nothing to membership —
+                // the caller-transfer decision below reads `returned_collections`,
+                // computed once above — so only `Target::Var` edges propagate.
+                let Target::Var(name) = &routing.target else {
+                    continue;
+                };
                 let mut incoming: HashSet<String> = routing.res_elems.iter().cloned().collect();
                 for source in &routing.src_collections {
                     if let Some(members) = membership.get(source) {
                         incoming.extend(members.iter().cloned());
                     }
                 }
-                match &routing.target {
-                    Target::Var(name) => {
-                        let slot = membership.entry(name.clone()).or_default();
-                        for resource in incoming {
-                            if slot.insert(resource) {
-                                changed = true;
-                            }
-                        }
-                    }
-                    Target::Returned => {
-                        for resource in incoming {
-                            if returned.insert(resource) {
-                                changed = true;
-                            }
-                        }
+                let slot = membership.entry(name.clone()).or_default();
+                for resource in incoming {
+                    if slot.insert(resource) {
+                        changed = true;
                     }
                 }
             }
@@ -311,7 +305,6 @@ impl Analyzer {
             }
         }
 
-        let _ = &returned;
         let mut owners = HashMap::new();
         for resource in &self.res_names {
             // A resource that flows into a returned collection still floats to
