@@ -756,21 +756,28 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         }
         // f64 → i64 round-to-nearest, ties AWAY from zero (AArch64 `fcvtas`).
         // SSE `roundsd`/`cvtsd2si` round ties to EVEN, so realize the ties-away
-        // rule directly: result = trunc(src + copysign(0.5, src)). The sign of src
-        // is OR-ed into 0.5's bit pattern in the (scratch) dst GPR — rax is free
-        // (never allocated: excluded from the scratch pool) so it stages the 0.5
-        // constant; xmm15 is the FP scratch.
+        // rule directly: result = trunc(src + copysign(0.5, src)).
+        //
+        // `copysign(0.5, src)` is built entirely inside the scratch `dst` GPR:
+        // `bits(0.5)` is `0x3FE << 52`, so shifting the sign bit up to bit 11,
+        // OR-ing the 10-bit `0x3FE` beneath it, and shifting the pair left by 52
+        // lands `sign<<63 | 0x3FE<<52` with no second register. The earlier
+        // sequence staged the constant with `movabs rax` on the claim that rax is
+        // free; rax is merely un-allocatable (it is the ABI return register, and
+        // it is also a legal `dst` here — in which case the `movabs` destroyed the
+        // sign bits it had just computed). xmm15 is the FP scratch (bug-17).
         "f2i_nearest" | "fcvtas_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
             let mut b = enc_movq_r64_xmm(dst, src); // dst = raw bits of src
             b.extend(enc_shift_imm_reg(5, dst, 63)); // shr dst, 63  → sign bit
-            b.extend(enc_shift_imm_reg(4, dst, 63)); // shl dst, 63  → sign << 63
-            b.extend(enc_mov_imm64(0, 0x3FE0_0000_0000_0000)); // movabs rax, bits(0.5)
-                                                               // or dst, rax : REX.W 09 /r (rm = dst, reg = rax)
+            b.extend(enc_shift_imm_reg(4, dst, 11)); // shl dst, 11  → sign << 11
+                                                     // or dst, 0x3FE : REX.W 81 /1 id (imm32, sign-extended; 0x3FE > 0)
             b.push(rex(true, false, false, dst >= 8));
-            b.push(0x09);
-            b.push(modrm(0b11, 0, dst));
+            b.push(0x81);
+            b.push(modrm(0b11, 1, dst));
+            b.extend(0x3FE_u32.to_le_bytes());
+            b.extend(enc_shift_imm_reg(4, dst, 52)); // shl dst, 52 → sign<<63 | bits(0.5)
             b.extend(enc_movq_xmm_r64(15, dst)); // xmm15 = copysign(0.5, src)
             b.extend(enc_sse_rr(Some(0xf2), 0x58, 15, src)); // addsd xmm15, src
             b.extend(enc_sse_cvt(0xf2, 0x2c, false, dst, 15)); // cvttsd2si dst, xmm15

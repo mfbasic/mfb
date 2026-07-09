@@ -855,6 +855,37 @@ fn float_int_conversions() {
 }
 
 #[test]
+fn f2i_nearest_never_touches_rax() {
+    // bug-17: the ties-away sequence staged `bits(0.5)` with `movabs rax`, the one
+    // GPR-shuttling float op that neither preserved nor avoided rax. With
+    // `dst == rax` (a legal encoding: rax is the ABI return register) the movabs
+    // destroyed the sign bit the previous two shifts had just computed, so every
+    // negative input rounded toward zero instead of away.
+    for dst in ["rax", "rbx", "r10"] {
+        let b = bytes("fcvtas_x_from_d", &[("dst", dst), ("src", "xmm0")]);
+        // No `movabs r64, imm64` (REX.W + B8+rd) anywhere in the sequence.
+        assert!(
+            !b.windows(2)
+                .any(|w| w[0] & 0xF8 == 0x48 && w[1] & 0xF8 == 0xB8),
+            "{dst}: movabs must be gone: {b:02x?}"
+        );
+        // The 0.5 mantissa constant is OR-ed in as a 32-bit immediate (0x3FE).
+        assert!(
+            b.windows(4).any(|w| w == 0x3FE_u32.to_le_bytes()),
+            "{dst}: 0x3FE imm32: {b:02x?}"
+        );
+    }
+    // The identity the sequence relies on: ((sign << 11) | 0x3FE) << 52 is exactly
+    // `copysign(0.5, src)`'s bit pattern for either sign.
+    for sign in 0..2_u64 {
+        assert_eq!(
+            ((sign << 11) | 0x3FE) << 52,
+            (sign << 63) | 0.5_f64.to_bits(),
+        );
+    }
+}
+
+#[test]
 fn float_scalar_mem() {
     // movsd xmm0, [rbx+8] load; movsd [rbx+8], xmm0 store.
     let _ = bytes(
