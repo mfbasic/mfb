@@ -1122,6 +1122,52 @@ pub(super) fn validate_abi_index(
         }
     }
 
+    // Type/union/enum exports carry a sigHash too, but they have no EXPORT_TABLE
+    // entry to key off, so the loop above never reaches them. Re-derive each one
+    // from the decoded TYPE_TABLE the same way the writer does, so no ABI surface
+    // is trusted unverified.
+    for abi_export in &abi.exports {
+        let entry_kind = match abi_export.kind {
+            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => continue,
+            BinaryReprExportKind::Type => 1u16,
+            BinaryReprExportKind::Union => 2,
+            BinaryReprExportKind::Enum => 3,
+        };
+        let name = string_at(strings, abi_export.name)?;
+        // A name is interned once, so `entry.name` compares by string id. Several
+        // entries may still share it (an imported type of the same name lives in
+        // the table too), so the export is valid when *some* candidate definition
+        // reproduces its hash.
+        let candidates = types
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.kind == entry_kind && entry.name == abi_export.name)
+            .map(|(index, _)| FIRST_TABLE_TYPE_ID + index as u32)
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Err(format!(
+                "ABI_INDEX type export `{name}` is missing from the type table"
+            ));
+        }
+        let mut expected = None;
+        for type_id in candidates {
+            let hash = type_sig_hash(type_id, abi_export.kind, strings, types, constants)?;
+            if hash == abi_export.sig_hash {
+                expected = None;
+                break;
+            }
+            expected.get_or_insert(hash);
+        }
+        if let Some(expected) = expected {
+            return Err(format!(
+                "ABI_INDEX type export `{name}` sigHash disagrees with binary representation (required {}, provided {})",
+                hex_hash(&expected),
+                hex_hash(&abi_export.sig_hash)
+            ));
+        }
+    }
+
     let import_names = imports
         .entries
         .iter()

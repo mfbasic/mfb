@@ -3065,6 +3065,83 @@ mod reader_gap_tests {
     }
 
     #[test]
+    fn validate_abi_index_recomputes_type_export_hashes() {
+        // A record type export whose ABI sigHash was tampered with must be
+        // rejected at decode, exactly as a tampered callable export hash is.
+        let mut strings = StringPool::new();
+        let mut types = TypeTable::new();
+        let mut payload = Vec::new();
+        put_u32(&mut payload, 0); // zero fields
+        let type_id = types.add_entry(&mut strings, "pkg", "Point", 1, payload);
+        let constants = ConstPool::new();
+        let name = strings.intern("Point");
+        let sig_hash = type_sig_hash(
+            type_id,
+            BinaryReprExportKind::Type,
+            &strings.values,
+            &types,
+            &constants,
+        )
+        .unwrap();
+        let imports = ImportTable { entries: vec![] };
+
+        let good = AbiIndex {
+            exports: vec![AbiExport {
+                name,
+                kind: BinaryReprExportKind::Type,
+                sig_hash,
+            }],
+            dep_edges: vec![],
+        };
+        validate_abi_index(&good, &[], &imports, &strings.values, &types, &constants, &[])
+            .expect("a faithful type export hash validates");
+
+        let mut tampered_hash = sig_hash;
+        tampered_hash[0] ^= 0xff;
+        let tampered = AbiIndex {
+            exports: vec![AbiExport {
+                name,
+                kind: BinaryReprExportKind::Type,
+                sig_hash: tampered_hash,
+            }],
+            dep_edges: vec![],
+        };
+        let err = validate_abi_index(
+            &tampered,
+            &[],
+            &imports,
+            &strings.values,
+            &types,
+            &constants,
+            &[],
+        )
+        .expect_err("a forged type export hash must be rejected");
+        assert!(err.contains("type export `Point` sigHash disagrees"), "{err}");
+
+        // An export naming a type that is absent from the TYPE_TABLE is an error.
+        let orphan_name = strings.intern("Ghost");
+        let orphan = AbiIndex {
+            exports: vec![AbiExport {
+                name: orphan_name,
+                kind: BinaryReprExportKind::Union,
+                sig_hash,
+            }],
+            dep_edges: vec![],
+        };
+        let err = validate_abi_index(
+            &orphan,
+            &[],
+            &imports,
+            &strings.values,
+            &types,
+            &constants,
+            &[],
+        )
+        .expect_err("an unbacked type export must be rejected");
+        assert!(err.contains("is missing from the type table"), "{err}");
+    }
+
+    #[test]
     fn abi_serializer_rejects_reserved_type_ids_without_overflow() {
         // Ids 0 and 9 are neither primitives nor table ids (>= 10). A tampered
         // package can carry them; the serializer must report them cleanly on
