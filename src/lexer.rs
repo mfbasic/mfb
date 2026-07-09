@@ -317,6 +317,23 @@ impl Lexer<'_> {
                     break;
                 }
                 let escaped = self.peek();
+                // A backslash immediately before a newline is not a line
+                // continuation — no such feature exists. Without this guard the
+                // fall-through arm below would embed a literal newline in the
+                // value and consume it with `advance`, which never bumps
+                // `self.line`, desyncing every later token's line number
+                // (bug-12). Leave the newline unconsumed, exactly as the
+                // unescaped-newline guard above does.
+                if escaped == '\n' {
+                    self.report(
+                        "MFB_LEX_UNTERMINATED_STRING",
+                        "String literal reached the end of the line before a closing quote.",
+                        line,
+                        start,
+                        self.column,
+                    );
+                    return;
+                }
                 match escaped {
                     '"' => value.push('"'),
                     '\\' => value.push('\\'),
@@ -1440,6 +1457,32 @@ mod tests {
     fn unterminated_string_on_line_is_an_error() {
         // Newline before the closing quote.
         assert!(lex(Path::new("main.mfb"), "\"abc\ndef\n").is_err());
+    }
+
+    #[test]
+    fn backslash_before_newline_is_an_unterminated_string() {
+        // bug-12: the catch-all escape arm used to embed the newline in the value
+        // and consume it with `advance` (which never bumps `self.line`), so every
+        // later token reported a line number one short. There is no in-string line
+        // continuation: this is an unterminated string, like a bare newline.
+        assert!(lex(Path::new("main.mfb"), "LET a = \"abc\\\ndef\"\nLET b = 1\n").is_err());
+        // The newline is left unconsumed (so the outer scanner still counts it),
+        // and no String token is produced.
+        let mut lexer = Lexer {
+            path: Path::new("main.mfb"),
+            chars: "\"abc\\\ndef\"\n".chars().collect(),
+            index: 0,
+            line: 1,
+            column: 1,
+            tokens: Vec::new(),
+            had_error: false,
+            internal: false,
+        };
+        lexer.lex_string();
+        assert!(lexer.had_error);
+        assert!(lexer.tokens.is_empty());
+        assert_eq!(lexer.peek(), '\n');
+        assert_eq!(lexer.line, 1);
     }
 
     #[test]
