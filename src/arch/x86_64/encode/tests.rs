@@ -1118,6 +1118,39 @@ fn v128_bit_select_fma_convert() {
         .field("src", "xmm1")
         .field("shift", "z");
     assert!(matches!(encode_instruction(&ins), Err(_)));
+
+    // bug-16: `sshr .2d, #64` sign-fills the lane on AArch64. The emulation must
+    // keep the `pcmpgtq` sign mask (unshifted) and let `psrlq dst, 64` zero the
+    // lane, so the `por` leaves the mask. Clearing the mask returned 0 instead of
+    // -1 for a negative lane. `pxor` (0F EF) therefore appears exactly ONCE for
+    // k=64, and twice for the k=0 no-op that must clear the mask.
+    let pxors = |b: &[u8]| b.windows(2).filter(|w| w == &[0x0F, 0xEF]).count();
+    let k64 = bytes("sshr_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")]);
+    assert_eq!(pxors(&k64), 1, "k=64 keeps the sign mask: {k64:02x?}");
+    let k0 = bytes("sshr_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "0")]);
+    assert_eq!(pxors(&k0), 2, "k=0 clears the sign mask");
+    // The lane is shifted out by a `psrlq` (0F 73 /2, modrm reg field = 2) whose
+    // immediate is 64 — an x86 count > 63 zeroes the lane by definition.
+    assert!(
+        k64.windows(4).any(|w| w[0] == 0x0F
+            && w[1] == 0x73
+            && (w[2] >> 3) & 0x7 == 0x02
+            && w[3] == 64),
+        "psrlq dst,64 present: {k64:02x?}"
+    );
+    // ushr/shl by 64 zero the lane on both ISAs (an x86 count > 63 is defined to).
+    let _ = bytes("ushr_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")]);
+    // Past 64 the immediate is malformed and must be rejected, not truncated.
+    for op in ["sshr_v", "ushr_v", "shl_v"] {
+        let ins = CodeInstruction::new(op)
+            .field("dst", "xmm0")
+            .field("src", "xmm1")
+            .field("shift", "65");
+        assert!(
+            matches!(encode_instruction(&ins), Err(_)),
+            "{op} must reject a shift of 65"
+        );
+    }
 }
 
 #[test]

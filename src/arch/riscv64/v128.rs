@@ -488,7 +488,24 @@ pub(crate) fn scalarize_v128(
                 _ => "lsr_imm",
             };
             let (d, s, sh) = (f(fields, "dst"), f(fields, "src"), f(fields, "shift"));
+            // AArch64 allows a `.2d` shift of exactly 64 (`sshr`/`ushr` take
+            // 1..=64): arithmetic sign-fills the lane, logical zeroes it. RISC-V
+            // masks `shamt` to 6 bits, so forwarding 64 to a scalar shift is both
+            // an encoder error and the wrong result — special-case it (bug-16).
             for h in 0..2 {
+                if sh == "64" {
+                    match op {
+                        SshrV => {
+                            ild(&mut out, T0, &s, h);
+                            // srai by 63 broadcasts the sign bit across the lane.
+                            out.push(ci("asr_imm", &[("dst", T0), ("src", T0), ("shift", "63")]));
+                            isd(&mut out, T0, &d, h);
+                        }
+                        // Logical/left shift out every bit: the lane becomes zero.
+                        _ => isd(&mut out, ZERO, &d, h),
+                    }
+                    continue;
+                }
                 ild(&mut out, T0, &s, h);
                 out.push(ci(mn, &[("dst", T0), ("src", T0), ("shift", &sh)]));
                 isd(&mut out, T0, &d, h);
@@ -543,6 +560,54 @@ mod tests {
         assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(), 2);
         // %f7 (slot 1) low lane reads offset 16.
         assert!(out.iter().any(|i| i.get("offset") == Some("16")));
+    }
+
+    #[test]
+    fn lane_shift_by_sixty_four_matches_aarch64() {
+        // bug-16: AArch64 `.2d` right shifts take 1..=64. Forwarding 64 to a
+        // scalar RISC-V shift is an encoder error (shamt is 6 bits), so the
+        // boundary is lowered directly: arithmetic → sign fill, logical → zero.
+        let fields = vec![
+            ("dst", "v0".to_string()),
+            ("src", "v1".to_string()),
+            ("shift", "64".to_string()),
+        ];
+        let slots = map(&[("v0", 0), ("v1", 1)]);
+
+        let sshr = scalarize_v128(CodeOp::SshrV, &fields, &slots);
+        // Both lanes sign-fill with `srai t0, t0, 63` — never a shift of 64.
+        assert_eq!(
+            sshr.iter()
+                .filter(|i| i.op.mnemonic() == "asr_imm" && i.get("shift") == Some("63"))
+                .count(),
+            2
+        );
+        assert!(sshr.iter().all(|i| i.get("shift") != Some("64")));
+
+        // Logical/left shift out every bit: store the `zero` register per lane.
+        for op in [CodeOp::UshrV, CodeOp::ShlV] {
+            let out = scalarize_v128(op, &fields, &slots);
+            let zeroed = out
+                .iter()
+                .filter(|i| i.op.mnemonic() == "str_u64" && i.get("src") == Some("zero"))
+                .count();
+            assert_eq!(zeroed, 2, "{} lanes must be zeroed", op.mnemonic());
+            assert!(out.iter().all(|i| i.get("shift") != Some("64")));
+        }
+
+        // In-range shifts are untouched.
+        let three = vec![
+            ("dst", "v0".to_string()),
+            ("src", "v1".to_string()),
+            ("shift", "3".to_string()),
+        ];
+        let out = scalarize_v128(CodeOp::UshrV, &three, &slots);
+        assert_eq!(
+            out.iter()
+                .filter(|i| i.op.mnemonic() == "lsr_imm" && i.get("shift") == Some("3"))
+                .count(),
+            2
+        );
     }
 
     fn mir(op: crate::target::shared::code::mir::MirOp, fields: &[(&'static str, &str)]) -> MirInstruction {

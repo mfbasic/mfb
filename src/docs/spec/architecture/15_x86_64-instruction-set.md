@@ -205,7 +205,11 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_x86_64/
 - **Emulated where SSE has no form:** packed i64↔f64 conversions (`fcvtzs_v`/
   `scvtf_v`) run lane-serial through rax/rdx + `xmm15` (`pshufd 0xEE` brings lane 1
   to lane 0); `sshr_v` (arithmetic i64 lane shift-right) uses `psrlq` plus a
-  sign-fill from `pcmpgtq`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+  sign-fill from `pcmpgtq`. At the AArch64-legal boundary `sshr_v #64` the fill is
+  kept unshifted and `psrlq dst, 64` zeroes the lane, so the `por` yields the sign
+  fill; `shl_v`/`ushr_v` take the same boundary as the zero an x86 count > 63
+  already produces. A lane shift above 64 is rejected.
+  [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 
 ## Deferred / not yet implemented on x86-64
 

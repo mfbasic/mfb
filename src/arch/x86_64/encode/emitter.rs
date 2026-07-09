@@ -1023,6 +1023,13 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let shift: u8 = field(instruction, "shift")?
                 .parse()
                 .map_err(|_| "x86 shl_v/ushr_v: bad shift".to_string())?;
+            // AArch64 takes 0..=63 for `shl.2d` and 1..=64 for `ushr.2d`. A
+            // `psllq`/`psrlq` count above 63 is architecturally defined to zero
+            // the lane — exactly the AArch64 result for `ushr #64`. Past 64 the
+            // immediate is malformed: reject rather than silently truncate.
+            if shift > 64 {
+                return Err(format!("x86 {m}: lane shift {shift} is out of range"));
+            }
             let mut b = if dst == src {
                 Vec::new()
             } else {
@@ -1141,14 +1148,23 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let k: u8 = field(instruction, "shift")?
                 .parse()
                 .map_err(|_| "x86 sshr_v: bad shift".to_string())?;
+            // AArch64 `sshr.2d` takes 1..=64.
+            if k > 64 {
+                return Err(format!("x86 sshr_v: lane shift {k} is out of range"));
+            }
             let mut b = enc_sse_rr(Some(0x66), 0xEF, 15, 15); // pxor xmm15,xmm15
             b.extend(enc_sse38_rr(0x37, 15, src)); // pcmpgtq xmm15,src → src<0 ? -1 : 0
-            if k > 0 && k < 64 {
-                b.extend(enc_psxlq(0x06, 15, 64 - k)); // psllq xmm15, 64-k (top k bits)
-            } else {
-                // k==0 is a no-op shift; clear the sign fill.
+            if k == 0 {
+                // A no-op shift: clear the sign fill so `por` leaves `dst` alone.
                 b.extend(enc_sse_rr(Some(0x66), 0xEF, 15, 15));
+            } else if k < 64 {
+                b.extend(enc_psxlq(0x06, 15, 64 - k)); // psllq xmm15, 64-k (top k bits)
             }
+            // k == 64: keep the full sign mask unshifted. `psrlq dst, 64` zeroes
+            // the lane (an x86 count > 63 is defined as such), so the `por` below
+            // leaves exactly the sign fill — the AArch64 result. Clearing the mask
+            // here (the old `else`) silently returned 0 for a negative lane
+            // (bug-16).
             if dst != src {
                 b.extend(enc_movaps(dst, src));
             }
