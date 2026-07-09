@@ -1306,10 +1306,9 @@ impl<'a> AbiSerializer<'a> {
             return Ok(());
         }
 
-        let entry = self
-            .types
-            .entries
-            .get((id - FIRST_TABLE_TYPE_ID) as usize)
+        let entry = id
+            .checked_sub(FIRST_TABLE_TYPE_ID)
+            .and_then(|index| self.types.entries.get(index as usize))
             .ok_or_else(|| format!("unknown type id {id}"))?;
         let ref_id = self.next_ref;
         self.next_ref = self

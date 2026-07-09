@@ -3065,6 +3065,30 @@ mod reader_gap_tests {
     }
 
     #[test]
+    fn abi_serializer_rejects_reserved_type_ids_without_overflow() {
+        // Ids 0 and 9 are neither primitives nor table ids (>= 10). A tampered
+        // package can carry them; the serializer must report them cleanly on
+        // every profile rather than underflowing `id - FIRST_TABLE_TYPE_ID`.
+        let strings: Vec<String> = Vec::new();
+        let mut types = TypeTable::new();
+        types.entries.push(TypeEntry {
+            kind: 3,
+            name: 0,
+            owner_package: 0,
+            abi_export_kind: None,
+            payload: Vec::new(),
+        });
+        let constants = ConstPool::new();
+        for id in [0u32, 9] {
+            let mut serializer = AbiSerializer::new(&strings, &types, &constants);
+            let err = serializer
+                .serialize_type(id)
+                .expect_err("reserved type id must not serialize");
+            assert_eq!(err, format!("unknown type id {id}"));
+        }
+    }
+
+    #[test]
     fn abi_serializer_walks_composite_field_types() {
         // An exported record whose fields are composite types forces the ABI
         // serializer through the list/map/result/function/thread arms, plus the
