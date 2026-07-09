@@ -469,6 +469,22 @@ pub(crate) fn lower_module_for_platform(
             value: "0000000000000000".to_string(),
         });
     }
+    // Writable `argc`/`argv` globals for `os::args()` (plan-31-B): filled by the
+    // program entry from the values the OS passes in, read back when a later
+    // `os::args()` builds its `List OF String`. Emitted only when the module uses
+    // `os.args`, so existing programs' data layout is unchanged.
+    if module_uses_call(module, "os.args") {
+        for symbol in [os::OS_ARGC_GLOBAL_SYMBOL, os::OS_ARGV_GLOBAL_SYMBOL] {
+            data_objects.push(CodeDataObject {
+                symbol: symbol.to_string(),
+                kind: "raw".to_string(),
+                layout: "mfb.runtime.os_args.v1 { u64 word }".to_string(),
+                align: 8,
+                size: 8,
+                value: "0000000000000000".to_string(),
+            });
+        }
+    }
     if native_plan
         .runtime_symbols
         .iter()
@@ -647,6 +663,7 @@ pub(crate) fn lower_module_for_platform(
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
                     seed_rng: uses_rng,
                     register_signal_handlers,
+                    capture_args: module_uses_call(module, "os.args"),
                 },
                 &platform_imports,
             )?);
@@ -666,6 +683,7 @@ pub(crate) fn lower_module_for_platform(
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
                     seed_rng: uses_rng,
                     register_signal_handlers,
+                    capture_args: module_uses_call(module, "os.args"),
                 },
                 &platform_imports,
             )?);

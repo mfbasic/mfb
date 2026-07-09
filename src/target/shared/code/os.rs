@@ -40,9 +40,38 @@ pub(super) fn lower_os_helper(
         "os.setEnv" => lower_set_env(symbol, platform_imports, platform),
         "os.unsetEnv" => lower_unset_env(symbol, platform_imports, platform),
         "os.environ" => lower_environ(symbol, platform_imports, platform),
+        "os.name" => lower_const_string(symbol, os_family(platform.target())),
+        "os.arch" => lower_const_string(symbol, os_arch(platform.target())),
+        "os.pid" => lower_pid(symbol, platform_imports, platform),
+        "os.cpuCount" => lower_cpu_count(symbol, platform_imports, platform),
+        "os.hostName" => lower_host_name(symbol, platform_imports, platform),
+        "os.userName" => lower_user_name(symbol, platform_imports, platform),
+        "os.executablePath" => lower_executable_path(symbol, platform_imports, platform),
+        "os.args" => lower_args(symbol),
         other => Err(format!(
             "native os lowering does not support runtime call '{other}'"
         )),
+    }
+}
+
+/// The OS family string for `os::name` — the part of the target triple before
+/// the first `-` (`macos-aarch64` → `macos`).
+fn os_family(target: &str) -> &'static str {
+    if target.starts_with("macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
+/// The CPU architecture string for `os::arch` — the part after the first `-`.
+fn os_arch(target: &str) -> &'static str {
+    if target.ends_with("x86_64") {
+        "x86_64"
+    } else if target.ends_with("riscv64") {
+        "riscv64"
+    } else {
+        "aarch64"
     }
 }
 
@@ -718,6 +747,578 @@ fn lower_environ(
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// Program-entry-captured `argc`/`argv` globals (plan-31-B). Two writable
+/// 8-byte words the entry fills before any user code, read by `os::args()`.
+/// Emitted only when a module uses `os.args`.
+pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
+pub(crate) const OS_ARGV_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argv";
+
+/// Build an owned arena `String` of exactly `len` bytes copied from `src`
+/// (which need NOT be NUL-terminated — used for `readlink`), landing it in the
+/// result registers with the OK tag. Branches to `alloc_fail` on OOM.
+#[allow(clippy::too_many_arguments)]
+fn build_string_from_len(
+    symbol: &str,
+    src: &str,
+    len: &str,
+    alloc_fail: &str,
+    uniq: &str,
+    vregs: &mut Vregs,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let alloc_ok = format!("{uniq}_ok");
+    let copy_loop = format!("{uniq}_copy_loop");
+    let copy_done = format!("{uniq}_copy_done");
+    let block = vregs.next();
+    let cursor = vregs.next();
+    let dst = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
+    instructions.extend([
+        abi::add_immediate(abi::return_register(), len, 9),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    alloc_reloc(symbol, relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(alloc_fail),
+        abi::label(&alloc_ok),
+        abi::move_register(&block, "x1"),
+        abi::store_u64(len, &block, 0),
+        abi::move_register(&cursor, src),
+        abi::add_immediate(&dst, &block, 8),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::label(&copy_loop),
+        abi::compare_registers(&index, len),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&cursor, &cursor, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::store_u8("x31", &dst, 0),
+        abi::move_register(RESULT_VALUE_REGISTER, &block),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+    ]);
+}
+
+/// `os::name` / `os::arch` — return a fixed, target-selected `String` constant,
+/// materialized directly into a fresh arena `String` (length header + bytes +
+/// NUL) so the result is an ordinary owned value.
+fn lower_const_string(
+    symbol: &str,
+    value: &str,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let alloc_ok = format!("{symbol}_ok");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let done = format!("{symbol}_done");
+    let bytes = value.as_bytes();
+    let len = bytes.len();
+
+    let mut vregs = Vregs::new();
+    let block = vregs.next();
+    let byte = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_immediate(abi::return_register(), "Integer", &(len + 9).to_string()),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ];
+    let mut relocations = Vec::new();
+    alloc_reloc(symbol, &mut relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(&alloc_error),
+        abi::label(&alloc_ok),
+        abi::move_register(&block, "x1"),
+        abi::move_immediate(&byte, "Integer", &len.to_string()),
+        abi::store_u64(&byte, &block, 0),
+    ]);
+    for (i, b) in bytes.iter().enumerate() {
+        instructions.push(abi::move_immediate(&byte, "Byte", &b.to_string()));
+        instructions.push(abi::store_u8(&byte, &block, 8 + i));
+    }
+    instructions.extend([
+        abi::move_immediate(&byte, "Byte", "0"),
+        abi::store_u8(&byte, &block, 8 + len),
+        abi::move_register(RESULT_VALUE_REGISTER, &block),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&alloc_error),
+    ]);
+    push_alloc_error(symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
+
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// `os::pid` — `getpid()` as an `Integer` (a small positive value; the int
+/// return is zero-extended by the W-register write, so no widening is needed).
+fn lower_pid(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    platform.emit_libc_call("getpid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::move_register(RESULT_VALUE_REGISTER, abi::return_register()),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+    ]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// `os::cpuCount` — `sysconf(_SC_NPROCESSORS_ONLN)` as an `Integer`, clamped to
+/// at least 1. `_SC_NPROCESSORS_ONLN` is 58 on Darwin and 84 on Linux.
+fn lower_cpu_count(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let sc_nprocessors_onln = if platform.target().starts_with("macos") {
+        "58"
+    } else {
+        "84"
+    };
+    let positive = format!("{symbol}_positive");
+    let mut vregs = Vregs::new();
+    let count = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_immediate("x0", "Integer", sc_nprocessors_onln),
+    ];
+    let mut relocations = Vec::new();
+    platform.emit_libc_call("sysconf", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::move_register(&count, abi::return_register()),
+        // sysconf returns -1 (or 0) on failure or an indeterminate answer: clamp
+        // to a minimum of 1 so callers always get a usable count.
+        abi::compare_immediate(&count, "1"),
+        abi::branch_ge(&positive),
+        abi::move_immediate(&count, "Integer", "1"),
+        abi::label(&positive),
+        abi::move_register(RESULT_VALUE_REGISTER, &count),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+    ]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// `os::hostName` — `gethostname(buf, 256)` into an on-frame buffer, then a
+/// `String` copy. HOST_NAME_MAX is 64 (Linux) / 255 (macOS), so 256 always
+/// holds a NUL-terminated name.
+fn lower_host_name(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    const BUF: usize = 256;
+    let ok = format!("{symbol}_ok");
+    let fail = format!("{symbol}_fail");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let buf = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::add_immediate("x0", abi::stack_pointer(), 0),
+        abi::move_immediate("x1", "Integer", &BUF.to_string()),
+    ];
+    let mut relocations = Vec::new();
+    platform.emit_libc_call("gethostname", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&ok),
+        abi::branch(&fail),
+        abi::label(&ok),
+        // Defensive NUL at the last byte, then build the String from the buffer.
+        abi::add_immediate(&buf, abi::stack_pointer(), 0),
+        abi::store_u8("x31", &buf, BUF - 1),
+    ]);
+    build_string_from_cstr(
+        symbol,
+        &buf,
+        &alloc_error,
+        &format!("{symbol}_str"),
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&fail)]);
+    instructions.extend([
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    push_alloc_error(symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], BUF);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// `os::userName` — `getpwuid(getuid())->pw_name` (`pw_name` is the first field
+/// of `struct passwd` on every supported libc). Raises `ErrUnsupported` if the
+/// uid has no passwd entry (e.g. a bare container uid).
+fn lower_user_name(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let have_pwd = format!("{symbol}_have_pwd");
+    let have_name = format!("{symbol}_have_name");
+    let fail = format!("{symbol}_fail");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let pwname = vregs.next();
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    platform.emit_libc_call("getuid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call("getpwuid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&have_pwd),
+        abi::branch(&fail),
+        abi::label(&have_pwd),
+        abi::load_u64(&pwname, abi::return_register(), 0), // pw_name @ offset 0
+        abi::compare_immediate(&pwname, "0"),
+        abi::branch_ne(&have_name),
+        abi::branch(&fail),
+        abi::label(&have_name),
+    ]);
+    build_string_from_cstr(
+        symbol,
+        &pwname,
+        &alloc_error,
+        &format!("{symbol}_str"),
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&fail)]);
+    instructions.extend([
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    push_alloc_error(symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// `os::executablePath` — the absolute path of the running binary. macOS uses
+/// `_NSGetExecutablePath(buf, &size)`; Linux reads the `/proc/self/exe` symlink
+/// with `readlink` (which does not NUL-terminate, so the byte count is used).
+fn lower_executable_path(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    const BUF: usize = 4096;
+    let ok = format!("{symbol}_ok");
+    let fail = format!("{symbol}_fail");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let buf = vregs.next();
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+
+    if platform.target().starts_with("macos") {
+        // Frame: [0..BUF) path buffer, [BUF..BUF+8) uint32 size word (=BUF).
+        instructions.extend([
+            abi::move_immediate("x9", "Integer", &BUF.to_string()),
+            abi::store_u32("x9", abi::stack_pointer(), BUF),
+            abi::add_immediate("x0", abi::stack_pointer(), 0),
+            abi::add_immediate("x1", abi::stack_pointer(), BUF),
+        ]);
+        platform.emit_libc_call(
+            "_NSGetExecutablePath",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&ok),
+            abi::branch(&fail),
+            abi::label(&ok),
+            abi::add_immediate(&buf, abi::stack_pointer(), 0),
+        ]);
+        build_string_from_cstr(
+            symbol,
+            &buf,
+            &alloc_error,
+            &format!("{symbol}_str"),
+            &mut vregs,
+            &mut instructions,
+            &mut relocations,
+        );
+    } else {
+        // Frame: [0..16) "/proc/self/exe\0" path, [16..16+BUF) readlink buffer.
+        let path = b"/proc/self/exe\0";
+        for (i, b) in path.iter().enumerate() {
+            instructions.push(abi::move_immediate("x9", "Byte", &b.to_string()));
+            instructions.push(abi::store_u8("x9", abi::stack_pointer(), i));
+        }
+        let count = vregs.next();
+        instructions.extend([
+            abi::add_immediate("x0", abi::stack_pointer(), 0),
+            abi::add_immediate("x1", abi::stack_pointer(), 16),
+            abi::move_immediate("x2", "Integer", &BUF.to_string()),
+        ]);
+        platform.emit_libc_call("readlink", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::move_register(&count, abi::return_register()),
+            abi::compare_immediate(&count, "0"),
+            abi::branch_gt(&ok),
+            abi::branch(&fail),
+            abi::label(&ok),
+            abi::add_immediate(&buf, abi::stack_pointer(), 16),
+        ]);
+        build_string_from_len(
+            symbol,
+            &buf,
+            &count,
+            &alloc_error,
+            &format!("{symbol}_str"),
+            &mut vregs,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
+    instructions.extend([abi::branch(&done), abi::label(&fail)]);
+    instructions.extend([
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    push_alloc_error(symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], BUF + 16);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// `os::args` — build a `List OF String` from the entry-captured `argv`,
+/// excluding `argv[0]` (the program name; D1). Reads the `_mfb_rt_os_argc` /
+/// `_mfb_rt_os_argv` globals the program entry fills at startup.
+fn lower_args(
+    symbol: &str,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let count_loop = format!("{symbol}_count_loop");
+    let count_done = format!("{symbol}_count_done");
+    let count_str = format!("{symbol}_count_str");
+    let count_str_done = format!("{symbol}_count_str_done");
+    let alloc_ok = format!("{symbol}_alloc_ok");
+    let fill_loop = format!("{symbol}_fill_loop");
+    let fill_done = format!("{symbol}_fill_done");
+    let str_len = format!("{symbol}_str_len");
+    let str_len_done = format!("{symbol}_str_len_done");
+    let str_copy = format!("{symbol}_str_copy");
+    let str_copy_done = format!("{symbol}_str_copy_done");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let done = format!("{symbol}_done");
+
+    let mut vregs = Vregs::new();
+    let argc = vregs.next();
+    let argv = vregs.next();
+    let index = vregs.next();
+    let count = vregs.next();
+    let data_bytes = vregs.next();
+    let arg_ptr = vregs.next();
+    let scan = vregs.next();
+    let byte = vregs.next();
+    let collection = vregs.next();
+    let entry_cursor = vregs.next();
+    let data_cursor = vregs.next();
+    let data_offset = vregs.next();
+    let arg_len = vregs.next();
+    let scratch = vregs.next();
+    let src = vregs.next();
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    push_symbol_address(symbol, OS_ARGC_GLOBAL_SYMBOL, &argc, &mut instructions, &mut relocations);
+    instructions.push(abi::load_u64(&argc, &argc, 0));
+    push_symbol_address(symbol, OS_ARGV_GLOBAL_SYMBOL, &argv, &mut instructions, &mut relocations);
+    instructions.push(abi::load_u64(&argv, &argv, 0));
+    instructions.extend([
+        // Pass 1: count args (from index 1) and their total byte length.
+        abi::move_immediate(&count, "Integer", "0"),
+        abi::move_immediate(&data_bytes, "Integer", "0"),
+        abi::move_immediate(&index, "Integer", "1"),
+        abi::label(&count_loop),
+        abi::compare_registers(&index, &argc),
+        abi::branch_ge(&count_done),
+        abi::shift_left_immediate(&scratch, &index, 3),
+        abi::add_registers(&scratch, &argv, &scratch),
+        abi::load_u64(&arg_ptr, &scratch, 0),
+        abi::move_register(&scan, &arg_ptr),
+        abi::label(&count_str),
+        abi::load_u8(&byte, &scan, 0),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&count_str_done),
+        abi::add_immediate(&data_bytes, &data_bytes, 1),
+        abi::add_immediate(&scan, &scan, 1),
+        abi::branch(&count_str),
+        abi::label(&count_str_done),
+        abi::add_immediate(&count, &count, 1),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&count_loop),
+        abi::label(&count_done),
+        // size = HEADER + count*ENTRY_SIZE + data_bytes (a List has no buckets).
+        abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&scratch, &count, &scratch),
+        abi::add_registers(&scratch, &scratch, &data_bytes),
+        abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    alloc_reloc(symbol, &mut relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(&alloc_error),
+        abi::label(&alloc_ok),
+        abi::move_register(&collection, "x1"),
+        abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_STRING.to_string()),
+        abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&scratch, "Byte", "1"),
+        abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u64(&count, &collection, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&count, &collection, COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(&data_bytes, &collection, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&data_bytes, &collection, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&entry_cursor, &collection, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&scratch, &count, &scratch),
+        abi::add_registers(&data_cursor, &entry_cursor, &scratch),
+        abi::move_immediate(&data_offset, "Integer", "0"),
+        // Pass 2: fill from index 1.
+        abi::move_immediate(&index, "Integer", "1"),
+        abi::label(&fill_loop),
+        abi::compare_registers(&index, &argc),
+        abi::branch_ge(&fill_done),
+        abi::shift_left_immediate(&scratch, &index, 3),
+        abi::add_registers(&scratch, &argv, &scratch),
+        abi::load_u64(&arg_ptr, &scratch, 0),
+        abi::move_register(&scan, &arg_ptr),
+        abi::move_immediate(&arg_len, "Integer", "0"),
+        abi::label(&str_len),
+        abi::load_u8(&byte, &scan, 0),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&str_len_done),
+        abi::add_immediate(&arg_len, &arg_len, 1),
+        abi::add_immediate(&scan, &scan, 1),
+        abi::branch(&str_len),
+        abi::label(&str_len_done),
+        abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(&data_offset, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::store_u64(&arg_len, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::move_register(&src, &arg_ptr),
+        abi::move_immediate(&scratch, "Integer", "0"),
+        abi::label(&str_copy),
+        abi::compare_registers(&scratch, &arg_len),
+        abi::branch_eq(&str_copy_done),
+        abi::load_u8(&byte, &src, 0),
+        abi::store_u8(&byte, &data_cursor, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&data_cursor, &data_cursor, 1),
+        abi::add_immediate(&scratch, &scratch, 1),
+        abi::branch(&str_copy),
+        abi::label(&str_copy_done),
+        abi::add_registers(&data_offset, &data_offset, &arg_len),
+        abi::add_immediate(&entry_cursor, &entry_cursor, COLLECTION_ENTRY_SIZE),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&fill_loop),
+        abi::label(&fill_done),
+        abi::move_register(RESULT_VALUE_REGISTER, &collection),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&alloc_error),
+    ]);
+    push_alloc_error(symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
 }

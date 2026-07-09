@@ -128,6 +128,7 @@ impl code::CodegenPlatform for Platform {
             spec.emit_cleanup_failure_audit,
             spec.seed_rng,
             spec.register_signal_handlers,
+            spec.capture_args,
         )?;
         // The shared entry uses the neutral zero register `x31` for its arena/
         // global zero-init stores, relying on it *being* zero — true for AArch64's

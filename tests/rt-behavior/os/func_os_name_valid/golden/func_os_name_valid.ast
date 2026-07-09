@@ -1,0 +1,37 @@
+{
+  "project": "func_os_name_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "macos" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "linux" } } },
+        "line": 5,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 6 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unexpected:" }, "right": { "kind": "call", "callee": "os.name", "arguments": [] } }] }, "line": 8 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

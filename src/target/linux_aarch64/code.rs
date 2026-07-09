@@ -164,6 +164,7 @@ impl code::CodegenPlatform for Platform {
             spec.emit_cleanup_failure_audit,
             spec.seed_rng,
             spec.register_signal_handlers,
+            spec.capture_args,
         )
     }
 

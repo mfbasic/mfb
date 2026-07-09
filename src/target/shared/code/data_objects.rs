@@ -148,6 +148,14 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "os.getEnv") {
         push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
     }
+    // `os::hostName`/`userName`/`executablePath` raise ErrUnsupported when the
+    // host lookup fails (no passwd entry, unreadable /proc/self/exe, …).
+    if module_uses_any_call(
+        module,
+        &["os.hostName", "os.userName", "os.executablePath"],
+    ) {
+        push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
+    }
     if module_uses_any_call(
         module,
         &[

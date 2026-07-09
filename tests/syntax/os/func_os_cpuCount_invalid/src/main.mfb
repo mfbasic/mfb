@@ -1,0 +1,6 @@
+IMPORT os
+
+FUNC main() AS Integer
+  LET wrongArity AS Integer = os::cpuCount(1)
+  RETURN 0
+END FUNC

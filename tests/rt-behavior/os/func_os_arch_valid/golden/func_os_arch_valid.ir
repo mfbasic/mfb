@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_os_arch_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 5,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.arch", "args": [] }, "right": { "kind": "const", "type": "String", "value": "aarch64" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.arch", "args": [] }, "right": { "kind": "const", "type": "String", "value": "x86_64" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.arch", "args": [] }, "right": { "kind": "const", "type": "String", "value": "riscv64" } } },
+      "then": [
+      { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "unexpected:" }, "right": { "kind": "call", "type": "String", "target": "os.arch", "args": [] } }] } }
+      ]
+    },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,7 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  io::print(toString(len(os::userName()) > 0))
+  RETURN 0
+END FUNC

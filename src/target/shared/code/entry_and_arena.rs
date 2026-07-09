@@ -15,8 +15,55 @@ pub(crate) fn lower_program_entry(
     emit_cleanup_failure_audit: bool,
     seed_rng: bool,
     register_signal_handlers: bool,
+    capture_args: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    // Capture argc/argv into the `os::args` globals before the frame is carved
+    // (plan-31-B), while the OS-supplied values are still at their entry
+    // positions: macOS delivers them in x0/x1; a raw Linux ELF entry has argc at
+    // `[sp,0]` and argv (the `char**`) at `sp+8`. Uses x9/x10 scratch only, so
+    // x0/x1 stay live for the arg-materialization path below. Gated on os.args
+    // usage, so a program that never calls it keeps a byte-identical entry.
+    if capture_args {
+        if platform.entry_args_in_registers() {
+            push_symbol_address(
+                entry_symbol,
+                super::os::OS_ARGC_GLOBAL_SYMBOL,
+                "x9",
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.push(abi::store_u64("x0", "x9", 0));
+            push_symbol_address(
+                entry_symbol,
+                super::os::OS_ARGV_GLOBAL_SYMBOL,
+                "x9",
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.push(abi::store_u64("x1", "x9", 0));
+        } else {
+            instructions.push(abi::load_u64("x10", abi::stack_pointer(), 0));
+            push_symbol_address(
+                entry_symbol,
+                super::os::OS_ARGC_GLOBAL_SYMBOL,
+                "x9",
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.push(abi::store_u64("x10", "x9", 0));
+            instructions.push(abi::add_immediate("x10", abi::stack_pointer(), 8));
+            push_symbol_address(
+                entry_symbol,
+                super::os::OS_ARGV_GLOBAL_SYMBOL,
+                "x9",
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.push(abi::store_u64("x10", "x9", 0));
+        }
+    }
     // A raw Linux ELF entry is jumped to with `argc` at `[sp]` / `argv` at
     // `[sp+8]` and undefined argument registers; load them into the `x0`/`x1`
     // the rest of the entry expects BEFORE the frame is carved (the entry does
@@ -53,7 +100,6 @@ pub(crate) fn lower_program_entry(
             ENTRY_GLOBALS_OFFSET + index * 8,
         ));
     }
-    let mut relocations = Vec::new();
     let error_label = "entry_error";
     let exit_label = "entry_exit";
     // Publish this thread's arena-state address to the writable global so the

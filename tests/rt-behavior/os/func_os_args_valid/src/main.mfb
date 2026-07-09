@@ -1,0 +1,12 @@
+IMPORT os
+IMPORT io
+IMPORT collections
+
+FUNC main() AS Integer
+  LET a AS List OF String = os::args()
+  io::print("count=" & toString(len(a)))
+  FOR i = 0 TO len(a) - 1
+    io::print(collections::get(a, i))
+  NEXT
+  RETURN 0
+END FUNC

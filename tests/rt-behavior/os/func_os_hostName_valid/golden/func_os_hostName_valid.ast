@@ -1,0 +1,27 @@
+{
+  "project": "func_os_hostName_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "os.hostName", "arguments": [] }] }, "right": { "kind": "number", "value": "0" } }] }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

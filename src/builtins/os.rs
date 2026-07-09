@@ -7,6 +7,15 @@ const HAS_ENV: &str = "os.hasEnv";
 const SET_ENV: &str = "os.setEnv";
 const UNSET_ENV: &str = "os.unsetEnv";
 const ENVIRON: &str = "os.environ";
+// Process & platform introspection (plan-31-B). All read-only, all nullary.
+const ARGS: &str = "os.args";
+const PID: &str = "os.pid";
+const EXECUTABLE_PATH: &str = "os.executablePath";
+const NAME: &str = "os.name";
+const ARCH: &str = "os.arch";
+const HOST_NAME: &str = "os.hostName";
+const USER_NAME: &str = "os.userName";
+const CPU_COUNT: &str = "os.cpuCount";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -16,7 +25,20 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_os_call(name: &str) -> bool {
     matches!(
         name,
-        GET_ENV | GET_ENV_OR | HAS_ENV | SET_ENV | UNSET_ENV | ENVIRON
+        GET_ENV
+            | GET_ENV_OR
+            | HAS_ENV
+            | SET_ENV
+            | UNSET_ENV
+            | ENVIRON
+            | ARGS
+            | PID
+            | EXECUTABLE_PATH
+            | NAME
+            | ARCH
+            | HOST_NAME
+            | USER_NAME
+            | CPU_COUNT
     )
 }
 
@@ -25,17 +47,22 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         GET_ENV | HAS_ENV | UNSET_ENV => Some(&[&["name"]]),
         GET_ENV_OR => Some(&[&["name"], &["fallback"]]),
         SET_ENV => Some(&[&["name"], &["value"]]),
-        ENVIRON => Some(&[]),
+        ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
+        | CPU_COUNT => Some(&[]),
         _ => None,
     }
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
-        GET_ENV | GET_ENV_OR => Some("String"),
+        GET_ENV | GET_ENV_OR | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME => {
+            Some("String")
+        }
         HAS_ENV => Some("Boolean"),
         SET_ENV | UNSET_ENV => Some("Nothing"),
         ENVIRON => Some("Map OF String TO String"),
+        ARGS => Some("List OF String"),
+        PID | CPU_COUNT => Some("Integer"),
         _ => None,
     }
 }
@@ -48,7 +75,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         GET_ENV_OR | SET_ENV if exact(arg_types, &["String", "String"]) => {
             Cow::Borrowed(call_return_type_name(name)?)
         }
-        ENVIRON if arg_types.is_empty() => Cow::Borrowed("Map OF String TO String"),
+        ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
+        | CPU_COUNT
+            if arg_types.is_empty() =>
+        {
+            Cow::Borrowed(call_return_type_name(name)?)
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -58,7 +90,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         GET_ENV | HAS_ENV | UNSET_ENV => Some("String"),
         GET_ENV_OR | SET_ENV => Some("String, String"),
-        ENVIRON => Some("no arguments"),
+        ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
+        | CPU_COUNT => Some("no arguments"),
         _ => None,
     }
 }
@@ -67,7 +100,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         GET_ENV | HAS_ENV | UNSET_ENV => Some((1, 1)),
         GET_ENV_OR | SET_ENV => Some((2, 2)),
-        ENVIRON => Some((0, 0)),
+        ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
+        | CPU_COUNT => Some((0, 0)),
         _ => None,
     }
 }
@@ -92,7 +126,22 @@ mod tests {
         resolve_call(name, &types(args)).map(|r| r.return_type.into_owned())
     }
 
-    const ALL: &[&str] = &[GET_ENV, GET_ENV_OR, HAS_ENV, SET_ENV, UNSET_ENV, ENVIRON];
+    const ALL: &[&str] = &[
+        GET_ENV,
+        GET_ENV_OR,
+        HAS_ENV,
+        SET_ENV,
+        UNSET_ENV,
+        ENVIRON,
+        ARGS,
+        PID,
+        EXECUTABLE_PATH,
+        NAME,
+        ARCH,
+        HOST_NAME,
+        USER_NAME,
+        CPU_COUNT,
+    ];
 
     #[test]
     fn is_os_call_recognizes_all_and_rejects_others() {
@@ -166,6 +215,38 @@ mod tests {
         assert_eq!(ret(SET_ENV, &["String", "Integer"]), None);
         assert_eq!(ret(ENVIRON, &[]), Some("Map OF String TO String".to_string()));
         assert_eq!(ret(ENVIRON, &["String"]), None);
+    }
+
+    #[test]
+    fn resolve_introspection_family() {
+        for name in [EXECUTABLE_PATH, NAME, ARCH, HOST_NAME, USER_NAME] {
+            assert_eq!(ret(name, &[]), Some("String".to_string()), "{name}");
+            assert_eq!(ret(name, &["String"]), None, "{name} arity");
+        }
+        assert_eq!(ret(ARGS, &[]), Some("List OF String".to_string()));
+        assert_eq!(ret(ARGS, &["String"]), None);
+        for name in [PID, CPU_COUNT] {
+            assert_eq!(ret(name, &[]), Some("Integer".to_string()), "{name}");
+            assert_eq!(ret(name, &["Integer"]), None, "{name} arity");
+        }
+    }
+
+    #[test]
+    fn introspection_metadata() {
+        for name in [
+            ARGS,
+            PID,
+            EXECUTABLE_PATH,
+            NAME,
+            ARCH,
+            HOST_NAME,
+            USER_NAME,
+            CPU_COUNT,
+        ] {
+            assert_eq!(arity(name), Some((0, 0)), "{name}");
+            assert_eq!(expected_arguments(name), Some("no arguments"), "{name}");
+            assert_eq!(call_param_names(name), Some(&[][..]), "{name}");
+        }
     }
 
     #[test]

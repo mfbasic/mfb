@@ -180,6 +180,38 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "__NSGetEnviron".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
+            "os.pid" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_getpid".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "os.cpuCount" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_sysconf".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "os.hostName" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_gethostname".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "os.userName" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_getuid".to_string(),
+                    required_by: spec.symbol.to_string(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_getpwuid".to_string(),
+                    required_by: spec.symbol.to_string(),
+                },
+            ],
+            "os.executablePath" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "__NSGetExecutablePath".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),

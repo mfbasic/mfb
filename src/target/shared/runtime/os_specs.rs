@@ -103,6 +103,95 @@ pub(crate) const OS_ENVIRON_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+// Process & platform introspection (plan-31-B). All nullary.
+pub(crate) const OS_ARGS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.args",
+    symbol: "_mfb_rt_os_os_args",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "List OF String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_PID_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.pid",
+    symbol: "_mfb_rt_os_os_pid",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Integer",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_EXECUTABLE_PATH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.executablePath",
+    symbol: "_mfb_rt_os_os_executablePath",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_NAME_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.name",
+    symbol: "_mfb_rt_os_os_name",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_ARCH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.arch",
+    symbol: "_mfb_rt_os_os_arch",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_HOST_NAME_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.hostName",
+    symbol: "_mfb_rt_os_os_hostName",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_USER_NAME_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.userName",
+    symbol: "_mfb_rt_os_os_userName",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const OS_CPU_COUNT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.cpuCount",
+    symbol: "_mfb_rt_os_os_cpuCount",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Integer",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 #[cfg(test)]
 mod tests {
     use super::super::{helper_for_call, spec_for_call, RuntimeHelper};
@@ -116,6 +205,14 @@ mod tests {
         "os.setEnv",
         "os.unsetEnv",
         "os.environ",
+        "os.args",
+        "os.pid",
+        "os.executablePath",
+        "os.name",
+        "os.arch",
+        "os.hostName",
+        "os.userName",
+        "os.cpuCount",
     ];
 
     #[test]

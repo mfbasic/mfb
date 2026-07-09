@@ -96,6 +96,14 @@ impl NativePlanPlatform for Platform {
             ],
             "os.unsetEnv" => vec![self.libc_import("unsetenv", spec.symbol)],
             "os.environ" => vec![self.libc_import("environ", spec.symbol)],
+            "os.pid" => vec![self.libc_import("getpid", spec.symbol)],
+            "os.cpuCount" => vec![self.libc_import("sysconf", spec.symbol)],
+            "os.hostName" => vec![self.libc_import("gethostname", spec.symbol)],
+            "os.userName" => vec![
+                self.libc_import("getuid", spec.symbol),
+                self.libc_import("getpwuid", spec.symbol),
+            ],
+            "os.executablePath" => vec![self.libc_import("readlink", spec.symbol)],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }

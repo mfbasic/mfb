@@ -1,0 +1,6 @@
+IMPORT os
+
+FUNC main() AS Integer
+  LET wrongArity AS List OF String = os::args("x")
+  RETURN 0
+END FUNC

@@ -1,0 +1,7 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  io::print(toString(os::cpuCount() >= 1))
+  RETURN 0
+END FUNC

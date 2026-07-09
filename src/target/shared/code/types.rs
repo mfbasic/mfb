@@ -541,6 +541,10 @@ pub(crate) struct ProgramEntrySpec<'a> {
     pub(crate) emit_cleanup_failure_audit: bool,
     pub(crate) seed_rng: bool,
     pub(crate) register_signal_handlers: bool,
+    /// Capture `argc`/`argv` into the `os::args` runtime globals at startup
+    /// (plan-31-B). Set only when the module uses `os.args`, so the entry of a
+    /// program that never calls `os::args()` is byte-identical to before.
+    pub(crate) capture_args: bool,
 }
 
 #[derive(Clone, Copy)]

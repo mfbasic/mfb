@@ -1,0 +1,11 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  IF os::arch() = "aarch64" OR os::arch() = "x86_64" OR os::arch() = "riscv64" THEN
+    io::print("ok")
+  ELSE
+    io::print("unexpected:" & os::arch())
+  END IF
+  RETURN 0
+END FUNC

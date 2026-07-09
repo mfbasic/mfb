@@ -1,6 +1,6 @@
 # os
 
-Process environment access
+Process environment and platform introspection
 
 ## Synopsis
 
@@ -12,13 +12,33 @@ os::hasEnv(name)
 os::setEnv(name, value)
 os::unsetEnv(name)
 os::environ()
+os::args()
+os::name()
+os::arch()
+os::pid()
+os::cpuCount()
+os::hostName()
+os::userName()
+os::executablePath()
 ```
 
 ## Description
 
-The `os` package reaches the host process environment: it reads, tests, sets,
-unsets, and enumerates environment variables. `os` is a built-in package, so
-`IMPORT os` needs no manifest dependency. [[src/builtins/os.rs:is_os_call]]
+The `os` package reaches the host process: it reads, tests, sets, unsets, and
+enumerates environment variables, and reports read-only facts about the running
+process and platform (command-line arguments, process id, executable path, OS
+family, CPU architecture, host and user names, and CPU count). `os` is a
+built-in package, so `IMPORT os` needs no manifest dependency.
+[[src/builtins/os.rs:is_os_call]]
+
+The introspection calls are all nullary and read-only. `os::name` and `os::arch`
+are compile-time constants selected by the build target (`"macos"`/`"linux"`;
+`"aarch64"`/`"x86_64"`/`"riscv64"`). `os::args` returns the command-line
+arguments **after** the program name (element 0 is the first real argument, not
+the executable — the program name is available through `os::executablePath`).
+`os::pid` and `os::cpuCount` return an `Integer`; `os::hostName`, `os::userName`,
+and `os::executablePath` return a `String` and raise `ErrUnsupported` if the host
+lookup fails. [[src/target/shared/code/os.rs:lower_os_helper]]
 
 Variable names and values are UTF-8 `String` values passed to and from the host
 C library (`getenv`, `setenv`, `unsetenv`, and the platform environ accessor).
@@ -53,4 +73,5 @@ package holds no resource handles.
 | --- | --- | --- |
 | `77050004` | `ErrNotFound` | `os::getEnv` is given a name that is not set. |
 | `77050002` | `ErrInvalidArgument` | `os::setEnv` is given a name that is empty or contains `=`. |
+| `77050007` | `ErrUnsupported` | `os::hostName`/`os::userName`/`os::executablePath` cannot obtain the value from the host. |
 | `77010001` | `ErrOutOfMemory` | The host cannot allocate storage for a set variable or a returned value. |

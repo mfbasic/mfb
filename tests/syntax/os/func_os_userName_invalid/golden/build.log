@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_userName_invalid
+   2 | 
+   3 | FUNC main() AS Integer
+   4 |   LET wrongArity AS String = os::userName("x")
+     | ^
+tests/syntax/os/func_os_userName_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.userName` has 1 argument(s), expected 0.
+   2 | 
+   3 | FUNC main() AS Integer
+   4 |   LET wrongArity AS String = os::userName("x")
+     | ^
+tests/syntax/os/func_os_userName_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongArity` does not have a known type.
+[exit 1]
