@@ -1,0 +1,103 @@
+{
+  "project": "audit_capabilities",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "net", "line": 6 },
+    { "module": "os", "line": 7 },
+    { "module": "math", "line": 8 },
+    { "module": "datetime", "line": 9 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 11 },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 13,
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "line": 14,
+        "params": [
+        { "name": "path", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 16 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 16 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 19,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 21 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 26,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "home", "type": null, "value": { "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "HOME" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "pid", "type": null, "value": { "kind": "call", "callee": "os.pid", "arguments": [] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "roll", "type": null, "value": { "kind": "call", "callee": "math.rand", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "6" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "at", "type": null, "value": { "kind": "call", "callee": "datetime.now", "arguments": [] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "socket", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "9" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "socket" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "home" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "pid" }, "right": { "kind": "identifier", "value": "roll" } }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.toMillis", "arguments": [{ "kind": "identifier", "value": "at" }] }] }] }, "line": 37 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 38 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 39,
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 40 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

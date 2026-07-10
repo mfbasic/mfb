@@ -1,0 +1,240 @@
+$ mfb audit --format text tests/rt-behavior/native/native-link-free-rt
+Audit: native_link_free_rt 0.1.0 (executable)
+Root: tests/rt-behavior/native/native-link-free-rt
+Language: 1.0
+Entry: main
+Lockfile: absent
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 2
+
+Permissions:
+  native
+    sql.open at src/main.mfb:53
+    sql.prepare at src/main.mfb:54
+    sql.bindText at src/main.mfb:55
+    sql.bindText at src/main.mfb:56
+    sql.expandedSql at src/main.mfb:60
+    sql.finalize at src/main.mfb:64
+    sql.close at src/main.mfb:65
+  terminal
+    io.print at src/main.mfb:63
+
+Native links:
+  native_link_free_rt sqlite3_bind_text close= may_fail=true
+  native_link_free_rt sqlite3_close close= may_fail=true
+  native_link_free_rt sqlite3_expanded_sql close=sqlite3_free may_fail=false
+  native_link_free_rt sqlite3_finalize close= may_fail=true
+  native_link_free_rt sqlite3_open close= may_fail=true
+  native_link_free_rt sqlite3_prepare_v2 close= may_fail=true
+
+Native resources:
+  Db (package-private) in native_link_free_rt at src/main.mfb:8 (native, close sql.close, may fail, not thread-sendable, no pointer exposed)
+  Stmt (package-private) in native_link_free_rt at src/main.mfb:9 (native, close sql.finalize, may fail, not thread-sendable, no pointer exposed)
+
+Control flow:
+  main at src/main.mfb:52 (fallible)
+    fallible call io.print at src/main.mfb:63 -> return
+
+Findings:
+  info AUDIT-PERM-NATIVE project uses host capability: native
+  info AUDIT-PERM-TERMINAL project uses host capability: terminal
+[exit 0]
+$ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "native_link_free_rt",
+    "ident": "native_link_free_rt",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/rt-behavior/native/native-link-free-rt",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 2
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 52,
+      "fallible": true,
+      "trap": null,
+      "calls": [
+        {
+          "callee": "io.print",
+          "line": 63,
+          "propagation": "return",
+          "capability": "terminal"
+        }
+      ]
+    }
+  ],
+  "resources": [],
+  "nativeLinks": [
+    {
+      "package": "native_link_free_rt",
+      "symbol": "sqlite3_bind_text",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_link_free_rt",
+      "symbol": "sqlite3_close",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_link_free_rt",
+      "symbol": "sqlite3_expanded_sql",
+      "closeFunction": "sqlite3_free",
+      "mayFail": false
+    },
+    {
+      "package": "native_link_free_rt",
+      "symbol": "sqlite3_finalize",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_link_free_rt",
+      "symbol": "sqlite3_open",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_link_free_rt",
+      "symbol": "sqlite3_prepare_v2",
+      "closeFunction": "",
+      "mayFail": true
+    }
+  ],
+  "nativeResources": [
+    {
+      "package": "native_link_free_rt",
+      "resourceType": "Db",
+      "closeOp": "sql.close",
+      "closeMayFail": true,
+      "threadSendable": false,
+      "exported": false,
+      "kind": "native",
+      "path": "src/main.mfb",
+      "line": 8
+    },
+    {
+      "package": "native_link_free_rt",
+      "resourceType": "Stmt",
+      "closeOp": "sql.finalize",
+      "closeMayFail": true,
+      "threadSendable": false,
+      "exported": false,
+      "kind": "native",
+      "path": "src/main.mfb",
+      "line": 9
+    }
+  ],
+  "permissions": [
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.open",
+      "path": "src/main.mfb",
+      "line": 53,
+      "kind": "native"
+    },
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.prepare",
+      "path": "src/main.mfb",
+      "line": 54,
+      "kind": "native"
+    },
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.bindText",
+      "path": "src/main.mfb",
+      "line": 55,
+      "kind": "native"
+    },
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.bindText",
+      "path": "src/main.mfb",
+      "line": 56,
+      "kind": "native"
+    },
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.expandedSql",
+      "path": "src/main.mfb",
+      "line": 60,
+      "kind": "native"
+    },
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.finalize",
+      "path": "src/main.mfb",
+      "line": 64,
+      "kind": "native"
+    },
+    {
+      "capability": "native",
+      "package": "sql",
+      "function": "sql.close",
+      "path": "src/main.mfb",
+      "line": 65,
+      "kind": "native"
+    },
+    {
+      "capability": "terminal",
+      "package": "io",
+      "function": "io.print",
+      "path": "src/main.mfb",
+      "line": 63,
+      "kind": "standard"
+    }
+  ],
+  "findings": [
+    {
+      "code": "AUDIT-PERM-NATIVE",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: native",
+      "location": null,
+      "package": null
+    },
+    {
+      "code": "AUDIT-PERM-TERMINAL",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: terminal",
+      "location": null,
+      "package": null
+    }
+  ]
+}
+[exit 0]

@@ -9,6 +9,12 @@ Summary:
   warnings: 0
   infos: 0
 
+Native links:
+  native_resource_link_valid sqlite3_close close= may_fail=true
+  native_resource_link_valid sqlite3_finalize close= may_fail=true
+  native_resource_link_valid sqlite3_open close= may_fail=true
+  native_resource_link_valid sqlite3_prepare_v2 close= may_fail=true
+
 Native resources:
   Db (exported) in native_resource_link_valid at src/lib.mfb:3 (native, close demoLink.close, may fail, not thread-sendable, no pointer exposed)
   Stmt (package-private) in native_resource_link_valid at src/lib.mfb:4 (native, close demoLink.finalize, may fail, not thread-sendable, no pointer exposed)
@@ -45,7 +51,32 @@ $ mfb audit --format json tests/syntax/resources/native-resource-link-valid
   "packages": [],
   "sourceFlow": [],
   "resources": [],
-  "nativeLinks": [],
+  "nativeLinks": [
+    {
+      "package": "native_resource_link_valid",
+      "symbol": "sqlite3_close",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_resource_link_valid",
+      "symbol": "sqlite3_finalize",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_resource_link_valid",
+      "symbol": "sqlite3_open",
+      "closeFunction": "",
+      "mayFail": true
+    },
+    {
+      "package": "native_resource_link_valid",
+      "symbol": "sqlite3_prepare_v2",
+      "closeFunction": "",
+      "mayFail": true
+    }
+  ],
   "nativeResources": [
     {
       "package": "native_resource_link_valid",

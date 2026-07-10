@@ -51,6 +51,35 @@ pub(super) fn collect_native_resources(
     out
 }
 
+/// Collect the native symbols a project binds through `LINK` blocks. `may_fail`
+/// mirrors the wrapper's `SUCCESS_ON` gate; `close_function` names the `FREE`
+/// deallocator that releases a caller-owned native return, and is empty when the
+/// wrapper owns nothing.
+pub(super) fn collect_native_links(package: &str, ast: &ast::AstProject) -> Vec<NativeLinkEntry> {
+    let mut out = Vec::new();
+    for file in &ast.files {
+        for item in &file.items {
+            let Item::Link(link) = item else {
+                continue;
+            };
+            for function in &link.functions {
+                out.push(NativeLinkEntry {
+                    package: package.to_string(),
+                    symbol: function.symbol.clone(),
+                    close_function: function
+                        .free
+                        .as_ref()
+                        .map(|free| free.symbol.clone())
+                        .unwrap_or_default(),
+                    may_fail: function.success_on.is_some(),
+                });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    out
+}
+
 pub(super) fn project_summary(inputs: &AuditInputs) -> ProjectSummary {
     let manifest = inputs.manifest;
     let name = manifest_string(manifest, "name").unwrap_or_default();
@@ -192,6 +221,28 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(!out[0].close_may_fail);
         assert!(!out[0].exported); // Package visibility is not Export
+    }
+
+    #[test]
+    fn native_links_report_every_linked_symbol_sorted() {
+        // `open` is gated by SUCCESS_ON (may fail); `freeIt` is not.
+        let link = link_block(
+            "db",
+            vec![("open", Some(Expression::Boolean(true))), ("freeIt", None)],
+        );
+        let ast = AstProject {
+            name: "pkg".to_string(),
+            files: vec![file("lib.mfb", vec![Item::Link(link)])],
+        };
+        let links = collect_native_links("pkg", &ast);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].symbol, "freeIt");
+        assert!(!links[0].may_fail);
+        assert_eq!(links[1].symbol, "open");
+        assert!(links[1].may_fail);
+        assert_eq!(links[1].package, "pkg");
+        // No FREE block declared, so no deallocator symbol.
+        assert_eq!(links[1].close_function, "");
     }
 
     #[test]

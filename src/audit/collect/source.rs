@@ -4,6 +4,7 @@ pub(super) fn collect_source(
     ast: &ast::AstProject,
 ) -> (Vec<FlowFunction>, Vec<PermissionEntry>, Vec<ResourceEntry>) {
     let fallible = fallible_functions(ast);
+    let aliases = link_aliases(ast);
 
     let mut flow = Vec::new();
     let mut permissions = Vec::new();
@@ -21,14 +22,19 @@ pub(super) fn collect_source(
             let mut calls = Vec::new();
             {
                 let mut visit = |callee: &str, line: usize| {
-                    if let Some(capability) = builtin_capability(callee) {
+                    let capability = builtin_capability(callee, &aliases);
+                    if let Some(capability) = capability {
                         permissions.push(PermissionEntry {
                             capability: capability.to_string(),
                             package: package_of(callee).to_string(),
                             function: callee.to_string(),
                             path: file.path.clone(),
                             line,
-                            kind: "standard".to_string(),
+                            kind: if capability == "native" {
+                                "native".to_string()
+                            } else {
+                                "standard".to_string()
+                            },
                         });
                     }
                     if is_fallible_call(callee, &fallible) {
@@ -36,7 +42,7 @@ pub(super) fn collect_source(
                             callee: callee.to_string(),
                             line,
                             propagation: propagation.to_string(),
-                            capability: builtin_capability(callee).map(str::to_string),
+                            capability: capability.map(str::to_string),
                         });
                     }
                 };
@@ -452,13 +458,60 @@ fn package_of(callee: &str) -> &str {
     callee.split('.').next().unwrap_or(callee)
 }
 
-fn builtin_capability(callee: &str) -> Option<&'static str> {
-    match package_of(callee) {
+/// The host capability a call discloses, or `None` for a pure call.
+///
+/// Packages whose every operation touches the same host surface map by package;
+/// `os`, `math`, and `datetime` mix pure and host-touching builtins, so those map
+/// by the specific builtin. A call through a `LINK` alias discloses `native`.
+fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'static str> {
+    let package = package_of(callee);
+    if link_aliases.contains(package) {
+        return Some("native");
+    }
+    match package {
         "fs" => Some("filesystem"),
         "io" => Some("terminal"),
         "thread" => Some("threads"),
+        "net" => Some("network"),
+        "os" => match callee {
+            "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv"
+            | "os.environ" => Some("environment"),
+            "os.args" | "os.pid" | "os.name" | "os.arch" | "os.hostName" | "os.userName"
+            | "os.cpuCount" | "os.executablePath" => Some("process"),
+            _ => None,
+        },
+        "math" => match callee {
+            "math.rand" | "math.seed" => Some("randomness"),
+            _ => None,
+        },
+        // Only the builtins that read the host clock or timezone; the rest of
+        // `datetime` is arithmetic over values the caller supplies.
+        "datetime" => match callee {
+            "datetime.now"
+            | "datetime.nowNanos"
+            | "datetime.monotonic"
+            | "datetime.monotonicNanos"
+            | "datetime.localOffset"
+            | "datetime.local"
+            | "datetime.toLocal" => Some("clock"),
+            _ => None,
+        },
         _ => None,
     }
+}
+
+/// The `LINK` aliases a project declares. A call qualified by one of these is a
+/// native call, whatever the alias happens to be named.
+fn link_aliases(ast: &ast::AstProject) -> HashSet<String> {
+    let mut aliases = HashSet::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                aliases.insert(link.alias.clone());
+            }
+        }
+    }
+    aliases
 }
 
 fn is_fallible_call(callee: &str, fallible: &HashSet<String>) -> bool {
@@ -502,6 +555,54 @@ mod tests {
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].resource_type, "File");
         assert_eq!(resources[0].close_op, "fs.close");
+    }
+
+    #[test]
+    fn every_host_capability_is_disclosed() {
+        // net/os/math/datetime and native LINK calls each disclose a capability;
+        // pure builtins in the same packages disclose nothing.
+        let source = concat!(
+            "LINK \"sqlite3\" AS sql\n",
+            "  FUNC open(path AS String) AS Nothing\n",
+            "    SYMBOL \"sqlite3_open\"\n",
+            "    ABI (path CString) AS status CInt32\n",
+            "    SUCCESS_ON status = 0\n",
+            "  END FUNC\n",
+            "END LINK\n",
+            "FUNC f()\n",
+            "  net::close(s)\n",
+            "  os::getEnv(\"HOME\")\n",
+            "  os::pid()\n",
+            "  math::rand(1, 6)\n",
+            "  math::floor(1.5)\n",
+            "  datetime::now()\n",
+            "  datetime::toIso(x)\n",
+            "  sql::open(\":memory:\")\n",
+            "END FUNC\n",
+        );
+        let (_, permissions, _) = collect_source(&project(source));
+        let disclosed = permissions
+            .iter()
+            .map(|permission| (permission.capability.as_str(), permission.function.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            disclosed,
+            vec![
+                ("clock", "datetime.now"),
+                ("environment", "os.getEnv"),
+                ("native", "sql.open"),
+                ("network", "net.close"),
+                ("process", "os.pid"),
+                ("randomness", "math.rand"),
+            ]
+        );
+        // Native calls are tagged as such; builtin calls stay "standard".
+        let native = permissions
+            .iter()
+            .find(|permission| permission.capability == "native")
+            .expect("native permission");
+        assert_eq!(native.kind, "native");
+        assert_eq!(native.package, "sql");
     }
 
     #[test]

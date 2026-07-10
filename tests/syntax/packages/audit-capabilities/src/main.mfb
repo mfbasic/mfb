@@ -1,0 +1,42 @@
+' The host capabilities `mfb audit` discloses beyond filesystem/terminal/threads:
+' network, process, environment, clock, randomness, and a native LINK symbol.
+' The audit golden proves each one is reported (and that `sqlite3_open` shows up
+' under "Native links:").
+IMPORT io
+IMPORT net
+IMPORT os
+IMPORT math
+IMPORT datetime
+
+RESOURCE Db CLOSE BY sql::close
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  LET home = os::getEnv("HOME")
+  LET pid = os::pid()
+  LET roll = math::rand(1, 6)
+  LET at = datetime::now()
+  RES socket = net::connectTcp("127.0.0.1", 9)
+  net::close(socket)
+  RES db AS Db = sql::open(":memory:")
+  sql::close(db)
+  io::print(home)
+  io::print(toString(pid + roll))
+  io::print(toString(datetime::toMillis(at)))
+  RETURN 0
+  TRAP(err)
+    RETURN 1
+  END TRAP
+END FUNC
