@@ -729,11 +729,13 @@ pub(super) fn lower_function(
     // other stack access. The shadow is reset on every later non-self-append
     // bind/assign, so it always reflects the live buffer's spare bytes.
     if !builder.string_capacity_slots.is_empty() {
-        let mut zeroing = vec![abi::move_immediate("x9", "Integer", "0")];
+        // Store the zero token (`xzr`) directly — no scratch register, no `mov`
+        // (plan-34-C: shared lowering names no physical scratch).
+        let mut zeroing = Vec::new();
         let mut slots: Vec<usize> = builder.string_capacity_slots.values().copied().collect();
         slots.sort_unstable();
         for slot in slots {
-            zeroing.push(abi::store_u64("x9", abi::stack_pointer(), slot));
+            zeroing.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
         }
         let insert_at = if instructions
             .first()
@@ -754,13 +756,13 @@ pub(super) fn lower_function(
     // The stores are sp-relative with pre-prologue offsets, so `finalize_frame`
     // shifts them by the callee-save area like every other stack access.
     if !builder.owned_value_slots.is_empty() {
+        // Store the zero token (`xzr`) directly — no scratch register, no `mov`.
         let mut zeroing = Vec::new();
-        zeroing.push(abi::move_immediate("x9", "Integer", "0"));
         let mut slots = builder.owned_value_slots.clone();
         slots.sort_unstable();
         slots.dedup();
         for slot in slots {
-            zeroing.push(abi::store_u64("x9", abi::stack_pointer(), slot));
+            zeroing.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
         }
         let insert_at = if instructions
             .first()
