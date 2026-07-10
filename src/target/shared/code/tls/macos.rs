@@ -1209,7 +1209,34 @@ pub(super) fn lower_tls_read_macos(
         abi::branch(&done),
     ]);
     if text {
+        // The encoding-error exit must release the mapped data and the retained
+        // content before failing, exactly as the success path above does.
+        // Otherwise a peer that keeps sending invalid UTF-8 to a program looping
+        // on tls::readText drives an unbounded dispatch_data/content leak — a
+        // remotely-triggerable memory-exhaustion DoS (bug-52). MAPPED, CTX and
+        // CTX_CONTENT are reloaded from stack slots so no live value is held in
+        // a caller-saved register across either dispatch_release `bl`.
         ins.push(abi::label(&encoding_error));
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_release",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
+            abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+            abi::branch_link_register("%v9"),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX),
+            abi::load_u64(abi::return_register(), abi::return_register(), CTX_CONTENT),
+            abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+            abi::branch_link_register("%v9"),
+        ]);
         emit_fail(
             symbol,
             ERR_ENCODING_CODE,
@@ -3135,5 +3162,316 @@ pub(super) fn lower_tls_close_listener_macos(
     {
         let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
         Ok((frame, ins, rel, stack_slots))
+    }
+}
+
+#[cfg(test)]
+mod encoding_error_release_tests {
+    // Regression guard for bug-52: on macOS, `tls::readText`'s encoding-error
+    // exit must release the mapped `dispatch_data` (MAPPED) and the retained nw
+    // content object (CTX_CONTENT) before failing, exactly as the success exit
+    // does. Before the fix that exit jumped straight to `emit_fail`, so every
+    // invalid-UTF-8 read leaked one map + one content object — a peer-controlled
+    // (remote) memory-exhaustion DoS. Runtime proof lives in the fix's leak
+    // measurement (`leaks` shows the per-read `dispatch_data_t` leak drop to 0);
+    // this test pins the codegen so the releases cannot silently regress.
+    use super::*;
+    use crate::target::shared::code::mir;
+
+    struct TlsReadTestPlatform;
+
+    #[rustfmt::skip]
+    impl CodegenPlatform for TlsReadTestPlatform {
+        fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
+        fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
+        fn backend(&self) -> &'static dyn crate::target::shared::code::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
+        fn termios_size(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_size") }
+        fn termios_lflag_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_lflag_offset") }
+        fn termios_lflag_width(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_lflag_width") }
+        fn termios_cc_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_cc_offset") }
+        fn termios_echo_flag(&self) -> u64 { unimplemented!("TlsReadTestPlatform::termios_echo_flag") }
+        fn termios_icanon_flag(&self) -> u64 { unimplemented!("TlsReadTestPlatform::termios_icanon_flag") }
+        fn termios_vmin_index(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_vmin_index") }
+        fn termios_vtime_index(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_vtime_index") }
+        fn emit_program_exit(
+        &self,
+        _from: &str,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_program_exit") }
+        fn emit_write(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_write") }
+        fn emit_poll_input(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_poll_input") }
+        fn emit_is_terminal(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_is_terminal") }
+        fn emit_terminal_size(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_terminal_size") }
+        fn emit_path_exists(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_exists") }
+        fn emit_path_stat(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_stat") }
+        fn stat_mode_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::stat_mode_offset") }
+        fn emit_current_directory(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_current_directory") }
+        fn emit_environ_pointer(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_environ_pointer") }
+        fn emit_fs_path_operation(
+        &self,
+        _from: &str,
+        _operation: crate::target::shared::code::FsPathOperation,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_fs_path_operation") }
+        fn emit_errno(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_errno") }
+        fn emit_libc_call(
+        &self,
+        _base: &str,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> {
+            // Minimal stand-in: a plain `bl` to the named libc function is
+            // enough for the read helper to lower and register-allocate; the
+            // test only inspects the resulting encoding-error release block.
+            _instructions.push(crate::arch::aarch64::abi::branch_link(&format!("_{_base}")));
+            Ok(())
+        }
+        fn emit_open_file(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_open_file") }
+        fn emit_read_file(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_read_file") }
+        fn emit_close_file(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_close_file") }
+        fn emit_sync_file(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_sync_file") }
+        fn emit_seek_file(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_seek_file") }
+        fn emit_rename_path(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_rename_path") }
+        fn emit_mkstemps(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_mkstemps") }
+        fn emit_random_bytes(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_random_bytes") }
+        fn emit_temp_directory(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_temp_directory") }
+        fn emit_opendir(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_opendir") }
+        fn emit_readdir(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_readdir") }
+        fn emit_closedir(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_closedir") }
+        fn dirent_name_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::dirent_name_offset") }
+        fn dirent_name_length_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::dirent_name_length_offset") }
+        fn emit_realpath(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_realpath") }
+        fn emit_arena_map(
+        &self,
+        _size_reg: &str,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_map") }
+        fn emit_arena_unmap(&self, _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_unmap") }
+        fn addrinfo_addr_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::addrinfo_addr_offset") }
+        fn sol_socket(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::sol_socket") }
+        fn so_reuseaddr(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_reuseaddr") }
+        fn so_rcvtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_rcvtimeo") }
+        fn so_sndtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_sndtimeo") }
+        fn eagain(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::eagain") }
+        fn emsgsize(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::emsgsize") }
+        fn o_nonblock(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::o_nonblock") }
+        fn einprogress(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::einprogress") }
+        fn so_error(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_error") }
+        fn emit_variadic_call(
+        &self,
+        _base: &str,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+        _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_variadic_call") }
+        fn emit_program_entry(
+        &self,
+        _spec: &crate::target::shared::code::ProgramEntrySpec<'_>,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Result<crate::target::shared::code::CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_program_entry") }
+        fn emit_thread_trampoline(
+        &self,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Result<crate::target::shared::code::CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_thread_trampoline") }
+    }
+
+    /// Number of `blr` (indirect call) instructions between the `start` and the
+    /// next `end` label in the finalized instruction stream.
+    fn blr_between(ins: &[CodeInstruction], start: &str, end: &str) -> usize {
+        let s = ins
+            .iter()
+            .position(|i| i.op == CodeOp::Label && i.get("name") == Some(start))
+            .unwrap_or_else(|| panic!("missing label {start}"));
+        let e = ins[s + 1..]
+            .iter()
+            .position(|i| i.op == CodeOp::Label && i.get("name") == Some(end))
+            .map(|p| p + s + 1)
+            .unwrap_or_else(|| panic!("missing label {end}"));
+        ins[s + 1..e]
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLinkRegister)
+            .count()
+    }
+
+    #[test]
+    fn readtext_encoding_error_releases_mapped_and_content() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_frame, ins, rel, _slots) =
+            lower_tls_read_macos("t_readtext", &imports, &TlsReadTestPlatform, true)
+                .expect("lower tls::readText");
+
+        // The encoding-error exit performs exactly the two dispatch_release
+        // calls the success path does (MAPPED, then CTX_CONTENT) before failing.
+        let releases = blr_between(&ins, "t_readtext_encoding_error", "t_readtext_peer_closed");
+        assert_eq!(
+            releases, 2,
+            "bug-52: encoding_error exit must release MAPPED and CTX_CONTENT before failing"
+        );
+
+        // The fix adds a second dlsym(dispatch_release); the whole helper now
+        // resolves that data symbol on both the success and the error path
+        // (each resolution emits a hi/lo relocation pair).
+        let release_relocs = rel.iter().filter(|r| r.to.contains("dispatch_release")).count();
+        assert!(
+            release_relocs >= 4,
+            "expected dispatch_release resolved on both exits, got {release_relocs}"
+        );
+    }
+
+    #[test]
+    fn readbytes_has_no_encoding_error_exit() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_frame, ins, _rel, _slots) =
+            lower_tls_read_macos("t_readbytes", &imports, &TlsReadTestPlatform, false)
+                .expect("lower tls::read");
+
+        // readBytes has no UTF-8 validation, so it never emits an encoding_error
+        // label — confirming the bug-52 fix is scoped to the text path only.
+        assert!(
+            !ins
+                .iter()
+                .any(|i| i.op == CodeOp::Label && i.get("name") == Some("t_readbytes_encoding_error")),
+            "tls::read (bytes) must not have an encoding_error exit"
+        );
     }
 }
