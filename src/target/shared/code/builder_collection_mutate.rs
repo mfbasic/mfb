@@ -222,6 +222,31 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Free the backing buffer currently held in `slot` before an in-place grow
+    /// installs a fresh block over it (bug-47, the bug-01 class at new sites). The
+    /// in-place mutators fire only under unique ownership and never on a live
+    /// `FOR EACH` iterable (`try_inplace_*` guards), so the abandoned block has no
+    /// other reference — freeing it here is what keeps a `prepend`/`set`-in-a-loop
+    /// program's arena footprint bounded by live data instead of leaking one block
+    /// per geometric grow, exactly as `append`/`bulk_append` already do. Sizing
+    /// (including a map's hash-bucket region) and the spill of the block pointer
+    /// across the `arena_free` call (which trashes every caller-saved register) are
+    /// handled by `free_intermediate_collection`; the returned pointer is the freed
+    /// block and is intentionally discarded — the caller installs the new buffer
+    /// from its own slot immediately after. Must be called while `slot` still holds
+    /// the pre-grow buffer and after the copy into the new buffer has completed.
+    fn emit_free_pre_grow_buffer(&mut self, slot: usize, type_: &str) -> Result<(), String> {
+        let keep = self.allocate_register()?;
+        self.emit(abi::load_u64(&keep, abi::stack_pointer(), slot));
+        let threaded = ValueResult {
+            type_: type_.to_string(),
+            location: keep,
+            text: String::new(),
+        };
+        self.free_intermediate_collection(slot, type_, threaded)?;
+        Ok(())
+    }
+
     pub(super) fn lower_collection_remove_at(
         &mut self,
         args: &[NirValue],
@@ -1582,6 +1607,10 @@ impl CodeBuilder<'_> {
             &scratch22,
             "prepend_grow_entries",
         );
+        // Free the abandoned pre-grow buffer (still in `buffer_slot`) before
+        // installing the grown one — otherwise a prepend-in-a-loop leaks the old
+        // buffer on every geometric grow (bug-47, mirrors `append` at :957-991).
+        self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));
@@ -1841,6 +1870,16 @@ impl CodeBuilder<'_> {
 
         // --- Rebuild (payload grew): remove + insert a fresh singleton list. ---
         self.emit(abi::label(&rebuild));
+        // Snapshot the original buffer pointer before the rebuild allocates over
+        // `buffer_slot`. This path abandons three blocks — the original buffer,
+        // the singleton, and the removeAt intermediate — and, because the in-place
+        // short-circuit bypassed the general-reassignment free, it owns freeing all
+        // of them (bug-47). The singleton + removeAt intermediates are freed exactly
+        // as the non-in-place `lower_collection_set` frees them (:314-318); the
+        // original buffer additionally, since no scope-drop reclaims it here.
+        let orig_slot = self.allocate_stack_object("set_inplace_orig", 8);
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), orig_slot));
         let singleton = self.lower_collection_values(
             list_type,
             vec![CollectionValueSlot {
@@ -1878,6 +1917,22 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             buffer_slot,
         ));
+        // `rebuilt` (now in buffer_slot) is a fresh independent block holding copies
+        // of all live data, so the three abandoned blocks are unreachable and
+        // uniquely owned — free them. Each is a distinct block (insert_collection
+        // allocates fresh; the non-in-place set frees the same singleton/removed
+        // pair), so there is no double-free. The threaded result is discarded: the
+        // function reloads the (unchanged) buffer_slot after `done`.
+        let keep = self.allocate_register()?;
+        self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
+        let threaded = ValueResult {
+            type_: list_type.to_string(),
+            location: keep,
+            text: String::new(),
+        };
+        let threaded = self.free_intermediate_collection(singleton_slot, list_type, threaded)?;
+        let threaded = self.free_intermediate_collection(removed_slot, list_type, threaded)?;
+        let _ = self.free_intermediate_collection(orig_slot, list_type, threaded)?;
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&invalid));
@@ -2314,6 +2369,10 @@ impl CodeBuilder<'_> {
             &scratch22,
             "mapset_vgrow_entries",
         );
+        // Free the abandoned pre-grow buffer (still in `map_slot`, sized with its
+        // bucket region) before installing the grown one — otherwise a value-growing
+        // map-set in a loop leaks the old buffer on every grow (bug-47).
+        self.emit_free_pre_grow_buffer(map_slot, map_type)?;
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&vwrite));
@@ -2619,6 +2678,10 @@ impl CodeBuilder<'_> {
             &scratch22,
             "mapset_grow_entries",
         );
+        // Free the abandoned pre-grow buffer (still in `map_slot`, sized with its
+        // bucket region) before installing the grown one — otherwise a capacity-
+        // growing map-set in a loop leaks the old buffer on every grow (bug-47).
+        self.emit_free_pre_grow_buffer(map_slot, map_type)?;
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&write));

@@ -1,0 +1,127 @@
+' bug-47: the in-place collection mutators reallocate a larger backing buffer
+' when they outgrow capacity and repoint the local's slot at it — but three of
+' them (`prepend`, list `set` on the rebuild path, and `map set` on both the
+' value-grow and capacity-grow paths), plus a freeable-flat global reassigned
+' via `StoreGlobal`, abandoned the old buffer without freeing it (the bug-01
+' class at new sites the `append`/`bulk_append` fix never covered). This test is
+' the correctness guard for the added frees: every grow path runs many times so
+' each mutator crosses several geometric grows, and the results are verified —
+' a broken free (double-free, use-after-free, or a map free that omits the hash
+' bucket region and corrupts the arena) shows up as a wrong result or a crash,
+' not a silent leak. The leak itself is proven bounded by an out-of-tree RSS
+' measurement recorded in planning/bug-47-*.md.
+IMPORT collections
+IMPORT strings
+
+' A module-level freeable-flat global: reassigned in a loop below to exercise
+' the `StoreGlobal` old-block free.
+MUT gList AS List OF Integer = [0]
+
+' In-place `prepend` grow: start tight, prepend repeatedly. Each grow abandons
+' the previous buffer; the fix frees it. Returns the head/tail to prove order.
+FUNC prependGrow(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = [0]
+  MUT i AS Integer = 1
+  WHILE i < n
+    xs = collections::prepend(xs, i)
+    i = i + 1
+  WEND
+  RETURN xs
+END FUNC
+
+' In-place list `set` rebuild grow: replacing an element with a strictly longer
+' payload takes the remove+insert rebuild branch, which allocates a singleton, a
+' removeAt intermediate, and a fresh result — all but the result must be freed.
+FUNC listSetGrow(n AS Integer) AS List OF String
+  MUT xs AS List OF String = ["a", "b", "c"]
+  MUT i AS Integer = 1
+  WHILE i <= n
+    xs = collections::set(xs, 1, strings::repeat("y", i))
+    i = i + 1
+  WEND
+  RETURN xs
+END FUNC
+
+' In-place map `set` capacity grow: inserting distinct keys past capacity grows
+' the whole map buffer (lookup + data + hash bucket region) geometrically.
+FUNC mapCapGrow(n AS Integer) AS Map OF Integer TO Integer
+  MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer { -1 := -1 }
+  MUT i AS Integer = 0
+  WHILE i < n
+    m = collections::set(m, i, i * 2)
+    i = i + 1
+  WEND
+  RETURN m
+END FUNC
+
+' In-place map `set` value grow: overwriting one key with an ever-longer value
+' grows only the data region (capacity/buckets unchanged).
+FUNC mapValGrow(n AS Integer) AS String
+  MUT m AS Map OF Integer TO String = Map OF Integer TO String { 1 := "" }
+  MUT i AS Integer = 1
+  WHILE i <= n
+    m = collections::set(m, 1, strings::repeat("z", i))
+    i = i + 1
+  WEND
+  RETURN collections::getOr(m, 1, "MISSING")
+END FUNC
+
+' Global reassignment: `gList = <fresh list>` each iteration must free the
+' previous global block (globals carry no scope-drop cleanup).
+FUNC globalReassign(n AS Integer) AS Integer
+  MUT i AS Integer = 0
+  WHILE i < n
+    gList = collections::prepend([100, 200], i)
+    i = i + 1
+  WEND
+  RETURN len(gList)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "bug-47 in-place mutator grow frees"
+    TCASE "prepend grow keeps order and length across many grows"
+      LET xs = prependGrow(500)
+      expectInteger(len(xs), 500)
+      ' xs = [499, 498, ..., 1, 0]
+      expectInteger(collections::get(xs, 0), 499)
+      expectInteger(collections::get(xs, 499), 0)
+      expectInteger(collections::get(xs, 250), 249)
+    END TCASE
+
+    TCASE "list set rebuild grow replaces only the target element"
+      LET xs = listSetGrow(400)
+      expectInteger(len(xs), 3)
+      expectString(collections::get(xs, 0), "a")
+      expectString(collections::get(xs, 1), strings::repeat("y", 400))
+      expectString(collections::get(xs, 2), "c")
+    END TCASE
+
+    TCASE "map capacity grow preserves every key/value"
+      LET m = mapCapGrow(500)
+      expectInteger(len(m), 501)
+      expectInteger(collections::getOr(m, 0, -1), 0)
+      expectInteger(collections::getOr(m, 250, -1), 500)
+      expectInteger(collections::getOr(m, 499, -1), 998)
+      expectInteger(collections::getOr(m, -1, -99), -1)
+    END TCASE
+
+    TCASE "map value grow keeps the final value and one entry"
+      LET v = mapValGrow(400)
+      expectInteger(len(v), 400)
+      expectString(v, strings::repeat("z", 400))
+    END TCASE
+
+    TCASE "global reassignment stays correct across many overwrites"
+      LET final = globalReassign(500)
+      expectInteger(final, 3)
+      ' gList = collections::prepend([100, 200], 499) = [499, 100, 200]
+      expectInteger(collections::get(gList, 0), 499)
+      expectInteger(collections::get(gList, 1), 100)
+      expectInteger(collections::get(gList, 2), 200)
+    END TCASE
+  END TGROUP
+END TESTING

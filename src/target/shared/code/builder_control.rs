@@ -274,8 +274,62 @@ impl CodeBuilder<'_> {
                         if let Some(value) = value {
                             self.observe_float(value, &result)?;
                         }
-                        let address = self.load_global_address(name)?;
-                        self.store_value_at(&result, &address, 0);
+                        // Free the global's previous freeable-flat block before
+                        // overwriting the slot (bug-47, the bug-01 class). A global
+                        // carries no `OwnedValue` scope-drop cleanup, and unlike the
+                        // local `NirOp::Assign` path (:351-385) `StoreGlobal` had no
+                        // old-block free, so a freeable-flat global reassigned in a
+                        // loop (`g = collections::filter(g, cb)`) leaked one block per
+                        // iteration. The old pointer is snapshotted from the global
+                        // into a stack slot and freed via `emit_owned_value_drop`
+                        // (null-guarded, so the first store over a zero-initialized
+                        // global is a no-op; sized from the type incl. a map's bucket
+                        // region). The freshly computed value is spilled across the
+                        // `arena_free` (which trashes all caller-saved registers) and
+                        // the global address is re-derived afterward (its base, the
+                        // arena-state register x19, is callee-saved and survives the
+                        // call). `lower_value_owned` deep-copied any aliasing source,
+                        // so the new block never aliases the freed one — the free is
+                        // sound and once-only.
+                        if self.is_freeable_flat_value(&value_type) {
+                            let new_slot =
+                                self.allocate_stack_object("store_global_new", 8);
+                            self.emit(abi::store_u64(
+                                &result.location,
+                                abi::stack_pointer(),
+                                new_slot,
+                            ));
+                            let old_slot =
+                                self.allocate_stack_object("store_global_old", 8);
+                            let address = self.load_global_address(name)?;
+                            let old_ptr = self.allocate_register()?;
+                            self.emit(abi::load_u64(&old_ptr, &address, 0));
+                            self.emit(abi::store_u64(
+                                &old_ptr,
+                                abi::stack_pointer(),
+                                old_slot,
+                            ));
+                            self.emit_owned_value_drop(&OwnedValueCleanup {
+                                type_: value_type.clone(),
+                                stack_offset: old_slot,
+                            })?;
+                            let new_ptr = self.allocate_register()?;
+                            self.emit(abi::load_u64(
+                                &new_ptr,
+                                abi::stack_pointer(),
+                                new_slot,
+                            ));
+                            let stored = ValueResult {
+                                type_: result.type_.clone(),
+                                location: new_ptr,
+                                text: String::new(),
+                            };
+                            let address = self.load_global_address(name)?;
+                            self.store_value_at(&stored, &address, 0);
+                        } else {
+                            let address = self.load_global_address(name)?;
+                            self.store_value_at(&result, &address, 0);
+                        }
                     }
                     NirOp::Assign { name, value } => {
                         // A loop-promoted float local is updated in its FP
