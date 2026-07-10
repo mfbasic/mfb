@@ -152,6 +152,43 @@ pub fn package_content_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
     Ok(sha256(bytes))
 }
 
+/// The same digest as [`package_content_hash`], streamed from disk in bounded
+/// chunks. A `packages/*.mfp` is untrusted input of arbitrary size, so a caller
+/// that only needs its content hash must not read it whole into memory.
+pub fn package_content_hash_file(path: &Path) -> Result<[u8; 32], String> {
+    use std::io::Read;
+
+    const CHUNK: usize = 64 * 1024;
+
+    let mut file =
+        fs::File::open(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; CHUNK];
+    let mut prefix: Vec<u8> = Vec::with_capacity(20);
+    let mut length: u64 = 0;
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        if prefix.len() < 20 {
+            let wanted = (20 - prefix.len()).min(read);
+            prefix.extend_from_slice(&buffer[..wanted]);
+        }
+        hasher.update(&buffer[..read]);
+        length += read as u64;
+    }
+    if length < 20 || prefix[0..8] != MFP_MAGIC {
+        return Err("package is not a valid .mfp package".to_string());
+    }
+    let digest = hasher.finalize();
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&digest);
+    Ok(hash)
+}
+
 fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -356,6 +393,30 @@ mod tests {
         tampered[last] ^= 0x01;
         let reparsed = mfb_repository::package::parse_mfp_package(&tampered).expect("parse");
         assert!(mfb_repository::package::verify_payload_hash(&reparsed).is_err());
+    }
+
+    #[test]
+    fn streamed_content_hash_matches_whole_file_hash() {
+        // Spans several read chunks so the prefix check and the digest both see
+        // more than one buffer.
+        let mut bytes = MFP_MAGIC.to_vec();
+        bytes.extend((0..200_000u32).map(|index| index as u8));
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.mfp");
+        fs::write(&path, &bytes).expect("write");
+        assert_eq!(
+            package_content_hash_file(&path).expect("streamed hash"),
+            package_content_hash(&bytes).expect("whole-file hash")
+        );
+
+        // A short file and a wrong magic are rejected exactly as in-memory.
+        let short = dir.path().join("short.mfp");
+        fs::write(&short, &MFP_MAGIC).expect("write");
+        assert!(package_content_hash_file(&short).is_err());
+        let wrong = dir.path().join("wrong.mfp");
+        fs::write(&wrong, vec![0u8; 64]).expect("write");
+        assert!(package_content_hash_file(&wrong).is_err());
+        assert!(package_content_hash_file(&dir.path().join("missing.mfp")).is_err());
     }
 
     #[test]

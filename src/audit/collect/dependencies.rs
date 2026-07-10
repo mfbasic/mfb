@@ -29,12 +29,10 @@ pub(super) fn collect_dependencies(
                         resolved_version = Some(header.version.clone());
                         signature =
                             Some(crate::cli::pkg::signature_type_name(header.signature_type));
-                        content_hash = std::fs::read(&package_file)
-                            .ok()
-                            .and_then(|bytes| {
-                                crate::target::package_mfp::package_content_hash(&bytes).ok()
-                            })
-                            .map(|hash| crate::cli::pkg::hex_bytes(&hash));
+                        content_hash =
+                            crate::target::package_mfp::package_content_hash_file(&package_file)
+                                .ok()
+                                .map(|hash| crate::cli::pkg::hex_bytes(&hash));
                         status = verify_status_label(crate::cli::pkg::package_dependency_status(
                             &dependency,
                             &header.name,
@@ -186,9 +184,8 @@ pub(super) fn collect_packages(
         let display = format!("packages/{}.mfp", dependency.name);
         let header = crate::manifest::package::read_mfp_header(&package_file);
         let info = crate::binary_repr::read_package_info(&package_file);
-        let content_hash = std::fs::read(&package_file)
+        let content_hash = crate::target::package_mfp::package_content_hash_file(&package_file)
             .ok()
-            .and_then(|bytes| crate::target::package_mfp::package_content_hash(&bytes).ok())
             .map(|hash| crate::cli::pkg::hex_bytes(&hash))
             .unwrap_or_default();
 

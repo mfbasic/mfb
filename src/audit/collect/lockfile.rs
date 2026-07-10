@@ -25,7 +25,7 @@ pub(super) fn collect_lockfile(
                 version = object
                     .get("lockfileVersion")
                     .and_then(|value| value.get::<f64>())
-                    .map(|value| *value as i64);
+                    .and_then(|value| lockfile_version(*value));
                 let stored = object
                     .get("projectHash")
                     .and_then(|value| value.get::<String>())
@@ -43,6 +43,22 @@ pub(super) fn collect_lockfile(
         version,
         project_hash_matches,
     }
+}
+
+/// A `lockfileVersion` is a non-negative integer. JSON gives us an `f64`, and a
+/// raw `as i64` would saturate `1e309` to `i64::MAX` and truncate `1.9` to `1`,
+/// reporting a version the lockfile never stated. An out-of-range or fractional
+/// value is malformed: report it as absent rather than as a plausible number.
+fn lockfile_version(value: f64) -> Option<i64> {
+    if !value.is_finite() || value.fract() != 0.0 || value < 0.0 {
+        return None;
+    }
+    // f64 represents every integer up to 2^53 exactly; beyond that a value is
+    // not a faithful version number.
+    if value > (1i64 << 53) as f64 {
+        return None;
+    }
+    Some(value as i64)
 }
 
 #[cfg(test)]
@@ -75,6 +91,26 @@ mod tests {
         assert!(summary.present);
         assert_eq!(summary.version, Some(1));
         assert_eq!(summary.project_hash_matches, Some(true));
+    }
+
+    #[test]
+    fn malformed_lockfile_version_is_reported_absent_not_saturated() {
+        let dir = tempdir().unwrap();
+        let manifest: HashMap<String, JsonValue> = HashMap::new();
+        // `1e309` parses to f64 infinity; `as i64` used to saturate it to
+        // i64::MAX and report that as the version.
+        for version in ["1e309", "1.9", "-1", "1e300"] {
+            fs::write(
+                dir.path().join("mfb.lock"),
+                format!("{{\"lockfileVersion\": {version}, \"projectHash\": \"x\"}}"),
+            )
+            .unwrap();
+            let summary = collect_lockfile(dir.path(), &manifest, false);
+            assert!(summary.present);
+            assert_eq!(summary.version, None, "version {version} must be rejected");
+        }
+        assert_eq!(lockfile_version(0.0), Some(0));
+        assert_eq!(lockfile_version(3.0), Some(3));
     }
 
     #[test]

@@ -89,6 +89,10 @@ field).[[src/audit/collect/project.rs:project_summary]]
 **lockfile** — `path` (`mfb.lock`), `present` (bool), `locked` (the `--locked`
 flag), `lockfileVersion` (nullable int), `projectHashMatches` (nullable bool:
 stored `projectHash` vs. recomputed `project_hash`).[[src/audit/collect/lockfile.rs:collect_lockfile]]
+`lockfileVersion` is reported only when the stored JSON number is a non-negative
+integer within the exactly-representable `f64` range; a fractional, negative, or
+out-of-range value is malformed and reports `null` rather than a truncated or
+saturated number.[[src/audit/collect/lockfile.rs:lockfile_version]]
 
 **DependencyEntry** — `name`, `ident`, `requestedVersion`, `resolvedVersion`
 (nullable), `pin` (bool), `source`, `signature` (nullable), `contentHash`
