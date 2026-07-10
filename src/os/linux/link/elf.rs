@@ -1,44 +1,69 @@
 use super::*;
 
+/// A static AArch64/RISC-V ELF executable: the shape a build takes when it imports
+/// nothing, so no interpreter or PLT/GOT is needed.
+///
+/// Data is placed at the **page-aligned** offset `write_executable` already assumes
+/// when it patches relocations (`data_vmaddr = IMAGE_BASE + align(TEXT_FILE_OFFSET
+/// + text.len(), PAGE_SIZE)`). Appending it straight after text instead put every
+/// string and constant `align(…) - (TEXT_FILE_OFFSET + text.len())` bytes below the
+/// address each `page21`/`pageoff12` (AArch64) or `pcrel` (RISC-V) relocation
+/// resolved to. As in `encode_static_elf_x86`, data lives in its own **writable**
+/// PT_LOAD, because the entry writes `_mfb_rt_main_arena` into it.
 pub(super) fn encode_static_elf(
+    arch: &str,
     entry_offset: usize,
     text: &[u8],
     data: &[u8],
     signing_metadata: Option<&[u8]>,
 ) -> Vec<u8> {
-    let file_size = TEXT_FILE_OFFSET + text.len() + data.len();
+    let text_offset = TEXT_FILE_OFFSET;
+    let text_vmaddr = IMAGE_BASE + text_offset as u64;
+    let data_offset = align(text_offset + text.len(), PAGE_SIZE);
+    let data_vmaddr = IMAGE_BASE + data_offset as u64;
+    let text_seg_filesz = (text_offset + text.len()) as u64; // ELF header + phdrs + text
+
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&[0x7f, b'E', b'L', b'F']);
-    bytes.extend_from_slice(&[2, 1, 1, 0]);
+    bytes.extend_from_slice(&[2, 1, 1, 0]); // ELFCLASS64, LE, version, SysV ABI
     bytes.resize(16, 0);
-    put_u16(&mut bytes, 2);
-    put_u16(&mut bytes, 183);
-    put_u32(&mut bytes, 1);
-    put_u64(
-        &mut bytes,
-        IMAGE_BASE + TEXT_FILE_OFFSET as u64 + entry_offset as u64,
-    );
-    put_u64(&mut bytes, 64);
-    put_u64(&mut bytes, 0);
-    put_u32(&mut bytes, 0);
-    put_u16(&mut bytes, 64);
-    put_u16(&mut bytes, 56);
-    put_u16(&mut bytes, 1);
-    put_u16(&mut bytes, 0);
-    put_u16(&mut bytes, 0);
-    put_u16(&mut bytes, 0);
+    put_u16(&mut bytes, 2); // e_type = ET_EXEC
+    put_u16(&mut bytes, e_machine(arch)); // EM_AARCH64 (183) or EM_RISCV (243)
+    put_u32(&mut bytes, 1); // e_version
+    put_u64(&mut bytes, text_vmaddr + entry_offset as u64); // e_entry
+    put_u64(&mut bytes, 64); // e_phoff
+    put_u64(&mut bytes, 0); // e_shoff
+    put_u32(&mut bytes, 0); // e_flags
+    put_u16(&mut bytes, 64); // e_ehsize
+    put_u16(&mut bytes, 56); // e_phentsize
+    put_u16(&mut bytes, 2); // e_phnum (text + data)
+    put_u16(&mut bytes, 0); // e_shentsize
+    put_u16(&mut bytes, 0); // e_shnum
+    put_u16(&mut bytes, 0); // e_shstrndx
 
-    put_u32(&mut bytes, 1);
-    put_u32(&mut bytes, 5);
-    put_u64(&mut bytes, 0);
-    put_u64(&mut bytes, IMAGE_BASE);
-    put_u64(&mut bytes, IMAGE_BASE);
-    put_u64(&mut bytes, file_size as u64);
-    put_u64(&mut bytes, file_size as u64);
-    put_u64(&mut bytes, 0x1000);
+    // PT_LOAD text (R+X)
+    put_u32(&mut bytes, 1); // p_type = PT_LOAD
+    put_u32(&mut bytes, 5); // p_flags = R+X
+    put_u64(&mut bytes, 0); // p_offset
+    put_u64(&mut bytes, IMAGE_BASE); // p_vaddr
+    put_u64(&mut bytes, IMAGE_BASE); // p_paddr
+    put_u64(&mut bytes, text_seg_filesz); // p_filesz
+    put_u64(&mut bytes, text_seg_filesz); // p_memsz
+    put_u64(&mut bytes, 0x1000); // p_align
 
-    bytes.resize(TEXT_FILE_OFFSET, 0);
+    // PT_LOAD data (R+W)
+    put_u32(&mut bytes, 1); // p_type = PT_LOAD
+    put_u32(&mut bytes, 6); // p_flags = R+W
+    put_u64(&mut bytes, data_offset as u64); // p_offset
+    put_u64(&mut bytes, data_vmaddr); // p_vaddr
+    put_u64(&mut bytes, data_vmaddr); // p_paddr
+    put_u64(&mut bytes, data.len() as u64); // p_filesz
+    put_u64(&mut bytes, data.len() as u64); // p_memsz
+    put_u64(&mut bytes, 0x1000); // p_align
+
+    bytes.resize(text_offset, 0);
     bytes.extend_from_slice(text);
+    bytes.resize(data_offset, 0);
     bytes.extend_from_slice(data);
     if let Some(metadata) = signing_metadata {
         append_elf_signing_section(&mut bytes, metadata);

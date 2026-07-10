@@ -71,6 +71,7 @@ pub(crate) fn write_executable(
             )
         } else {
             encode_static_elf(
+                arch,
                 entry_offset,
                 &text,
                 &image.data,

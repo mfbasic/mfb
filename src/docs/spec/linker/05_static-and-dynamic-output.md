@@ -11,8 +11,12 @@ internal text and data and no dynamic-loading metadata:
 - macOS: `encode_unsigned_mach_o` still emits `__PAGEZERO`/`__TEXT`/`__LINKEDIT`
   and a (possibly empty) symbol table, with no `LC_LOAD_DYLIB`, no
   `__DATA_CONST`/GOT, and no dyld bind/rebase opcodes.
-- Linux: `encode_static_elf` emits a single `PT_LOAD`, no `PT_INTERP`, and no
-  `.dynamic` section. [[src/os/linux/link/elf.rs:encode_static_elf]]
+- Linux: `encode_static_elf` (AArch64/RISC-V) and `encode_static_elf_x86` each emit
+  two `PT_LOAD`s — text (R+X) and a writable data segment — with no `PT_INTERP` and
+  no `.dynamic` section. Data begins at `align(TEXT_FILE_OFFSET + text.len(),
+  PAGE_SIZE)`, the same address `write_executable` patches data relocations
+  against, and is writable because the entry stores `_mfb_rt_main_arena` into it.
+  [[src/os/linux/link/elf.rs:encode_static_elf]]
 
 A static image needs nothing from a dynamic loader, but on macOS it is still
 ad-hoc code-signed (see `macos-aarch64`).

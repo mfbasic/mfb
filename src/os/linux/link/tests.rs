@@ -211,6 +211,48 @@ fn encode_static_elf_x86_emits_two_pt_load_segments() {
     assert_eq!(&bytes[data_offset..data_offset + 4], &[1, 2, 3, 4][..]);
 }
 
+/// bug-38: the static AArch64/RISC-V path appended data straight after text while
+/// `write_executable` patched every data relocation against a *page-aligned*
+/// `data_vmaddr`. Any text length not ending on a page boundary therefore shifted
+/// every string and constant pointer.
+#[test]
+fn encode_static_elf_places_data_where_relocations_expect_it() {
+    // A one-byte text section guarantees `TEXT_FILE_OFFSET + text.len()` is not
+    // page-aligned, which is exactly when the old layout diverged.
+    let image = x86_static_image();
+    for (arch, machine) in [("aarch64", 183u16), ("riscv64", 243)] {
+        let bytes = encode_static_elf(arch, 0, &image.text, &image.data, None);
+        assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
+        // e_machine follows the target ISA (this path serves both).
+        assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), machine);
+        // e_phnum = 2: text R+X, and a data segment the entry can write.
+        assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 2);
+        assert_eq!(u32::from_le_bytes(bytes[120..124].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(bytes[124..128].try_into().unwrap()), 6);
+
+        // The address `write_executable` patches a data relocation to.
+        let data_offset = align(TEXT_FILE_OFFSET + image.text.len(), PAGE_SIZE);
+        let data_vmaddr = IMAGE_BASE + data_offset as u64;
+        assert_ne!(data_offset, TEXT_FILE_OFFSET + image.text.len());
+        // The data segment's p_offset / p_vaddr agree with it, and the bytes
+        // really are there.
+        assert_eq!(
+            u64::from_le_bytes(bytes[128..136].try_into().unwrap()),
+            data_offset as u64
+        );
+        assert_eq!(
+            u64::from_le_bytes(bytes[136..144].try_into().unwrap()),
+            data_vmaddr
+        );
+        assert_eq!(
+            u64::from_le_bytes(bytes[152..160].try_into().unwrap()),
+            image.data.len() as u64
+        );
+        assert_eq!(bytes[TEXT_FILE_OFFSET], 0xc3);
+        assert_eq!(&bytes[data_offset..data_offset + 4], &[1, 2, 3, 4][..]);
+    }
+}
+
 #[test]
 fn encode_static_elf_x86_appends_signing_section() {
     let image = x86_static_image();
@@ -835,7 +877,7 @@ fn writes_mfb_sign_section_to_static_elf() {
     assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 3);
     assert_eq!(u16::from_le_bytes([bytes[62], bytes[63]]), 2);
     image.signing_metadata = None;
-    let unsigned = encode_static_elf(0, &image.text, &image.data, None);
+    let unsigned = encode_static_elf("aarch64", 0, &image.text, &image.data, None);
     assert_eq!(u64::from_le_bytes(unsigned[40..48].try_into().unwrap()), 0);
 }
 

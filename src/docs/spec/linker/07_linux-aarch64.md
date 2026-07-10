@@ -31,8 +31,10 @@ PT_LOAD      RW data
 PT_DYNAMIC   the .dynamic section
 ```
 
-A static image (no imports, `encode_static_elf`) has a single `PT_LOAD` and no
-`PT_INTERP`/`PT_DYNAMIC`.
+A static image (no imports, `encode_static_elf`) has two `PT_LOAD`s — text (R+X)
+and a writable data segment page-aligned to the `data_vmaddr` the relocation
+patcher uses — and no `PT_INTERP`/`PT_DYNAMIC`. Every console build imports libc,
+so this shape is not emitted today.
 
 ## Dynamic metadata
 
