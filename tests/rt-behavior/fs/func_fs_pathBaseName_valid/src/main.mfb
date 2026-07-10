@@ -5,5 +5,8 @@ FUNC main AS Integer
   io::print(fs::pathBaseName("target/a/é日😀.txt"))
   io::print(fs::pathBaseName("target/a/"))
   io::print(fs::pathBaseName("/"))
+  io::print(fs::pathBaseName("//"))
+  io::print(fs::pathBaseName("///"))
+  io::print(fs::pathBaseName("//a"))
   RETURN 0
 END FUNC

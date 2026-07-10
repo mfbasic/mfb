@@ -68,6 +68,7 @@ impl CodeBuilder<'_> {
         let whole_root = self.label("fs_path_base_name_whole_root");
         let trim_loop = self.label("fs_path_base_name_trim_loop");
         let trim_done = self.label("fs_path_base_name_trim_done");
+        let scan_start = self.label("fs_path_base_name_scan_start");
         let scan_loop = self.label("fs_path_base_name_scan_loop");
         let found_slash = self.label("fs_path_base_name_found_slash");
         let range_ready = self.label("fs_path_base_name_range_ready");
@@ -83,11 +84,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&path_ptr, abi::stack_pointer(), path_slot));
         self.emit(abi::load_u64(&length, &path_ptr, 0));
         self.emit(abi::add_immediate(&bytes, &path_ptr, 8));
-        self.emit(abi::compare_immediate(&length, "1"));
-        self.emit(abi::branch_ne(&trim_loop));
-        self.emit(abi::load_u8(&cursor, &bytes, 0));
-        self.emit(abi::compare_immediate(&cursor, "47"));
-        self.emit(abi::branch_eq(&whole_root));
 
         self.emit(abi::label(&trim_loop));
         self.emit(abi::compare_immediate(&length, "1"));
@@ -101,6 +97,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&trim_loop));
 
         self.emit(abi::label(&trim_done));
+        // An all-separator path (for example "/", "//", "///") collapses under the
+        // trailing-slash trim to a lone remaining "/"; route it to the root shortcut
+        // so the result is "/" rather than an empty span. Gating this on the trimmed
+        // length (not the original) is what distinguishes it from paths like "/a".
+        self.emit(abi::compare_immediate(&length, "1"));
+        self.emit(abi::branch_ne(&scan_start));
+        self.emit(abi::load_u8(&cursor, &bytes, 0));
+        self.emit(abi::compare_immediate(&cursor, "47"));
+        self.emit(abi::branch_eq(&whole_root));
+        self.emit(abi::label(&scan_start));
         self.emit(abi::move_register(&index, &length));
         self.emit(abi::label(&scan_loop));
         self.emit(abi::compare_immediate(&index, "0"));
@@ -336,7 +342,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
-        self.emit(abi::add_immediate(abi::return_register(), &scratch10, 9));
+        // Buffer = 8-byte header + normalized content + 1 NUL. The normalized output
+        // is never longer than the input, so `length + 9` suffices for every non-empty
+        // path. The one exception is the empty input: the `.` fallback (see `finish`)
+        // manufactures a 1-byte content from a 0-byte input, so its NUL would land at
+        // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
+        // fallback's terminator stays in-bounds without relying on arena size rounding.
+        self.emit(abi::add_immediate(abi::return_register(), &scratch10, 10));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {

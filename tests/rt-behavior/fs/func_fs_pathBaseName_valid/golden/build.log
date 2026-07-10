@@ -9,4 +9,7 @@ $ tests/rt-behavior/fs/func_fs_pathBaseName_valid/func_fs_pathBaseName_valid.out
 é日😀.txt
 a
 /
+/
+/
+a
 [exit 0]
