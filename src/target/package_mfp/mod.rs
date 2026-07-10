@@ -200,6 +200,9 @@ fn sha256(bytes: &[u8]) -> [u8; 32] {
 
 fn validate_metadata(metadata: &BinaryReprMetadata) -> Result<(), String> {
     validate_string("name", &metadata.name, NAME_LIMIT, true)?;
+    // A consumer installs this package as `packages/<name>.mfp`, so the name must
+    // be a single safe path component. Refuse to *produce* one that is not.
+    crate::manifest::package::validate_package_name(&metadata.name)?;
     validate_string("ident", package_ident(metadata), IDENT_LIMIT, true)?;
     validate_string("version", &metadata.version, VERSION_LIMIT, true)?;
     validate_string("author", &metadata.author, AUTHOR_LIMIT, false)?;
@@ -393,6 +396,14 @@ mod tests {
         tampered[last] ^= 0x01;
         let reparsed = mfb_repository::package::parse_mfp_package(&tampered).expect("parse");
         assert!(mfb_repository::package::verify_payload_hash(&reparsed).is_err());
+    }
+
+    #[test]
+    fn refuses_to_build_a_package_whose_name_is_not_a_path_component() {
+        let mut metadata = test_metadata();
+        metadata.name = "../evil".to_string();
+        let err = build_package_bytes(&metadata, b"", None).expect_err("traversing name");
+        assert!(err.contains("not a valid path component"), "{err}");
     }
 
     #[test]

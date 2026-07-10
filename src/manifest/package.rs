@@ -104,6 +104,26 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
+/// Rejects a package name that cannot be used as a single path component.
+///
+/// A `.mfp` header name and an `mfb.lock` name are untrusted: both are turned
+/// into `packages/<name>.mfp`. Without this guard a name of `../../x` escapes the
+/// project, and a name beginning with `.` hides the file. Legitimate names are
+/// identifier-like, so the charset is deliberately narrow.
+pub(crate) fn validate_package_name(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let leading_ok = chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+    let rest_ok = chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'));
+    if !leading_ok || !rest_ok {
+        return Err(format!(
+            "package name `{name}` is not a valid path component (expected [A-Za-z0-9_][A-Za-z0-9_.-]*)"
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     let bytes =
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
@@ -134,6 +154,7 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
 
     let mut offset = 20usize;
     let name = read_mfp_string(&bytes, &mut offset, "name", 255, true)?;
+    validate_package_name(&name)?;
     let ident = read_mfp_string(&bytes, &mut offset, "ident", 255, false)?;
     let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
     let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
@@ -860,6 +881,34 @@ mod tests {
         assert_eq!(header.signature_type, 0);
         assert_eq!(header.signature_length, 0);
         assert_eq!(header.binary_repr_length, 0);
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_a_name_that_is_not_a_path_component() {
+        // A consumer installs this as `packages/<name>.mfp`; a traversing name
+        // would escape the project directory.
+        for name in [
+            "../../../../home/victim/.config/autostart/x",
+            "..",
+            ".",
+            "a/b",
+            "a\\b",
+            ".hidden",
+            "-rf",
+            "na me",
+        ] {
+            let (_dir, path) = write_temp(&build_mfp(name, "1.0.0"));
+            let err = header_err(&path);
+            assert!(
+                err.contains("not a valid path component"),
+                "name `{name}` gave `{err}`"
+            );
+        }
+        // Legitimate names still parse.
+        for name in ["mypkg", "my_pkg", "my-pkg", "pkg.v2", "_x", "9lives"] {
+            let (_dir, path) = write_temp(&build_mfp(name, "1.0.0"));
+            assert!(read_mfp_header(&path).is_ok(), "name `{name}` must parse");
+        }
     }
 
     #[test]

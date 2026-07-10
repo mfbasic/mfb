@@ -324,6 +324,15 @@ pub fn read_package_info(path: &Path) -> Result<BinaryReprPackageInfo, String> {
     package_info(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
+/// [`read_package_info`] for a `.mfp` already held in memory, so a caller with a
+/// downloaded blob never has to stage it to a predictable path on disk to read it.
+pub fn package_info_from_mfp(bytes: &[u8]) -> Result<BinaryReprPackageInfo, String> {
+    let container = mfp_binary_repr_payload(bytes)?;
+    let package = read_binary_repr_package(container.binary_repr)?;
+    validate_container_manifest_identity(&container.identity, &package)?;
+    package_info(&package)
+}
+
 pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport>, String> {
     let package = read_package_binary_repr(path)?;
     package_type_exports(&package)

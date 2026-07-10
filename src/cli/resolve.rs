@@ -121,22 +121,21 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
         .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
     for package in &lock.packages {
         let blob = client::fetch_blob(&repo_url, &package.hash)?;
-        let destination = packages_dir.join(format!("{}.mfp", package.name));
-        fs::write(&destination, &blob)
-            .map_err(|err| format!("failed to write '{}': {err}", destination.display()))?;
-        let classification =
-            super::build::classify_installed_package(&destination, Some(&package.ident_key));
-        if classification.state != super::build::PackageVerification::Verified {
-            let _ = fs::remove_file(&destination);
-            let detail = classification
-                .refusal
-                .map(|(_, detail)| detail)
-                .unwrap_or_else(|| "locked package did not verify".to_string());
-            return Err(format!(
+        // `package.name` comes from `mfb.lock`, which an attacker who ships a repo
+        // controls: stage the untrusted blob under an exclusively created name
+        // inside `packages/`, verify it there, and only then rename it into place.
+        super::install_verified_package(
+            &packages_dir,
+            &package.name,
+            &blob,
+            Some(&package.ident_key),
+        )
+        .map_err(|detail| {
+            format!(
                 "refusing to install `{}`@{}: {detail}",
                 package.name, package.selected
-            ));
-        }
+            )
+        })?;
         println!(
             "Installed {} {} ({})",
             package.name, package.selected, package.state
@@ -413,11 +412,12 @@ fn load_import_edges(
         return Ok(edges.clone());
     }
     let blob = client::fetch_blob(repo_url, hash)?;
-    let temp = std::env::temp_dir().join(format!("mfb-resolve-{hash}.mfp"));
-    fs::write(&temp, &blob).map_err(|err| format!("failed to stage resolver blob: {err}"))?;
-    let info = binary_repr::read_package_info(&temp);
-    let _ = fs::remove_file(&temp);
-    let info = info?;
+    // Read the edges straight out of the blob. Staging it at a `hash`-derived
+    // path in the shared temp dir was both predictable (a pre-planted symlink
+    // there is written through) and traversable (a non-hex `hash` from the
+    // registry index escapes `temp_dir`).
+    let info = binary_repr::package_info_from_mfp(&blob)
+        .map_err(|err| format!("failed to read resolver blob: {err}"))?;
     let edges = info
         .imports
         .into_iter()

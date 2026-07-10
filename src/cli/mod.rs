@@ -8,7 +8,77 @@ pub mod repo;
 pub mod resolve;
 pub mod spec;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Write an untrusted package blob into `packages_dir` under a fresh, exclusively
+/// created name, and return that staging path.
+///
+/// The blob is attacker-controlled until it has been verified, so it must never
+/// land on `packages/<name>.mfp` first: `fs::write` follows symlinks, so a
+/// pre-planted link at the destination would be written *through*. `create_new`
+/// refuses to open an existing path (symlink or not), and the staged file is
+/// promoted only after it verifies.
+pub(crate) fn stage_package_blob(
+    packages_dir: &Path,
+    name: &str,
+    blob: &[u8],
+) -> Result<PathBuf, String> {
+    use std::io::Write;
+
+    crate::manifest::package::validate_package_name(name)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let staged = packages_dir.join(format!(
+        ".{name}.mfp.{}.{nanos}.part",
+        std::process::id()
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
+    file.write_all(blob)
+        .and_then(|()| file.sync_all())
+        .map_err(|err| {
+            let _ = std::fs::remove_file(&staged);
+            format!("failed to write '{}': {err}", staged.display())
+        })?;
+    Ok(staged)
+}
+
+/// Promote a staged package onto its final `packages/<name>.mfp` path. A rename
+/// replaces a symlink sitting at the destination rather than writing through it.
+pub(crate) fn commit_staged_package(staged: &Path, destination: &Path) -> Result<(), String> {
+    std::fs::rename(staged, destination).map_err(|err| {
+        let _ = std::fs::remove_file(staged);
+        format!("failed to install '{}': {err}", destination.display())
+    })
+}
+
+/// Stage an untrusted blob, verify it where it lies, and only then install it.
+/// Returns the refusal detail when the package does not verify; nothing is left
+/// behind in either case.
+pub(crate) fn install_verified_package(
+    packages_dir: &Path,
+    name: &str,
+    blob: &[u8],
+    ident_key: Option<&str>,
+) -> Result<PathBuf, String> {
+    let staged = stage_package_blob(packages_dir, name, blob)?;
+    let classification = build::classify_installed_package(&staged, ident_key);
+    if classification.state != build::PackageVerification::Verified {
+        let _ = std::fs::remove_file(&staged);
+        return Err(classification
+            .refusal
+            .map(|(_, detail)| detail)
+            .unwrap_or_else(|| "package did not verify".to_string()));
+    }
+    let destination = packages_dir.join(format!("{name}.mfp"));
+    commit_staged_package(&staged, &destination)?;
+    Ok(destination)
+}
 
 /// Resolve the local key/session store scoped to a specific repository URL.
 ///
@@ -107,6 +177,57 @@ mod tests {
         assert!(local_paths_for_repo("repo")
             .unwrap_err()
             .contains("HOME is not set"));
+    }
+
+    #[test]
+    fn staging_rejects_traversing_names_before_writing_anything() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        for name in ["../evil", "..", "/etc/passwd", ".hidden", "a/b", "a\\b", ""] {
+            assert!(
+                stage_package_blob(&packages, name, b"blob").is_err(),
+                "name `{name}` must be rejected"
+            );
+        }
+        // Nothing escaped, and nothing was staged.
+        assert!(!dir.path().join("evil.mfp").exists());
+        assert_eq!(std::fs::read_dir(&packages).expect("read dir").count(), 0);
+    }
+
+    #[test]
+    fn staging_never_writes_through_a_symlink_at_the_destination() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, b"original").expect("victim");
+        let destination = packages.join("shape.mfp");
+        std::os::unix::fs::symlink(&victim, &destination).expect("symlink");
+
+        let staged = stage_package_blob(&packages, "shape", b"attacker").expect("stage");
+        assert_ne!(staged, destination);
+        assert_eq!(std::fs::read(&victim).expect("victim"), b"original");
+
+        // Committing replaces the symlink itself, never its target.
+        commit_staged_package(&staged, &destination).expect("commit");
+        assert_eq!(std::fs::read(&victim).expect("victim"), b"original");
+        assert_eq!(std::fs::read(&destination).expect("dest"), b"attacker");
+        assert!(!destination.is_symlink());
+    }
+
+    #[test]
+    fn unverified_package_is_never_left_on_the_destination_path() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        // Not a valid .mfp, so classification cannot reach Verified.
+        let error = install_verified_package(&packages, "shape", b"not a package", None)
+            .expect_err("garbage must not verify");
+        assert!(!error.is_empty());
+        // No destination file, and no staging leftovers.
+        assert!(!packages.join("shape.mfp").exists());
+        assert_eq!(std::fs::read_dir(&packages).expect("read dir").count(), 0);
     }
 
     #[test]

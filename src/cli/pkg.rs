@@ -477,14 +477,14 @@ fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
     fs::create_dir_all(&packages_dir)
         .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
 
+    // `read_mfp_header` has already rejected a `name` that is not a single path
+    // component. Copy through a staged file so a symlink planted at the
+    // destination is replaced by the rename rather than written through.
+    let blob = fs::read(&source_path)
+        .map_err(|err| format!("failed to read '{}': {err}", source_path.display()))?;
+    let staged = super::stage_package_blob(&packages_dir, &package.name, &blob)?;
     let destination = packages_dir.join(&package_filename);
-    fs::copy(&source_path, &destination).map_err(|err| {
-        format!(
-            "failed to copy '{}' to '{}': {err}",
-            source_path.display(),
-            destination.display()
-        )
-    })?;
+    super::commit_staged_package(&staged, &destination)?;
 
     fs::write(&project_path, updated)
         .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
@@ -544,23 +544,14 @@ fn add_package_from_registry(project_dir: &Path, target: &str) -> Result<(), Str
     let packages_dir = project_dir.join("packages");
     fs::create_dir_all(&packages_dir)
         .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
-    let destination = packages_dir.join(format!("{}.mfp", header.name));
-    fs::write(&destination, &blob)
-        .map_err(|err| format!("failed to write '{}': {err}", destination.display()))?;
 
-    // Verify the full plan-23 §3.5 chain against the registry-vouched pin
-    // (pinned server key → attestation → pinned ident → proof → package
-    // signature → packageBinaryHash). Anything less than Verified is fatal.
-    let classification =
-        super::build::classify_installed_package(&destination, Some(&index.ident_key));
-    if classification.state != super::build::PackageVerification::Verified {
-        let _ = fs::remove_file(&destination);
-        let detail = classification
-            .refusal
-            .map(|(_, detail)| detail)
-            .unwrap_or_else(|| "downloaded package did not verify".to_string());
-        return Err(format!("refusing to add `{}`: {detail}", header.name));
-    }
+    // The blob is untrusted until the full plan-23 §3.5 chain checks out (pinned
+    // server key → attestation → pinned ident → proof → package signature →
+    // packageBinaryHash), so it is staged inside `packages/` under an exclusively
+    // created name, verified there, and only then renamed onto `<name>.mfp`.
+    // Anything less than Verified is fatal, and nothing is left on disk.
+    super::install_verified_package(&packages_dir, &header.name, &blob, Some(&index.ident_key))
+        .map_err(|detail| format!("refusing to add `{}`: {detail}", header.name))?;
 
     let dependency = ProjectPackageDependency {
         name: header.name.clone(),

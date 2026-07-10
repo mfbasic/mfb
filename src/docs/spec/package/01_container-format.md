@@ -252,3 +252,7 @@ binaryReprLength          <= implementation-defined maximum
 ```
 
 Package names should use the same identifier restrictions as source package names unless the package manager later defines a wider registry naming scheme.
+
+`name` is additionally constrained to a single safe path component — `[A-Za-z0-9_][A-Za-z0-9_.-]*` — because every consumer installs the package as `packages/<name>.mfp`. This is enforced both when a package is built (`validate_metadata`) and when its header is read (`read_mfp_header`), so a crafted `name` such as `../../x` cannot escape the project directory. [[src/manifest/package.rs:validate_package_name]]
+
+An installed package is written by staging the untrusted blob under an exclusively created (`create_new`) name inside `packages/`, verifying it there, and only then renaming it onto `packages/<name>.mfp`. Nothing attacker-controlled is ever written to the final path before it verifies, and a symlink planted at that path is replaced by the rename rather than written through. [[src/cli/mod.rs:install_verified_package]]

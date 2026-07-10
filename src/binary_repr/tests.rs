@@ -1420,6 +1420,24 @@ mod reader_tests {
     }
 
     #[test]
+    fn package_info_from_mfp_matches_the_on_disk_reader() {
+        // The resolver reads a downloaded blob in memory rather than staging it
+        // at a predictable path in the shared temp directory.
+        let inner = encode_project(
+            &rich_project(),
+            &BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string()),
+        );
+        let bytes = wrap_mfp(&inner, "richpkg", "richpkg", "1.0.0");
+        let path = temp_mfp(&bytes);
+        let from_disk = read_package_info(&path).expect("read from disk");
+        let _ = std::fs::remove_file(&path);
+        let from_memory = package_info_from_mfp(&bytes).expect("read from memory");
+        assert_eq!(from_memory.manifest_name, from_disk.manifest_name);
+        assert_eq!(from_memory.imports.len(), from_disk.imports.len());
+        assert!(package_info_from_mfp(b"not a package").is_err());
+    }
+
+    #[test]
     fn validate_container_identity_rejects_mismatch() {
         let inner = encode_project(
             &rich_project(),
