@@ -174,7 +174,7 @@ pub(crate) fn lower_program_entry(
                 ENTRY_SEED_SCRATCH_OFFSET,
             ),
             abi::add_immediate(
-                abi::return_register(),
+                abi::ARG[0],
                 abi::stack_pointer(),
                 ENTRY_SEED_SCRATCH_OFFSET,
             ),
@@ -188,7 +188,7 @@ pub(crate) fn lower_program_entry(
         )?;
         instructions.extend([
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
-            abi::move_register(abi::return_register(), ARENA_STATE_REGISTER),
+            abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
             abi::branch_link(RNG_SEED_SYMBOL),
         ]);
         relocations.push(internal_branch(entry_symbol, RNG_SEED_SYMBOL));
@@ -235,7 +235,7 @@ pub(crate) fn lower_program_entry(
         abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
-        abi::add_immediate(abi::return_register(), abi::stack_pointer(), 0),
+        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
         abi::move_immediate(abi::SYSARG[1], "Integer", "8"),
     ]);
     platform.emit_random_bytes(
@@ -250,7 +250,7 @@ pub(crate) fn lower_program_entry(
         abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
         abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], "x9"), // mix start time
         abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], ARENA_STATE_REGISTER), // mix arena address
-        abi::move_register(abi::return_register(), ARENA_STATE_REGISTER),
+        abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
         abi::branch_link(ARENA_FILL_SEED_SYMBOL),
         // Restore argc/argv for the arg-materialization path below.
         abi::move_register(abi::ARG[0], "x27"),
