@@ -210,11 +210,12 @@ fn emit_address_from_sockaddr(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
+        abi::move_register("%v15", "x1"), // alloc result → vreg (plan-34-B Phase 3)
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::store_u64("%v10", "x1", 0),
-        abi::store_u64("x1", abi::stack_pointer(), host_off),
+        abi::store_u64("%v10", "%v15", 0),
+        abi::store_u64("%v15", abi::stack_pointer(), host_off),
         abi::load_u64("%v11", abi::stack_pointer(), dst_off),
-        abi::add_immediate("%v12", "x1", 8),
+        abi::add_immediate("%v12", "%v15", 8),
         abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v13", "%v10"),
@@ -233,15 +234,16 @@ fn emit_address_from_sockaddr(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
+        abi::move_register("%v16", "x1"), // alloc result → vreg (plan-34-B Phase 3)
         abi::load_u64("%v9", abi::stack_pointer(), host_off),
-        abi::store_u64("%v9", "x1", 0),
+        abi::store_u64("%v9", "%v16", 0),
         // port = (sockaddr[2] << 8) | sockaddr[3]
         abi::load_u64("%v9", abi::stack_pointer(), sockaddr_off),
         abi::load_u8("%v10", "%v9", 2),
         abi::load_u8("%v11", "%v9", 3),
         abi::shift_left_immediate("%v10", "%v10", 8),
         abi::or_registers("%v10", "%v10", "%v11"),
-        abi::store_u64("%v10", "x1", 8),
+        abi::store_u64("%v10", "%v16", 8),
     ]);
     Ok(())
 }
@@ -262,10 +264,11 @@ fn emit_make_handle(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
+        abi::move_register("%v10", "x1"), // alloc result → vreg base; x1 stays the returned ptr
         abi::load_u64("%v9", abi::stack_pointer(), fd_off),
-        abi::store_u64("%v9", "x1", FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_STATE),
+        abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_STATE),
     ]);
 }
 
