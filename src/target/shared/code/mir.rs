@@ -18,7 +18,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use crate::arch::aarch64::regmodel::RegisterModel;
+use crate::target::shared::regmodel::RegisterModel;
 
 use super::*;
 
@@ -1608,7 +1608,7 @@ mod tests {
     /// `r15`) — a silent miscompile.
     #[test]
     fn invariant_registers_are_neutral_tokens() {
-        use crate::arch::aarch64::abi;
+        use crate::target::shared::abi;
         // The tokens are neutral, never an AArch64 register number.
         assert_eq!(abi::ZERO, "xzr");
         assert_eq!(abi::LR, "lr");

@@ -32,7 +32,8 @@
 
 use super::regalloc::parse_fp_vreg;
 use super::types::CodeInstruction;
-use crate::arch::aarch64::{abi, ops::CodeOp};
+use crate::arch::aarch64::ops::CodeOp;
+use crate::target::shared::abi;
 
 /// Field names that *write* a register (everything else that names a register is a
 /// read). Mirrors `regalloc::analysis::DEF_FIELDS`.

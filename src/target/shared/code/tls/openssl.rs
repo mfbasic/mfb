@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 pub(crate) fn lower_tls_connect_helper(
     symbol: &str,

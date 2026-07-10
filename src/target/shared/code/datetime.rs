@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // Frame layout (16-aligned). The saved link register sits at the top, clear of
 // the libc scratch buffers below it.

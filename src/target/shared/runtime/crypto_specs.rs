@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // `crypto::randomBytes(count)` — the CSPRNG entry point. `count` arrives in the
 // standard return/argument register; the helper allocates and fills a

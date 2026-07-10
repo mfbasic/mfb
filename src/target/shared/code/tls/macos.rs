@@ -3446,7 +3446,7 @@ mod encoding_error_release_tests {
             // Minimal stand-in: a plain `bl` to the named libc function is
             // enough for the read helper to lower and register-allocate; the
             // test only inspects the resulting encoding-error release block.
-            _instructions.push(crate::arch::aarch64::abi::branch_link(&format!("_{_base}")));
+            _instructions.push(crate::target::shared::abi::branch_link(&format!("_{_base}")));
             Ok(())
         }
         fn emit_open_file(

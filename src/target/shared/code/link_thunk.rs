@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 use crate::ir::{IrLinkExpr, IrLinkFunction};
 use crate::target::shared::nir::{self, link_thunk_symbol};
 

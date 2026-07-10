@@ -27,7 +27,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 /// The elliptic curve a helper targets. Only the input key size (keygen) and the
 /// ECDSA message-digest algorithm (sign/verify) vary between curves.

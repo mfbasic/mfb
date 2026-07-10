@@ -6,7 +6,7 @@
 //! operand field. After a function is fully lowered, [`allocate`] rewrites every
 //! `%vN` to a physical register (or a spill slot), driven by a pluggable
 //! [`AllocationStrategy`] and the per-ISA
-//! [`RegisterModel`](crate::arch::aarch64::regmodel::RegisterModel).
+//! [`RegisterModel`](crate::target::shared::regmodel::RegisterModel).
 //!
 //! The strategy is selected by the `-regalloc <name>` build flag (§4.2). Stage A
 //! ships exactly one strategy, [`BumpAndReset`], which reproduces the legacy
@@ -16,7 +16,7 @@
 
 use std::sync::OnceLock;
 
-use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
+use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::types::CodeInstruction;
 use analysis::ClassModel;

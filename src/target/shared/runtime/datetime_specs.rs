@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // `datetime::` OS-seam intrinsics (plan-01-datetime.md §8.2). `nowNanos` /
 // `monotonicNanos` take no arguments; `localOffset` takes the epoch-seconds

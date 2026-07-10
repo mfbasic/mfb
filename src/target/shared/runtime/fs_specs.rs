@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 const FS_PATH_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "path",

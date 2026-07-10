@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 const AF_INET: &str = "2";
 const SOCK_STREAM: &str = "1";

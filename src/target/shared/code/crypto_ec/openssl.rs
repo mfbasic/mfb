@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use super::super::*;
 use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 const LIBCRYPTO3: &str = "libcrypto.so.3";
 const LIBCRYPTO11: &str = "libcrypto.so.1.1";

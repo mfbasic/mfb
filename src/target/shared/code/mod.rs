@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::arch::aarch64::{abi, ops::CodeOp};
+use crate::arch::aarch64::ops::CodeOp;
+use crate::target::shared::abi;
 use crate::binary_repr::{self};
 use crate::builtins;
 use crate::json_string;

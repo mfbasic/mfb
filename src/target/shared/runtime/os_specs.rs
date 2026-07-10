@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // `os::` environment-variable helpers (plan-31-A). Each wraps a libc primitive
 // (`getenv`/`setenv`/`unsetenv`, plus the platform environ accessor for the

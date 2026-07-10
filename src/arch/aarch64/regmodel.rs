@@ -16,6 +16,11 @@
 
 use super::abi;
 use crate::target::shared::code::CodeInstruction;
+// `RegClass` + the `RegisterModel` trait were hoisted to the neutral
+// `crate::target::shared::regmodel` (plan-34-B Phase 2); re-export them so the
+// AArch64 impl below and existing `crate::arch::aarch64::regmodel::…` callers are
+// unchanged.
+pub(crate) use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 /// The physical register AArch64 realizes the neutral `arena_base` token as —
 /// pinned `x19` program-wide, reserved from allocation (absent from
@@ -23,82 +28,6 @@ use crate::target::shared::code::CodeInstruction;
 /// (`s11`) and x86-64's `r15`. `select_aarch64` rewrites `arena_base` back to
 /// this at selection, so the allocator sees the concrete register. (plan-34-A)
 pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
-
-/// The two register classes the allocator distinguishes. On AArch64 the
-/// floating-point/SIMD class is one physical file (`d_n` ⊂ `v_n`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub(crate) enum RegClass {
-    Int,
-    Fp,
-}
-
-/// The register questions the allocator core asks an ISA. Implemented by
-/// [`Aarch64RegisterModel`] now; an x86_64 sibling implements the same trait.
-pub(crate) trait RegisterModel {
-    /// Allocatable physical registers for `class`, in allocation-preference
-    /// order (caller-saved scratch first, then callee-saved).
-    fn allocatable(&self, class: RegClass) -> &'static [&'static str];
-
-    /// The class a physical register name belongs to, or `None` for a name the
-    /// allocator does not manage (`sp`, `xzr`, immediates, …).
-    fn class_of(&self, reg: &str) -> Option<RegClass>;
-
-    /// Whether `reg` is callee-saved (survives a `bl`).
-    fn is_callee_saved(&self, reg: &str) -> bool;
-
-    /// Caller-saved (clobbered-across-call) registers for `class`. A value live
-    /// across a `bl` must not be colored into one of these.
-    fn caller_saved(&self, class: RegClass) -> &'static [&'static str];
-
-    /// Emit a spill of `reg` (of `class`) to the stack slot at `[sp, #offset]`.
-    fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction;
-
-    /// Emit a reload of `reg` (of `class`) from the stack slot at `[sp, #offset]`.
-    fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction;
-
-    /// Emit a register-to-register move within a class.
-    fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction;
-
-    /// Bytes reserved per stack spill slot — the widest spill this ISA performs.
-    /// Every shipping backend (AArch64 and x86-64) overrides this to 16: their FP
-    /// spills carry 128-bit SIMD vectors that a 64-bit `str d`/`movsd` would
-    /// truncate, so a `str q`/`movups` into a 16-byte slot keeps both lanes. The
-    /// `8` default is the scalar-only fallback. Every spill slot (int and fp)
-    /// uses this stride uniformly.
-    fn spill_slot_bytes(&self) -> usize {
-        8
-    }
-
-    /// The location this ISA realizes the abstract `arena_base` MIR source as
-    /// (`mir.md §7`, plan-00-D §1). The neutral MIR references `arena_base`
-    /// wherever it reaches the arena; the backend decides whether that is a
-    /// pinned register or a TLS/memory load. AArch64 pins `x19` program-wide
-    /// (reserved from allocation — it is absent from [`Self::allocatable`] — and
-    /// initialized by the entry sequence); x86_64, with only 16 GPRs, will
-    /// realize it as a TLS slot load instead (plan-00-H).
-    fn arena_base(&self) -> &'static str;
-
-    /// The register the SIMD float-math kernels (`builder_simd_float_math`) use
-    /// as the constant-pool base: `adrp`/`add` to `_mfb_math_const_pool` once,
-    /// then every coefficient `ldr q [base, #offset]`. `Some(reg)` pins a
-    /// physical register for the kernel's lifetime; `None` means the base must be
-    /// an allocator-placed virtual register.
-    ///
-    /// AArch64 pins `x2`: caller-saved scratch below the allocatable file
-    /// (`x8`+), so the allocator never assigns it and it stably holds the base
-    /// across the quadrant branches (byte-identical to the pre-plan-00-H
-    /// backend). x86_64 returns `None`: all 16 GPRs are either SysV ABI-role,
-    /// reserved (`rsp`/`rbp`/`r14`/`r15`), or in the five-register allocatable
-    /// pool — there is no spare physical to pin, and `x2` itself is an ABI
-    /// register that `remap_x86_abi` would rewrite per control-flow context
-    /// (rdx as a call-arg, rcx as a result), splitting the base across the
-    /// quadrant branch. A vreg lets the allocator place it consistently (its
-    /// busy-physical check keeps it off the residual `map_scratch_register`
-    /// homes the kernels also use).
-    fn math_pool_base(&self) -> Option<&'static str> {
-        Some("x2")
-    }
-}
 
 /// The integer registers the bump allocator hands out as temporaries, in the
 /// exact order `abi::temporary_register` produced them: caller-saved

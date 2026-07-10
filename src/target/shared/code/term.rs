@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // Frame layout. The saved link register lives at the top of the frame. The
 // Darwin variadic `ioctl` spill is handled by the macOS `emit_terminal_size`

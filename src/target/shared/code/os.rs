@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // `setenv`/`unsetenv` set `errno` on failure; ENOMEM/EINVAL are identical on
 // Linux and macOS.

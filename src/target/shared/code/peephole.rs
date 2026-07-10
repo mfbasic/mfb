@@ -34,7 +34,8 @@
 //! (not on reads), mis-modelling a read can never produce a wrong forward; an
 //! unmodelled op clears state instead.
 
-use crate::arch::aarch64::{abi, ops::CodeOp};
+use crate::arch::aarch64::ops::CodeOp;
+use crate::target::shared::abi;
 
 use super::regalloc;
 use super::types::CodeInstruction;

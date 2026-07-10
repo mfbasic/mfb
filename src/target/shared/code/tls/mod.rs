@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 // OpenSSL handles share this fixed record layout (distinct from the `File`
 // layout used by `Socket`/`UdpSocket`). An accepted (server-side) `TlsSocket`

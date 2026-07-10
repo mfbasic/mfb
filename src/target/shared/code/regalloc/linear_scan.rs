@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
+use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::super::types::CodeInstruction;
 use super::analysis::{self, physical_busy, ClassModel};

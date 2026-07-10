@@ -15,7 +15,7 @@ use super::{
     AppEntrySpec, CodeFunction, CodeInstruction, CodeRelocation, CodegenPlatform, FsPathOperation,
     ProgramEntrySpec,
 };
-use crate::arch::aarch64::abi;
+use crate::target::shared::abi;
 
 /// Minimal Linux/AArch64 codegen platform for lowering-inspection unit tests.
 pub(crate) struct TestPlatform;
