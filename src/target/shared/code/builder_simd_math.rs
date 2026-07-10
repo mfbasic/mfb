@@ -194,21 +194,24 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
-        // --- Scalar tail (count & 1) ---  (x1 = count & 1, caller-saved scratch)
-        self.emit(abi::move_immediate("x0", "Integer", "1"));
-        self.emit(abi::and_registers("x1", &count, "x0"));
+        // --- Scalar tail (count & 1) ---  (allocator-placed scratch)
+        let tail_bit = self.allocate_register()?;
+        self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_tail_done");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
         self.emit_simd_unary_scalar(kernel, &in_data, &out_data, &err)?;
         self.emit(abi::label(&tail_done));
 
-        // --- Error reduce ---  (x0/x1 = the two mask lanes)
+        // --- Error reduce ---  (the two mask lanes, allocator-placed)
         if kernel.error().is_some() {
-            self.emit(abi::vector_extract_to_x("x0", "v7", 0));
-            self.emit(abi::vector_extract_to_x("x1", "v7", 1));
-            self.emit(abi::or_registers("x0", "x0", "x1"));
-            self.emit(abi::or_registers(&err, &err, "x0"));
+            let lane0 = self.allocate_register()?;
+            let lane1 = self.allocate_register()?;
+            self.emit(abi::vector_extract_to_x(&lane0, "v7", 0));
+            self.emit(abi::vector_extract_to_x(&lane1, "v7", 1));
+            self.emit(abi::or_registers(&lane0, &lane0, &lane1));
+            self.emit(abi::or_registers(&err, &err, &lane0));
             let no_err = self.label("simd_no_err");
             self.emit(abi::compare_immediate(&err, "0"));
             self.emit(abi::branch_eq(&no_err));
@@ -262,8 +265,9 @@ impl CodeBuilder<'_> {
     /// the given vector register. Uses the caller-saved scratch `x0` (free: the
     /// loop runs after the only call), so it does not consume a loop register.
     fn broadcast_const(&mut self, vreg: &str, value: &str) -> Result<(), String> {
-        self.emit(abi::move_immediate("x0", "Integer", value));
-        self.emit(abi::vector_dup_from_x(vreg, "x0"));
+        let tmp = self.allocate_register()?;
+        self.emit(abi::move_immediate(&tmp, "Integer", value));
+        self.emit(abi::vector_dup_from_x(vreg, &tmp));
         Ok(())
     }
 
@@ -345,34 +349,38 @@ impl CodeBuilder<'_> {
         out_data: &str,
         err: &str,
     ) -> Result<(), String> {
-        self.emit(abi::load_u64("x0", in_data, 0));
+        // Per-element scratch, allocator-placed (plan-34-B Phase 3): `elem` is the
+        // loaded lane, `tmp` the transform temporary / convert destination.
+        let elem = self.allocate_register()?;
+        let tmp = self.allocate_register()?;
+        self.emit(abi::load_u64(&elem, in_data, 0));
         match kernel {
             SimdUnaryKernel::AbsInteger => {
-                self.emit(abi::move_immediate("x1", "Integer", INT64_MIN_UNSIGNED));
+                self.emit(abi::move_immediate(&tmp, "Integer", INT64_MIN_UNSIGNED));
                 let no_of = self.label("simd_tail_no_overflow");
-                self.emit(abi::compare_registers("x0", "x1"));
+                self.emit(abi::compare_registers(&elem, &tmp));
                 self.emit(abi::branch_ne(&no_of));
                 self.emit(abi::move_immediate(err, "Integer", "1"));
                 self.emit(abi::label(&no_of));
                 // abs: negate when negative.
                 let negate = self.label("simd_tail_negate");
                 let stored = self.label("simd_tail_stored");
-                self.emit(abi::compare_immediate("x0", "0"));
+                self.emit(abi::compare_immediate(&elem, "0"));
                 self.emit(abi::branch_lt(&negate));
-                self.emit(abi::store_u64("x0", out_data, 0));
+                self.emit(abi::store_u64(&elem, out_data, 0));
                 self.emit(abi::branch(&stored));
                 self.emit(abi::label(&negate));
-                self.emit(abi::subtract_registers("x0", abi::ZERO, "x0"));
-                self.emit(abi::store_u64("x0", out_data, 0));
+                self.emit(abi::subtract_registers(&elem, abi::ZERO, &elem));
+                self.emit(abi::store_u64(&elem, out_data, 0));
                 self.emit(abi::label(&stored));
             }
             SimdUnaryKernel::AbsFloat => {
-                self.emit(abi::move_immediate("x1", "Integer", FLOAT_ABS_MASK));
-                self.emit(abi::and_registers("x0", "x0", "x1"));
-                self.emit(abi::store_u64("x0", out_data, 0));
+                self.emit(abi::move_immediate(&tmp, "Integer", FLOAT_ABS_MASK));
+                self.emit(abi::and_registers(&elem, &elem, &tmp));
+                self.emit(abi::store_u64(&elem, out_data, 0));
             }
             SimdUnaryKernel::SqrtFloat => {
-                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                self.emit(abi::float_move_d_from_x("d0", &elem));
                 self.emit(abi::float_compare_zero_d("d0"));
                 let no_err = self.label("simd_tail_sqrt_ok");
                 // ge 0 is fine; lt 0 (or unordered/NaN) fails the domain.
@@ -380,27 +388,27 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(err, "Integer", "1"));
                 self.emit(abi::label(&no_err));
                 self.emit(abi::float_sqrt_d("d0", "d0"));
-                self.emit(abi::float_move_x_from_d("x0", "d0"));
-                self.emit(abi::store_u64("x0", out_data, 0));
+                self.emit(abi::float_move_x_from_d(&elem, "d0"));
+                self.emit(abi::store_u64(&elem, out_data, 0));
             }
             SimdUnaryKernel::FloorFloat
             | SimdUnaryKernel::CeilFloat
             | SimdUnaryKernel::RoundFloat => {
-                self.emit_float_to_int_overflow_to_err("x0", err)?;
-                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                self.emit_float_to_int_overflow_to_err(&elem, err)?;
+                self.emit(abi::float_move_d_from_x("d0", &elem));
                 match kernel {
                     SimdUnaryKernel::FloorFloat => {
-                        self.emit(abi::float_floor_to_signed_x("x1", "d0"))
+                        self.emit(abi::float_floor_to_signed_x(&tmp, "d0"))
                     }
                     SimdUnaryKernel::CeilFloat => {
-                        self.emit(abi::float_ceil_to_signed_x("x1", "d0"))
+                        self.emit(abi::float_ceil_to_signed_x(&tmp, "d0"))
                     }
                     SimdUnaryKernel::RoundFloat => {
-                        self.emit(abi::float_round_to_signed_x("x1", "d0"))
+                        self.emit(abi::float_round_to_signed_x(&tmp, "d0"))
                     }
                     _ => unreachable!(),
                 }
-                self.emit(abi::store_u64("x1", out_data, 0));
+                self.emit(abi::store_u64(&tmp, out_data, 0));
             }
             SimdUnaryKernel::FloorFixed
             | SimdUnaryKernel::CeilFixed
@@ -411,8 +419,8 @@ impl CodeBuilder<'_> {
                     SimdUnaryKernel::RoundFixed => "round",
                     _ => unreachable!(),
                 };
-                self.emit_fixed_rounding_to_integer(function, "x0", "x1")?;
-                self.emit(abi::store_u64("x1", out_data, 0));
+                self.emit_fixed_rounding_to_integer(function, &elem, &tmp)?;
+                self.emit(abi::store_u64(&tmp, out_data, 0));
             }
         }
         Ok(())
@@ -424,21 +432,22 @@ impl CodeBuilder<'_> {
     /// its biased exponent exceeds 1086, equals 2047 (Inf/NaN), or equals 1086
     /// and is not exactly `-2^63`.
     fn emit_float_to_int_overflow_to_err(&mut self, bits: &str, err: &str) -> Result<(), String> {
-        // Caller-saved scratch: bits is `x0`; use x2..x5 (x1 is the convert dst).
-        let exponent = "x2";
-        let mask = "x3";
-        let sign = "x4";
-        let mantissa = "x5";
+        // Allocator-placed scratch (plan-34-B Phase 3); `bits` is the caller's
+        // element vreg, `err` its error accumulator.
+        let exponent = self.allocate_register()?;
+        let mask = self.allocate_register()?;
+        let sign = self.allocate_register()?;
+        let mantissa = self.allocate_register()?;
         let ok = self.label("simd_tail_round_ok");
         let edge = self.label("simd_tail_round_edge");
         let overflow = self.label("simd_tail_round_overflow");
 
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
+        self.emit(abi::shift_right_immediate(&exponent, bits, 52));
+        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
+        self.emit(abi::and_registers(&exponent, &exponent, &mask));
+        self.emit(abi::compare_immediate(&exponent, "2047"));
         self.emit(abi::branch_eq(&overflow));
-        self.emit(abi::compare_immediate(exponent, "1086"));
+        self.emit(abi::compare_immediate(&exponent, "1086"));
         self.emit(abi::branch_lt(&ok));
         self.emit(abi::branch_eq(&edge));
         self.emit(abi::branch(&overflow));
@@ -446,12 +455,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&edge));
         // exp == 1086 is only representable when it is exactly -2^63 (sign set,
         // zero mantissa); anything else overflows.
-        self.emit(abi::shift_right_immediate(sign, bits, 63));
-        self.emit(abi::compare_immediate(sign, "1"));
+        self.emit(abi::shift_right_immediate(&sign, bits, 63));
+        self.emit(abi::compare_immediate(&sign, "1"));
         self.emit(abi::branch_ne(&overflow));
-        self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
-        self.emit(abi::and_registers(mantissa, bits, mask));
-        self.emit(abi::compare_immediate(mantissa, "0"));
+        self.emit(abi::move_immediate(&mask, "Integer", "4503599627370495"));
+        self.emit(abi::and_registers(&mantissa, bits, &mask));
+        self.emit(abi::compare_immediate(&mantissa, "0"));
         self.emit(abi::branch_eq(&ok));
 
         self.emit(abi::label(&overflow));
@@ -549,16 +558,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
-        // Scalar tail (count & 1): x0 = left lane, x1 = right lane, result → x0.
-        self.emit(abi::move_immediate("x2", "Integer", "1"));
-        self.emit(abi::and_registers("x2", &count, "x2"));
+        // Scalar tail (count & 1): left/right lanes are allocator-placed vregs.
+        let tail_bit = self.allocate_register()?;
+        self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_bin_tail_done");
-        self.emit(abi::compare_immediate("x2", "0"));
+        self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        self.emit(abi::load_u64("x0", &left_data, 0));
-        self.emit(abi::load_u64("x1", &right_data, 0));
-        self.emit_simd_binary_scalar(kernel);
-        self.emit(abi::store_u64("x0", &out_data, 0));
+        let left_lane = self.allocate_register()?;
+        let right_lane = self.allocate_register()?;
+        self.emit(abi::load_u64(&left_lane, &left_data, 0));
+        self.emit(abi::load_u64(&right_lane, &right_data, 0));
+        self.emit_simd_binary_scalar(kernel, &left_lane, &right_lane);
+        self.emit(abi::store_u64(&left_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         Ok(ValueResult {
@@ -589,18 +601,18 @@ impl CodeBuilder<'_> {
     }
 
     /// Scalar tail min/max: `x0` = left, `x1` = right; result → `x0`.
-    fn emit_simd_binary_scalar(&mut self, kernel: SimdBinaryKernel) {
+    fn emit_simd_binary_scalar(&mut self, kernel: SimdBinaryKernel, left: &str, right: &str) {
         let done = self.label("simd_bin_tail_sel_done");
         match kernel {
             SimdBinaryKernel::MinSigned => {
-                self.emit(abi::compare_registers("x0", "x1"));
-                self.emit(abi::branch_le(&done)); // x0 <= x1 → keep x0
-                self.emit(abi::move_register("x0", "x1"));
+                self.emit(abi::compare_registers(left, right));
+                self.emit(abi::branch_le(&done)); // left <= right → keep left
+                self.emit(abi::move_register(left, right));
             }
             SimdBinaryKernel::MaxSigned => {
-                self.emit(abi::compare_registers("x0", "x1"));
-                self.emit(abi::branch_ge(&done)); // x0 >= x1 → keep x0
-                self.emit(abi::move_register("x0", "x1"));
+                self.emit(abi::compare_registers(left, right));
+                self.emit(abi::branch_ge(&done)); // left >= right → keep left
+                self.emit(abi::move_register(left, right));
             }
             SimdBinaryKernel::MinFloat | SimdBinaryKernel::MaxFloat => {
                 // `fminnm`/`fmaxnm` — the same sign-of-zero-aware instruction the
@@ -611,14 +623,14 @@ impl CodeBuilder<'_> {
                 // finite values a `List OF Float` can hold (NaN/Inf are rejected at
                 // the finiteness boundary) `fminnm`/`fmaxnm` equals the body's
                 // `fmin`/`fmax` exactly.
-                self.emit(abi::float_move_d_from_x("d0", "x0"));
-                self.emit(abi::float_move_d_from_x("d1", "x1"));
+                self.emit(abi::float_move_d_from_x("d0", left));
+                self.emit(abi::float_move_d_from_x("d1", right));
                 if matches!(kernel, SimdBinaryKernel::MinFloat) {
                     self.emit(abi::float_min_d("d0", "d0", "d1"));
                 } else {
                     self.emit(abi::float_max_d("d0", "d0", "d1"));
                 }
-                self.emit(abi::float_move_x_from_d("x0", "d0"));
+                self.emit(abi::float_move_x_from_d(left, "d0"));
             }
         }
         self.emit(abi::label(&done));
@@ -706,10 +718,11 @@ impl CodeBuilder<'_> {
         let pairs = self.allocate_register()?;
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
         // v5 = broadcast(low), v6 = broadcast(high).
-        self.emit(abi::load_u64("x0", abi::stack_pointer(), low_slot));
-        self.emit(abi::vector_dup_from_x("v5", "x0"));
-        self.emit(abi::load_u64("x0", abi::stack_pointer(), high_slot));
-        self.emit(abi::vector_dup_from_x("v6", "x0"));
+        let bound = self.temporary_vreg();
+        self.emit(abi::load_u64(&bound, abi::stack_pointer(), low_slot));
+        self.emit(abi::vector_dup_from_x("v5", &bound));
+        self.emit(abi::load_u64(&bound, abi::stack_pointer(), high_slot));
+        self.emit(abi::vector_dup_from_x("v6", &bound));
 
         let loop_label = self.label("simd_clamp_loop");
         let loop_done = self.label("simd_clamp_loop_done");
@@ -725,11 +738,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
-        // Scalar tail: x0 = lane, low → low_slot, high → high_slot.
-        self.emit(abi::move_immediate("x3", "Integer", "1"));
-        self.emit(abi::and_registers("x3", &count, "x3"));
+        // Scalar tail: lane / bounds are allocator-placed vregs (below).
+        let tail_bit = self.temporary_vreg();
+        self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_clamp_tail_done");
-        self.emit(abi::compare_immediate("x3", "0"));
+        self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
         // Scratch-pool registers (not x0-x2): the x86 remap colors ABI
         // registers by boundary role, and a block mixing a staged x1 (RETS[1]
