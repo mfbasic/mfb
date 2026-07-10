@@ -222,6 +222,15 @@ TESTING
       expectInteger(toInt("7fffffffffffffff", 16), 9223372036854775807)
       expectInteger(toInt("-8000000000000000", 16), 0 - 9223372036854775807 - 1)
     END TCASE
+    TCASE "power-of-two radix boundaries (bug-49)"
+      REM i64::MIN = -2^63 must still parse in a power-of-two base where the
+      REM accumulator lands exactly on 2^63 (negative as an i64 register).
+      expectInteger(toInt("-1000000000000000000000000000000000000000000000000000000000000000", 2), 0 - 9223372036854775807 - 1)
+      expectInteger(toInt("-1000000000000000000000", 8), 0 - 9223372036854775807 - 1)
+      REM i64::MAX = 2^63-1 must still parse.
+      expectInteger(toInt("111111111111111111111111111111111111111111111111111111111111111", 2), 9223372036854775807)
+      expectInteger(toInt("777777777777777777777", 8), 9223372036854775807)
+    END TCASE
   END TGROUP
 
   TGROUP "toByte"

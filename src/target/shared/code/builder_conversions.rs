@@ -352,8 +352,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&invalid));
 
         // Overflow cutoff: limit = negative ? 2^63 : i64::MAX. With base >= 2,
-        // cutoff = limit / base and cutlim = limit - cutoff*base both fit a
-        // positive i64, so the per-digit check below uses signed compares.
+        // cutoff = limit / base and cutlim = limit - cutoff*base are computed
+        // against an UNSIGNED limit; the per-digit check below therefore uses
+        // UNSIGNED compares (see bug-49).
         self.emit(abi::move_immediate(
             scratch,
             "Integer",
@@ -392,13 +393,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(digit, base));
         self.emit(abi::branch_ge(&invalid));
         // acc = acc*base + digit, with the standard cutoff overflow guard.
+        // `cutoff`/`cutlim` are derived from an UNSIGNED `limit` (2^63 for the
+        // negative case), so the comparisons must be UNSIGNED too: for a
+        // power-of-two base the accumulator can reach exactly 2^63, which as an
+        // i64 register is negative and would fool a signed compare into skipping
+        // the trap (bug-49). `branch_hi` is unsigned `>`; equality is
+        // sign-agnostic. For positive inputs acc < 2^63, where unsigned and
+        // signed order agree, so this is regression-free.
         self.emit(abi::compare_registers(acc, cutoff));
-        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_hi(&overflow));
         self.emit(abi::branch_eq(&cutoff_equal));
         self.emit(abi::branch(&digit_ok));
         self.emit(abi::label(&cutoff_equal));
         self.emit(abi::compare_registers(digit, cutlim));
-        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_hi(&overflow));
         self.emit(abi::label(&digit_ok));
         self.emit(abi::multiply_registers(acc, acc, base));
         self.emit(abi::add_registers(acc, acc, digit));

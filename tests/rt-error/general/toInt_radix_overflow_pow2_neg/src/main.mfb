@@ -1,0 +1,7 @@
+FUNC main AS Integer
+  REM bug-49: a power-of-two base whose accumulator lands exactly on 2^63
+  REM (i64::MIN as an unsigned register) previously fooled the signed cutoff
+  REM guard, wrapping silently to 0. -2^64 in base 2 is out of range: it must
+  REM FAIL 77050010 (ErrOverflow), not return a wrapped value.
+  RETURN toInt("-10000000000000000000000000000000000000000000000000000000000000000", 2)
+END FUNC

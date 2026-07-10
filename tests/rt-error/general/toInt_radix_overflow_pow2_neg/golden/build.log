@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/general/toInt_radix_overflow_pow2_neg
+Wrote AST to tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.ast
+Wrote IR to tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.ir
+[exit 0]
+$ mfb build tests/rt-error/general/toInt_radix_overflow_pow2_neg
+Wrote executable to tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.out
+[exit 0]
+$ tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.out
+Code: 77050010 Message: numeric overflow
+[exit 255]
