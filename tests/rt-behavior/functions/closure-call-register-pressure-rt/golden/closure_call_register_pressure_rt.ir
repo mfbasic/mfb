@@ -1,0 +1,97 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "closure_call_register_pressure_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "combine",
+    "line": 14,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 14, "type": "Integer", "default": null },
+    { "name": "b", "line": 14, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 15, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }, "right": { "kind": "local", "name": "b" } } }
+    ]
+  },
+  {
+    "name": "makeScaler",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "factor", "line": 18, "type": "Integer", "default": null }
+    ],
+    "returns": "FUNC(Integer) AS Integer",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "local", "name": "factor" } },
+    { "op": "return", "line": 20, "value": { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Integer", "captures": [{ "kind": "local", "name": "captured" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": false, "name": "f", "type": "FUNC(Integer, Integer) AS Integer", "value": { "kind": "functionRef", "name": "combine", "type": "FUNC(Integer, Integer) AS Integer" } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "scale", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "makeScaler", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "v01", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "v02", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "v03", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "v04", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "v05", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "5" } },
+    { "op": "bind", "line": 35, "mutable": false, "name": "v06", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "6" } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "v07", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "v08", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "8" } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "v09", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "9" } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "v10", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "10" } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "v11", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "11" } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "v12", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "12" } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "v13", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "13" } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "v14", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "14" } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "v15", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "15" } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "v16", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "16" } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "v17", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "17" } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "v18", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "18" } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "v19", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "19" } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "v20", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "20" } },
+    { "op": "bind", "line": 52, "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "v01" }, { "kind": "local", "name": "v02" }] } },
+    { "op": "bind", "line": 53, "mutable": false, "name": "s", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "scale", "args": [{ "kind": "local", "name": "v03" }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "sum", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "v01" }, "right": { "kind": "local", "name": "v02" } }, "right": { "kind": "local", "name": "v03" } }, "right": { "kind": "local", "name": "v04" } }, "right": { "kind": "local", "name": "v05" } }, "right": { "kind": "local", "name": "v06" } }, "right": { "kind": "local", "name": "v07" } }, "right": { "kind": "local", "name": "v08" } }, "right": { "kind": "local", "name": "v09" } }, "right": { "kind": "local", "name": "v10" } } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "sum2", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "v11" }, "right": { "kind": "local", "name": "v12" } }, "right": { "kind": "local", "name": "v13" } }, "right": { "kind": "local", "name": "v14" } }, "right": { "kind": "local", "name": "v15" } }, "right": { "kind": "local", "name": "v16" } }, "right": { "kind": "local", "name": "v17" } }, "right": { "kind": "local", "name": "v18" } }, "right": { "kind": "local", "name": "v19" } }, "right": { "kind": "local", "name": "v20" } } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "c" }] }] } },
+    { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] }] } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "sum" }, "right": { "kind": "local", "name": "sum2" } }] }] } },
+    { "op": "return", "line": 62, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 20,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 20, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 20, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "line": 20, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "captured" } } }
+    ]
+  }
+  ]
+}

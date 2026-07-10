@@ -65,6 +65,17 @@ pub(crate) trait RegisterModel {
     /// realize it as a TLS slot load instead (plan-00-H).
     fn arena_base(&self) -> &'static str;
 
+    /// The register this ISA realizes the `%closure_env` role token as — the
+    /// closure environment pointer a closure call site writes just before the
+    /// indirect `blr`/`call` (`spec: memory/09_closures.md`). Like
+    /// [`Self::arena_base`], it is **absent from [`Self::allocatable`]**: shared
+    /// code names it only through the token, and if the allocator could color a
+    /// body vreg onto it, coloring a closure's *code* pointer there would let the
+    /// hardcoded `move %closure_env, <env>` overwrite the code pointer with the
+    /// environment pointer between its definition and the indirect call through it
+    /// (plan-34-C §2.5). AArch64 `x28`, x86-64 `r13`, riscv64 `s10`.
+    fn closure_env(&self) -> &'static str;
+
     /// The register the SIMD float-math kernels (`builder_simd_float_math`) use
     /// as the constant-pool base: `adrp`/`add` to `_mfb_math_const_pool` once,
     /// then every coefficient `ldr q [base, #offset]`. `Some(reg)` pins a

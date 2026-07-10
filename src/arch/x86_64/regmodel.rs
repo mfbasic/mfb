@@ -32,7 +32,10 @@ const GPRS: &[&str] = &[
 /// Tight (5) versus AArch64's 19 — the linear-scan allocator spills under
 /// pressure; correctness-first for bring-up (plan-00-H §7 frees a register by
 /// moving arena_base to TLS).
-const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12", "r13"];
+// `r13` is deliberately absent: it realizes the `%closure_env` role token
+// ([`X86_64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
+// never color a body vreg onto it.
+const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12"];
 
 /// The pinned zero register `xzr`/`x31` realizes as (see [`INT_ALLOCATABLE`]).
 pub(crate) const ZERO_REGISTER: &str = "r14";
@@ -123,6 +126,13 @@ impl RegisterModel for X86_64RegisterModel {
 
     fn arena_base(&self) -> &'static str {
         "r15"
+    }
+
+    fn closure_env(&self) -> &'static str {
+        // `%closure_env` realizes to `r13` (map_scratch_register(28)); excluded
+        // from `INT_ALLOCATABLE` so no body vreg collides with the closure call's
+        // hardcoded env write (plan-34-C §2.5).
+        "r13"
     }
 
     fn math_pool_base(&self) -> Option<&'static str> {

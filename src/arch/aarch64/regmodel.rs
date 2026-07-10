@@ -34,9 +34,12 @@ pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
 /// `x8`–`x17` first, then callee-saved `x20`–`x28`. Keeping this order makes the
 /// linear-scan allocator prefer caller-saved scratch (no save/restore cost) and
 /// fall through to callee-saved only under pressure, matching the legacy layout.
+// `x28` is deliberately absent: it realizes the `%closure_env` role token
+// ([`Aarch64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
+// never color a body vreg onto it — the mirror of `x19`'s (arena-base) exclusion.
 const INT_ALLOCATABLE: &[&str] = &[
     "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x20", "x21", "x22", "x23",
-    "x24", "x25", "x26", "x27", "x28",
+    "x24", "x25", "x26", "x27",
 ];
 
 /// Caller-saved integer registers (clobbered by any `bl`). `x16`/`x17` are the
@@ -148,6 +151,13 @@ impl RegisterModel for Aarch64RegisterModel {
         // from allocation. This is the physical realization of the neutral
         // `arena_base` token shared code emits (plan-34-A).
         ARENA_BASE_REGISTER
+    }
+
+    fn closure_env(&self) -> &'static str {
+        // The `%closure_env` role token realizes to `x28`; excluded from
+        // `INT_ALLOCATABLE` so no body vreg collides with a closure call's
+        // hardcoded env write (plan-34-C §2.5).
+        "x28"
     }
 }
 

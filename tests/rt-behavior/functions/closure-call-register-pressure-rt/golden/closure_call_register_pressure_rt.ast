@@ -1,0 +1,83 @@
+{
+  "project": "closure_call_register_pressure_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "combine",
+      "line": 14,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "1000" } }, "right": { "kind": "identifier", "value": "b" } }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "makeScaler",
+      "line": 18,
+      "params": [
+      { "name": "factor", "type": "Integer", "default": null }
+      ],
+      "returnType": "FUNC(Integer) AS Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "factor" }, "line": 19 },
+      { "kind": "return", "value": { "kind": "lambda", "params": [
+{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(Integer, Integer) AS Integer", "value": { "kind": "identifier", "value": "combine" }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "scale", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "makeScaler", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "v01", "type": "Integer", "value": { "kind": "number", "value": "1" }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "v02", "type": "Integer", "value": { "kind": "number", "value": "2" }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "v03", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "v04", "type": "Integer", "value": { "kind": "number", "value": "4" }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "v05", "type": "Integer", "value": { "kind": "number", "value": "5" }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "v06", "type": "Integer", "value": { "kind": "number", "value": "6" }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "v07", "type": "Integer", "value": { "kind": "number", "value": "7" }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "v08", "type": "Integer", "value": { "kind": "number", "value": "8" }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "v09", "type": "Integer", "value": { "kind": "number", "value": "9" }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "v10", "type": "Integer", "value": { "kind": "number", "value": "10" }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "v11", "type": "Integer", "value": { "kind": "number", "value": "11" }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "v12", "type": "Integer", "value": { "kind": "number", "value": "12" }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "v13", "type": "Integer", "value": { "kind": "number", "value": "13" }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "v14", "type": "Integer", "value": { "kind": "number", "value": "14" }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "v15", "type": "Integer", "value": { "kind": "number", "value": "15" }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "v16", "type": "Integer", "value": { "kind": "number", "value": "16" }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "v17", "type": "Integer", "value": { "kind": "number", "value": "17" }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "v18", "type": "Integer", "value": { "kind": "number", "value": "18" }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "v19", "type": "Integer", "value": { "kind": "number", "value": "19" }, "line": 48 },
+      { "kind": "binding", "mutable": false, "name": "v20", "type": "Integer", "value": { "kind": "number", "value": "20" }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "v01" }, { "kind": "identifier", "value": "v02" }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Integer", "value": { "kind": "call", "callee": "scale", "arguments": [{ "kind": "identifier", "value": "v03" }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "sum", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v01" }, "right": { "kind": "identifier", "value": "v02" } }, "right": { "kind": "identifier", "value": "v03" } }, "right": { "kind": "identifier", "value": "v04" } }, "right": { "kind": "identifier", "value": "v05" } }, "right": { "kind": "identifier", "value": "v06" } }, "right": { "kind": "identifier", "value": "v07" } }, "right": { "kind": "identifier", "value": "v08" } }, "right": { "kind": "identifier", "value": "v09" } }, "right": { "kind": "identifier", "value": "v10" } }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "sum2", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v11" }, "right": { "kind": "identifier", "value": "v12" } }, "right": { "kind": "identifier", "value": "v13" } }, "right": { "kind": "identifier", "value": "v14" } }, "right": { "kind": "identifier", "value": "v15" } }, "right": { "kind": "identifier", "value": "v16" } }, "right": { "kind": "identifier", "value": "v17" } }, "right": { "kind": "identifier", "value": "v18" } }, "right": { "kind": "identifier", "value": "v19" } }, "right": { "kind": "identifier", "value": "v20" } }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sum" }, "right": { "kind": "identifier", "value": "sum2" } }] }] }, "line": 61 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 62 }
+      ]
+    }
+    ]
+  }
+  ]
+}

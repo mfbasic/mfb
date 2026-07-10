@@ -34,8 +34,11 @@ const GPRS: &[&str] = &[
 /// `t0`–`t2` (reserved as `select_riscv64` lowering scratch), `s0` (frame
 /// pointer, reserved), and `s11` (pinned `arena_base`). 14 registers — roomy
 /// versus x86's 5, so the allocator spills far less.
+// `s10` is deliberately absent: it realizes the `%closure_env` role token
+// ([`Riscv64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
+// never color a body vreg onto it (`x28` → `s10` at selection).
 const INT_ALLOCATABLE: &[&str] = &[
-    "t3", "t4", "t5", "t6", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10",
+    "t3", "t4", "t5", "t6", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9",
 ];
 
 /// Caller-saved (volatile) integer registers — clobbered across a `call`.
@@ -158,6 +161,13 @@ impl RegisterModel for Riscv64RegisterModel {
 
     fn arena_base(&self) -> &'static str {
         ARENA_BASE_REGISTER
+    }
+
+    fn closure_env(&self) -> &'static str {
+        // `%closure_env` realizes to `s10` (`x28` → `s10` at selection); excluded
+        // from `INT_ALLOCATABLE` so no body vreg collides with the closure call's
+        // hardcoded env write (plan-34-C §2.5).
+        "s10"
     }
 
     fn math_pool_base(&self) -> Option<&'static str> {

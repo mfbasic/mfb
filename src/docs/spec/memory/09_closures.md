@@ -72,6 +72,16 @@ During codegen of a closure body, the reserved register **x28 =
 `CLOSURE_ENV_REGISTER`** holds the active closure's environment pointer. Every
 `Capture` load reads from `[x28 + index*8]`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
+`CLOSURE_ENV_REGISTER` is the neutral `%closure_env` role token (plan-34-B),
+realized per ISA at selection — AArch64 `x28`, x86-64 `r13`, riscv64 `s10`. Each
+`RegisterModel` returns that register from `closure_env()` and **excludes it from
+`INT_ALLOCATABLE`** (the mirror of `arena_base`'s exclusion), so the linear-scan
+allocator can never color a body virtual register onto it. Without that exclusion
+the allocator could place a closure call's freshly-loaded `code` pointer into the
+env register, and the `mov %closure_env, <env>` below would overwrite the code
+pointer before the indirect call jumped through it (plan-34-C §2.5).
+[[src/target/shared/regmodel.rs:RegisterModel::closure_env]]
+
 x28 is established by the **caller** at the call site, not by the callee prologue.
 `emit_function_value_call` loads `code` from `[obj+0]` and `env` from `[obj+8]`,
 moves `env` into x28, then `blr code`. Because x28 is reserved and a call may

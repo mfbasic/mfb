@@ -1,0 +1,63 @@
+IMPORT io
+
+' plan-34-C §2.5: at a function-value (closure) call site, shared lowering writes
+' the closure environment pointer into the `%closure_env` role register and then
+' calls indirectly through a freshly-allocated `code` vreg. If the allocator could
+' color that `code` vreg onto the closure-env register, the env write would clobber
+' the code pointer and the indirect call would jump through the environment.
+'
+' This program keeps a wide set of integer locals live ACROSS an indirect closure
+' call, pressuring the allocator at the call site so it reaches deep into the
+' allocatable pool. The closure-env register is now excluded from allocation, so
+' `code`/`env` can never land on it; the call is correct and every local survives.
+
+FUNC combine(a AS Integer, b AS Integer) AS Integer
+  RETURN a * 1000 + b
+END FUNC
+
+FUNC makeScaler(factor AS Integer) AS FUNC(Integer) AS Integer
+  LET captured AS Integer = factor
+  RETURN LAMBDA(value AS Integer) -> value * captured
+END FUNC
+
+FUNC main AS Integer
+  ' A local holding a function reference, and a captured closure.
+  LET f AS FUNC(Integer, Integer) AS Integer = combine
+  LET scale AS FUNC(Integer) AS Integer = makeScaler(7)
+
+  ' A wide band of locals, all defined before the calls and all read after them,
+  ' so each is live across the indirect calls.
+  LET v01 AS Integer = 1
+  LET v02 AS Integer = 2
+  LET v03 AS Integer = 3
+  LET v04 AS Integer = 4
+  LET v05 AS Integer = 5
+  LET v06 AS Integer = 6
+  LET v07 AS Integer = 7
+  LET v08 AS Integer = 8
+  LET v09 AS Integer = 9
+  LET v10 AS Integer = 10
+  LET v11 AS Integer = 11
+  LET v12 AS Integer = 12
+  LET v13 AS Integer = 13
+  LET v14 AS Integer = 14
+  LET v15 AS Integer = 15
+  LET v16 AS Integer = 16
+  LET v17 AS Integer = 17
+  LET v18 AS Integer = 18
+  LET v19 AS Integer = 19
+  LET v20 AS Integer = 20
+
+  ' Two indirect calls in the middle of the live range.
+  LET c AS Integer = f(v01, v02)
+  LET s AS Integer = scale(v03)
+
+  ' Read every local after the calls, so they were all live across them.
+  LET sum AS Integer = v01 + v02 + v03 + v04 + v05 + v06 + v07 + v08 + v09 + v10
+  LET sum2 AS Integer = v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19 + v20
+
+  io::print(toString(c))
+  io::print(toString(s))
+  io::print(toString(sum + sum2))
+  RETURN 0
+END FUNC
