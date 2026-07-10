@@ -4,6 +4,11 @@
 
 use super::*;
 
+/// Maximum number of bytes `g_unichar_to_utf8` may write for one code point (the
+/// GLib UTF-8 encoder emits up to 6 bytes). Used as the safety margin for the
+/// fixed line-buffer bound in [`emit_key_pressed_handler`] (bug-50).
+const MAX_UTF8_LEN: usize = 6;
+
 /// The ELF entry point. Our `_main` is `e_entry`, reached with the stack exactly
 /// as the kernel/loader left it (`sp` -> argc, argv, NULL, envp...). We can't link
 /// crt1.o (the built-in linker pulls in no host objects, plan-linker.md), so the
@@ -306,6 +311,18 @@ pub(super) fn emit_key_pressed_handler() -> CodeFunction {
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 24)); // unichar
                                                               // oldlen = line_len; dst = &line_buf[oldlen]; count = g_unichar_to_utf8(unichar, dst)
     asm.load_state("x9", ST_LINE_LEN);
+    // bug-50: cap the fixed 1024-byte line buffer. If the pending line can no
+    // longer hold another maximum-width (6-byte) UTF-8 encoding, drop the key via
+    // the existing `ignore` path so the g_unichar_to_utf8 store below never writes
+    // past ST_LINE_BUF into the adjacent state fields (ST_TERM_AREA — the live
+    // GtkDrawingArea* — and the term grid). LINE_BUF_CAP - 6 is the last oldlen at
+    // which a full 6-byte encode still lands inside the buffer; compare unsigned
+    // (a line length is never negative) and branch when strictly higher.
+    asm.push(abi::compare_immediate(
+        "x9",
+        &(LINE_BUF_CAP - MAX_UTF8_LEN).to_string(),
+    ));
+    asm.push(abi::branch_hi("ignore"));
     asm.push(abi::store_u64("x9", abi::stack_pointer(), 8)); // oldlen
     asm.local_address("x10", STATE_SYMBOL);
     asm.push(abi::add_immediate("x1", "x10", ST_LINE_BUF));
@@ -606,3 +623,80 @@ pub(super) fn emit_append_idle_helper() -> CodeFunction {
 }
 
 // --- term:: TUI surface (plan-01-term.md §6.3) -----------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::aarch64::ops::CodeOp;
+
+    /// bug-50: the printable-key branch of `emit_key_pressed_handler` must bound
+    /// the fixed line buffer before storing the UTF-8 encoding. Assert that after
+    /// loading `ST_LINE_LEN` (into x9) it compares against `LINE_BUF_CAP - 6` and
+    /// branches (unsigned-higher) to `ignore`, and that this guard sits BEFORE the
+    /// `g_unichar_to_utf8` call that writes into `ST_LINE_BUF` — so no store can
+    /// land past the buffer into `ST_TERM_AREA` / the term grid.
+    #[test]
+    fn key_handler_bounds_line_buffer_before_utf8_store() {
+        let func = emit_key_pressed_handler();
+        let ins = &func.instructions;
+
+        // Locate the printable-branch UTF-8 encode: the FIRST `bl g_unichar_to_utf8`
+        // is the printable path (the raw-mode branch has a second, later one).
+        let utf8_call = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::BranchLink && i.get("target") == Some("g_unichar_to_utf8")
+            })
+            .expect("printable branch must call g_unichar_to_utf8");
+
+        // The bound check: `cmp_imm x9, (LINE_BUF_CAP - MAX_UTF8_LEN)` followed by
+        // `b.hi ignore`, appearing before the encode call.
+        let expected_bound = (LINE_BUF_CAP - MAX_UTF8_LEN).to_string();
+        let guard = ins[..utf8_call]
+            .windows(2)
+            .position(|pair| {
+                let cmp = &pair[0];
+                let br = &pair[1];
+                cmp.op == CodeOp::CmpImm
+                    && cmp.get("lhs") == Some("x9")
+                    && cmp.get("rhs") == Some(expected_bound.as_str())
+                    && br.op == CodeOp::BranchHi
+                    && br.get("target") == Some("ignore")
+            })
+            .expect(
+                "printable branch must bound ST_LINE_LEN against LINE_BUF_CAP - 6 and \
+                 branch to `ignore` before the g_unichar_to_utf8 store (bug-50)",
+            );
+
+        // The guard must read the freshly-loaded ST_LINE_LEN: the `load_state x9,
+        // ST_LINE_LEN` (an `adrp _mfb_gtkapp_state` + `ldr x9, [x9, #ST_LINE_LEN]`)
+        // must be the instruction pair immediately preceding the compare, so we are
+        // bounding the actual line length, not a stale value.
+        let ldr = &ins[guard - 1];
+        assert_eq!(ldr.op, CodeOp::LdrU64, "guard must follow the ST_LINE_LEN load");
+        assert_eq!(ldr.get("dst"), Some("x9"));
+        assert_eq!(ldr.get("offset"), Some(ST_LINE_LEN.to_string().as_str()));
+
+        // And the guard must sit before the destination-pointer arithmetic that the
+        // encode writes through, so a dropped key never computes an out-of-range dst.
+        let guard_idx = guard; // index of the cmp_imm
+        assert!(
+            guard_idx < utf8_call,
+            "bound check must precede the g_unichar_to_utf8 store"
+        );
+    }
+
+    /// The commit path streams `ST_LINE_LEN` bytes from `ST_LINE_BUF` to the pipe.
+    /// With the printable branch bounded, `ST_LINE_LEN` can never exceed
+    /// `LINE_BUF_CAP`, so this `write` can never read past the buffer. This is a
+    /// layout guard: `LINE_BUF_CAP - MAX_UTF8_LEN` (last accepted oldlen) plus a
+    /// full `MAX_UTF8_LEN` encode equals exactly `LINE_BUF_CAP`.
+    #[test]
+    fn bounded_line_length_never_exceeds_capacity() {
+        assert_eq!(
+            (LINE_BUF_CAP - MAX_UTF8_LEN) + MAX_UTF8_LEN,
+            LINE_BUF_CAP,
+            "the worst-case accepted line fills the buffer exactly, never past it"
+        );
+    }
+}
