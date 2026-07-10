@@ -1022,6 +1022,9 @@ mod tests {
         assert_eq!(stack_pointer(), "sp");
         assert_eq!(syscall_register(), "%sysnr");
         assert_eq!(realize_abi_token("%sysnr"), Some("x8"));
+        // The syscall-result role completes the vocabulary (AArch64 realizes it to
+        // x0, sharing the seam entry with %ret0/%sysarg0/%arg0).
+        assert_eq!(realize_abi_token(SYSRET), Some("x0"));
         assert_eq!(string_length_register(), "x2");
         assert_eq!(string_data_register(), "x1");
         assert!(is_callee_saved("x19"));
