@@ -28,6 +28,12 @@ mfb audit [--format text|json] [--locked] [path]
 Unknown `-`-prefixed options, a missing/invalid `--format` value, or a second
 `path` are usage errors.[[src/audit/mod.rs:parse_options]]
 
+Both renderers escape untrusted strings. The text renderer replaces every control
+character in a manifest- or `.mfp`-derived value (names, versions, paths,
+messages) with `\u{XXXX}`, so a crafted package name cannot emit ESC sequences or
+embedded newlines into the operator's terminal.[[src/audit/text.rs:safe]] The JSON
+renderer escapes the same characters as `\u00xx`.[[src/audit/json.rs:write_string]]
+
 | Exit | Meaning |
 |---|---|
 | `0` | Report produced, no error-severity findings |

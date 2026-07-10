@@ -1,7 +1,30 @@
 //! Deterministic human-readable rendering of an [`AuditReport`].
 
 use super::report::*;
+use std::borrow::Cow;
 use std::fmt::Write;
+
+/// Escapes control characters in a string bound for the operator's terminal.
+///
+/// Names, versions, and paths in a report come from untrusted manifests and
+/// `.mfp` headers. Written raw, an embedded ESC or newline lets a malicious
+/// package erase lines, recolor output, or forge whole report rows in the very
+/// tool the operator uses to decide whether to trust it. Well-formed values
+/// contain no control characters and pass through unchanged (and unallocated).
+fn safe(value: &str) -> Cow<'_, str> {
+    if !value.chars().any(char::is_control) {
+        return Cow::Borrowed(value);
+    }
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_control() {
+            let _ = write!(escaped, "\\u{{{:04x}}}", ch as u32);
+        } else {
+            escaped.push(ch);
+        }
+    }
+    Cow::Owned(escaped)
+}
 
 pub fn render(report: &AuditReport) -> String {
     let mut out = String::new();
@@ -10,14 +33,16 @@ pub fn render(report: &AuditReport) -> String {
     let _ = writeln!(
         out,
         "Audit: {} {} ({})",
-        project.name, project.version, project.kind
+        safe(&project.name),
+        safe(&project.version),
+        safe(&project.kind)
     );
-    let _ = writeln!(out, "Root: {}", project.root);
+    let _ = writeln!(out, "Root: {}", safe(&project.root));
     if !project.language_version.is_empty() {
-        let _ = writeln!(out, "Language: {}", project.language_version);
+        let _ = writeln!(out, "Language: {}", safe(&project.language_version));
     }
     if let Some(entry) = &project.entry {
-        let _ = writeln!(out, "Entry: {entry}");
+        let _ = writeln!(out, "Entry: {}", safe(entry));
     }
     let _ = writeln!(out, "Lockfile: {}", lockfile_state(&report.lockfile));
 
@@ -36,16 +61,20 @@ pub fn render(report: &AuditReport) -> String {
             let requested = if dependency.requested_version.is_empty() {
                 "*".to_string()
             } else {
-                dependency.requested_version.clone()
+                safe(&dependency.requested_version).into_owned()
             };
             let resolved = match &dependency.resolved_version {
-                Some(version) => format!(" -> {version}"),
+                Some(version) => format!(" -> {}", safe(version)),
                 None => String::new(),
             };
             let _ = writeln!(
                 out,
                 "  {} {}{} {}{}",
-                dependency.name, requested, pin, dependency.status, resolved
+                safe(&dependency.name),
+                requested,
+                pin,
+                safe(&dependency.status),
+                resolved
             );
         }
     }
@@ -57,10 +86,10 @@ pub fn render(report: &AuditReport) -> String {
             let _ = writeln!(
                 out,
                 "  {} {} verifier={} signature={} exports={} imports={} cleanups={}",
-                package.name,
-                package.version,
-                package.verifier,
-                package.signature,
+                safe(&package.name),
+                safe(&package.version),
+                safe(&package.verifier),
+                safe(&package.signature),
                 package.exports,
                 package.imports,
                 package.cleanups
@@ -74,13 +103,15 @@ pub fn render(report: &AuditReport) -> String {
         let mut current = None;
         for permission in &report.permissions {
             if current.as_deref() != Some(permission.capability.as_str()) {
-                let _ = writeln!(out, "  {}", permission.capability);
+                let _ = writeln!(out, "  {}", safe(&permission.capability));
                 current = Some(permission.capability.clone());
             }
             let _ = writeln!(
                 out,
                 "    {} at {}:{}",
-                permission.function, permission.path, permission.line
+                safe(&permission.function),
+                safe(&permission.path),
+                permission.line
             );
         }
     }
@@ -90,9 +121,9 @@ pub fn render(report: &AuditReport) -> String {
         let _ = writeln!(out, "Resources:");
         for resource in &report.resources {
             let close = if resource.close_may_fail {
-                format!("close {}, may fail", resource.close_op)
+                format!("close {}, may fail", safe(&resource.close_op))
             } else {
-                format!("close {}", resource.close_op)
+                format!("close {}", safe(&resource.close_op))
             };
             let kind = if resource.native {
                 "native"
@@ -102,7 +133,12 @@ pub fn render(report: &AuditReport) -> String {
             let _ = writeln!(
                 out,
                 "  {} {} at {}:{} ({}, {})",
-                resource.resource_type, resource.name, resource.path, resource.line, kind, close
+                safe(&resource.resource_type),
+                safe(&resource.name),
+                safe(&resource.path),
+                resource.line,
+                kind,
+                close
             );
         }
     }
@@ -114,7 +150,10 @@ pub fn render(report: &AuditReport) -> String {
             let _ = writeln!(
                 out,
                 "  {} {} close={} may_fail={}",
-                link.package, link.symbol, link.close_function, link.may_fail
+                safe(&link.package),
+                safe(&link.symbol),
+                safe(&link.close_function),
+                link.may_fail
             );
         }
     }
@@ -129,17 +168,17 @@ pub fn render(report: &AuditReport) -> String {
                 "package-private"
             };
             let close = if resource.close_may_fail {
-                format!("close {}, may fail", resource.close_op)
+                format!("close {}, may fail", safe(&resource.close_op))
             } else {
-                format!("close {}", resource.close_op)
+                format!("close {}", safe(&resource.close_op))
             };
             let _ = writeln!(
                 out,
                 "  {} ({}) in {} at {}:{} (native, {}, {}, {})",
-                resource.resource_type,
+                safe(&resource.resource_type),
                 visibility,
-                resource.package,
-                resource.path,
+                safe(&resource.package),
+                safe(&resource.path),
                 resource.line,
                 close,
                 if resource.sendable {
@@ -167,16 +206,27 @@ pub fn render(report: &AuditReport) -> String {
             let _ = writeln!(
                 out,
                 "  {} at {}:{}{}",
-                function.function, function.path, function.line, fallible
+                safe(&function.function),
+                safe(&function.path),
+                function.line,
+                fallible
             );
             if let Some(trap) = &function.trap {
-                let _ = writeln!(out, "    trap {} -> {}", trap.name, trap.classification);
+                let _ = writeln!(
+                    out,
+                    "    trap {} -> {}",
+                    safe(&trap.name),
+                    trap.classification
+                );
             }
             for call in &function.calls {
                 let _ = writeln!(
                     out,
                     "    fallible call {} at {}:{} -> {}",
-                    call.callee, function.path, call.line, call.propagation
+                    safe(&call.callee),
+                    safe(&function.path),
+                    call.line,
+                    call.propagation
                 );
             }
         }
@@ -187,16 +237,16 @@ pub fn render(report: &AuditReport) -> String {
         let _ = writeln!(out, "Findings:");
         for finding in &report.findings {
             let location = match (&finding.path, finding.line) {
-                (Some(path), Some(line)) => format!(" ({path}:{line})"),
-                (Some(path), None) => format!(" ({path})"),
+                (Some(path), Some(line)) => format!(" ({}:{line})", safe(path)),
+                (Some(path), None) => format!(" ({})", safe(path)),
                 _ => String::new(),
             };
             let _ = writeln!(
                 out,
                 "  {} {} {}{}",
                 finding.severity.as_str(),
-                finding.code,
-                finding.message,
+                safe(&finding.code),
+                safe(&finding.message),
                 location
             );
         }
@@ -276,6 +326,24 @@ mod tests {
             "  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource close may fail (main.mfb:11)\n"
         ));
         assert!(out.contains("  error AUDIT-DEP-MISSING dep missing\n"));
+    }
+
+    #[test]
+    fn untrusted_names_cannot_inject_terminal_control_sequences() {
+        // A typosquatted package whose `.mfp` name erases the line it printed on
+        // and forges an "ok" row beneath it.
+        let mut report = full_report();
+        report.dependencies[0].name = "legit\u{1b}[2K\rmalicious\nbeta 9.9.9 ok".to_string();
+        report.packages[0].version = "1.0.0\u{7}".to_string();
+        let out = render(&report);
+        assert!(!out.contains('\u{1b}'), "no raw ESC reaches the terminal");
+        assert!(!out.contains('\r'));
+        assert!(!out.contains('\u{7}'));
+        assert!(out.contains("legit\\u{001b}[2K\\u{000d}malicious\\u{000a}beta 9.9.9 ok"));
+        assert!(out.contains("1.0.0\\u{0007}"));
+        // The escaped name stays on the dependency's own line: the injected row
+        // is not a line of its own.
+        assert!(!out.lines().any(|line| line == "beta 9.9.9 ok"));
     }
 
     #[test]
