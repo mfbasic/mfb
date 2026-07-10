@@ -47,7 +47,7 @@ impl<'a> SyntaxChecker<'a> {
             );
         }
         if let Some(rest) = name.strip_prefix("Map OF ") {
-            if let Some((key, value)) = rest.split_once(" TO ") {
+            if let Some((key, value)) = split_map_body(rest) {
                 return Type::Map(
                     Box::new(self.parse_type(key)),
                     Box::new(self.parse_collection_element_type(value)),
@@ -144,27 +144,50 @@ impl<'a> SyntaxChecker<'a> {
                     && self.compatible(expected_return, actual_return)
             }
             (Type::User(expected_name), Type::User(actual_name)) => {
-                // An imported package's types are registered under their bare name
-                // (`Db`), while a qualified reference written by the importer
-                // resolves to `binding.Db` (plan-link-update.md §5a). Treat a
-                // qualified name as equal to its bare form so an imported
-                // resource/user type returned from a package function matches the
-                // importer's `binding::Type` annotation.
+                if expected_name == actual_name {
+                    return true;
+                }
                 let expected_bare = expected_name.rsplit('.').next().unwrap_or(expected_name);
                 let actual_bare = actual_name.rsplit('.').next().unwrap_or(actual_name);
-                expected_name == actual_name
-                    || expected_bare == actual_bare
-                    || self
-                        .type_infos
-                        .get(expected_name)
-                        .or_else(|| self.type_infos.get(expected_bare))
-                        .is_some_and(|info| {
-                            matches!(info.kind, TypeDeclKind::Union)
-                                && info
-                                    .variants
-                                    .iter()
-                                    .any(|variant| variant.name == *actual_bare)
-                        })
+                let expected_info = self
+                    .type_infos
+                    .get(expected_name)
+                    .or_else(|| self.type_infos.get(expected_bare));
+                // A union accepts any of its variant values (a variant value fits
+                // its union slot).
+                if expected_info.is_some_and(|info| {
+                    matches!(info.kind, TypeDeclKind::Union)
+                        && info
+                            .variants
+                            .iter()
+                            .any(|variant| variant.name == *actual_bare)
+                }) {
+                    return true;
+                }
+                if expected_bare != actual_bare {
+                    return false;
+                }
+                // The bare names coincide. An imported package's types are
+                // registered under their bare name (`Db`), while a qualified
+                // reference written by the importer resolves to `binding.Db`
+                // (plan-link-update.md §5a) — so a qualified name must equate to
+                // its bare form. But two genuinely distinct declarations that
+                // merely share a final path segment (an imported `geo.Point` and a
+                // local `Point` with different fields) must NOT unify (bug-41):
+                // only unify when both names resolve to the *same* registered
+                // `TypeInfo`. When either side is unregistered — a built-in `User`
+                // type such as `net.Url`, or a template parameter — the shared bare
+                // name is authoritative.
+                let actual_info = self
+                    .type_infos
+                    .get(actual_name)
+                    .or_else(|| self.type_infos.get(actual_bare));
+                match (expected_info, actual_info) {
+                    (Some(expected_info), Some(actual_info)) => {
+                        std::ptr::eq(expected_info, actual_info)
+                    }
+                    _ => true,
+                }
             }
             _ => expected == actual,
         }
@@ -379,6 +402,71 @@ impl<'a> SyntaxChecker<'a> {
     }
 }
 
+/// Whether a `Map`/`MapEntry`/`Thread`/`ThreadWorker` `OF`-construct — each of
+/// which owns exactly one top-level ` TO ` — begins at byte `at` of `body`. The
+/// match must sit on a word boundary so a user template whose name merely ends
+/// in `Map` (`MyMap OF T`, which owns no ` TO `) is not counted.
+fn owns_a_to_separator(body: &str, at: usize) -> bool {
+    let bytes = body.as_bytes();
+    if at > 0 {
+        let prev = bytes[at - 1];
+        // An identifier-continue byte (or any UTF-8 continuation/lead byte of a
+        // multi-byte identifier char) before the keyword means we are mid-word.
+        if prev.is_ascii_alphanumeric() || prev == b'_' || prev == b'.' || prev == b':' || prev >= 0x80
+        {
+            return false;
+        }
+    }
+    // `List OF`/`Result OF`/user templates own no ` TO ` and are excluded. Each
+    // keyword is checked with its trailing ` OF ` so `MapEntry OF` is not seen as
+    // `Map OF` and `ThreadWorker OF` is not seen as `Thread OF`.
+    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
+        .iter()
+        .any(|keyword| body[at..].starts_with(keyword))
+}
+
+/// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
+/// the ` TO ` that separates the outer key from its value. A leftmost
+/// `split_once(" TO ")` mis-parses a key that itself carries a ` TO `
+/// (`Map OF Map OF String TO Integer TO Boolean`, bug-41): this scan skips the
+/// ` TO ` owned by each nested `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-type
+/// and ignores separators inside parenthesized / `FUNC(...)` groups. Returns
+/// `None` when there is no top-level ` TO ` (a malformed body), so the caller
+/// falls through and the whole string is treated as a plain type name.
+fn split_map_body(body: &str) -> Option<(&str, &str)> {
+    let bytes = body.as_bytes();
+    let mut depth: usize = 0;
+    // Nested `OF`-constructs seen at depth 0 whose ` TO ` has not yet appeared.
+    let mut pending: usize = 0;
+    let mut index = 0;
+    while index < body.len() {
+        match bytes[index] {
+            b'(' => {
+                depth += 1;
+                index += 1;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+            }
+            _ if depth == 0 && body[index..].starts_with(" TO ") => {
+                if pending > 0 {
+                    pending -= 1;
+                    index += 4;
+                } else {
+                    return Some((&body[..index], &body[index + 4..]));
+                }
+            }
+            _ if depth == 0 && owns_a_to_separator(body, index) => {
+                pending += 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod types_tests {
     use crate::syntaxcheck::testutil::*;
@@ -445,6 +533,40 @@ mod types_tests {
         // The `<= u8::MAX` guard's false arm runs here even though the actual
         // rejection for an out-of-range Byte is relocated to ir::verify.
         let _ = check_src("FUNC main AS Integer\n  LET b AS Byte = 300\n  RETURN 0\nEND FUNC\n");
+    }
+
+    // ---- bug-41 (3): radix/separator Byte-literal RECOVER range check -------
+
+    fn byte_recover_src(literal: &str) -> String {
+        // An inline-TRAP RECOVER against a `Byte` success type is the surviving
+        // consumer of `expression_compatible`'s Byte arm (checking.rs:320).
+        format!(
+            "FUNC parseByte(v AS Integer) AS Byte\n  IF v < 0 THEN FAIL error(404, \"neg\")\n  RETURN toByte(v)\nEND FUNC\nFUNC main AS Integer\n  LET b AS Byte = parseByte(-1) TRAP(e)\n    RECOVER {literal}\n  END TRAP\n  RETURN 0\nEND FUNC\n"
+        )
+    }
+
+    #[test]
+    fn byte_recover_accepts_radix_and_separator_literals() {
+        // The lexer canonicalizes radix/separator literals to decimal before the
+        // Byte range check (`0xFF`->`255`, `2_00`->`200`), so an in-range Byte is
+        // accepted — not spuriously rejected with TYPE_RECOVER_TYPE_MISMATCH
+        // (bug-41 (3)). Decimal `200` is the pre-existing baseline.
+        for literal in ["200", "0xFF", "0b1111_1111", "2_00"] {
+            assert!(
+                !check_src(&byte_recover_src(literal))
+                    .iter()
+                    .any(|rule| rule == "TYPE_RECOVER_TYPE_MISMATCH"),
+                "RECOVER {literal} against a Byte type should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn byte_recover_rejects_out_of_range_radix_literal() {
+        // `0x100` == 256 is out of Byte range and must still be rejected.
+        assert!(check_src(&byte_recover_src("0x100"))
+            .iter()
+            .any(|rule| rule == "TYPE_RECOVER_TYPE_MISMATCH"));
     }
 
     #[test]
@@ -608,5 +730,108 @@ mod types_tests {
             env!("CARGO_MANIFEST_DIR")
         )))
         .is_empty());
+    }
+
+    // ---- bug-41 (2): nesting-aware `Map OF K TO V` split -------------------
+
+    #[test]
+    fn split_map_body_handles_nested_key_and_value() {
+        use super::split_map_body;
+        // Simple body: leftmost and balanced agree.
+        assert_eq!(split_map_body("String TO Integer"), Some(("String", "Integer")));
+        // Nested KEY carries its own ` TO `: the key is the whole inner map, the
+        // value is `Boolean` (bug-41 — leftmost split gave `Map OF Map OF String`).
+        assert_eq!(
+            split_map_body("Map OF String TO Integer TO Boolean"),
+            Some(("Map OF String TO Integer", "Boolean"))
+        );
+        // Nested VALUE map (already correct under leftmost split) still parses.
+        assert_eq!(
+            split_map_body("String TO Map OF Integer TO Boolean"),
+            Some(("String", "Map OF Integer TO Boolean"))
+        );
+        // A `FUNC(...) AS R` key is kept whole (parens/`AS` carry no top-level TO).
+        assert_eq!(
+            split_map_body("FUNC(Integer) AS Boolean TO Integer"),
+            Some(("FUNC(Integer) AS Boolean", "Integer"))
+        );
+        // A parenthesized nested-map key round-trips (the caller strips the group).
+        assert_eq!(
+            split_map_body("(Map OF String TO Integer) TO Boolean"),
+            Some(("(Map OF String TO Integer)", "Boolean"))
+        );
+        // A RES-marked value stays attached (the caller's element parser strips it).
+        assert_eq!(
+            split_map_body("String TO RES File"),
+            Some(("String", "RES File"))
+        );
+        // No top-level ` TO ` at all → None (caller falls through to a type name).
+        assert_eq!(split_map_body("Integer"), None);
+    }
+
+    #[test]
+    fn parse_type_nested_map_key_structure() {
+        use super::{SyntaxChecker, Type};
+        let dir = std::path::Path::new(".");
+        let project = crate::ast::AstProject {
+            name: "t".to_string(),
+            files: vec![],
+        };
+        let checker = SyntaxChecker::new(dir, &project);
+        // `Map OF Map OF String TO Integer TO Boolean` must build
+        // `Map(Map(String, Integer), Boolean)`, not the mis-split
+        // `Map(User("Map OF Map OF String"), …)`.
+        let Type::Map(key, value) = checker.parse_type("Map OF Map OF String TO Integer TO Boolean")
+        else {
+            panic!("expected a Map type");
+        };
+        assert!(matches!(*value, Type::Boolean));
+        let Type::Map(inner_key, inner_value) = *key else {
+            panic!("expected the key to be a nested Map");
+        };
+        assert!(matches!(*inner_key, Type::String));
+        assert!(matches!(*inner_value, Type::Integer));
+    }
+
+    // ---- bug-41 (1): bare-name User unification needs same declaration -----
+
+    #[test]
+    fn bare_name_user_types_need_same_declaration() {
+        use super::{FieldInfo, SyntaxChecker, Type, TypeInfo};
+        use crate::ast::{TypeDeclKind, Visibility};
+        let dir = std::path::Path::new(".");
+        let project = crate::ast::AstProject {
+            name: "t".to_string(),
+            files: vec![],
+        };
+        let mut checker = SyntaxChecker::new(dir, &project);
+        let record = |field: &str| TypeInfo {
+            kind: TypeDeclKind::Type,
+            visibility: Visibility::Export,
+            file_path: String::new(),
+            fields: vec![FieldInfo {
+                name: field.to_string(),
+                type_: Type::Integer,
+                visibility: Visibility::Public,
+            }],
+            variants: Vec::new(),
+            members: std::collections::HashSet::new(),
+        };
+        // Two genuinely distinct declarations that share the final segment `Point`.
+        checker
+            .type_infos
+            .insert("geo.Point".to_string(), record("lat"));
+        checker.type_infos.insert("Point".to_string(), record("x"));
+        // bug-41: distinct declarations must NOT unify on the shared bare name.
+        assert!(!checker.compatible(
+            &Type::User("geo.Point".to_string()),
+            &Type::User("Point".to_string())
+        ));
+        // The legitimate qualified==bare case (both resolve to the same registered
+        // `TypeInfo`) still unifies: a qualified alias of the bare `Point`.
+        assert!(checker.compatible(
+            &Type::User("mod.Point".to_string()),
+            &Type::User("Point".to_string())
+        ));
     }
 }
