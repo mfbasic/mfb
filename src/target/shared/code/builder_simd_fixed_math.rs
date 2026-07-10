@@ -77,8 +77,9 @@ impl CodeBuilder<'_> {
         let neg_mask = self.temporary_fp_vreg();
         let mask = self.temporary_fp_vreg();
         let sel = self.temporary_fp_vreg();
-        self.emit(abi::move_immediate("x0", "Integer", "1"));
-        self.emit(abi::vector_dup_from_x(&one, "x0"));
+        let one_val = self.allocate_register()?;
+        self.emit(abi::move_immediate(&one_val, "Integer", "1"));
+        self.emit(abi::vector_dup_from_x(&one, &one_val));
         self.emit(abi::vector_eor(&neg_mask, &neg_mask, &neg_mask));
 
         // --- 2-lane chunk loop ---
@@ -88,7 +89,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
         self.emit(abi::vector_load("v0", &in_data, 0));
-        self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel);
+        self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel)?;
         self.emit(abi::vector_store("v3", &out_data, 0));
         self.emit(abi::add_immediate(&in_data, &in_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
@@ -98,24 +99,29 @@ impl CodeBuilder<'_> {
 
         // --- Scalar tail (count & 1): broadcast the single element into both
         // lanes, run the same kernel, store lane 0. ---
-        self.emit(abi::move_immediate("x1", "Integer", "1"));
-        self.emit(abi::and_registers("x1", &count, "x1"));
+        let tail = self.allocate_register()?;
+        self.emit(abi::move_immediate(&tail, "Integer", "1"));
+        self.emit(abi::and_registers(&tail, &count, &tail));
         let tail_done = self.label("simd_fxsqrt_tail_done");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(&tail, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        self.emit(abi::load_u64("x0", &in_data, 0));
-        self.emit(abi::vector_dup_from_x("v0", "x0"));
-        self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel);
-        self.emit(abi::vector_extract_to_x("x0", "v3", 0));
-        self.emit(abi::store_u64("x0", &out_data, 0));
+        let elem = self.allocate_register()?;
+        self.emit(abi::load_u64(&elem, &in_data, 0));
+        self.emit(abi::vector_dup_from_x("v0", &elem));
+        self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel)?;
+        let res_lane = self.allocate_register()?;
+        self.emit(abi::vector_extract_to_x(&res_lane, "v3", 0));
+        self.emit(abi::store_u64(&res_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         // --- Error reduce: any negative lane → ErrInvalidArgument ---
-        self.emit(abi::vector_extract_to_x("x0", &neg_mask, 0));
-        self.emit(abi::vector_extract_to_x("x1", &neg_mask, 1));
-        self.emit(abi::or_registers("x0", "x0", "x1"));
+        let lane0 = self.allocate_register()?;
+        let lane1 = self.allocate_register()?;
+        self.emit(abi::vector_extract_to_x(&lane0, &neg_mask, 0));
+        self.emit(abi::vector_extract_to_x(&lane1, &neg_mask, 1));
+        self.emit(abi::or_registers(&lane0, &lane0, &lane1));
         let no_err = self.label("simd_fxsqrt_no_err");
-        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::compare_immediate(&lane0, "0"));
         self.emit(abi::branch_eq(&no_err));
         self.emit_invalid_argument_return()?;
         self.emit(abi::label(&no_err));
@@ -135,7 +141,13 @@ impl CodeBuilder<'_> {
     /// caller-saved, like the scalar kernel's register-tight body. Mirrors
     /// `emit_fixed_sqrt` op-for-op so each lane is bit-identical to the scalar
     /// result.
-    fn emit_fixed_sqrt_vector(&mut self, one: &str, neg_mask: &str, mask: &str, sel: &str) {
+    fn emit_fixed_sqrt_vector(
+        &mut self,
+        one: &str,
+        neg_mask: &str,
+        mask: &str,
+        sel: &str,
+    ) -> Result<(), String> {
         // Negative-lane detection (raw < 0): arithmetic shift fills all-ones.
         self.emit(abi::vector_sshr(mask, "v0", 63));
         self.emit(abi::vector_orr(neg_mask, neg_mask, mask));
@@ -145,12 +157,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_eor("v2", "v2", "v2")); // nlo = 0
         self.emit(abi::vector_eor("v3", "v3", "v3")); // res = 0
         self.emit(abi::vector_eor("v4", "v4", "v4")); // rem = 0
-        self.emit(abi::move_immediate("x0", "Integer", "48"));
+        // digit counter (48 fractional bits) — an allocator-placed vreg
+        // (plan-34-B Phase 3); the vector state stays in physical `v1..v7`.
+        let digit = self.allocate_register()?;
+        self.emit(abi::move_immediate(&digit, "Integer", "48"));
 
         let loop_label = self.label("simd_fxsqrt_digit");
         let loop_done = self.label("simd_fxsqrt_digit_done");
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::compare_immediate(&digit, "0"));
         self.emit(abi::branch_eq(&loop_done));
         // digit = nhi >> 62 (logical, top two bits).
         self.emit(abi::vector_ushr("v5", "v1", 62));
@@ -172,7 +187,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_sub("v4", "v4", sel));
         self.emit(abi::vector_and(sel, one, mask));
         self.emit(abi::vector_add("v3", "v3", sel));
-        self.emit(abi::subtract_immediate("x0", "x0", 1));
+        self.emit(abi::subtract_immediate(&digit, &digit, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
@@ -180,6 +195,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_cmgt(mask, "v4", "v3"));
         self.emit(abi::vector_and(sel, one, mask));
         self.emit(abi::vector_add("v3", "v3", sel));
+        Ok(())
     }
 
     /// `math.log/log10(values AS Fixed[]) AS Fixed[]` — per-lane loop over the
@@ -252,8 +268,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             out_data_slot,
         ));
-        self.emit(abi::move_immediate("x0", "Integer", "0"));
-        self.emit(abi::store_u64("x0", abi::stack_pointer(), idx_slot));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), idx_slot));
 
         let loop_label = self.label("simd_fxlog_loop");
         let loop_done = self.label("simd_fxlog_loop_done");
