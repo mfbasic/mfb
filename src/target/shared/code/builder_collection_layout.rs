@@ -259,9 +259,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        let dst_base = self.temporary_vreg();
+        self.emit(abi::load_u64(&dst_base, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
-        self.emit_copy_bytes("x1", &scratch9, &scratch10, "flat_copy");
+        self.emit_copy_bytes(&dst_base, &scratch9, &scratch10, "flat_copy");
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
@@ -356,12 +357,13 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_write_list_header_from_registers(&layout, "x1", &scratch9, &scratch10);
+        let block_base = self.temporary_vreg();
+        self.emit(abi::load_u64(&block_base, abi::stack_pointer(), result_slot));
+        self.emit_write_list_header_from_registers(&layout, &block_base, &scratch9, &scratch10);
 
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&block_base, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, &block_base, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -386,8 +388,8 @@ impl CodeBuilder<'_> {
         // Copy the data region verbatim (dataLength bytes). Source base is
         // capacity-based (it may have headroom); destination base is count-based
         // (tight) — both resolve through emit_collection_data_pointer.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer(&scratch17, "x1");
+        self.emit(abi::load_u64(&block_base, abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer(&scratch17, &block_base);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::load_u64(
@@ -941,9 +943,10 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&alloc_ok));
             self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-            self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+            let dst_base = self.temporary_vreg();
+            self.emit(abi::load_u64(&dst_base, abi::stack_pointer(), result_slot));
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
-            self.emit_copy_bytes("x1", &scratch9, &scratch10, "inline_value_block_copy");
+            self.emit_copy_bytes(&dst_base, &scratch9, &scratch10, "inline_value_block_copy");
             let result = self.allocate_register()?;
             self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
             return Ok(result);
