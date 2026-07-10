@@ -1,0 +1,22 @@
+' Fallibility is decided per overload, not per name: `parse(Integer)` is pure
+' while `parse(String)` reads a file. A call site carries no types before
+' monomorphization, so a caller of either overload is reported fallible.
+IMPORT io
+IMPORT fs
+
+FUNC parse(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC parse(s AS String) AS Integer
+  RETURN len(fs::readText(s))
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(parse("data.txt")))
+  io::print(toString(parse(7)))
+  RETURN 0
+  TRAP(err)
+    RETURN 1
+  END TRAP
+END FUNC

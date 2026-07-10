@@ -2,7 +2,7 @@
 //! installed packages. All collection is offline and reuses the same project,
 //! package, and `.mfp` helpers that builds use (via `crate::`).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use tinyjson::JsonValue;

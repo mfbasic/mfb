@@ -37,7 +37,7 @@ pub(super) fn collect_source(
                             },
                         });
                     }
-                    if is_fallible_call(callee, &fallible) {
+                    if is_fallible_call(callee, &fallible.names) {
                         calls.push(CallSite {
                             callee: callee.to_string(),
                             line,
@@ -69,7 +69,9 @@ pub(super) fn collect_source(
                 function: function.name.clone(),
                 path: file.path.clone(),
                 line: function.line,
-                fallible: fallible.contains(&function.name),
+                fallible: fallible
+                    .declarations
+                    .contains(&(file.path.clone(), function.line)),
                 trap: trap_info,
                 calls,
             });
@@ -312,32 +314,53 @@ fn walk_expression(expression: &Expression, line: usize, visit: &mut impl FnMut(
     }
 }
 
-/// Computes the set of user function names whose errors escape to callers.
-fn fallible_functions(ast: &ast::AstProject) -> HashSet<String> {
-    let mut functions: BTreeMap<&str, &Function> = BTreeMap::new();
+/// Which user functions let errors escape to their callers.
+///
+/// Overloads share a name, so a verdict must be kept per *declaration*. A call
+/// site carries no types before monomorphization, though, so it cannot be
+/// resolved to one overload: `names` therefore unions the verdicts of every
+/// overload of a name, and a call to any of them counts as fallible. That
+/// over-approximates a caller of a pure overload whose sibling is fallible, and
+/// never under-reports.
+struct Fallibility {
+    /// Names with at least one fallible overload; the call-site test.
+    names: HashSet<String>,
+    /// Declarations that are themselves fallible, keyed by `(path, line)`.
+    declarations: HashSet<(String, usize)>,
+}
+
+/// The block whose escapes decide a function's fallibility: errors raised in the
+/// body are routed to the trap when one exists, so only what escapes the trap
+/// handler reaches the caller.
+fn relevant_block(function: &Function) -> &[Statement] {
+    match &function.trap {
+        Some(trap) => &trap.body,
+        None => &function.body,
+    }
+}
+
+/// Computes which user functions let errors escape to callers, per declaration.
+fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
+    // Every declaration, in source order — a name-keyed map would drop all but
+    // one overload, analyzing a single body and broadcasting its verdict.
+    let mut functions: Vec<(&str, &Function)> = Vec::new();
     for file in &ast.files {
         for item in &file.items {
             if let Item::Function(function) = item {
-                functions.insert(function.name.as_str(), function);
+                functions.push((file.path.as_str(), function));
             }
         }
     }
 
-    let mut fallible: HashSet<String> = HashSet::new();
+    let mut names: HashSet<String> = HashSet::new();
     loop {
         let mut changed = false;
-        for (name, function) in &functions {
-            if fallible.contains(*name) {
+        for (_, function) in &functions {
+            if names.contains(&function.name) {
                 continue;
             }
-            // Errors raised in the body are routed to the trap when one exists,
-            // so only what escapes the relevant block makes the function fallible.
-            let body = match &function.trap {
-                Some(trap) => &trap.body,
-                None => &function.body,
-            };
-            if block_escapes(body, &fallible) {
-                fallible.insert((*name).to_string());
+            if block_escapes(relevant_block(function), &names) {
+                names.insert(function.name.clone());
                 changed = true;
             }
         }
@@ -345,11 +368,25 @@ fn fallible_functions(ast: &ast::AstProject) -> HashSet<String> {
             break;
         }
     }
-    fallible
+
+    // `names` has converged, so a final pass decides each declaration on its own
+    // body — including the overloads the loop above skipped once their name was
+    // already marked by a sibling.
+    let declarations = functions
+        .iter()
+        .filter(|(_, function)| block_escapes(relevant_block(function), &names))
+        .map(|(path, function)| ((*path).to_string(), function.line))
+        .collect();
+
+    Fallibility {
+        names,
+        declarations,
+    }
 }
 
 /// Returns true if the block can let an error escape: a `FAIL`, a `PROPAGATE`,
-/// or a call to a fallible builtin or fallible user function.
+/// or a call to a fallible builtin or fallible user function. `fallible` is the
+/// name-union set, so a call resolves conservatively across overloads.
 fn block_escapes(body: &[Statement], fallible: &HashSet<String>) -> bool {
     let mut escapes = false;
     let mut check = |callee: &str, _line: usize| {
@@ -555,6 +592,33 @@ mod tests {
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].resource_type, "File");
         assert_eq!(resources[0].close_op, "fs.close");
+    }
+
+    #[test]
+    fn overloads_get_their_own_fallibility_verdict() {
+        // A name-keyed map analyzed one `parse` body and broadcast its verdict to
+        // the other. Each declaration must be judged on its own body, while a
+        // call site — which has no types yet — resolves across the overload set.
+        let source = concat!(
+            "FUNC parse(n AS Integer) AS Integer\n",
+            "  RETURN n\n",
+            "END FUNC\n",
+            "FUNC parse(s AS String) AS Integer\n",
+            "  RETURN len(fs::readText(s))\n",
+            "END FUNC\n",
+            "SUB main()\n",
+            "  LET x = parse(\"f.txt\")\n",
+            "END SUB\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        let at = |line: usize| {
+            flow.iter()
+                .find(|entry| entry.line == line)
+                .unwrap_or_else(|| panic!("no function declared at line {line}"))
+        };
+        assert!(!at(1).fallible, "the Integer overload is pure");
+        assert!(at(4).fallible, "the String overload calls a fallible builtin");
+        assert!(at(7).fallible, "main calls the fallible overload");
     }
 
     #[test]

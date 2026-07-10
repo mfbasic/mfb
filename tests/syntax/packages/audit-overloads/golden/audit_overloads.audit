@@ -1,0 +1,174 @@
+$ mfb audit --format text tests/syntax/packages/audit-overloads
+Audit: audit_overloads 0.1.0 (executable)
+Root: tests/syntax/packages/audit-overloads
+Language: 1.0
+Entry: main
+Lockfile: absent
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 2
+
+Permissions:
+  filesystem
+    fs.readText at src/main.mfb:12
+  terminal
+    io.print at src/main.mfb:16
+    io.print at src/main.mfb:17
+
+Control flow:
+  parse at src/main.mfb:11 (fallible)
+    fallible call fs.readText at src/main.mfb:12 -> return
+  main at src/main.mfb:15
+    trap err -> returns value
+    fallible call io.print at src/main.mfb:16 -> trap
+    fallible call parse at src/main.mfb:16 -> trap
+    fallible call io.print at src/main.mfb:17 -> trap
+    fallible call parse at src/main.mfb:17 -> trap
+
+Findings:
+  info AUDIT-PERM-FILESYSTEM project uses host capability: filesystem
+  info AUDIT-PERM-TERMINAL project uses host capability: terminal
+[exit 0]
+$ mfb audit --format json tests/syntax/packages/audit-overloads
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "audit_overloads",
+    "ident": "audit_overloads",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/syntax/packages/audit-overloads",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 2
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "parse",
+      "path": "src/main.mfb",
+      "line": 7,
+      "fallible": false,
+      "trap": null,
+      "calls": []
+    },
+    {
+      "function": "parse",
+      "path": "src/main.mfb",
+      "line": 11,
+      "fallible": true,
+      "trap": null,
+      "calls": [
+        {
+          "callee": "fs.readText",
+          "line": 12,
+          "propagation": "return",
+          "capability": "filesystem"
+        }
+      ]
+    },
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 15,
+      "fallible": false,
+      "trap": {
+        "name": "err",
+        "line": 19,
+        "classification": "returns value"
+      },
+      "calls": [
+        {
+          "callee": "io.print",
+          "line": 16,
+          "propagation": "trap",
+          "capability": "terminal"
+        },
+        {
+          "callee": "parse",
+          "line": 16,
+          "propagation": "trap",
+          "capability": null
+        },
+        {
+          "callee": "io.print",
+          "line": 17,
+          "propagation": "trap",
+          "capability": "terminal"
+        },
+        {
+          "callee": "parse",
+          "line": 17,
+          "propagation": "trap",
+          "capability": null
+        }
+      ]
+    }
+  ],
+  "resources": [],
+  "nativeLinks": [],
+  "nativeResources": [],
+  "permissions": [
+    {
+      "capability": "filesystem",
+      "package": "fs",
+      "function": "fs.readText",
+      "path": "src/main.mfb",
+      "line": 12,
+      "kind": "standard"
+    },
+    {
+      "capability": "terminal",
+      "package": "io",
+      "function": "io.print",
+      "path": "src/main.mfb",
+      "line": 16,
+      "kind": "standard"
+    },
+    {
+      "capability": "terminal",
+      "package": "io",
+      "function": "io.print",
+      "path": "src/main.mfb",
+      "line": 17,
+      "kind": "standard"
+    }
+  ],
+  "findings": [
+    {
+      "code": "AUDIT-PERM-FILESYSTEM",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: filesystem",
+      "location": null,
+      "package": null
+    },
+    {
+      "code": "AUDIT-PERM-TERMINAL",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: terminal",
+      "location": null,
+      "package": null
+    }
+  ]
+}
+[exit 0]

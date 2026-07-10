@@ -1,0 +1,62 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "audit_overloads",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "parse$Integer",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 7, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "parse$String",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 11, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "s" }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "parse$String", "args": [{ "kind": "const", "type": "String", "value": "data.txt" }] }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "parse$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] }] }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 19,
+      "name": "err",
+      "body": [
+      { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

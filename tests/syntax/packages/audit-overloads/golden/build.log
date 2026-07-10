@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/packages/audit-overloads
+Wrote AST to tests/syntax/packages/audit-overloads/audit_overloads.ast
+Wrote IR to tests/syntax/packages/audit-overloads/audit_overloads.ir
+[exit 0]

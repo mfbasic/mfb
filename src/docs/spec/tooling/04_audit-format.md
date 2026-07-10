@@ -193,13 +193,20 @@ The `lint`/`policy` categories have ranks reserved but emit no codes today.
 
 A user function is *fallible* if its errors can escape to its caller. The
 collector iterates to a fixpoint: starting from an empty set, it repeatedly marks
-any not-yet-fallible function whose *relevant block* can let an error escape,
+any not-yet-fallible function name whose *relevant block* can let an error escape,
 stopping when a pass marks nothing new. The relevant block is the `TRAP` handler
 body when a trap exists (body errors route there first), otherwise the function
 body.[[src/audit/collect/source.rs:fallible_functions]]
 
 A block "escapes" if it contains a `FAIL` or `PROPAGATE` (recursively, through
 `IF`/`MATCH`/loop bodies), or if it contains a fallible call.[[src/audit/collect/source.rs:block_escapes]]
+
+Overloads share a name, so the verdict reported for each `FlowFunction` is
+computed from that *declaration's* own body. A call site, however, carries no
+argument types before monomorphization and cannot be resolved to one overload:
+the call-site test unions the verdicts of every overload of the name. Calling any
+overload of a name with a fallible overload therefore reports the caller as
+fallible — an over-approximation that never under-reports.[[src/audit/collect/source.rs:Fallibility]]
 
 ### Trap classification
 
