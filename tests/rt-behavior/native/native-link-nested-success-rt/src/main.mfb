@@ -1,0 +1,82 @@
+' Regression test for bug-56: a LINK `SUCCESS_ON`/`RESULT` boolean expression is
+' lowered over virtual registers, so an arbitrarily right-nested tree evaluates
+' within scratch/allocatable registers instead of escalating hand-assigned
+' physical registers into `x19` (the program-wide arena base). Before the fix,
+' the 3-level right-nested `SUCCESS_ON`/`RESULT` on `step` (and `open`) emitted a
+' `mov x19, <const>` inside the marshaling thunk, clobbering arena_base; the
+' post-call allocation loop below then read a corrupt arena and crashed (SIGSEGV).
+' The bindings and query are deterministic, and the trailing allocation stress
+' proves arena_base survives every thunk.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+RESOURCE Stmt CLOSE BY sql::finalize
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    ' And(Cmp, And(Cmp, Cmp)): right-nested three deep (status = 0 on success).
+    SUCCESS_ON status <> 1 AND (status <> 2 AND status <> 3)
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, statement CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST pzTail = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC step(RES stmt AS Stmt) AS Boolean
+    SYMBOL "sqlite3_step"
+    ABI (stmt CPtr) AS status CInt32
+    ' Both clauses right-nested three deep. 100 = SQLITE_ROW, 101 = SQLITE_DONE.
+    SUCCESS_ON status = 100 OR (status = 101 OR status = 101)
+    RESULT status <> 101 AND (status <> 5 AND status <> 6)
+  END FUNC
+  FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
+    SYMBOL "sqlite3_column_text"
+    ABI (stmt CPtr, col CInt32) AS return CPtr
+  END FUNC
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  RES db AS Db = sql::open(":memory:")
+  sql::exec(db, "CREATE TABLE t (name TEXT)")
+  sql::exec(db, "INSERT INTO t VALUES ('alice'), ('bob'), ('carol')")
+  RES rows AS Stmt = sql::prepare(db, "SELECT name FROM t ORDER BY name")
+  MUT names AS String = ""
+  WHILE sql::step(rows)
+    names = names & sql::columnText(rows, 0) & ";"
+  WEND
+  sql::finalize(rows)
+  sql::close(db)
+  io::print(names)
+  ' Post-call allocation stress: a thunk that clobbered x19 (arena_base) would
+  ' make these allocations read a corrupt arena and crash.
+  MUT acc AS String = ""
+  MUT i AS Integer = 0
+  WHILE i < 3000
+    acc = acc & toString(i) & ","
+    i = i + 1
+  WEND
+  io::print("len=" & toString(len(acc)))
+  RETURN 0
+END FUNC

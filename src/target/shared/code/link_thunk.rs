@@ -509,19 +509,17 @@ fn lower_link_thunk(
     // SUCCESS_ON gate: a failing status produces an Error result.
     if let Some(success) = &function.success_on {
         let mut counter = 0usize;
-        emit_link_expr(
+        let mut vreg = LINK_EXPR_VREG_BASE;
+        let value = emit_link_expr(
             success,
             STATUS_OFF,
-            9,
+            &mut vreg,
             &symbol,
             &mut counter,
             &mut instructions,
         );
-        // emit_link_expr evaluates into physical x9 (its `base` register);
-        // re-bind into the vreg the rename gave the consumers.
-        instructions.push(abi::move_register("%v9", "x9"));
         instructions.extend([
-            abi::compare_immediate("%v9", "0"),
+            abi::compare_immediate(&value, "0"),
             abi::branch_eq(&call_fail),
         ]);
     }
@@ -551,17 +549,16 @@ fn lower_link_thunk(
         );
     } else if let Some(result) = &function.result {
         let mut counter = 0usize;
-        emit_link_expr(
+        let mut vreg = LINK_EXPR_VREG_BASE;
+        let value = emit_link_expr(
             result,
             STATUS_OFF,
-            9,
+            &mut vreg,
             &symbol,
             &mut counter,
             &mut instructions,
         );
-        // emit_link_expr evaluates into physical x9; bridge into the vreg.
-        instructions.push(abi::move_register("%v9", "x9"));
-        instructions.push(abi::move_register(RESULT_VALUE_REGISTER, "%v9"));
+        instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &value));
     } else {
         instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
     }
@@ -910,18 +907,34 @@ fn emit_copy_cstring_to_string(
     ]);
 }
 
+/// First virtual-register index `emit_link_expr` hands out. The thunk body uses
+/// fixed scratch vregs `%v9`..`%v16`; starting the expression's own vregs well
+/// past that window guarantees the two name spaces never overlap, so the shared
+/// linear-scan allocator sees each expression temporary as an independent value
+/// (bug-56).
+const LINK_EXPR_VREG_BASE: usize = 64;
+
 /// Emit code computing the boolean/integer value of a `SUCCESS_ON`/`RESULT`
-/// expression into `x{base}` (0/1 for comparisons), reading the native return
-/// variable from `[sp + status_off]`.
+/// expression, reading the native return variable from `[sp + status_off]`.
+///
+/// Every intermediate is a fresh virtual register (`%vN`, allocated from `vreg`)
+/// that the shared linear-scan allocator places and spills — the same discipline
+/// as the rest of the thunk (plan-00-G). This replaces the historical scheme that
+/// hand-assigned escalating *physical* registers (`x{base}`, `+2`, `+4`) with no
+/// bound: a moderately right-nested tree walked `base` up into `x19`, the pinned
+/// arena-base register, corrupting the arena program-wide (bug-56). Vregs never
+/// touch reserved/callee-saved registers the thunk does not save. Returns the
+/// name of the vreg holding the expression's value (0/1 for comparisons).
 fn emit_link_expr(
     expr: &IrLinkExpr,
     status_off: usize,
-    base: usize,
+    vreg: &mut usize,
     symbol: &str,
     counter: &mut usize,
     instructions: &mut Vec<CodeInstruction>,
-) {
-    let dst = format!("x{base}");
+) -> String {
+    let dst = format!("%v{vreg}");
+    *vreg += 1;
     match expr {
         IrLinkExpr::Int(value) => {
             instructions.push(abi::move_immediate(
@@ -934,13 +947,13 @@ fn emit_link_expr(
             instructions.push(abi::load_u64(&dst, abi::stack_pointer(), status_off));
         }
         IrLinkExpr::Not(inner) => {
-            emit_link_expr(inner, status_off, base, symbol, counter, instructions);
+            let inner_reg = emit_link_expr(inner, status_off, vreg, symbol, counter, instructions);
             let id = *counter;
             *counter += 1;
             let set = format!("{symbol}_not{id}_zero");
             let end = format!("{symbol}_not{id}_end");
             instructions.extend([
-                abi::compare_immediate(&dst, "0"),
+                abi::compare_immediate(&inner_reg, "0"),
                 abi::branch_eq(&set),
                 abi::move_immediate(&dst, "Integer", "0"),
                 abi::branch(&end),
@@ -950,9 +963,8 @@ fn emit_link_expr(
             ]);
         }
         IrLinkExpr::Compare { op, lhs, rhs } => {
-            emit_link_expr(lhs, status_off, base, symbol, counter, instructions);
-            emit_link_expr(rhs, status_off, base + 2, symbol, counter, instructions);
-            let rhs_reg = format!("x{}", base + 2);
+            let lhs_reg = emit_link_expr(lhs, status_off, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, status_off, vreg, symbol, counter, instructions);
             let id = *counter;
             *counter += 1;
             let end = format!("{symbol}_cmp{id}_end");
@@ -965,21 +977,22 @@ fn emit_link_expr(
                 ">=" => abi::branch_ge(&end),
                 _ => abi::branch_eq(&end),
             };
-            instructions.push(abi::compare_registers(&dst, &rhs_reg));
+            instructions.push(abi::compare_registers(&lhs_reg, &rhs_reg));
             instructions.push(abi::move_immediate(&dst, "Integer", "1"));
             instructions.push(branch);
             instructions.push(abi::move_immediate(&dst, "Integer", "0"));
             instructions.push(abi::label(&end));
         }
         IrLinkExpr::And(lhs, rhs) => {
-            emit_link_expr(lhs, status_off, base, symbol, counter, instructions);
-            emit_link_expr(rhs, status_off, base + 4, symbol, counter, instructions);
-            instructions.push(abi::and_registers(&dst, &dst, &format!("x{}", base + 4)));
+            let lhs_reg = emit_link_expr(lhs, status_off, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, status_off, vreg, symbol, counter, instructions);
+            instructions.push(abi::and_registers(&dst, &lhs_reg, &rhs_reg));
         }
         IrLinkExpr::Or(lhs, rhs) => {
-            emit_link_expr(lhs, status_off, base, symbol, counter, instructions);
-            emit_link_expr(rhs, status_off, base + 4, symbol, counter, instructions);
-            instructions.push(abi::or_registers(&dst, &dst, &format!("x{}", base + 4)));
+            let lhs_reg = emit_link_expr(lhs, status_off, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, status_off, vreg, symbol, counter, instructions);
+            instructions.push(abi::or_registers(&dst, &lhs_reg, &rhs_reg));
         }
     }
+    dst
 }

@@ -1,0 +1,244 @@
+{
+  "project": "native_link_nested_success_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 12 },
+    { "kind": "resource", "visibility": "public", "name": "Stmt", "closeFn": "sql.finalize", "threadSendable": false, "line": 13 },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 15,
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "line": 16,
+        "params": [
+        { "name": "path", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 18 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 18 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "1" } }, "right": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "3" } } } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "exec",
+        "symbol": "sqlite3_exec",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 22,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null },
+        { "name": "statement", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 24 },
+          { "name": "statement", "ctype": "CString", "out": false, "line": 24 },
+          { "name": "callback", "ctype": "CPtr", "out": false, "line": 24 },
+          { "name": "arg", "ctype": "CPtr", "out": false, "line": 24 },
+          { "name": "errmsg", "ctype": "CPtr", "out": false, "line": 24 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "callback", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 25 },
+        { "slot": "arg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 26 },
+        { "slot": "errmsg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 27 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "prepare",
+        "symbol": "sqlite3_prepare_v2",
+        "returnResource": true,
+        "returnType": "Stmt",
+        "line": 30,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null },
+        { "name": "statement", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 32 },
+          { "name": "statement", "ctype": "CString", "out": false, "line": 32 },
+          { "name": "nByte", "ctype": "CInt32", "out": false, "line": 32 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 32 },
+          { "name": "pzTail", "ctype": "CPtr", "out": false, "line": 32 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "nByte", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 33 },
+        { "slot": "pzTail", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 34 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "step",
+        "symbol": "sqlite3_step",
+        "returnResource": false,
+        "returnType": "Boolean",
+        "line": 37,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 39 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "100" } }, "right": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "101" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "101" } } } },
+        "result": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "101" } }, "right": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "5" } }, "right": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "6" } } } },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "columnText",
+        "symbol": "sqlite3_column_text",
+        "returnResource": false,
+        "returnType": "String",
+        "line": 44,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null },
+        { "name": "col", "type": "Integer", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 46 },
+          { "name": "col", "ctype": "CInt32", "out": false, "line": 46 }
+          ],
+          "returnName": "return",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        ],
+        "successOn": null,
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "finalize",
+        "symbol": "sqlite3_finalize",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 48,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 50 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 53,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 55 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 60,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "CREATE TABLE t (name TEXT)" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO t VALUES ('alice'), ('bob'), ('carol')" }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "rows", "type": "Stmt", "value": { "kind": "call", "callee": "sql.prepare", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "SELECT name FROM t ORDER BY name" }] }, "line": 64 },
+      { "kind": "binding", "mutable": true, "name": "names", "type": "String", "value": { "kind": "string", "value": "" }, "line": 65 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "call", "callee": "sql.step", "arguments": [{ "kind": "identifier", "value": "rows" }] },
+        "line": 66,
+        "body": [
+        { "kind": "assignment", "name": "names", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "names" }, "right": { "kind": "call", "callee": "sql.columnText", "arguments": [{ "kind": "identifier", "value": "rows" }, { "kind": "number", "value": "0" }] } }, "right": { "kind": "string", "value": ";" } }, "line": 67 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.finalize", "arguments": [{ "kind": "identifier", "value": "rows" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 71 },
+      { "kind": "binding", "mutable": true, "name": "acc", "type": "String", "value": { "kind": "string", "value": "" }, "line": 74 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 75 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3000" } },
+        "line": 76,
+        "body": [
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "right": { "kind": "string", "value": "," } }, "line": 77 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 78 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "acc" }] }] } }] }, "line": 80 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 81 }
+      ]
+    }
+    ]
+  }
+  ]
+}

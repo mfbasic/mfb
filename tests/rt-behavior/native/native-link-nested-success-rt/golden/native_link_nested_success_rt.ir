@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_link_nested_success_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 60,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 61, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (name TEXT)" }] } },
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO t VALUES ('alice'), ('bob'), ('carol')" }] } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "rows", "type": "Stmt", "value": { "kind": "call", "type": "Stmt", "target": "sql.prepare", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "SELECT name FROM t ORDER BY name" }] } },
+    { "op": "bind", "line": 65, "mutable": true, "name": "names", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "while",
+      "line": 66,
+      "loop": "while",
+      "condition": { "kind": "call", "type": "Boolean", "target": "sql.step", "args": [{ "kind": "local", "name": "rows" }] },
+      "body": [
+      { "op": "assign", "line": 67, "name": "names", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "names" }, "right": { "kind": "call", "type": "String", "target": "sql.columnText", "args": [{ "kind": "local", "name": "rows" }, { "kind": "const", "type": "Integer", "value": "0" }] } }, "right": { "kind": "const", "type": "String", "value": ";" } } }
+      ]
+    },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "sql.finalize", "args": [{ "kind": "local", "name": "rows" }] } },
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "names" }] } },
+    { "op": "bind", "line": 74, "mutable": true, "name": "acc", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 75, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 76,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3000" } },
+      "body": [
+      { "op": "assign", "line": 77, "name": "acc", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } },
+      { "op": "assign", "line": 78, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "acc" }] }] } }] } },
+    { "op": "return", "line": 81, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
