@@ -445,15 +445,11 @@ impl code::CodegenPlatform for Platform {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(from, "fsync", platform_imports, instructions, relocations)?;
-        // `fsync` returns a C `int`; AAPCS64 leaves x0[63:32] unspecified. The
-        // shared flush helper sign-checks the result with a 64-bit `cmp x0,#0`,
-        // so narrow the `int` to 64 bits first — otherwise a `-1` (EBADF, etc.)
-        // whose upper bits the libc left clear (glibc/aarch64) reads as a large
-        // positive and the failure is silently swallowed (bug-04).
-        instructions.push(abi::sign_extend_word(
-            abi::return_register(),
-            abi::return_register(),
-        ));
+        // The C `int` return is narrowed to a signed 64-bit value at the shared
+        // comparison seam (`normalize_c_int_result` in fs_helpers_atomic.rs), the
+        // single owner of that invariant across all backends (bug-04, bug-44).
+        // riscv64's lp64d ABI already sign-extends `int` returns, so the seam op
+        // is a no-op here — kept for uniformity.
         Ok(())
     }
 

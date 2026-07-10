@@ -1,5 +1,26 @@
 use super::*;
 
+/// Narrow a C `int` result in the return register to its true signed 64-bit
+/// value. Required before any signed relational compare (`branch_lt`): none of
+/// the ABIs we target guarantee the upper 32 bits of an `int` return — AAPCS64
+/// and the Darwin arm64 ABI leave `x0[63:32]` unspecified, and x86-64 SysV
+/// leaves `rax[63:32]` undefined. When a libc leaves those bits clear, a `-1`
+/// (EIO/EBADF/ENOSPC) reads as `+4294967295`, `branch_lt` is not taken, and an
+/// `fsync`/`close` durability failure is silently swallowed (bug-04, bug-44).
+///
+/// This is the single owner of the invariant: it lives at the comparison seam
+/// so a newly added `int`-returning platform wrapper cannot reintroduce the
+/// class. `sign_extend_word` lowers per-backend (`sxtw` on aarch64, `sext.w`
+/// on riscv64, `movsxd` on x86-64); on riscv64's lp64d ABI the extension is
+/// already guaranteed, making the op a semantic no-op there — kept for
+/// uniformity so the next backend need not remember it.
+fn normalize_c_int_result(instructions: &mut Vec<CodeInstruction>) {
+    instructions.push(abi::sign_extend_word(
+        abi::return_register(),
+        abi::return_register(),
+    ));
+}
+
 pub(super) fn lower_fs_create_temp_file_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -485,6 +506,7 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    normalize_c_int_result(&mut instructions);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&sync_error),
@@ -496,6 +518,7 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    normalize_c_int_result(&mut instructions);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&close_error),
@@ -761,6 +784,7 @@ pub(super) fn lower_fs_write_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    normalize_c_int_result(&mut instructions);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&write_error),
@@ -772,6 +796,7 @@ pub(super) fn lower_fs_write_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    normalize_c_int_result(&mut instructions);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&close_error),
@@ -1245,6 +1270,7 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    normalize_c_int_result(&mut instructions);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&write_error),
@@ -1256,6 +1282,7 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    normalize_c_int_result(&mut instructions);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&close_error),
