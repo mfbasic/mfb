@@ -219,7 +219,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 16, "calleeSaved": [] },
     "params": [
-    { "name": "flag", "type": "Boolean", "location": "x0" }
+    { "name": "flag", "type": "Boolean", "location": "%arg0" }
     ],
     "stackSlots": [
     { "name": "flag_0", "type": "flag", "offset": 0 }
@@ -253,7 +253,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 16, "calleeSaved": [] },
     "params": [
-    { "name": "flag", "type": "Boolean", "location": "x0" }
+    { "name": "flag", "type": "Boolean", "location": "%arg0" }
     ],
     "stackSlots": [
     { "name": "flag_0", "type": "flag", "offset": 0 }
@@ -290,8 +290,8 @@
     "returns": "Integer",
     "frame": { "stackSize": 16, "calleeSaved": [] },
     "params": [
-    { "name": "first", "type": "Boolean", "location": "x0" },
-    { "name": "second", "type": "Boolean", "location": "x1" }
+    { "name": "first", "type": "Boolean", "location": "%arg0" },
+    { "name": "second", "type": "Boolean", "location": "%arg1" }
     ],
     "stackSlots": [
     { "name": "first_0", "type": "first", "offset": 0 },
@@ -337,8 +337,8 @@
     "returns": "Integer",
     "frame": { "stackSize": 16, "calleeSaved": [] },
     "params": [
-    { "name": "first", "type": "Boolean", "location": "x0" },
-    { "name": "second", "type": "Boolean", "location": "x1" }
+    { "name": "first", "type": "Boolean", "location": "%arg0" },
+    { "name": "second", "type": "Boolean", "location": "%arg1" }
     ],
     "stackSlots": [
     { "name": "first_0", "type": "first", "offset": 0 },
@@ -387,7 +387,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 16, "calleeSaved": [] },
     "params": [
-    { "name": "flag", "type": "Boolean", "location": "x0" }
+    { "name": "flag", "type": "Boolean", "location": "%arg0" }
     ],
     "stackSlots": [
     { "name": "flag_0", "type": "flag", "offset": 0 }
@@ -424,7 +424,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 16, "calleeSaved": [] },
     "params": [
-    { "name": "flag", "type": "Boolean", "location": "x0" }
+    { "name": "flag", "type": "Boolean", "location": "%arg0" }
     ],
     "stackSlots": [
     { "name": "flag_0", "type": "flag", "offset": 0 },

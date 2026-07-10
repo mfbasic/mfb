@@ -687,6 +687,15 @@ pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction
             ARENA_BASE,
             "r15",
         );
+        // plan-34-B Phase-3b seam: realize a role token to its AArch64 spelling
+        // (`%arg3` → `x3`) so `remap_x86_abi`'s existing role inference reproduces
+        // today's result exactly (byte-identical). Phase 4 replaces the inference
+        // with a direct token→SysV lookup and drops this.
+        for (_, value) in instruction.fields.iter_mut() {
+            if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
+                *value = reg.to_string();
+            }
+        }
     }
     remap_x86_abi(&mut out);
     out

@@ -512,6 +512,12 @@ fn map_fp_register(n: usize) -> String {
 fn remap_riscv_abi(instructions: &mut [CodeInstruction]) {
     for instruction in instructions.iter_mut() {
         for (_, value) in instruction.fields.iter_mut() {
+            // plan-34-B Phase-3b seam: realize a role token to its AArch64
+            // spelling first (`%arg3` → `x3`), then the positional remap maps that
+            // to the RISC-V home (`x3` → `a3`) exactly as today — byte-identical.
+            if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
+                *value = reg.to_string();
+            }
             if let Some(mapped) = remap_register(value) {
                 *value = mapped;
             }

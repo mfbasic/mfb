@@ -84,10 +84,17 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             });
         }
     }
-    // Realize `arena_base` back to its pinned AArch64 register (plan-00-D §2,
-    // plan-34-A) — so the selected stream the allocator sees carries the concrete
-    // `x19`, byte-identical to the direct path.
+    // Realize the plan-34-B role tokens (`%arg`/`%ret`/`%sysnr`/…) to their
+    // AArch64 register spellings — the temporary Phase-3b seam that keeps the
+    // encoder on today's `xN` input (byte-identical); Phase 4 deletes this and
+    // realizes tokens directly. Then realize `arena_base` back to its pinned
+    // register (plan-00-D §2, plan-34-A).
     for instruction in &mut out {
+        for (_, value) in instruction.fields.iter_mut() {
+            if let Some(reg) = abi::realize_abi_token(value) {
+                *value = reg.to_string();
+            }
+        }
         rename_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     out

@@ -4,8 +4,8 @@ pub(crate) const RETURN_REGISTER: &str = "x0";
 pub(crate) const IO_PRINT_CLOBBERS: &[&str] = &["x0", "x1", "x2", "x9", "x16"];
 
 pub(crate) fn argument_register(index: usize) -> Result<String, String> {
-    if index < 8 {
-        Ok(format!("x{index}"))
+    if index < ARG.len() {
+        Ok(ARG[index].to_string())
     } else {
         Err(format!(
             "aarch64 code plan cannot pass argument {index}; stack arguments are not implemented"
@@ -82,7 +82,7 @@ pub(crate) fn fp_temporary_register(allocation: usize) -> Result<String, String>
 }
 
 pub(crate) fn return_register() -> &'static str {
-    RETURN_REGISTER
+    RET[0]
 }
 
 /// The zero register as a register operand — the constant 0 readable as a source,
@@ -103,6 +103,75 @@ pub(crate) const LR: &str = "lr";
 /// `r15`). Never `"x19"`. (plan-34-A)
 pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
 
+// --- plan-34-B Phase 3b: role-named call-boundary tokens ---
+//
+// These `%`-sentinel tokens name a call boundary by ROLE, not by an AArch64
+// register number, so the three genuinely-distinct SysV banks (call args, syscall
+// args, results) are no longer collapsed into one `x0..x7` namespace that the x86
+// backend has to reconstruct via `remap_x86_abi`'s CFG dataflow. The `%` prefix
+// cannot collide with a physical register, immediate, symbol, label, or type name
+// (the same guarantee `regalloc`'s vreg sentinel relies on). During Phase 3b a
+// seam translates each back to its AArch64 spelling (`ARG[n]`/`RET[n]`/`SYSARG[n]`
+// → `x{n}`, `SYSNR` → `x8`, `SYSRET` → `x0`, `CLOSURE_ENV` → `x28`) before
+// instruction selection, so the three backends see today's input unchanged and
+// the migration is byte-identical; Phase 4 deletes the seam and teaches each
+// backend to realize the tokens directly (AArch64/riscv positional, x86 by table
+// lookup — no inference).
+
+/// A call's Nth outgoing argument (0..8; 8 in registers per
+/// [`REGISTER_ARGUMENT_COUNT`], the rest in a stack tail — bug-08). Never
+/// allocator-colored.
+pub(crate) const ARG: [&str; 8] = [
+    "%arg0", "%arg1", "%arg2", "%arg3", "%arg4", "%arg5", "%arg6", "%arg7",
+];
+
+/// A call's Nth result. `RET[0..4]` are the fallible-call ABI's tag / value /
+/// error-message / error-source (`spec: memory/02_fallible-call-abi.md`); an
+/// infallible call uses `RET[0]` only.
+pub(crate) const RET: [&str; 4] = ["%ret0", "%ret1", "%ret2", "%ret3"];
+
+/// The syscall-number register — AArch64/Linux `x8`, AArch64/macOS `x16`, riscv64
+/// `a7`, x86-64 `rax`. Four realizations of one role, which is exactly why it
+/// cannot be spelled as a register number.
+pub(crate) const SYSNR: &str = "%sysnr";
+
+/// A syscall's Nth argument. Distinct from [`ARG`]: x86-64 passes syscall arg 3 in
+/// `r10`, not `rcx`, because the `syscall` instruction clobbers `rcx`.
+pub(crate) const SYSARG: [&str; 6] = [
+    "%sysarg0", "%sysarg1", "%sysarg2", "%sysarg3", "%sysarg4", "%sysarg5",
+];
+
+/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
+pub(crate) const SYSRET: &str = "%sysret";
+
+/// The closure environment pointer — an implicit argument register, live from its
+/// definition to the immediately following indirect call
+/// (`spec: memory/09_closures.md`); the callee reads it. Not `arena_base`-style
+/// pinned, but a call-boundary token selection places and the allocator cannot
+/// color.
+pub(crate) const CLOSURE_ENV: &str = "%closure_env";
+
+/// Translate the Phase 3b role tokens back to their AArch64 register spellings —
+/// the temporary seam that keeps all three backends on today's `xN` input while
+/// shared lowering migrates to tokens (plan-34-B Phase 3b). Applied to a selected
+/// instruction stream before the per-ISA backend remap; Phase 4 removes it. A
+/// non-token value passes through unchanged.
+pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
+    Some(match value {
+        "%arg0" | "%ret0" | "%sysarg0" | "%sysret" => "x0",
+        "%arg1" | "%ret1" | "%sysarg1" => "x1",
+        "%arg2" | "%ret2" | "%sysarg2" => "x2",
+        "%arg3" | "%ret3" | "%sysarg3" => "x3",
+        "%arg4" | "%sysarg4" => "x4",
+        "%arg5" | "%sysarg5" => "x5",
+        "%arg6" => "x6",
+        "%arg7" => "x7",
+        "%sysnr" => "x8",
+        "%closure_env" => "x28",
+        _ => return None,
+    })
+}
+
 pub(crate) fn link_register() -> &'static str {
     LR
 }
@@ -112,7 +181,12 @@ pub(crate) fn stack_pointer() -> &'static str {
 }
 
 pub(crate) fn syscall_register() -> &'static str {
-    "x8"
+    // The syscall-number role (plan-34-B Phase 3b). One role, four realizations —
+    // AArch64/Linux `x8`, riscv64 `a7`, x86-64 `rax`, AArch64/macOS `x16` — so it
+    // is named by role, not number. The Phase-3b seam realizes `SYSNR` → `x8`
+    // before selection (riscv then remaps `x8` → `a7`), byte-identical to today;
+    // its only callers are `linux_{aarch64,riscv64}/code.rs`.
+    SYSNR
 }
 
 pub(crate) fn string_length_register() -> &'static str {
@@ -911,8 +985,12 @@ mod tests {
 
     #[test]
     fn register_role_helpers() {
-        assert_eq!(argument_register(0).unwrap(), "x0");
-        assert_eq!(argument_register(7).unwrap(), "x7");
+        // plan-34-B Phase 3b: arguments are named by the role token, realized to
+        // the AArch64 register by the selection seam.
+        assert_eq!(argument_register(0).unwrap(), "%arg0");
+        assert_eq!(argument_register(7).unwrap(), "%arg7");
+        assert_eq!(realize_abi_token("%arg0"), Some("x0"));
+        assert_eq!(realize_abi_token("%arg7"), Some("x7"));
         assert!(argument_register(8).is_err());
         // bug-08: arguments beyond the register window go through the stack-tail
         // sentinels, resolved to concrete `sp`-relative accesses in the frame.
@@ -938,10 +1016,12 @@ mod tests {
         assert_eq!(fp_temporary_register(7).unwrap(), "d7");
         assert!(fp_temporary_register(8).is_err());
         // Named ABI registers.
-        assert_eq!(return_register(), "x0");
+        assert_eq!(return_register(), "%ret0");
+        assert_eq!(realize_abi_token("%ret0"), Some("x0"));
         assert_eq!(link_register(), "lr");
         assert_eq!(stack_pointer(), "sp");
-        assert_eq!(syscall_register(), "x8");
+        assert_eq!(syscall_register(), "%sysnr");
+        assert_eq!(realize_abi_token("%sysnr"), Some("x8"));
         assert_eq!(string_length_register(), "x2");
         assert_eq!(string_data_register(), "x1");
         assert!(is_callee_saved("x19"));
