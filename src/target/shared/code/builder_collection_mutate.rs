@@ -925,14 +925,15 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit_write_collection_header_full(
-            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+            &layout, &nb, &scratch9, &scratch14, &scratch11, &scratch15,
         );
 
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, "x1");
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer(&scratch17, &nb);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::load_u64(
@@ -949,8 +950,8 @@ impl CodeBuilder<'_> {
         );
 
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -1012,8 +1013,8 @@ impl CodeBuilder<'_> {
             library: None,
         });
         // Install the grown buffer; fall through to write the new element.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));
 
         // --- Write the new element into slot[count], payload at dataLength. ---
@@ -1258,20 +1259,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s11, &s8, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::load_u64(&s14, abi::stack_pointer(), new_cap_slot));
         self.emit(abi::load_u64(&s15, abi::stack_pointer(), new_dcap_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_write_collection_header_full(&layout, "x1", &s9, &s14, &s11, &s15);
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_write_collection_header_full(&layout, &nb, &s9, &s14, &s11, &s15);
 
         // Copy self's data region verbatim (dataLength bytes), capacity-based base.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&s17, "x1");
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer(&s17, &nb);
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), buffer_slot));
         self.emit_collection_data_pointer(&s20, &s8);
         self.emit(abi::load_u64(&s14, &s8, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit_block_copy_advance(&s17, &s20, &s14, &s22, "bulk_append_grow_data");
 
         // Copy self's live lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::add_immediate(&s17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate(&s17, &nb, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::add_immediate(&s20, &s8, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&s9, &s8, COLLECTION_OFFSET_COUNT));
@@ -1306,8 +1308,8 @@ impl CodeBuilder<'_> {
             binding: "internal".to_string(),
             library: None,
         });
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));
 
         // --- Write: bulk-copy the RHS into self's spare region. ---
@@ -1563,13 +1565,14 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit_write_collection_header_full(
-            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+            &layout, &nb, &scratch9, &scratch14, &scratch11, &scratch15,
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, "x1");
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer(&scratch17, &nb);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::load_u64(
@@ -1585,8 +1588,8 @@ impl CodeBuilder<'_> {
             "prepend_grow_data",
         );
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -1611,8 +1614,8 @@ impl CodeBuilder<'_> {
         // installing the grown one — otherwise a prepend-in-a-loop leaks the old
         // buffer on every geometric grow (bug-47, mirrors `append` at :957-991).
         self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));
 
         // --- Write: shift entries right by one, new entry at slot[0]. ---
@@ -2325,13 +2328,14 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit_write_collection_header_full(
-            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+            &layout, &nb, &scratch9, &scratch14, &scratch11, &scratch15,
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, "x1");
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer(&scratch17, &nb);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::load_u64(
@@ -2347,8 +2351,8 @@ impl CodeBuilder<'_> {
             "mapset_vgrow_data",
         );
         // Copy the lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -2373,8 +2377,8 @@ impl CodeBuilder<'_> {
         // bucket region) before installing the grown one — otherwise a value-growing
         // map-set in a loop leaks the old buffer on every grow (bug-47).
         self.emit_free_pre_grow_buffer(map_slot, map_type)?;
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&nb, abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&vwrite));
 
         // Write the new value at the aligned data tail; repoint the found entry.
@@ -2634,13 +2638,14 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit_write_collection_header_full(
-            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+            &layout, &nb, &scratch9, &scratch14, &scratch11, &scratch15,
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, "x1");
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer(&scratch17, &nb);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::load_u64(
@@ -2656,8 +2661,8 @@ impl CodeBuilder<'_> {
             "mapset_grow_data",
         );
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -2682,8 +2687,8 @@ impl CodeBuilder<'_> {
         // bucket region) before installing the grown one — otherwise a capacity-
         // growing map-set in a loop leaks the old buffer on every grow (bug-47).
         self.emit_free_pre_grow_buffer(map_slot, map_type)?;
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&nb, abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&write));
 
         // --- Write the new entry into slot[count], key+value aligned in data. ---
