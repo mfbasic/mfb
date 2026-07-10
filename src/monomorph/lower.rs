@@ -113,11 +113,22 @@ impl<'a> Monomorphizer<'a> {
     /// name, selecting the overload whose declared parameter types match the
     /// argument types (after stripping package qualifiers). Returns `None` for a
     /// non-imported call, a non-overloaded import, or an unresolved match.
-    fn resolve_imported_overload(&self, callee: &str, arg_types: &[String]) -> Option<String> {
+    ///
+    /// The match must be *unique*. `Unknown` (from an untyped `[]` literal) is a
+    /// wildcard, so `f([])` matches both `f(List OF Integer)` and
+    /// `f(List OF String)`; taking the first would silently bind the call to
+    /// whichever overload the package happened to export first. That is ambiguous,
+    /// exactly as it is for a local overload set.
+    fn resolve_imported_overload(
+        &mut self,
+        callee: &str,
+        arg_types: &[String],
+        line: usize,
+    ) -> Option<String> {
         let candidates = self.imported_overloads.get(callee)?;
-        candidates
+        let matches: Vec<String> = candidates
             .iter()
-            .find(|candidate| {
+            .filter(|candidate| {
                 candidate.param_types.len() == arg_types.len()
                     && candidate
                         .param_types
@@ -131,6 +142,22 @@ impl<'a> Monomorphizer<'a> {
                         })
             })
             .map(|candidate| candidate.qualified_name.clone())
+            .collect();
+        match matches.len() {
+            0 => None,
+            1 => Some(matches.into_iter().next().expect("one match")),
+            count => {
+                self.report(
+                    "TYPE_OVERLOAD_AMBIGUOUS",
+                    &format!(
+                        "Call to `{callee}` matches {count} imported overloads; annotate the \
+                         argument types (an untyped `[]` selects none of them) to choose one."
+                    ),
+                    line,
+                );
+                None
+            }
+        }
     }
 
     /// Whether a declared parameter type and an actual argument type match,
@@ -983,7 +1010,9 @@ impl<'a> Monomorphizer<'a> {
                     self.resolve_overload(callee, &arg_types, expected_type, line)
                 {
                     target
-                } else if let Some(target) = self.resolve_imported_overload(callee, &arg_types) {
+                } else if let Some(target) =
+                    self.resolve_imported_overload(callee, &arg_types, line)
+                {
                     target
                 } else {
                     callee.clone()
@@ -1562,6 +1591,7 @@ impl<'a> Monomorphizer<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{ImportedOverload, Monomorphizer};
     use crate::ast::{AstProject, Function, Item, TypeDecl};
 
     /// Parse one or more `(relative_path, source)` files into an `AstProject`.
@@ -2172,6 +2202,62 @@ END FUNC
             "{:?}",
             function_names(&project)
         );
+    }
+
+    /// bug-36: `Unknown` (from an untyped `[]`) is a wildcard, so an element-typed
+    /// overload set matches it twice. Taking the first candidate bound the call to
+    /// whichever overload the package exported first, silently.
+    #[test]
+    fn an_untyped_empty_collection_makes_an_imported_overload_ambiguous() {
+        let ast = AstProject {
+            name: "app".to_string(),
+            files: vec![],
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut monomorphizer = Monomorphizer::new(dir.path(), &ast);
+        monomorphizer.imported_overloads.insert(
+            "pkg.f".to_string(),
+            vec![
+                ImportedOverload {
+                    param_types: vec!["List OF Integer".to_string()],
+                    qualified_name: "pkg.f$ListOFInteger".to_string(),
+                },
+                ImportedOverload {
+                    param_types: vec!["List OF String".to_string()],
+                    qualified_name: "pkg.f$ListOFString".to_string(),
+                },
+            ],
+        );
+
+        // A concretely-typed argument selects exactly one overload.
+        assert_eq!(
+            monomorphizer
+                .resolve_imported_overload("pkg.f", &["List OF Integer".to_string()], 1)
+                .as_deref(),
+            Some("pkg.f$ListOFInteger")
+        );
+        assert_eq!(
+            monomorphizer
+                .resolve_imported_overload("pkg.f", &["List OF String".to_string()], 1)
+                .as_deref(),
+            Some("pkg.f$ListOFString")
+        );
+        assert!(!monomorphizer.had_error);
+
+        // `f([])` matches both through the `Unknown` wildcard: ambiguous, not
+        // "whichever came first".
+        assert_eq!(
+            monomorphizer.resolve_imported_overload("pkg.f", &["List OF Unknown".to_string()], 7),
+            None
+        );
+        assert!(monomorphizer.had_error);
+
+        // An unrelated callee and a wrong arity still resolve to nothing.
+        assert_eq!(
+            monomorphizer.resolve_imported_overload("pkg.other", &[], 1),
+            None
+        );
+        assert_eq!(monomorphizer.resolve_imported_overload("pkg.f", &[], 1), None);
     }
 
     #[test]

@@ -372,7 +372,7 @@ Scheme*).
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | binding is used after move |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | ordinary collections cannot store resource or thread ownership |
 | `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | a borrowed collection element of resource type is not an owner |
-| `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | return-type overload cannot be resolved without an expected type |
+| `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | an overload set cannot be narrowed to one candidate: a return-type overload with no expected type, or an argument matching several imported overloads |
 | `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | call argument is supplied more than once |
 | `2-203-0059` | `TYPE_UNKNOWN_ARGUMENT_NAME` | error | call argument name does not match any parameter |
 | `2-203-0060` | `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` | error | uninitialized mutable binding requires a defaultable type |

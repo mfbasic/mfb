@@ -240,7 +240,12 @@ arity and per-position `types_compatible` match, returning the
 package-qualified mangled name the package merge expects.
 [[src/monomorph/lower.rs:resolve_imported_overload]] `types_compatible` is token-wise
 equality with `Unknown` as a wildcard on either side.
-[[src/monomorph/lower.rs:types_compatible]] Both the declared parameter type and the
+[[src/monomorph/lower.rs:types_compatible]] The match must be **unique**: because
+`Unknown` (from an untyped `[]` literal) matches any element type, a call like
+`f([])` against exports `f(List OF Integer)` and `f(List OF String)` matches both
+and is `TYPE_OVERLOAD_AMBIGUOUS` — annotate the argument
+(`LET empty AS List OF String = []`) to select one. Taking the first candidate
+would silently bind the call to whichever overload the package exported first. Both the declared parameter type and the
 actual argument type are first run through `normalize_type`, which strips every
 known qualifier prefix so an importer's `sqlite.Db` matches the package's bare
 `Db`. [[src/monomorph/lower.rs:normalize_type]]

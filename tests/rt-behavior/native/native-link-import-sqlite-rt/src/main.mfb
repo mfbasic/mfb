@@ -22,7 +22,10 @@ FUNC main AS Integer
   sqlite3::createTable(db, "users", "id INTEGER, name TEXT")
   sqlite3::query(db, "INSERT INTO users VALUES (1, ?)", ["alice"])
   sqlite3::query(db, "INSERT INTO users VALUES (2, ?)", ["bob"])
-  LET rows = sqlite3::query(db, "SELECT id, name FROM users ORDER BY id", [])
+  ' `query` is overloaded on its params type, and an untyped `[]` selects none
+  ' of them: annotate the empty binding so the overload is unambiguous.
+  LET noParams AS List OF String = []
+  LET rows = sqlite3::query(db, "SELECT id, name FROM users ORDER BY id", noParams)
   FOR EACH row IN rows
     io::print(cellText(collections::get(row, 0)) & "=" & cellText(collections::get(row, 1)))
   NEXT
