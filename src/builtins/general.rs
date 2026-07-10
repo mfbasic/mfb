@@ -588,13 +588,46 @@ fn map_parts(type_name: &str) -> Option<(&str, &str)> {
     Some((key, value.strip_prefix("RES ").unwrap_or(value)))
 }
 
+/// Splits a `FUNC(<params>) AS <return>` type into its parameter types and its
+/// return type.
+///
+/// A parameter can itself be a function type — `FUNC(FUNC(Integer, Integer) AS
+/// Integer) AS Integer` is what `collections::transform` receives over a list of
+/// two-argument function values — so the parameter list is scanned with paren
+/// depth: the closing paren and the separating commas are the ones at depth 0.
 fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
     let rest = type_name.strip_prefix("FUNC(")?;
-    let (params, returns) = rest.split_once(") AS ")?;
-    let params = if params.trim().is_empty() {
+
+    let mut depth = 0usize;
+    let mut close = None;
+    let mut splits = Vec::new();
+    for (index, ch) in rest.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' if depth == 0 => {
+                close = Some(index);
+                break;
+            }
+            ')' => depth -= 1,
+            ',' if depth == 0 => splits.push(index),
+            _ => {}
+        }
+    }
+    let close = close?;
+    let returns = rest.get(close..)?.strip_prefix(") AS ")?;
+
+    let params_text = &rest[..close];
+    let params = if params_text.trim().is_empty() {
         Vec::new()
     } else {
-        params.split(", ").collect()
+        let mut params = Vec::with_capacity(splits.len() + 1);
+        let mut start = 0;
+        for split in splits {
+            params.push(params_text[start..split].trim_start());
+            start = split + 1;
+        }
+        params.push(params_text[start..].trim_start());
+        params
     };
     Some((params, returns))
 }
@@ -1409,5 +1442,58 @@ mod tests {
         );
         assert_eq!(function_parts("Integer"), None);
         assert_eq!(function_parts("FUNC(Integer)"), None);
+    }
+
+    #[test]
+    fn function_parts_splits_nested_function_parameters() {
+        // A flat `split_once(") AS ")` cut at the *inner* `) AS `, yielding the
+        // garbage params ["FUNC(Integer", "Integer"] and return "Integer) AS X".
+        assert_eq!(
+            function_parts("FUNC(FUNC(Integer, Integer) AS Integer) AS Integer"),
+            Some((vec!["FUNC(Integer, Integer) AS Integer"], "Integer"))
+        );
+        assert_eq!(
+            function_parts("FUNC(String, FUNC(Integer, Integer) AS Integer) AS Boolean"),
+            Some((
+                vec!["String", "FUNC(Integer, Integer) AS Integer"],
+                "Boolean"
+            ))
+        );
+        // The return type may itself be a function type.
+        assert_eq!(
+            function_parts("FUNC(Integer) AS FUNC(Integer) AS Integer"),
+            Some((vec!["Integer"], "FUNC(Integer) AS Integer"))
+        );
+        // An unbalanced parameter list has no top-level close paren.
+        assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
+    }
+
+    #[test]
+    fn higher_order_resolvers_accept_function_valued_elements() {
+        // `transform` over a list of two-argument function values: the mapper's
+        // sole parameter *is* the element type, so the call must resolve.
+        let element = "FUNC(Integer, Integer) AS Integer";
+        let mapper = strings(&[
+            &format!("List OF {element}"),
+            &format!("FUNC({element}) AS String"),
+        ]);
+        let resolved =
+            resolve_transform(&mapper).expect("transform over function-valued elements resolves");
+        assert_eq!(resolved.return_type, "List OF String");
+
+        let predicate = strings(&[
+            &format!("List OF {element}"),
+            &format!("FUNC({element}) AS Boolean"),
+        ]);
+        let resolved =
+            resolve_filter(&predicate).expect("filter over function-valued elements resolves");
+        assert_eq!(resolved.return_type, format!("List OF {element}"));
+
+        // A mapper whose parameter is a *different* function type still fails.
+        let mismatched = strings(&[
+            &format!("List OF {element}"),
+            "FUNC(FUNC(String) AS Integer) AS String",
+        ]);
+        assert!(resolve_transform(&mismatched).is_none());
     }
 }
