@@ -418,6 +418,19 @@ fn lower_link_thunk(
                 result_out_off = Some(out_off);
             }
         } else if let Some(value) = const_for.get(slot.name.as_str()) {
+            // §12.3: a `CInt32` slot is a signed 32-bit C argument. A param feeding
+            // this slot is range-checked at runtime (`range_fail` → `ErrOverflow`);
+            // a `CONST` pin is known at compile time, so an out-of-range value is
+            // rejected here rather than silently truncated to its low 32 bits
+            // (bug-66).
+            if slot.ctype == "CInt32" && (*value < i64::from(i32::MIN) || *value > i64::from(i32::MAX))
+            {
+                return Err(format!(
+                    "LINK function '{}.{}' CONST pin '{} = {}' does not fit the signed 32-bit \
+                     range of its CInt32 ABI slot",
+                    function.alias, function.name, slot.name, value
+                ));
+            }
             instructions.extend([
                 abi::move_immediate("%v9", "Integer", &(*value as u64).to_string()),
                 abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
@@ -984,15 +997,70 @@ fn emit_link_expr(
             instructions.push(abi::label(&end));
         }
         IrLinkExpr::And(lhs, rhs) => {
-            let lhs_reg = emit_link_expr(lhs, status_off, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_expr(rhs, status_off, vreg, symbol, counter, instructions);
+            // `AND`/`OR` are *logical* connectives: any nonzero operand is true. A
+            // bare `Var`/`Int` leaf is an arbitrary integer, so combining with a raw
+            // bitwise `and`/`or` would compute e.g. `2 & 1 = 0` and wrongly report
+            // two truthy operands as false. Normalize each operand to a canonical
+            // `0`/`1` first so bitwise coincides with logical (bug-66). Comparison /
+            // logical sub-expressions already yield `0`/`1`, so they pass through
+            // unchanged and `AND`/`OR`-of-comparisons stays byte-identical.
+            let lhs_reg = emit_link_bool(lhs, status_off, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_bool(rhs, status_off, vreg, symbol, counter, instructions);
             instructions.push(abi::and_registers(&dst, &lhs_reg, &rhs_reg));
         }
         IrLinkExpr::Or(lhs, rhs) => {
-            let lhs_reg = emit_link_expr(lhs, status_off, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_expr(rhs, status_off, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_bool(lhs, status_off, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_bool(rhs, status_off, vreg, symbol, counter, instructions);
             instructions.push(abi::or_registers(&dst, &lhs_reg, &rhs_reg));
         }
     }
+    dst
+}
+
+/// True when `expr` already produces a canonical `0`/`1` truth value, so an
+/// `AND`/`OR` operand of this shape needs no normalization. Only the bare `Var`
+/// and `Int` leaves carry an arbitrary integer.
+fn link_expr_is_boolean(expr: &IrLinkExpr) -> bool {
+    matches!(
+        expr,
+        IrLinkExpr::Not(_)
+            | IrLinkExpr::Compare { .. }
+            | IrLinkExpr::And(_, _)
+            | IrLinkExpr::Or(_, _)
+    )
+}
+
+/// Emit `expr` and guarantee its value is a canonical `0`/`1` truth value for use
+/// as an `AND`/`OR` operand. Sub-expressions that already yield `0`/`1`
+/// (comparisons and boolean connectives) pass through unchanged; a bare
+/// `Var`/`Int` leaf is normalized with a compare-nonzero so any nonzero value
+/// becomes `1` (bug-66).
+fn emit_link_bool(
+    expr: &IrLinkExpr,
+    status_off: usize,
+    vreg: &mut usize,
+    symbol: &str,
+    counter: &mut usize,
+    instructions: &mut Vec<CodeInstruction>,
+) -> String {
+    let value = emit_link_expr(expr, status_off, vreg, symbol, counter, instructions);
+    if link_expr_is_boolean(expr) {
+        return value;
+    }
+    let dst = format!("%v{vreg}");
+    *vreg += 1;
+    let id = *counter;
+    *counter += 1;
+    let nonzero = format!("{symbol}_bool{id}_nz");
+    let end = format!("{symbol}_bool{id}_end");
+    instructions.extend([
+        abi::compare_immediate(&value, "0"),
+        abi::branch_ne(&nonzero),
+        abi::move_immediate(&dst, "Integer", "0"),
+        abi::branch(&end),
+        abi::label(&nonzero),
+        abi::move_immediate(&dst, "Integer", "1"),
+        abi::label(&end),
+    ]);
     dst
 }

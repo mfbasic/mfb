@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/native/native-link-const-cint32-overflow-invalid
+Wrote AST to tests/syntax/native/native-link-const-cint32-overflow-invalid/native_link_const_cint32_overflow_invalid.ast
+Wrote IR to tests/syntax/native/native-link-const-cint32-overflow-invalid/native_link_const_cint32_overflow_invalid.ir
+[exit 0]
+$ mfb build tests/syntax/native/native-link-const-cint32-overflow-invalid
+error: LINK function 'sql.ping' CONST pin 'ms = 5000000000' does not fit the signed 32-bit range of its CInt32 ABI slot
+[exit 1]

@@ -1,0 +1,21 @@
+' Regression test for bug-66 item 2: a `CONST` pin feeding a `CInt32` ABI slot is
+' known at compile time, so an out-of-range value (here 5000000000 > i32::MAX)
+' must be rejected rather than silently truncated to its low 32 bits. A *param*
+' feeding the same slot is range-checked at runtime (ErrOverflow); the const path
+' used to skip that check entirely and store the full-width value, handing the C
+' callee a truncated argument. The fix rejects the pin during thunk emit.
+IMPORT io
+
+LINK "sqlite3" AS sql
+  FUNC ping() AS Integer
+    SYMBOL "sqlite3_sleep"
+    ABI (ms CInt32) AS status CInt32
+    CONST ms = 5000000000
+    RESULT status
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  io::print(toString(sql::ping()))
+  RETURN 0
+END FUNC

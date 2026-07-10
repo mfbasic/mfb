@@ -1,0 +1,57 @@
+{
+  "project": "native_link_const_cint32_overflow_invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 9,
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "ping",
+        "symbol": "sqlite3_sleep",
+        "returnResource": false,
+        "returnType": "Integer",
+        "line": 10,
+        "params": [
+        ],
+        "abi": {
+          "slots": [
+          { "name": "ms", "ctype": "CInt32", "out": false, "line": 12 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "ms", "value": { "kind": "number", "value": "5000000000" }, "line": 13 }
+        ],
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "status" },
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sql.ping", "arguments": [] }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

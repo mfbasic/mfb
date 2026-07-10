@@ -1,0 +1,57 @@
+' Regression test for bug-66 item 1: a LINK `SUCCESS_ON`/`RESULT` `AND`/`OR`
+' combines *logical* truth values, so any nonzero operand is true. Before the
+' fix, `AND`/`OR` emitted a raw bitwise `and`/`or` over the unnormalized operand
+' values: a bare `Var`/`Int` leaf carries an arbitrary integer, so `status AND
+' (status <> 0)` with `status = 2` computed `2 & 1 = 0` and the SUCCESS_ON gate
+' wrongly rejected the call ("native binding call failed"). The fix normalizes
+' each `AND`/`OR` operand to 0/1 first, so both truthy operands make the gate
+' pass. `sqlite3_column_count("SELECT 1, 2")` is a deterministic 2.
+'
+' RESULT is a bare `Var` (emits no labels), so the SUCCESS_ON and RESULT label
+' namespaces cannot alias here and the `AND` normalization is the sole variable.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+RESOURCE Stmt CLOSE BY sql::finalize
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, statement CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST pzTail = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC columnCount(RES stmt AS Stmt) AS Integer
+    SYMBOL "sqlite3_column_count"
+    ABI (stmt CPtr) AS status CInt32
+    ' Var=2 (10b) AND Compare=1 (01b): bitwise 2 & 1 = 0 (buggy failure);
+    ' logical: both truthy => success.
+    SUCCESS_ON status AND (status <> 0)
+    RESULT status
+  END FUNC
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  RES db AS Db = sql::open(":memory:")
+  RES rows AS Stmt = sql::prepare(db, "SELECT 1, 2")
+  io::print("count=" & toString(sql::columnCount(rows)))
+  sql::finalize(rows)
+  sql::close(db)
+  RETURN 0
+END FUNC
