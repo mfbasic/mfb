@@ -255,6 +255,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
                 }
             }
         }
+        env.check_closure_capture_arity(&function.name);
         let closure_slots = env.closure_slot_count(&function.name);
         env.check_ops(
             &function.body,
@@ -659,15 +660,44 @@ impl TypeEnv {
         });
     }
 
-    /// The unique captured-slot count for a closure-body function, or `None`
-    /// when it is never used as a closure or its shape is ambiguous.
+    /// The captured-slot bound for a closure-body function, or `None` when the
+    /// function is never used as a closure body.
+    ///
+    /// Ambiguity must not disarm the capture-bounds check: returning `None` when a
+    /// body was seen with two different capture-vector lengths let a crafted
+    /// package pair `Closure{name:"$l", captures:[a]}` with
+    /// `Closure{name:"$l", captures:[a,b]}` and then read `Capture{index:9999}`
+    /// out of the environment. Bound against the *smallest* observed count — the
+    /// only slot count every call site is guaranteed to have — so the check still
+    /// runs. `check_closure_capture_arity` rejects the ambiguous shape itself.
     fn closure_slot_count(&self, function: &str) -> Option<usize> {
-        let counts = self.closure_counts.get(function)?;
-        if counts.len() == 1 {
-            counts.iter().next().copied()
-        } else {
-            None
+        self.closure_counts.get(function)?.iter().min().copied()
+    }
+
+    /// Reject a closure-body function reached by capture vectors of differing
+    /// length. Lowering emits one `Closure` node per body function, so differing
+    /// arities cannot arise from source: it is a structural signal of a tampered
+    /// package, and it is what disarmed the capture-bounds check above.
+    fn check_closure_capture_arity(&self, function: &str) {
+        let Some(counts) = self.closure_counts.get(function) else {
+            return;
+        };
+        if counts.len() < 2 {
+            return;
         }
+        let mut arities = counts.iter().copied().collect::<Vec<_>>();
+        arities.sort_unstable();
+        let arities = arities
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.emit(
+            VERIFY_TYPE,
+            format!(
+                "closure body `{function}` is captured with differing capture counts ({arities})"
+            ),
+        );
     }
 
     fn check_ops(
@@ -3672,7 +3702,8 @@ impl TypeEnv {
     }
 
     /// Verify every `Capture` in a value addresses a slot within the enclosing
-    /// closure's captured-slot count. Skipped when the closure shape is unknown.
+    /// closure's captured-slot count. Skipped only when the function is never used
+    /// as a closure body, so it has no environment to index at all.
     fn check_value_captures(&self, value: &IrValue, slots: Option<usize>) {
         let Some(slots) = slots else {
             return;

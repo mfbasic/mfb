@@ -437,6 +437,108 @@ fn accepts_capture_index_within_slot_count() {
     check(&project(vec![closure_body, maker], vec![])).expect("in-range capture is valid");
 }
 
+/// bug-32: two closures over one body with differing capture counts used to make
+/// the slot count "ambiguous", which skipped the bounds check entirely — so the
+/// body could read `Capture{index: 9999}` off the end of its environment.
+#[test]
+fn ambiguous_closure_arity_does_not_disarm_the_capture_bounds_check() {
+    let closure_body = func(
+        "body",
+        vec![],
+        vec![ret(IrValue::Capture {
+            index: 9999,
+            type_: "Integer".to_string(),
+            by_ref: false,
+        })],
+    );
+    let closure = |captures: Vec<IrValue>| IrValue::Closure {
+        name: "body".to_string(),
+        type_: "FUNC() AS Integer".to_string(),
+        captures,
+    };
+    let maker = func_returns(
+        "make",
+        "FUNC() AS Integer",
+        vec![],
+        vec![
+            bind(
+                "one",
+                "FUNC() AS Integer",
+                Some(closure(vec![int_const("7")])),
+                true,
+                false,
+            ),
+            bind(
+                "two",
+                "FUNC() AS Integer",
+                Some(closure(vec![int_const("7"), int_const("8")])),
+                true,
+                false,
+            ),
+            ret(IrValue::Local("one".to_string())),
+        ],
+    );
+    let diags = collect_diagnostics(&project(vec![closure_body, maker], vec![]));
+    let details = diags.iter().map(|d| &d.detail).collect::<Vec<_>>();
+    // The index is bounded by the smallest capture vector, and the
+    // front-end-impossible differing arity is itself reported.
+    assert!(
+        details.iter().any(|d| d.contains("capture index 9999")),
+        "{details:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|d| d.contains("differing capture counts (1, 2)")),
+        "{details:?}"
+    );
+}
+
+/// The ambiguous shape is rejected even when every capture index is in range for
+/// the smaller environment — lowering never produces it.
+#[test]
+fn a_body_captured_with_two_arities_is_rejected() {
+    let closure_body = func(
+        "body",
+        vec![],
+        vec![ret(IrValue::Capture {
+            index: 0,
+            type_: "Integer".to_string(),
+            by_ref: false,
+        })],
+    );
+    let closure = |captures: Vec<IrValue>| IrValue::Closure {
+        name: "body".to_string(),
+        type_: "FUNC() AS Integer".to_string(),
+        captures,
+    };
+    let maker = func_returns(
+        "make",
+        "FUNC() AS Integer",
+        vec![],
+        vec![
+            bind(
+                "one",
+                "FUNC() AS Integer",
+                Some(closure(vec![int_const("7")])),
+                true,
+                false,
+            ),
+            bind(
+                "two",
+                "FUNC() AS Integer",
+                Some(closure(vec![int_const("7"), int_const("8")])),
+                true,
+                false,
+            ),
+            ret(IrValue::Local("one".to_string())),
+        ],
+    );
+    let err = check(&project(vec![closure_body, maker], vec![]))
+        .expect_err("differing capture arities must be rejected");
+    assert!(err.contains("differing capture counts"), "{err}");
+}
+
 // --- union wrap ------------------------------------------------------------
 
 fn union(name: &str, variants: &[&str]) -> IrType {
