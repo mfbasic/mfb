@@ -1802,7 +1802,6 @@ impl<'a> SyntaxChecker<'a> {
             Type::List(element) => {
                 let inner = strip_res(element);
                 self.check_type_reference(file, inner, line);
-                self.check_collection_element_axis(file, line, "element", element);
                 // A `List` element may be a resource borrow (§15.6); only thread
                 // handles are forbidden in collections.
                 if self.contains_thread(inner) {
@@ -1813,7 +1812,6 @@ impl<'a> SyntaxChecker<'a> {
                 let value_inner = strip_res(value);
                 self.check_type_reference(file, key, line);
                 self.check_type_reference(file, value_inner, line);
-                self.check_collection_element_axis(file, line, "value", value);
                 // A resource may not be a `Map` key (handles are not comparable),
                 // but a `Map` *value* may be a resource borrow (§15.6).
                 if self.contains_resource_or_thread(key) {

@@ -1,4 +1,3 @@
-use super::helpers::*;
 use super::*;
 
 impl<'a> SyntaxChecker<'a> {
@@ -138,46 +137,6 @@ impl<'a> SyntaxChecker<'a> {
             file,
             line,
         );
-    }
-
-    /// Enforce the `RES` ownership axis on a collection element / `Map` value
-    /// type (§15.6): a resource element must be marked `RES` (`List OF RES File`),
-    /// and `RES` may mark only a resource — exactly as for a `RES` binding or
-    /// parameter. `role` is "element" or "value".
-    pub(super) fn check_collection_element_axis(
-        &mut self,
-        _file: &AstFile,
-        _line: usize,
-        _role: &str,
-        element: &Type,
-    ) {
-        let is_res_marked = matches!(element, Type::Res(_));
-        let inner = strip_res(element);
-        let is_resource = self.is_resource_type(inner);
-        if is_resource && !is_res_marked {
-        } else if is_res_marked && !is_resource {
-        }
-    }
-
-    /// A `List` element or `Map` value may hold a *borrow* of a resource, but
-    /// only of a named `RES` binding (the owner); a temporary or a borrowed
-    /// element (e.g. a `get`/`FOR EACH` result) is not an owner and cannot be
-    /// stored (§15.6).
-    pub(super) fn check_collection_resource_element(
-        &mut self,
-        _file: &AstFile,
-        _line: usize,
-        _role: &str,
-        value: &Expression,
-        type_: &Type,
-        locals: &HashMap<String, LocalInfo>,
-    ) {
-        if !self.is_resource_type(type_) {
-            return;
-        }
-        if self.collection_element_is_resource_binding(value, locals) {
-            return;
-        }
     }
 
     /// Whether `value` is an identifier naming a resource `RES` binding or
@@ -583,17 +542,28 @@ mod resources_tests {
 
     #[test]
     fn resource_element_without_res_marker() {
-        // A `List OF File` (resource element, no RES) walks the axis check.
+        // The `RES` ownership axis on a collection element is enforced solely by
+        // `ir::verify` (plan-20), never by syntaxcheck: a bare `List OF File`
+        // (resource element, no `RES`) must pass syntaxcheck silently and be
+        // rejected downstream with `TYPE_RESOURCE_REQUIRES_RES`. Guards against
+        // reintroducing a syntaxcheck double-rejecter (bug-43). The real
+        // rejection is guarded by `ir::verify::tests::
+        // rejects_collection_resource_element_without_res` and the
+        // `tests/syntax/resources/native-resource-in-list-invalid` fixture.
         let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF File = []\n  RETURN 0\nEND FUNC\n";
-        let _ = check_src(src);
+        assert!(accepts(src), "RES axis must not be rejected by syntaxcheck");
     }
 
     #[test]
     fn res_marker_on_nonresource() {
-        // `RES Integer` — RES marking a non-resource walks the other axis arm.
+        // `RES` marking a non-resource element (`List OF RES Integer`) is likewise
+        // an `ir::verify`-only rejection (`TYPE_RES_REQUIRES_RESOURCE`); syntaxcheck
+        // stays silent (bug-43). Real rejection guard:
+        // `ir::verify::tests::rejects_collection_res_on_data` and the
+        // `tests/syntax/resources/resource-res-nonresource-invalid` fixture.
         let src =
             "FUNC main AS Integer\n  LET xs AS List OF RES Integer = []\n  RETURN 0\nEND FUNC\n";
-        let _ = check_src(src);
+        assert!(accepts(src), "RES axis must not be rejected by syntaxcheck");
     }
 
     // ---- thread.start / thread.send sendability boundary -------------------
@@ -663,26 +633,27 @@ mod resources_tests {
     #[test]
     fn resource_binding_in_list_literal_borrows() {
         // A `List OF RES File` literal `[f]` naming a RES binding stores a borrow
-        // (collection_element_mode Borrow + check_collection_resource_element
-        // binding path).
+        // (collection_element_mode Borrow path) and is accepted.
         let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN 0\nEND FUNC\n";
-        let _ = check_src(src);
+        assert!(accepts(src));
     }
 
     #[test]
     fn resource_list_copyability_and_res_arm() {
         // Copying a `List OF RES File` walks the is_copyable Res arm (a resource
-        // borrow copies freely).
+        // borrow copies freely) and is accepted.
         let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  LET ys AS List OF RES File = xs\n  RETURN 0\nEND FUNC\n";
-        let _ = check_src(src);
+        assert!(accepts(src));
     }
 
     #[test]
     fn non_resource_temporary_in_resource_list_walk() {
-        // A non-binding element (a call result) in a resource list walks the
-        // check_collection_resource_element non-binding path.
+        // A non-binding element (a call result) in a resource list is *not* an
+        // owner and is rejected — but by `ir::verify` (plan-20), not syntaxcheck,
+        // which stays silent here (bug-43). The real rejection
+        // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`) is guarded in `ir::verify::tests`.
         let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF RES File = [fs::openFile(\"x\")]\n  RETURN 0\nEND FUNC\n";
-        let _ = check_src(src);
+        assert!(accepts(src), "owner-only storage is an ir::verify rule, not syntaxcheck");
     }
 
     // ---- copyability / sendability recursion arms over nested shapes -------

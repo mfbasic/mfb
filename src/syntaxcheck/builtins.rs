@@ -1529,18 +1529,6 @@ impl<'a> SyntaxChecker<'a> {
             .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
 
-        if matches!(member, "append" | "prepend" | "insert" | "set") {
-            for (index, (argument, arg_type)) in arguments.iter().zip(arg_types.iter()).enumerate()
-            {
-                if index == 0 {
-                    continue;
-                }
-                self.check_collection_resource_element(
-                    file, line, "element", argument, arg_type, locals,
-                );
-            }
-        }
-
         if let Some((min, max)) = builtins::collections::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {

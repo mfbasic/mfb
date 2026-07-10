@@ -2436,10 +2436,10 @@ impl TypeEnv {
         all.difference(&covered).next().is_none()
     }
 
-    /// The `RES` ownership axis on collection element/value types (syntaxcheck's
-    /// `check_collection_element_axis`, §15.6): a resource element must be
-    /// `RES`-marked (`List OF RES File`), and `RES` may mark only a resource.
-    /// Recurses through nested collections; `line` positions are the caller's.
+    /// The `RES` ownership axis on collection element/value types (§15.6, the
+    /// sole rejecter): a resource element must be `RES`-marked (`List OF RES
+    /// File`), and `RES` may mark only a resource. Recurses through nested
+    /// collections; `line` positions are the caller's.
     fn check_collection_res_axis(&self, type_: &str) {
         if let Some(element) = type_.strip_prefix("List OF ") {
             self.collection_axis_element(element, "element");

@@ -515,9 +515,6 @@ impl<'a> SyntaxChecker<'a> {
                     Some(expected_element),
                     mode,
                 );
-                self.check_collection_resource_element(
-                    file, line, "element", value, &actual, locals,
-                );
                 if !self.expression_compatible(expected_element, &actual, Some(value)) {}
             }
             return Type::List(expected_element.clone());
@@ -531,11 +528,9 @@ impl<'a> SyntaxChecker<'a> {
         if self.contains_thread(&element_type) {
             self.report_invalid_collection_element(file, line, "element", &element_type);
         }
-        self.check_collection_resource_element(file, line, "element", first, &element_type, locals);
         for value in values.iter().skip(1) {
             let mode = self.collection_element_mode(value, locals);
             let actual = self.infer_expression(file, value, locals, line, mode);
-            self.check_collection_resource_element(file, line, "element", value, &actual, locals);
             if !self.expression_compatible(&element_type, &actual, Some(value)) {}
         }
         Type::List(Box::new(element_type))
@@ -568,14 +563,6 @@ impl<'a> SyntaxChecker<'a> {
             if !self.expression_compatible(&key_type, &actual_key, Some(key)) {}
             let value_mode = self.collection_element_mode(value, locals);
             let actual_value = self.infer_expression(file, value, locals, line, value_mode);
-            self.check_collection_resource_element(
-                file,
-                line,
-                "value",
-                value,
-                &actual_value,
-                locals,
-            );
             if !self.expression_compatible(&value_type, &actual_value, Some(value)) {}
         }
         Type::Map(Box::new(key_type), Box::new(value_type))
