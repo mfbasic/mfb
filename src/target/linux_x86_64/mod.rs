@@ -320,7 +320,10 @@ fn write_native_plan(
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages, build_mode)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Musl)?;
+    // The single-flavor diagnostic dumps (.nplan/.nobj/.ncode/.mir) use the glibc
+    // flavor, matching linux-aarch64, so a cross-target dump diff stays consistent.
+    // `write_executable` still builds both flavors for the shipped binaries.
+    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     let plan_path = project_dir.join(format!("{}.nplan", ir.name));
     fs::write(&plan_path, native_plan.to_json())
@@ -336,7 +339,7 @@ fn write_native_object_plan(
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages, build_mode)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Musl)?;
+    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
 }
@@ -349,10 +352,10 @@ fn write_native_code_plan(
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages, build_mode)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Musl)?;
+    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan, packages, LinuxFlavor::Musl)?;
+    let native_code = code::lower_module(&module, &native_plan, packages, LinuxFlavor::Glibc)?;
     native_code.validate()?;
     let code_path = project_dir.join(format!("{}.ncode", ir.name));
     fs::write(&code_path, native_code.to_json())
@@ -368,10 +371,10 @@ fn write_mir(
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages, build_mode)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Musl)?;
+    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let mir = code::lower_module_mir(&module, &native_plan, packages, LinuxFlavor::Musl)?;
+    let mir = code::lower_module_mir(&module, &native_plan, packages, LinuxFlavor::Glibc)?;
     let mir_path = project_dir.join(format!("{}.mir", ir.name));
     fs::write(&mir_path, mir.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", mir_path.display()))?;

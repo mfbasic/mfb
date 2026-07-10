@@ -105,10 +105,11 @@ impl plan::NativePlanPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
-            "io.flush" => vec![
-                self.libc_import("fsync", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
-            ],
+            // `io.flush` is drain-only since plan-14-A (`lower_io_flush_helper`
+            // calls STDOUT_DRAIN and never fsyncs / reads errno), so it needs no
+            // libc import of its own — the drain's `write` comes from the
+            // io.print arm. The old `fsync`+`__errno_location` imports were dead.
+            "io.flush" => Vec::new(),
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
                 let mut imports = vec![self.libc_import("read", spec.symbol)];
                 if spec.call == "io.input" {
@@ -119,6 +120,11 @@ impl plan::NativePlanPlatform for Platform {
                     imports.push(self.libc_import("isatty", spec.symbol));
                     imports.push(self.libc_import("tcgetattr", spec.symbol));
                     imports.push(self.libc_import("tcsetattr", spec.symbol));
+                    // bug-62: the read helpers' EINTR guard re-reads errno through
+                    // the accessor to retry a blocking read interrupted by a signal.
+                    // Without this import a pure-`io::` program (no fs/net) could not
+                    // distinguish EINTR and would hard-error on it.
+                    imports.push(self.libc_import("__errno_location", spec.symbol));
                 }
                 imports
             }
@@ -355,5 +361,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// bug-71: `io.flush` is drain-only (`lower_io_flush_helper` never fsyncs /
+    /// reads errno), so its runtime import arm must be empty on both flavors — no
+    /// dead `fsync`/`__errno_location` symbols.
+    #[test]
+    fn io_flush_imports_nothing() {
+        let spec = crate::target::shared::runtime::spec_for_call("io.flush")
+            .expect("io.flush spec");
+        for flavor in [LinuxFlavor::Glibc, LinuxFlavor::Musl] {
+            let platform = Platform { flavor };
+            assert!(
+                platform.runtime_imports(spec).is_empty(),
+                "io.flush should import nothing ({flavor:?})"
+            );
+        }
+    }
+
+    /// bug-71: `fs.createTempFile` draws entropy via `emit_random_bytes`, which on
+    /// riscv is the libc `getentropy` call — so unlike x86 the import is live.
+    #[test]
+    fn create_temp_file_imports_getentropy() {
+        let spec = crate::target::shared::runtime::spec_for_call("fs.createTempFile")
+            .expect("fs.createTempFile spec");
+        let platform = Platform {
+            flavor: LinuxFlavor::Glibc,
+        };
+        assert!(
+            platform
+                .runtime_imports(spec)
+                .iter()
+                .any(|imp| imp.symbol == "getentropy"),
+            "fs.createTempFile should import getentropy on riscv"
+        );
     }
 }

@@ -1,5 +1,190 @@
 use super::*;
 
+/// `EINTR` — a syscall interrupted by a signal handler before it transferred any
+/// bytes. Its numeric value is `4` on both Linux and macOS/BSD (bug-62), so the
+/// EINTR-retry guards can compare against a single literal on every backend.
+const EINTR_ERRNO: &str = "4";
+
+/// Whether this program links the platform's `errno` accessor (`___error` on
+/// macOS, `__errno_location` on Linux). Both `fs::` (a `File` only comes from
+/// `fs::openFile`, which pulls the accessor in) and the `io::` read helpers
+/// (`readByte`/`readChar`/`readLine`/`input` — their `plan.rs` arms co-import the
+/// accessor, bug-62) link it, so their read/write/seek loops always read `errno`
+/// and retry `EINTR`. The only path that links no accessor is a program whose sole
+/// syscall use is an `io::` output drain (`io.print`/`io.write`/`io.flush`, never a
+/// read and never `fs`): there the libc-write negative return cannot be classified
+/// and is a hard error — acceptable, since a drain-only `EINTR` is degenerate and
+/// `linux-x86_64`'s raw-`svc` write still retries via its `-errno` return. Checking
+/// the merged import table keeps that boundary honest: the libc `EINTR` retry is
+/// emitted exactly when `errno` is actually readable at runtime.
+pub(super) fn errno_accessor_available(platform_imports: &HashMap<String, String>) -> bool {
+    platform_imports.contains_key("___error") || platform_imports.contains_key("__errno_location")
+}
+
+/// Whether `platform`'s `write` (used by every fs/io output loop, including the
+/// stdout/File drains) is issued as a bare kernel `syscall` rather than through
+/// the libc wrapper. Only the `linux-x86_64` backend does this — its `emit_write`
+/// is a raw `svc`, so a failing `write` returns the negative `-errno` directly in
+/// the return register and does NOT set the libc `errno` cell. Every other
+/// backend's `write` (and every backend's `read`/`lseek`) goes through libc: a
+/// `-1` return with the real code behind the `errno` accessor. The EINTR guard has
+/// to read the two conventions differently, so the write sites consult this.
+pub(super) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
+    platform.target() == "linux-x86_64"
+}
+
+/// Emit the tail of a fs/io read/write site for the case where the syscall return
+/// (`ret`) has already been compared against `0` and is known to be negative
+/// here. On `EINTR` — a signal interrupted the call before any byte moved —
+/// branch back to `retry_label` to re-issue the identical syscall (the
+/// loop-carried cursor and remaining count are unchanged); on any other error
+/// branch to `error_label`.
+///
+/// Two conventions (bug-62):
+/// * `raw_return` (the `linux-x86_64` raw-`svc` `write`): the return value is
+///   `-errno`, so `EINTR` is exactly `ret == -EINTR`, tested as `ret + EINTR == 0`
+///   with no libc call — this even works in a pure-`io::` program that never links
+///   the accessor.
+/// * otherwise (every libc `read`/`write`/`lseek`): re-read `errno` through the
+///   platform accessor (`___error` / `__errno_location`, left in `x9`). `fs::` and
+///   the `io::` read helpers import the accessor, so they retry `EINTR`. Only an
+///   output-drain-only program (`io.print`/`io.write`/`io.flush` with no read and
+///   no `fs`) omits it; there the negative return cannot be classified, so it is a
+///   hard error.
+///
+/// `emit_errno` issues a `bl` to the accessor, which the register allocator treats
+/// like any other call (all caller-saved integer registers clobbered); the
+/// `retry_label`/`error_label` targets reload every value they need from vregs or
+/// stack slots, so nothing live is read out of a caller-saved register across the
+/// call (see `.ai/compiler.md`, "Native Codegen Register Lifetimes"). `x9` is the
+/// established errno scratch and is dead on the negative-return path.
+pub(super) fn emit_eintr_retry_or_error(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    ret: &str,
+    raw_return: bool,
+    retry_label: &str,
+    error_label: &str,
+) -> Result<(), String> {
+    if raw_return {
+        // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
+        // `ret + EINTR == 0`. `x9` is scratch (dead here); on the retry edge the
+        // loop reloads its cursor/remaining from spill slots.
+        instructions.extend([
+            abi::move_immediate("x9", "Integer", EINTR_ERRNO),
+            abi::add_registers("x9", "x9", ret),
+            abi::compare_immediate("x9", "0"),
+            abi::branch_eq(retry_label),
+            abi::branch(error_label),
+        ]);
+    } else if errno_accessor_available(platform_imports) {
+        // `emit_errno` leaves the current `errno` in `x9` on every backend.
+        platform.emit_errno(symbol, platform_imports, instructions, relocations)?;
+        instructions.extend([
+            abi::compare_immediate("x9", EINTR_ERRNO),
+            abi::branch_eq(retry_label),
+            abi::branch(error_label),
+        ]);
+    } else {
+        instructions.push(abi::branch(error_label));
+    }
+    Ok(())
+}
+
+/// Advance-and-retry tail for a write/read loop whose body re-issues the syscall
+/// at `loop_label` from the loop-carried `cursor`/`remaining` vregs (bug-51's
+/// short-transfer loop, extended for bug-62). `ret` holds the syscall return: a
+/// positive count advances the cursor and re-loops; a `0` return moved nothing for
+/// a nonzero request and is a hard error (never a spin); a negative return is
+/// `EINTR`-retried at `loop_label` or errored via [`emit_eintr_retry_or_error`].
+/// `raw_return` selects the errno convention (see [`write_uses_raw_syscall`]);
+/// pass `false` for every `read` loop (reads always go through libc).
+pub(super) fn emit_transfer_loop_tail(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    ret: &str,
+    raw_return: bool,
+    cursor: &str,
+    remaining: &str,
+    loop_label: &str,
+    error_label: &str,
+) -> Result<(), String> {
+    let advance = format!("{loop_label}_advance");
+    instructions.extend([
+        abi::compare_immediate(ret, "0"),
+        abi::branch_gt(&advance),
+        abi::branch_eq(error_label),
+    ]);
+    emit_eintr_retry_or_error(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        ret,
+        raw_return,
+        loop_label,
+        error_label,
+    )?;
+    instructions.extend([
+        abi::label(&advance),
+        abi::add_registers(cursor, cursor, ret),
+        abi::subtract_registers(remaining, remaining, ret),
+        abi::branch(loop_label),
+    ]);
+    Ok(())
+}
+
+/// Guard the negative return of a single (non-advancing) `read` whose result in
+/// `x0` has just been compared against `0` by the caller. A non-negative return
+/// branches to `resume_label`; a negative return is `EINTR`-retried at
+/// `retry_label` — which re-runs the syscall's argument setup — or errored. Reads
+/// always go through libc on every backend, so this uses the `errno`-accessor
+/// convention.
+///
+/// The caller emits its own follow-on branch on the same `x0 vs 0` comparison
+/// (e.g. `branch_eq <eof>`) right after this guard. RISC-V has no persistent
+/// condition flags — the MIR fuser welds each compare to the single branch that
+/// immediately follows it — so the caller's `cmp x0, 0` is consumed by the
+/// `branch_ge` here and cannot also feed the caller's branch. This guard therefore
+/// re-issues `cmp x0, 0` at `resume_label`; `x0` is untouched on the `>= 0` path
+/// (the guard body is skipped), so the re-comparison is exact and the caller's
+/// branch fuses with it on every backend.
+pub(super) fn emit_single_op_eintr_guard(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    retry_label: &str,
+    resume_label: &str,
+    error_label: &str,
+) -> Result<(), String> {
+    instructions.push(abi::branch_ge(resume_label));
+    emit_eintr_retry_or_error(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        abi::return_register(),
+        false,
+        retry_label,
+        error_label,
+    )?;
+    instructions.extend([
+        abi::label(resume_label),
+        abi::compare_immediate(abi::return_register(), "0"),
+    ]);
+    Ok(())
+}
+
 /// `_mfb_rt_fs_file_drain` (plan-14-B): flush one `File`'s per-handle output buffer
 /// to its fd. `x0 = File*`. No-op when the handle is unbuffered (`BUF_ENABLED == 0`)
 /// or nothing is pending; otherwise a `write(fd, BUF_PTR, BUF_FILLED)` loop that
@@ -14,6 +199,7 @@ pub(super) fn lower_fs_file_drain(
     let symbol = FILE_DRAIN_SYMBOL;
     let ok = format!("{symbol}_ok");
     let drain_loop = format!("{symbol}_loop");
+    let advance = format!("{symbol}_advance");
     let err = format!("{symbol}_err");
     let mut instructions = vec![
         abi::label("entry"),
@@ -41,7 +227,27 @@ pub(super) fn lower_fs_file_drain(
     instructions.extend([
         abi::move_register("%v5", abi::return_register()),
         abi::compare_immediate("%v5", "0"),
-        abi::branch_lt(&err),
+        abi::branch_gt(&advance),
+        // A 0-byte return for a nonzero-length write moved nothing: error out
+        // rather than advancing by zero and re-testing `remaining != 0` forever
+        // (bug-62 — this loop previously used `branch_lt`, so a 0 return spun).
+        abi::branch_eq(&err),
+    ]);
+    // A negative return is EINTR-retried (re-issue with the unchanged cursor and
+    // remaining count) or is a genuine write failure (bug-62).
+    emit_eintr_retry_or_error(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        "%v5",
+        write_uses_raw_syscall(platform),
+        &drain_loop,
+        &err,
+    )?;
+    instructions.extend([
+        abi::label(&advance),
         abi::add_registers("%v4", "%v4", "%v5"),
         abi::subtract_registers("%v2", "%v2", "%v5"),
         abi::compare_immediate("%v2", "0"),
@@ -127,12 +333,20 @@ fn emit_append_to_file_buffer(
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        "%v40",
+        "%v41",
+        &alloc_failed_loop,
+        write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(write_error),
-        abi::add_registers("%v40", "%v40", abi::return_register()),
-        abi::subtract_registers("%v41", "%v41", abi::return_register()),
-        abi::branch(&alloc_failed_loop),
         abi::label(&have_buf),
         abi::load_u64("%v32", file, FILE_OFFSET_BUF_FILLED),
         abi::add_registers("%v33", "%v32", len),
@@ -166,12 +380,20 @@ fn emit_append_to_file_buffer(
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        "%v40",
+        "%v41",
+        &big_write_loop,
+        write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(write_error),
-        abi::add_registers("%v40", "%v40", abi::return_register()),
-        abi::subtract_registers("%v41", "%v41", abi::return_register()),
-        abi::branch(&big_write_loop),
         abi::label(&fits),
         abi::load_u64("%v30", file, FILE_OFFSET_BUF_PTR),
         abi::add_registers("%v35", "%v30", "%v32"),
@@ -717,6 +939,7 @@ pub(super) fn lower_fs_write_all_helper(
         &mut relocations,
         &file,
         "wa",
+        &write_error,
     )?;
     instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
@@ -757,12 +980,20 @@ pub(super) fn lower_fs_write_all_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        &cursor,
+        &remaining,
+        &loop_label,
+        &write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&loop_label),
         abi::label(&done_write),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -846,6 +1077,7 @@ pub(super) fn lower_fs_read_all_helper(
         &mut relocations,
         &file,
         "readall",
+        &seek_error,
     )?;
     instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
@@ -926,12 +1158,20 @@ pub(super) fn lower_fs_read_all_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        false,
+        &cursor,
+        &remaining,
+        &read_loop,
+        &read_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&read_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&read_loop),
         abi::label(&read_done),
         abi::store_u8("x31", &cursor, 0),
         abi::load_u64("x1", &string, 0),
@@ -1037,6 +1277,7 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         &mut relocations,
         &file,
         "wab",
+        &write_error,
     )?;
     instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
@@ -1080,12 +1321,20 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        &cursor,
+        &remaining,
+        &loop_label,
+        &write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&loop_label),
         abi::label(&done_write),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1175,6 +1424,7 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         &mut relocations,
         &file,
         "readall",
+        &seek_error,
     )?;
     instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
@@ -1292,12 +1542,20 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        false,
+        &cursor,
+        &remaining,
+        &read_loop,
+        &read_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&read_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&read_loop),
         abi::label(&read_done),
         abi::move_register(RESULT_VALUE_REGISTER, &collection),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1555,6 +1813,7 @@ fn emit_reconcile_read_buffer(
     relocations: &mut Vec<CodeRelocation>,
     file: &str,
     tag: &str,
+    seek_error_label: &str,
 ) -> Result<(), String> {
     let reconciled = format!("{symbol}_reconcile_{tag}_done");
     instructions.extend([
@@ -1571,6 +1830,14 @@ fn emit_reconcile_read_buffer(
     ]);
     platform.emit_seek_file(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
+        // Surface a failed rewind instead of dropping the unconsumed read-ahead
+        // (bug-62): on a non-seekable handle (a FIFO/socket/tty opened by path)
+        // the `lseek` fails with `ESPIPE`, returning -1. Invalidating the buffer
+        // unconditionally would silently discard the read-ahead and leave the fd
+        // unmoved, corrupting the following whole-file read/write; route the
+        // failure to the caller's read/write error path instead.
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(seek_error_label),
         // Invalidate the buffer (empty cache at the now-reconciled fd position).
         abi::store_u64("x31", file, FILE_OFFSET_READ_POS),
         abi::store_u64("x31", file, FILE_OFFSET_READ_FILL),
@@ -1609,6 +1876,7 @@ pub(super) fn lower_fs_read_line_helper(
     let scan_found = format!("{symbol}_scan_found");
     let scan_no_nl = format!("{symbol}_scan_no_nl");
     let refill = format!("{symbol}_refill");
+    let refill_resume = format!("{symbol}_refill_resume");
     let refill_at_eof = format!("{symbol}_refill_at_eof");
     let set_eof = format!("{symbol}_set_eof");
     let emit_line = format!("{symbol}_emit_line");
@@ -1747,9 +2015,22 @@ pub(super) fn lower_fs_read_line_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+    // A negative refill read is EINTR-retried by re-entering `refill` (which
+    // re-checks EOF and re-issues the identical block read) or is a genuine read
+    // failure (bug-62). `refill_resume` keeps the `cmp x0, 0` flags live for the
+    // `branch_eq set_eof` (0 bytes == EOF) below.
+    emit_single_op_eintr_guard(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &refill,
+        &refill_resume,
+        &read_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&read_error),
         abi::branch_eq(&set_eof),
         // Got n bytes: READ_FILL = n, READ_POS = 0.
         abi::store_u64(abi::return_register(), &file, FILE_OFFSET_READ_FILL),

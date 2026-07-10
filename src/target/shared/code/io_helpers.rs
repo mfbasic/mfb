@@ -16,6 +16,7 @@ pub(super) fn lower_stdout_drain(
     let symbol = STDOUT_DRAIN_SYMBOL;
     let ok = format!("{symbol}_ok");
     let drain_loop = format!("{symbol}_loop");
+    let advance = format!("{symbol}_advance");
     let err = format!("{symbol}_err");
     let mut instructions = vec![
         abi::label("entry"),
@@ -41,7 +42,32 @@ pub(super) fn lower_stdout_drain(
     instructions.extend([
         abi::move_register("%v3", abi::return_register()),
         abi::compare_immediate("%v3", "0"),
-        abi::branch_lt(&err),
+        abi::branch_gt(&advance),
+        // A 0-byte return for a nonzero-length write moved nothing: error out
+        // rather than advancing by zero and looping forever (bug-62 — this loop
+        // previously used `branch_lt`, so a 0 return was treated as progress and
+        // the drain spun).
+        abi::branch_eq(&err),
+    ]);
+    // A negative return is EINTR-retried (re-issue with the unchanged cursor and
+    // remaining count) or is a genuine write failure (bug-62). The libc-write
+    // retry needs the `errno` accessor; the drain links it whenever the program
+    // also uses an `io::` read helper or `fs` (which import it). An output-only
+    // program (drain alone) hard-errors the negative return instead — acceptable
+    // for a drain, and `linux-x86_64`'s raw-`svc` write retries via its `-errno`.
+    emit_eintr_retry_or_error(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        "%v3",
+        write_uses_raw_syscall(platform),
+        &drain_loop,
+        &err,
+    )?;
+    instructions.extend([
+        abi::label(&advance),
         abi::add_registers("%v2", "%v2", "%v3"),
         abi::subtract_registers("%v1", "%v1", "%v3"),
         abi::compare_immediate("%v1", "0"),
@@ -127,12 +153,20 @@ fn emit_append_to_stdout_buffer(
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        "%v40",
+        "%v41",
+        &alloc_failed_loop,
+        write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(write_error),
-        abi::add_registers("%v40", "%v40", abi::return_register()),
-        abi::subtract_registers("%v41", "%v41", abi::return_register()),
-        abi::branch(&alloc_failed_loop),
         abi::label(&have_buf),
         abi::load_u64("%v21", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::add_registers("%v22", "%v21", len),
@@ -166,12 +200,20 @@ fn emit_append_to_stdout_buffer(
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        "%v40",
+        "%v41",
+        &big_write_loop,
+        write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(write_error),
-        abi::add_registers("%v40", "%v40", abi::return_register()),
-        abi::subtract_registers("%v41", "%v41", abi::return_register()),
-        abi::branch(&big_write_loop),
         abi::label(&fits),
         // Copy len bytes from src into OUT_PTR[filled..].
         abi::load_u64("%v20", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
@@ -306,14 +348,20 @@ pub(super) fn lower_io_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_error),
-        abi::add_registers("%v13", "%v13", abi::return_register()),
-        abi::subtract_registers("%v14", "%v14", abi::return_register()),
-        abi::branch(&direct_loop),
-        abi::label(&direct_written),
-    ]);
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        "%v13",
+        "%v14",
+        &direct_loop,
+        &write_error,
+    )?;
+    instructions.push(abi::label(&direct_written));
     if append_newline {
         let newline_loop = format!("{symbol}_newline_loop");
         let newline_written = format!("{symbol}_newline_written");
@@ -337,14 +385,20 @@ pub(super) fn lower_io_write_helper(
             &mut instructions,
             &mut relocations,
         )?;
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_le(&write_error),
-            abi::add_registers("%v13", "%v13", abi::return_register()),
-            abi::subtract_registers("%v14", "%v14", abi::return_register()),
-            abi::branch(&newline_loop),
-            abi::label(&newline_written),
-        ]);
+        emit_transfer_loop_tail(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            abi::return_register(),
+            write_uses_raw_syscall(platform),
+            "%v13",
+            "%v14",
+            &newline_loop,
+            &write_error,
+        )?;
+        instructions.push(abi::label(&newline_written));
     }
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -843,6 +897,8 @@ pub(super) fn lower_io_read_byte_helper(
     };
     let eof = format!("{symbol}_eof");
     let input_error = format!("{symbol}_input_error");
+    let read_retry = format!("{symbol}_read_retry");
+    let read_resume = format!("{symbol}_read_resume");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry")];
@@ -875,6 +931,10 @@ pub(super) fn lower_io_read_byte_helper(
         &input_error,
     )?;
     instructions.extend([
+        // `read_retry` re-issues the blocking read on EINTR (bug-62): a signal
+        // delivered while this read waits for input returns -1/EINTR, and the read
+        // should resume rather than fail spuriously.
+        abi::label(&read_retry),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTE_OFFSET),
         abi::move_immediate("x2", "Integer", "1"),
@@ -885,9 +945,18 @@ pub(super) fn lower_io_read_byte_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+    emit_single_op_eintr_guard(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &read_retry,
+        &read_resume,
+        &input_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&eof),
         abi::load_u8(RESULT_VALUE_REGISTER, abi::stack_pointer(), BYTE_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1007,6 +1076,8 @@ pub(super) fn lower_io_read_char_helper(
     let input_error = format!("{symbol}_input_error");
     let encoding_error = format!("{symbol}_encoding_error");
     let alloc_error = format!("{symbol}_alloc_error");
+    let read_retry = format!("{symbol}_read_retry");
+    let read_resume = format!("{symbol}_read_resume");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry")];
@@ -1039,6 +1110,8 @@ pub(super) fn lower_io_read_char_helper(
         &input_error,
     )?;
     instructions.extend([
+        // `read_retry` re-issues the blocking lead-byte read on EINTR (bug-62).
+        abi::label(&read_retry),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET),
         abi::move_immediate("x2", "Integer", "1"),
@@ -1049,9 +1122,18 @@ pub(super) fn lower_io_read_char_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+    emit_single_op_eintr_guard(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &read_retry,
+        &read_resume,
+        &input_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&eof),
         abi::load_u8("%v10", abi::stack_pointer(), BYTES_OFFSET),
         abi::compare_immediate("%v10", "127"),
@@ -1352,6 +1434,7 @@ pub(super) fn lower_io_read_line_helper(
     let prompt_flush = format!("{symbol}_prompt_flush");
     let alloc_ok = format!("{symbol}_alloc_ok");
     let read_loop = format!("{symbol}_read_loop");
+    let read_resume = format!("{symbol}_read_resume");
     let have_sequence = format!("{symbol}_have_sequence");
     let grow = format!("{symbol}_grow");
     let grow_ok = format!("{symbol}_grow_ok");
@@ -1414,14 +1497,20 @@ pub(super) fn lower_io_read_line_helper(
             &mut instructions,
             &mut relocations,
         )?;
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_le(&output_error),
-            abi::add_registers("%v41", "%v41", abi::return_register()),
-            abi::subtract_registers("%v42", "%v42", abi::return_register()),
-            abi::branch(&prompt_loop),
-            abi::label(&prompt_flush),
-        ]);
+        emit_transfer_loop_tail(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            abi::return_register(),
+            write_uses_raw_syscall(platform),
+            "%v41",
+            "%v42",
+            &prompt_loop,
+            &output_error,
+        )?;
+        instructions.push(abi::label(&prompt_flush));
     }
     if !with_prompt {
         emit_configure_stdin_terminal(
@@ -1462,9 +1551,22 @@ pub(super) fn lower_io_read_line_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+    // A negative per-byte read is EINTR-retried by re-entering `read_loop` (which
+    // re-issues the identical 1-byte read; no byte was consumed) or is a genuine
+    // input failure (bug-62). `read_resume` keeps the `cmp x0, 0` flags live for
+    // the `branch_eq read_eof` (0 bytes == EOF) below.
+    emit_single_op_eintr_guard(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &read_loop,
+        &read_resume,
+        &input_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&format!("{symbol}_read_eof")),
         abi::load_u8("%v10", abi::stack_pointer(), BYTES_OFFSET),
         abi::compare_immediate("%v10", "10"),

@@ -217,18 +217,11 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_write".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
-            "io.flush" => vec![
-                PlatformImport {
-                    library: "libSystem".to_string(),
-                    symbol: "_fsync".to_string(),
-                    required_by: spec.symbol.to_string(),
-                },
-                PlatformImport {
-                    library: "libSystem".to_string(),
-                    symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
-                },
-            ],
+            // `io.flush` is drain-only since plan-14-A (`lower_io_flush_helper`
+            // calls STDOUT_DRAIN and never fsyncs / reads errno), so it needs no
+            // libSystem import of its own — the drain's `_write` comes from the
+            // io.print arm. The old `_fsync`+`___error` imports were dead.
+            "io.flush" => Vec::new(),
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
                 let mut imports = vec![PlatformImport {
                     library: "libSystem".to_string(),
@@ -268,6 +261,15 @@ impl plan::NativePlanPlatform for Platform {
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_tcsetattr".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                        // bug-62: the read helpers' EINTR guard re-reads errno
+                        // through the accessor to retry a blocking read interrupted
+                        // by a signal. Without this import a pure-`io::` program (no
+                        // fs/net) could not distinguish EINTR and would hard-error.
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "___error".to_string(),
                             required_by: spec.symbol.to_string(),
                         },
                     ]);
@@ -614,5 +616,15 @@ mod tests {
                 "{target} still resolves to a platform math import"
             );
         }
+    }
+
+    /// bug-71: `io.flush` is drain-only (`lower_io_flush_helper` never fsyncs /
+    /// reads errno), so its runtime import arm must be empty — no dead
+    /// `_fsync`/`___error` libSystem symbols.
+    #[test]
+    fn io_flush_imports_nothing() {
+        let spec = crate::target::shared::runtime::spec_for_call("io.flush")
+            .expect("io.flush spec");
+        assert!(Platform.runtime_imports(spec).is_empty());
     }
 }

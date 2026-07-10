@@ -68,8 +68,12 @@ impl NativePlanPlatform for Platform {
         Vec::new()
     }
 
-    fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport> {
-        vec![self.libc_import("_exit", required_by)]
+    fn program_exit_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
+        // x86 terminates via the raw `exit_group` (nr 231) syscall in
+        // `emit_program_exit` — no `bl _exit`, no relocation — so nothing to
+        // import. (AArch64 calls libc `_exit` and imports it; x86 must not copy
+        // that import or it declares a dead dynamic symbol.)
+        Vec::new()
     }
 
     fn link_imports(&self, required_by: &str) -> Vec<PlatformImport> {
@@ -107,10 +111,11 @@ impl NativePlanPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
-            "io.flush" => vec![
-                self.libc_import("fsync", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
-            ],
+            // `io.flush` is drain-only since plan-14-A (`lower_io_flush_helper`
+            // calls STDOUT_DRAIN and never fsyncs / reads errno), so it needs no
+            // libc import of its own — the drain's `write` comes from the
+            // io.print arm. The old `fsync`+`__errno_location` imports were dead.
+            "io.flush" => Vec::new(),
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
                 let mut imports = vec![self.libc_import("read", spec.symbol)];
                 if spec.call == "io.input" {
@@ -121,6 +126,13 @@ impl NativePlanPlatform for Platform {
                     imports.push(self.libc_import("isatty", spec.symbol));
                     imports.push(self.libc_import("tcgetattr", spec.symbol));
                     imports.push(self.libc_import("tcsetattr", spec.symbol));
+                    // bug-62: the read helpers' EINTR guard re-reads errno through
+                    // the accessor to retry a blocking read interrupted by a signal.
+                    // `read` goes through libc even on x86-64 (only `write` is a raw
+                    // `svc`), so the guard needs the accessor here too; without it a
+                    // pure-`io::` program could not distinguish EINTR and would
+                    // hard-error on it.
+                    imports.push(self.libc_import("__errno_location", spec.symbol));
                 }
                 imports
             }
@@ -190,9 +202,10 @@ impl NativePlanPlatform for Platform {
                     self.libc_import("lseek", spec.symbol),
                     self.libc_import("__errno_location", spec.symbol),
                 ];
-                if matches!(spec.call, "fs.createTempFile") {
-                    imports.push(self.libc_import("getentropy", spec.symbol));
-                }
+                // `fs.createTempFile` draws its random suffix through
+                // `platform.emit_random_bytes`, which on x86 is the raw
+                // `getrandom` syscall (nr 318) — no `getentropy` import (unlike
+                // AArch64/riscv, whose `emit_random_bytes` calls libc getentropy).
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
                     imports.push(self.libc_import("mkstemps", spec.symbol));
                     imports.push(self.libc_import("rename", spec.symbol));
@@ -319,5 +332,64 @@ impl NativePlanPlatform for Platform {
             return vec![self.libc_import("getentropy", required_by)];
         }
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::plan::NativePlanPlatform;
+
+    fn platform() -> Platform {
+        Platform {
+            flavor: LinuxFlavor::Glibc,
+        }
+    }
+
+    /// bug-71: x86 exits via the raw `exit_group` syscall in `emit_program_exit`,
+    /// so `program_exit_imports` must declare no libc `_exit` (a dead symbol
+    /// copied from AArch64, which does call libc `_exit`).
+    #[test]
+    fn program_exit_imports_nothing() {
+        assert!(platform().program_exit_imports("_main").is_empty());
+    }
+
+    /// bug-71: x86 `emit_random_bytes` is the raw `getrandom` syscall, so
+    /// `fs.createTempFile` must not import libc `getentropy` (dead on x86).
+    #[test]
+    fn create_temp_file_does_not_import_getentropy() {
+        let spec = crate::target::shared::runtime::spec_for_call("fs.createTempFile")
+            .expect("fs.createTempFile spec");
+        assert!(
+            platform()
+                .runtime_imports(spec)
+                .iter()
+                .all(|imp| imp.symbol != "getentropy"),
+            "fs.createTempFile must not import getentropy on x86"
+        );
+    }
+
+    /// bug-71: `crypto.randomBytes` calls libc `getentropy` directly
+    /// (`lower_crypto_random_bytes_helper`), so this import stays live on x86.
+    #[test]
+    fn crypto_random_bytes_imports_getentropy() {
+        let spec = crate::target::shared::runtime::spec_for_call("crypto.randomBytes")
+            .expect("crypto.randomBytes spec");
+        assert!(
+            platform()
+                .runtime_imports(spec)
+                .iter()
+                .any(|imp| imp.symbol == "getentropy"),
+            "crypto.randomBytes must import getentropy on x86"
+        );
+    }
+
+    /// bug-71: `io.flush` is drain-only, so its runtime import arm is empty — no
+    /// dead `fsync`/`__errno_location`.
+    #[test]
+    fn io_flush_imports_nothing() {
+        let spec = crate::target::shared::runtime::spec_for_call("io.flush")
+            .expect("io.flush spec");
+        assert!(platform().runtime_imports(spec).is_empty());
     }
 }

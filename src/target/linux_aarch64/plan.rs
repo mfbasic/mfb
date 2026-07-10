@@ -119,6 +119,11 @@ impl plan::NativePlanPlatform for Platform {
                     imports.push(self.libc_import("isatty", spec.symbol));
                     imports.push(self.libc_import("tcgetattr", spec.symbol));
                     imports.push(self.libc_import("tcsetattr", spec.symbol));
+                    // bug-62: the read helpers' EINTR guard re-reads errno through
+                    // the accessor to retry a blocking read interrupted by a signal.
+                    // Without this import a pure-`io::` program (no fs/net) could not
+                    // distinguish EINTR and would hard-error on it.
+                    imports.push(self.libc_import("__errno_location", spec.symbol));
                 }
                 imports
             }
