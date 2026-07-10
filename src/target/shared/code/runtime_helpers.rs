@@ -75,6 +75,7 @@ pub(super) fn emit_thread_queue_alloc(
 ) -> Result<(), String> {
     let alloc_queue_ok = format!("{symbol}_queue_{cb_queue_offset}_alloc_ok");
     let alloc_values_ok = format!("{symbol}_queue_{cb_queue_offset}_values_ok");
+    let size_overflow = format!("{symbol}_queue_{cb_queue_offset}_size_overflow");
     let init_error = format!("{symbol}_queue_{cb_queue_offset}_init_error");
     let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
 
@@ -104,6 +105,13 @@ pub(super) fn emit_thread_queue_alloc(
         abi::store_u64("x31", "x1", THREAD_QUEUE_TAIL_OFFSET),
         abi::store_u64("x31", "x1", THREAD_QUEUE_CLOSED_OFFSET),
         abi::move_immediate("%v11", "Integer", "8"),
+        // size = capacity * 8. The limit is upper-bounded in lower_thread_start_helper
+        // so this cannot wrap in practice, but trap the high half anyway (defense in
+        // depth; bug-60): a wrap would size the block tiny while the stored capacity
+        // stays huge, so a later enqueue would index out of the allocation.
+        abi::unsigned_multiply_high_registers("%v12", "%v10", "%v11"),
+        abi::compare_immediate("%v12", "0"),
+        abi::branch_ne(&size_overflow),
         abi::multiply_registers("x0", "%v10", "%v11"),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -112,6 +120,15 @@ pub(super) fn emit_thread_queue_alloc(
     instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_values_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    instructions.push(abi::branch(done_label));
+    // capacity * 8 wrapped 64 bits: raise the same catchable allocation error as an
+    // oversized request rather than under-allocate the value array (bug-60).
+    instructions.extend([
+        abi::label(&size_overflow),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
@@ -310,6 +327,8 @@ fn lower_thread_start_helper(
     const QUEUE_OFFSET: usize = 48;
     // pthread_attr_t scratch: 64 bytes covers musl/glibc (56) and macOS (64).
     const ATTR_OFFSET: usize = 56;
+    // Largest queue limit whose `capacity * 8` byte size still fits in 64 bits.
+    const MAX_QUEUE_LIMIT: u64 = u64::MAX / 8;
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");
@@ -328,6 +347,15 @@ fn lower_thread_start_helper(
         abi::branch_lt(&invalid_limit),
         abi::compare_immediate("x3", "1"),
         abi::branch_lt(&invalid_limit),
+        // Upper-bound the queue limit so the later `capacity * 8` value-array size
+        // (emit_thread_queue_alloc) cannot wrap 64 bits and under-allocate. The cap
+        // is the largest capacity whose `*8` still fits (u64::MAX / 8); an
+        // out-of-range limit is rejected as an invalid argument (bug-60).
+        abi::move_immediate("%v12", "Integer", &MAX_QUEUE_LIMIT.to_string()),
+        abi::compare_registers("x2", "%v12"),
+        abi::branch_hi(&invalid_limit),
+        abi::compare_registers("x3", "%v12"),
+        abi::branch_hi(&invalid_limit),
         abi::move_immediate("x0", "Integer", &THREAD_BLOCK_SIZE.to_string()),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),

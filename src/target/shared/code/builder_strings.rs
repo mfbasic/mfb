@@ -130,6 +130,7 @@ impl CodeBuilder<'_> {
         let first_next = self.label("replace_first_next");
         let first_done = self.label("replace_first_done");
         let alloc_ok = self.label("replace_alloc_ok");
+        let overflow = self.label("replace_overflow");
         let second_loop = self.label("replace_second_loop");
         let second_compare = self.label("replace_second_compare");
         let second_match = self.label("replace_second_match");
@@ -176,8 +177,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&first_compare));
 
         self.emit(abi::label(&first_match));
+        // output_len += new_len - old_len. old_len <= value_len at a match, so the
+        // subtract never underflows; the add is the growth term — trap a 64-bit
+        // wrap so the second pass cannot write past the (undersized) allocation.
         self.emit(abi::subtract_registers(output_len, output_len, old_len));
-        self.emit(abi::add_registers(output_len, output_len, new_len));
+        self.emit_checked_size_add(output_len, output_len, new_len, &overflow);
         self.emit(abi::add_registers(index, index, old_len));
         self.emit(abi::branch(&first_loop));
 
@@ -191,7 +195,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_len_slot,
         ));
-        self.emit(abi::add_immediate(abi::return_register(), output_len, 9));
+        // allocate output_len + 9 (block header), trapping the header add's wrap.
+        self.emit_checked_size_add_immediate(abi::return_register(), output_len, 9, &overflow);
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -206,6 +211,10 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        // A 64-bit wrap in the size computation raises the same catchable
+        // allocation error as an oversized request (defense-in-depth; bug-60).
+        self.emit(abi::label(&overflow));
         self.emit_allocation_error_return()?;
 
         self.emit(abi::label(&alloc_ok));
@@ -341,6 +350,7 @@ impl CodeBuilder<'_> {
         let length_next = self.label("replace_list_length_next");
         let length_done = self.label("replace_list_length_done");
         let alloc_ok = self.label("replace_list_alloc_ok");
+        let overflow = self.label("replace_list_overflow");
         let copy_loop = self.label("replace_list_copy_loop");
         let copy_new = self.label("replace_list_copy_new");
         let copy_old = self.label("replace_list_copy_old");
@@ -389,10 +399,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_len_slot,
         ));
-        self.emit(abi::add_registers(&scratch15, &scratch15, &scratch21));
+        self.emit_checked_size_add(&scratch15, &scratch15, &scratch21, &overflow);
         self.emit(abi::branch(&length_next));
         self.emit(abi::label(&add_old));
-        self.emit(abi::add_registers(&scratch15, &scratch15, &scratch20));
+        self.emit_checked_size_add(&scratch15, &scratch15, &scratch20, &overflow);
         self.emit(abi::label(&length_next));
         self.emit(abi::add_immediate(
             &scratch16,
@@ -413,17 +423,21 @@ impl CodeBuilder<'_> {
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch16, &scratch11, &scratch14));
-        self.emit(abi::add_immediate(
+        // size = count*ENTRY_SIZE + HEADER + data_len, trapping any 64-bit wrap so
+        // the copy pass cannot overrun the (undersized) allocation (bug-60).
+        self.emit_checked_size_multiply(&scratch16, &scratch11, &scratch14, &overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch16,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &overflow,
+        );
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -438,6 +452,10 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        // A 64-bit wrap in the size computation raises the same catchable
+        // allocation error as an oversized request (defense-in-depth; bug-60).
+        self.emit(abi::label(&overflow));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));

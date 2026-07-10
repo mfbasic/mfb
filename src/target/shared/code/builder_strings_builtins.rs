@@ -1234,6 +1234,7 @@ impl CodeBuilder<'_> {
         let length_no_delim = self.label("strings_join_length_no_delim");
         let length_done = self.label("strings_join_length_done");
         let alloc_ok = self.label("strings_join_alloc_ok");
+        let overflow = self.label("strings_join_overflow");
         let copy_loop = self.label("strings_join_copy_loop");
         let copy_no_delim = self.label("strings_join_copy_no_delim");
         let delim_loop = self.label("strings_join_delim_loop");
@@ -1275,14 +1276,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&length_done));
         self.emit(abi::compare_immediate(&scratch12, "0"));
         self.emit(abi::branch_eq(&length_no_delim));
-        self.emit(abi::add_registers(&scratch11, &scratch11, &scratch10));
+        // output_len += delim_len (between parts) then += part_len; trap a 64-bit
+        // wrap so the copy pass cannot overrun the (undersized) allocation (bug-60).
+        self.emit_checked_size_add(&scratch11, &scratch11, &scratch10, &overflow);
         self.emit(abi::label(&length_no_delim));
         self.emit(abi::load_u64(
             &scratch14,
             &scratch13,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers(&scratch11, &scratch11, &scratch14));
+        self.emit_checked_size_add(&scratch11, &scratch11, &scratch14, &overflow);
         self.emit(abi::add_immediate(
             &scratch13,
             &scratch13,
@@ -1297,7 +1300,8 @@ impl CodeBuilder<'_> {
             output_len_slot,
         ));
 
-        self.emit(abi::add_immediate(abi::return_register(), &scratch11, 9));
+        // allocate output_len + 9 (block header), trapping the header add's wrap.
+        self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &overflow);
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1312,6 +1316,10 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        // A 64-bit wrap in the size computation raises the same catchable
+        // allocation error as an oversized request (defense-in-depth; bug-60).
+        self.emit(abi::label(&overflow));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
