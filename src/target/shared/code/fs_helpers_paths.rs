@@ -932,6 +932,14 @@ pub(super) fn lower_fs_list_directory_helper(
     let entry_cursor = vregs.next();
     let data_cursor = vregs.next();
     let data_offset = vregs.next();
+    // bug-48: bound the fill pass by the pass-1 allocation. `block_end` is the
+    // one-past-the-end address of the data region (data-region-start + data_len);
+    // `actual_count` is how many entries pass 2 actually wrote. A concurrent
+    // writer that grows the directory between the two scans is truncated to the
+    // sized capacity instead of overflowing the arena block, and the header is
+    // trimmed to what was written so a shrink leaves no poisoned trailing entry.
+    let block_end = vregs.next();
+    let actual_count = vregs.next();
     let len0 = vregs.next();
     let len = vregs.next();
     let src = vregs.next();
@@ -1094,15 +1102,22 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_VALUE_TYPE),
         abi::move_immediate(&scratch, "Byte", "1"),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::store_u64(&count, &collection, COLLECTION_OFFSET_COUNT),
+        // CAPACITY / DATA_CAPACITY are the pass-1 allocation sizes and must not be
+        // trimmed: readers locate the value data region at
+        // `HEADER + CAPACITY*ENTRY_SIZE + DATA_CAPACITY`, which is where pass 2
+        // physically writes. COUNT / DATA_LENGTH are the *used* amounts and are
+        // written after the fill loop from what pass 2 actually produced (bug-48).
         abi::store_u64(&count, &collection, COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64(&data_len, &collection, COLLECTION_OFFSET_DATA_LENGTH),
         abi::store_u64(&data_len, &collection, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_immediate(&entry_cursor, &collection, COLLECTION_HEADER_SIZE),
         abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&data_cursor, &entry_cursor, &scratch),
         abi::move_immediate(&data_offset, "Integer", "0"),
+        // data region spans [data_cursor, data_cursor + data_len); block_end is
+        // the fill-pass byte ceiling. actual_count counts entries pass 2 writes.
+        abi::add_registers(&block_end, &data_cursor, &data_len),
+        abi::move_immediate(&actual_count, "Integer", "0"),
         abi::move_register(abi::return_register(), &c_path),
     ]);
     platform.emit_opendir(
@@ -1169,6 +1184,13 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::compare_immediate(&byte, "46"),
         abi::branch_eq(&fill_loop),
         abi::label(&fill_keep),
+        // bug-48 bound 1: never write more entries than pass 1 sized capacity for.
+        abi::compare_registers(&actual_count, &count),
+        abi::branch_ge(&fill_done),
+        // bug-48 bound 2: never copy a name past the end of the data region.
+        abi::add_registers(&scratch, &data_cursor, &namelen),
+        abi::compare_registers(&scratch, &block_end),
+        abi::branch_hi(&fill_done),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
         abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
@@ -1196,6 +1218,7 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::label(&copy_name_done),
         abi::add_registers(&data_offset, &data_offset, &namelen),
         abi::add_immediate(&entry_cursor, &entry_cursor, COLLECTION_ENTRY_SIZE),
+        abi::add_immediate(&actual_count, &actual_count, 1),
         abi::branch(&fill_loop),
         abi::label(&fill_done),
         abi::move_register(abi::return_register(), &dir),
@@ -1206,6 +1229,16 @@ pub(super) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // bug-48: trim the header to what pass 2 actually wrote. On a shrink race
+    // pass 2 produces fewer entries/bytes than pass 1 sized for; storing the
+    // pass-1 totals would leave `count - actual_count` trailing entries holding
+    // uninitialized arena bytes that sort_string_list would dereference as
+    // (offset, length) string descriptors. actual_count / data_offset are the
+    // exact used amounts. CAPACITY / DATA_CAPACITY keep the pass-1 sizes.
+    instructions.extend([
+        abi::store_u64(&actual_count, &collection, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&data_offset, &collection, COLLECTION_OFFSET_DATA_LENGTH),
+    ]);
     instructions.push(abi::move_register(abi::return_register(), &collection));
     instructions.push(abi::branch_link(SORT_STRING_LIST_SYMBOL));
     relocations.push(CodeRelocation {
