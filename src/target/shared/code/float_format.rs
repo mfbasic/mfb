@@ -62,8 +62,8 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
     let tmp = vregs.next();
     let mask = vregs.next();
     ins.extend([
-        abi::move_register(&bits, "x0"),
-        abi::move_register(&prec, "x1"),
+        abi::move_register(&bits, abi::ARG[0]),
+        abi::move_register(&prec, abi::ARG[1]),
         abi::shift_right_immediate(&sign, &bits, 63),
         abi::move_immediate(&mask, "Integer", "9223372036854775807"),
         abi::and_registers(&tmp, &bits, &mask), // magnitude bits
@@ -522,7 +522,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::add_immediate(&total, &total, 1),
             abi::label(&l("len_ready")),
             abi::add_immediate(abi::return_register(), &total, 9),
-            abi::move_immediate("x1", "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
             abi::branch_link(ARENA_ALLOC_SYMBOL),
         ]);
         relocations.push(CodeRelocation {
@@ -537,7 +537,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::branch_eq(&alloc_ok),
             abi::branch(&alloc_error),
             abi::label(&alloc_ok),
-            abi::move_register(&string, "x1"),
+            abi::move_register(&string, abi::RET[1]),
             abi::store_u64(&total, &string, 0),
             abi::add_immediate(&dst, &string, 8),
             // sign

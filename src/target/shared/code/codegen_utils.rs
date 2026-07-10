@@ -27,14 +27,14 @@ pub(super) fn lower_sort_string_list_helper() -> CodeFunction {
 
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v10", "x0", COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v10", abi::ARG[0], COLLECTION_OFFSET_COUNT),
         abi::compare_immediate("%v10", "1"),
         abi::branch_le(&done),
-        abi::add_immediate("%v9", "x0", COLLECTION_HEADER_SIZE),
+        abi::add_immediate("%v9", abi::ARG[0], COLLECTION_HEADER_SIZE),
         abi::move_immediate("%v1", "Integer", &entry_size),
         // data region base = entries base + capacity * entry size (the data
         // region sits past the full lookup capacity for a grown list; §4.2).
-        abi::load_u64("%v8", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::load_u64("%v8", abi::ARG[0], COLLECTION_OFFSET_CAPACITY),
         abi::multiply_registers("%v11", "%v8", "%v1"),
         abi::add_registers("%v11", "%v9", "%v11"),
         abi::move_immediate("%v12", "Integer", "0"),
@@ -148,7 +148,7 @@ pub(super) fn emit_call_validate_utf8(
         library: None,
     });
     instructions.extend([
-        abi::compare_immediate("x0", "0"),
+        abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(error_label),
     ]);
 }
@@ -171,8 +171,8 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
         let rem = vregs.next();
         let byte = vregs.next();
         instructions.extend([
-            abi::move_register(&pos, "x0"),
-            abi::move_register(&rem, "x1"),
+            abi::move_register(&pos, abi::ARG[0]),
+            abi::move_register(&rem, abi::ARG[1]),
             abi::label(&lp),
             abi::compare_immediate(&rem, "0"),
             abi::branch_eq(&ok),
@@ -183,19 +183,19 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
             abi::subtract_immediate(&rem, &rem, 1),
             abi::branch(&lp),
             abi::label(&ok),
-            abi::move_immediate("x0", "Integer", "0"),
+            abi::move_immediate(abi::RET[0], "Integer", "0"),
             abi::return_(),
             abi::label(&invalid),
-            abi::move_immediate("x0", "Integer", "1"),
+            abi::move_immediate(abi::RET[0], "Integer", "1"),
             abi::return_(),
         ]);
     } else {
-        emit_validate_utf8(symbol, "x0", "x1", &invalid, &mut instructions, &mut vregs);
+        emit_validate_utf8(symbol, abi::ARG[0], abi::ARG[1], &invalid, &mut instructions, &mut vregs);
         instructions.extend([
-            abi::move_immediate("x0", "Integer", "0"),
+            abi::move_immediate(abi::RET[0], "Integer", "0"),
             abi::return_(),
             abi::label(&invalid),
-            abi::move_immediate("x0", "Integer", "1"),
+            abi::move_immediate(abi::RET[0], "Integer", "1"),
             abi::return_(),
         ]);
     }

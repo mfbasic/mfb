@@ -38,9 +38,9 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
     let mut relocations = Vec::new();
     instructions.extend([
         // x1 = timeoutMs; reject negative timeouts.
-        abi::compare_immediate("x1", "0"),
+        abi::compare_immediate(abi::ARG[1], "0"),
         abi::branch_lt(&invalid),
-        abi::move_register("%v12", "x1"),
+        abi::move_register("%v12", abi::ARG[1]),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -54,8 +54,8 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         // poll(&pollfd, 1, timeoutMs)
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate("x1", "Integer", "1"),
-        abi::move_register("x2", "%v12"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_register(abi::ARG[2], "%v12"),
     ]);
     platform.emit_libc_call(
         "poll",
@@ -143,7 +143,7 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         // timeoutMs arrives in the incoming-arg register; copy it to an
         // allocator-placed vreg (plan-34-B Phase 3) so the tv math below is not
         // pinned to a physical register. Reject negatives.
-        abi::move_register("%v14", "x1"),
+        abi::move_register("%v14", abi::ARG[1]),
         abi::compare_immediate("%v14", "0"),
         abi::branch_lt(&invalid),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
@@ -161,9 +161,9 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
         // setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO/SO_SNDTIMEO, &tv, 16)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate("x1", "Integer", platform.sol_socket()),
+        abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
         abi::move_immediate(
-            "x2",
+            abi::ARG[2],
             "Integer",
             if write {
                 platform.so_sndtimeo()
@@ -171,8 +171,8 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
                 platform.so_rcvtimeo()
             },
         ),
-        abi::add_immediate("x3", abi::stack_pointer(), TIMEVAL_OFFSET),
-        abi::move_immediate("x4", "Integer", "16"),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::move_immediate(abi::ARG[4], "Integer", "16"),
     ]);
     platform.emit_libc_call(
         "setsockopt",

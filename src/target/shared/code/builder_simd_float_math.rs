@@ -325,9 +325,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&in_ptr, abi::stack_pointer(), in_slot));
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_register(abi::ARG[0], &count));
         self.emit(abi::move_immediate(
-            "x1",
+            abi::ARG[1],
             "Integer",
             &COLLECTION_TYPE_FLOAT.to_string(),
         ));
@@ -342,11 +342,11 @@ impl CodeBuilder<'_> {
 
         self.reset_temporary_registers();
         let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, "x0"));
+        self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label("simd_fl_alloc_ok");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(abi::RET[1], "0"));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit(abi::move_register("x0", "x1"));
+        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
 
@@ -1195,9 +1195,9 @@ impl CodeBuilder<'_> {
         let count_slot = self.allocate_stack_object("simd_flb_count", 8);
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_register(abi::ARG[0], &count));
         self.emit(abi::move_immediate(
-            "x1",
+            abi::ARG[1],
             "Integer",
             &COLLECTION_TYPE_FLOAT.to_string(),
         ));
@@ -1212,11 +1212,11 @@ impl CodeBuilder<'_> {
 
         self.reset_temporary_registers();
         let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, "x0"));
+        self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label("simd_flb_alloc_ok");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(abi::RET[1], "0"));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit(abi::move_register("x0", "x1"));
+        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
 

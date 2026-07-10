@@ -512,9 +512,9 @@ fn emit_set_color(
 ) -> Result<(), String> {
     let inactive = format!("{symbol}_inactive");
     // Save r/g/b before any write clobbers x0/x1/x2.
-    instructions.push(abi::store_u64("x0", abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::store_u64("x1", abi::stack_pointer(), ARG1_OFFSET));
-    instructions.push(abi::store_u64("x2", abi::stack_pointer(), ARG2_OFFSET));
+    instructions.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), ARG1_OFFSET));
+    instructions.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), ARG2_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     // Pack r | g<<8 | b<<16 and store to the state attribute.
     instructions.extend([
@@ -619,7 +619,7 @@ fn emit_set_attr(
     let inactive = format!("{symbol}_inactive");
     let off_label = format!("{symbol}_attr_off");
     let written = format!("{symbol}_attr_written");
-    instructions.push(abi::store_u64("x0", abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), ARG0_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.push(abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET));
     instructions.push(abi::store_u64("%v9", ARENA_STATE_REGISTER, state_offset));
@@ -707,8 +707,8 @@ fn emit_move_to(
     let inactive = format!("{symbol}_inactive");
     let row_clamp = format!("{symbol}_row_ok");
     let col_clamp = format!("{symbol}_col_ok");
-    instructions.push(abi::store_u64("x0", abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::store_u64("x1", abi::stack_pointer(), ARG1_OFFSET));
+    instructions.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), ARG1_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     emit_write_const(
         symbol,
@@ -811,7 +811,7 @@ fn emit_get_color(
             "Integer",
             &TERM_COLOR_RECORD_SIZE.to_string(),
         ),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -902,8 +902,8 @@ fn emit_terminal_size(
     instructions.push(abi::label(&active));
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_immediate("x1", "Integer", request),
-        abi::add_immediate("x2", abi::stack_pointer(), SCRATCH_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", request),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SCRATCH_OFFSET),
     ]);
     platform.emit_terminal_size(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
@@ -922,7 +922,7 @@ fn emit_terminal_size(
             "Integer",
             &TERM_SIZE_RECORD_SIZE.to_string(),
         ),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -933,9 +933,9 @@ fn emit_terminal_size(
         abi::label(&alloc_ok),
         abi::load_u64("%v10", abi::stack_pointer(), ARG0_OFFSET),
         abi::load_u64("%v11", abi::stack_pointer(), ARG1_OFFSET),
-        abi::store_u64("%v11", "x1", 0),
-        abi::store_u64("%v10", "x1", 8),
-        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::store_u64("%v11", abi::RET[1], 0),
+        abi::store_u64("%v10", abi::RET[1], 8),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
         abi::label(&unsupported),

@@ -981,7 +981,7 @@ impl CodeBuilder<'_> {
             return Err(format!("math.seed does not accept {}", value.type_));
         }
         let text = format!("math.seed({})", value.text);
-        self.emit(abi::move_register("x1", &value.location));
+        self.emit(abi::move_register(abi::ARG[1], &value.location));
         self.emit(abi::move_register(
             abi::return_register(),
             ARENA_STATE_REGISTER,

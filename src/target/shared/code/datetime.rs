@@ -69,9 +69,9 @@ pub(super) fn lower_datetime_helper(
                 CLOCK_MONOTONIC_LINUX
             };
             // x0 = clock id, x1 = &timespec.
-            instructions.push(abi::move_immediate("x0", "Integer", clock_id));
+            instructions.push(abi::move_immediate(abi::ARG[0], "Integer", clock_id));
             instructions.push(abi::add_immediate(
-                "x1",
+                abi::ARG[1],
                 abi::stack_pointer(),
                 TIMESPEC_OFFSET,
             ));
@@ -95,9 +95,9 @@ pub(super) fn lower_datetime_helper(
             // x0 holds epochSeconds. Stash it as the `time_t` input, then call
             // `localtime_r(&time_t, &tm)` and read `tm.tm_gmtoff`.
             instructions.extend([
-                abi::store_u64("x0", abi::stack_pointer(), TIME_T_OFFSET),
-                abi::add_immediate("x0", abi::stack_pointer(), TIME_T_OFFSET),
-                abi::add_immediate("x1", abi::stack_pointer(), TM_OFFSET),
+                abi::store_u64(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
+                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
+                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), TM_OFFSET),
             ]);
             platform.emit_libc_call(
                 "localtime_r",

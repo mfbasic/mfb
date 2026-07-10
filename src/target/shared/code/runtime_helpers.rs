@@ -80,8 +80,8 @@ pub(super) fn emit_thread_queue_alloc(
     let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
 
     instructions.extend([
-        abi::move_immediate("x0", "Integer", &THREAD_QUEUE_BLOCK_SIZE.to_string()),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[0], "Integer", &THREAD_QUEUE_BLOCK_SIZE.to_string()),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -95,15 +95,15 @@ pub(super) fn emit_thread_queue_alloc(
     instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_queue_ok),
-        abi::store_u64("x1", abi::stack_pointer(), queue_stack_offset),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), queue_stack_offset),
         abi::load_u64("%v9", abi::stack_pointer(), cb_stack_offset),
-        abi::store_u64("x1", "%v9", cb_queue_offset),
+        abi::store_u64(abi::RET[1], "%v9", cb_queue_offset),
         abi::load_u64("%v10", abi::stack_pointer(), limit_stack_offset),
-        abi::store_u64("%v10", "x1", THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::store_u64(abi::ZERO, "x1", THREAD_QUEUE_COUNT_OFFSET),
-        abi::store_u64(abi::ZERO, "x1", THREAD_QUEUE_HEAD_OFFSET),
-        abi::store_u64(abi::ZERO, "x1", THREAD_QUEUE_TAIL_OFFSET),
-        abi::store_u64(abi::ZERO, "x1", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::store_u64("%v10", abi::RET[1], THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_HEAD_OFFSET),
+        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_TAIL_OFFSET),
+        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_CLOSED_OFFSET),
         abi::move_immediate("%v11", "Integer", "8"),
         // size = capacity * 8. The limit is upper-bounded in lower_thread_start_helper
         // so this cannot wrap in practice, but trap the high half anyway (defense in
@@ -112,8 +112,8 @@ pub(super) fn emit_thread_queue_alloc(
         abi::unsigned_multiply_high_registers("%v12", "%v10", "%v11"),
         abi::compare_immediate("%v12", "0"),
         abi::branch_ne(&size_overflow),
-        abi::multiply_registers("x0", "%v10", "%v11"),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::multiply_registers(abi::ARG[0], "%v10", "%v11"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -137,9 +137,9 @@ pub(super) fn emit_thread_queue_alloc(
         abi::branch(done_label),
         abi::label(&alloc_values_ok),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::store_u64("x1", "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        abi::move_register("x0", "%v9"),
-        abi::move_immediate("x1", "Integer", "0"),
+        abi::store_u64(abi::RET[1], "%v9", THREAD_QUEUE_VALUES_OFFSET),
+        abi::move_register(abi::ARG[0], "%v9"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     emit_thread_external_call(
         symbol,
@@ -150,11 +150,11 @@ pub(super) fn emit_thread_queue_alloc(
         relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("x0", "0"),
+        abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::add_immediate("x0", "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-        abi::move_immediate("x1", "Integer", "0"),
+        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     emit_thread_external_call(
         symbol,
@@ -165,11 +165,11 @@ pub(super) fn emit_thread_queue_alloc(
         relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("x0", "0"),
+        abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::add_immediate("x0", "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
-        abi::move_immediate("x1", "Integer", "0"),
+        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     emit_thread_external_call(
         symbol,
@@ -180,7 +180,7 @@ pub(super) fn emit_thread_queue_alloc(
         relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("x0", "0"),
+        abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&init_error),
         abi::branch(&init_done),
         abi::label(&init_error),
@@ -339,25 +339,25 @@ fn lower_thread_start_helper(
     let mut relocations = Vec::new();
 
     instructions.extend([
-        abi::store_u64("x0", abi::stack_pointer(), ENTRY_OFFSET),
-        abi::store_u64("x1", abi::stack_pointer(), DATA_OFFSET),
-        abi::store_u64("x2", abi::stack_pointer(), IN_LIMIT_OFFSET),
-        abi::store_u64("x3", abi::stack_pointer(), OUT_LIMIT_OFFSET),
-        abi::compare_immediate("x2", "1"),
+        abi::store_u64(abi::ARG[0], abi::stack_pointer(), ENTRY_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), IN_LIMIT_OFFSET),
+        abi::store_u64(abi::ARG[3], abi::stack_pointer(), OUT_LIMIT_OFFSET),
+        abi::compare_immediate(abi::ARG[2], "1"),
         abi::branch_lt(&invalid_limit),
-        abi::compare_immediate("x3", "1"),
+        abi::compare_immediate(abi::ARG[3], "1"),
         abi::branch_lt(&invalid_limit),
         // Upper-bound the queue limit so the later `capacity * 8` value-array size
         // (emit_thread_queue_alloc) cannot wrap 64 bits and under-allocate. The cap
         // is the largest capacity whose `*8` still fits (u64::MAX / 8); an
         // out-of-range limit is rejected as an invalid argument (bug-60).
         abi::move_immediate("%v12", "Integer", &MAX_QUEUE_LIMIT.to_string()),
-        abi::compare_registers("x2", "%v12"),
+        abi::compare_registers(abi::ARG[2], "%v12"),
         abi::branch_hi(&invalid_limit),
-        abi::compare_registers("x3", "%v12"),
+        abi::compare_registers(abi::ARG[3], "%v12"),
         abi::branch_hi(&invalid_limit),
-        abi::move_immediate("x0", "Integer", &THREAD_BLOCK_SIZE.to_string()),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[0], "Integer", &THREAD_BLOCK_SIZE.to_string()),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -376,8 +376,8 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_block_ok),
-        abi::store_u64("x1", abi::stack_pointer(), CB_OFFSET),
-        abi::move_register("%v9", "x1"),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), CB_OFFSET),
+        abi::move_register("%v9", abi::RET[1]),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_STATE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_CANCELLED),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_TAG),
@@ -399,8 +399,8 @@ fn lower_thread_start_helper(
             "%v9",
             THREAD_OFFSET_PARENT_ARENA_STATE,
         ),
-        abi::move_immediate("x0", "Integer", &ARENA_STATE_SIZE.to_string()),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[0], "Integer", &ARENA_STATE_SIZE.to_string()),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -426,15 +426,15 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_worker_arena_ok),
-        abi::move_register("%v11", "x1"),
-        abi::add_immediate("%v12", "x1", ARENA_STATE_SIZE),
+        abi::move_register("%v11", abi::RET[1]),
+        abi::add_immediate("%v12", abi::RET[1], ARENA_STATE_SIZE),
         abi::label(&child_zero_loop),
         abi::store_u64(abi::ZERO, "%v11", 0),
         abi::add_immediate("%v11", "%v11", 8),
         abi::compare_registers("%v11", "%v12"),
         abi::branch_lo(&child_zero_loop),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::store_u64("x1", "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::store_u64(abi::RET[1], "%v9", THREAD_OFFSET_ARENA_STATE),
     ]);
 
     if uses_rng {
@@ -445,7 +445,7 @@ fn lower_thread_start_helper(
         instructions.push(abi::branch_link(RNG_NEXT_SYMBOL));
         relocations.push(internal_branch(symbol, RNG_NEXT_SYMBOL));
         instructions.extend([
-            abi::move_register("x1", abi::return_register()),
+            abi::move_register(abi::ARG[1], abi::return_register()),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
             abi::load_u64(abi::return_register(), "%v9", THREAD_OFFSET_ARENA_STATE),
         ]);
@@ -463,10 +463,10 @@ fn lower_thread_start_helper(
     instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
     relocations.push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
     instructions.extend([
-        abi::move_register("x1", abi::return_register()),
+        abi::move_register(abi::ARG[1], abi::return_register()),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(abi::return_register(), "%v9", THREAD_OFFSET_ARENA_STATE),
-        abi::exclusive_or_registers("x1", "x1", abi::return_register()),
+        abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], abi::return_register()),
     ]);
     instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
     relocations.push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
@@ -541,12 +541,12 @@ fn lower_thread_start_helper(
     // cost per thread is address space, not RSS. The attr is stack scratch;
     // pthread_attr_destroy is a no-op for a stacksize-only attr on musl,
     // glibc, and macOS, so it is not called.
-    instructions.push(abi::add_immediate("x0", abi::stack_pointer(), ATTR_OFFSET));
+    instructions.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ATTR_OFFSET));
     instructions.push(abi::branch_link(attr_init_symbol));
     relocations.push(external_branch(symbol, attr_init_symbol, platform_imports)?);
     instructions.extend([
-        abi::add_immediate("x0", abi::stack_pointer(), ATTR_OFFSET),
-        abi::move_immediate("x1", "Integer", &(8 * 1024 * 1024).to_string()),
+        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ATTR_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", &(8 * 1024 * 1024).to_string()),
     ]);
     instructions.push(abi::branch_link(attr_setstacksize_symbol));
     relocations.push(external_branch(
@@ -556,10 +556,10 @@ fn lower_thread_start_helper(
     )?);
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::add_immediate("x0", "%v9", THREAD_OFFSET_OS_HANDLE),
-        abi::add_immediate("x1", abi::stack_pointer(), ATTR_OFFSET),
+        abi::add_immediate(abi::ARG[0], "%v9", THREAD_OFFSET_OS_HANDLE),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ATTR_OFFSET),
     ]);
-    instructions.push(abi::load_page_address("x2", THREAD_TRAMPOLINE_SYMBOL));
+    instructions.push(abi::load_page_address(abi::ARG[2], THREAD_TRAMPOLINE_SYMBOL));
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
@@ -567,7 +567,7 @@ fn lower_thread_start_helper(
         binding: "data".to_string(),
         library: None,
     });
-    instructions.push(abi::add_page_offset("x2", "x2", THREAD_TRAMPOLINE_SYMBOL));
+    instructions.push(abi::add_page_offset(abi::ARG[2], abi::ARG[2], THREAD_TRAMPOLINE_SYMBOL));
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
@@ -576,7 +576,7 @@ fn lower_thread_start_helper(
         library: None,
     });
     instructions.extend([
-        abi::move_register("x3", "%v9"),
+        abi::move_register(abi::ARG[3], "%v9"),
         abi::branch_link(pthread_create_symbol),
     ]);
     relocations.push(external_branch(
@@ -585,7 +585,7 @@ fn lower_thread_start_helper(
         platform_imports,
     )?);
     instructions.extend([
-        abi::compare_immediate("x0", "0"),
+        abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&spawn_error),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
@@ -651,14 +651,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::store_u64("x20", abi::stack_pointer(), X20_OFFSET),
         abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
-        abi::move_register("x20", "x0"),
+        abi::move_register("x20", abi::ARG[0]),
         abi::store_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
         abi::load_u64("x13", "x20", THREAD_OFFSET_ENTRY),
         abi::load_u64(CLOSURE_ENV_REGISTER, "x13", CLOSURE_OFFSET_ENV),
         abi::load_u64("x13", "x13", CLOSURE_OFFSET_CODE),
-        abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
-        abi::move_register("x0", "x20"),
+        abi::load_u64(abi::ARG[1], "x20", THREAD_OFFSET_DATA),
+        abi::move_register(abi::ARG[0], "x20"),
         abi::branch_link_register("x13"),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
@@ -674,7 +674,7 @@ pub(crate) fn lower_thread_trampoline(
         ),
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64("x13", "x20", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::move_register("x0", "x13"),
+        abi::move_register(abi::ARG[0], "x13"),
     ];
     let mut relocations = Vec::new();
     emit_thread_external_call(
@@ -690,7 +690,7 @@ pub(crate) fn lower_thread_trampoline(
         abi::load_u64("x13", "x20", THREAD_OFFSET_INBOUND_QUEUE),
         abi::move_immediate("x14", "Integer", "1"),
         abi::store_u64("x14", "x13", THREAD_QUEUE_CLOSED_OFFSET),
-        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(abi::ARG[0], "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -703,7 +703,7 @@ pub(crate) fn lower_thread_trampoline(
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64("x13", "x20", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::add_immediate(abi::ARG[0], "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -715,7 +715,7 @@ pub(crate) fn lower_thread_trampoline(
     )?;
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x0", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::load_u64(abi::ARG[0], "x20", THREAD_OFFSET_INBOUND_QUEUE),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -735,7 +735,7 @@ pub(crate) fn lower_thread_trampoline(
         instructions.extend([
             abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
             abi::load_u64("x13", "x20", resource_queue_offset),
-            abi::move_register("x0", "x13"),
+            abi::move_register(abi::ARG[0], "x13"),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -750,7 +750,7 @@ pub(crate) fn lower_thread_trampoline(
             abi::load_u64("x13", "x20", resource_queue_offset),
             abi::move_immediate("x14", "Integer", "1"),
             abi::store_u64("x14", "x13", THREAD_QUEUE_CLOSED_OFFSET),
-            abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            abi::add_immediate(abi::ARG[0], "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -763,7 +763,7 @@ pub(crate) fn lower_thread_trampoline(
         instructions.extend([
             abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
             abi::load_u64("x13", "x20", resource_queue_offset),
-            abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
+            abi::add_immediate(abi::ARG[0], "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -775,7 +775,7 @@ pub(crate) fn lower_thread_trampoline(
         )?;
         instructions.extend([
             abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64("x0", "x20", resource_queue_offset),
+            abi::load_u64(abi::ARG[0], "x20", resource_queue_offset),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -789,7 +789,7 @@ pub(crate) fn lower_thread_trampoline(
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64("x13", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::move_register("x0", "x13"),
+        abi::move_register(abi::ARG[0], "x13"),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -816,7 +816,7 @@ pub(crate) fn lower_thread_trampoline(
         abi::move_immediate("x14", "Integer", THREAD_STATE_COMPLETED),
         abi::store_u64("x14", "x20", THREAD_OFFSET_STATE),
         abi::load_u64("x13", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(abi::ARG[0], "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -829,7 +829,7 @@ pub(crate) fn lower_thread_trampoline(
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64("x13", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::add_immediate(abi::ARG[0], "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -842,7 +842,7 @@ pub(crate) fn lower_thread_trampoline(
     instructions.extend([
         abi::label(&result_closed),
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x0", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::load_u64(abi::ARG[0], "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -853,7 +853,7 @@ pub(crate) fn lower_thread_trampoline(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_immediate("x0", "Integer", "0"),
+        abi::move_immediate(abi::RET[0], "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
         abi::load_u64("x20", abi::stack_pointer(), X20_OFFSET),
@@ -867,7 +867,7 @@ pub(crate) fn lower_thread_trampoline(
         params: vec![CodeParam {
             name: "controlBlock".to_string(),
             type_: "ThreadControlBlock".to_string(),
-            location: "x0".to_string(),
+            location: abi::ARG[0].to_string(),
         }],
         returns: "Nothing".to_string(),
         frame: CodeFrame {

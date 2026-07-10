@@ -349,7 +349,7 @@ impl CodeBuilder<'_> {
         // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
         // fallback's terminator stays in-bounds without relying on arena size rounding.
         self.emit(abi::add_immediate(abi::return_register(), &scratch10, 10));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -368,9 +368,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::store_u64(abi::ZERO, "x1", 0));
-        self.emit(abi::store_u8(abi::ZERO, "x1", 8));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], 0));
+        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], 8));
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), out_len_slot));
         self.emit(abi::store_u64(
             abi::ZERO,

@@ -547,7 +547,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch15,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -563,7 +563,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
 
@@ -891,7 +891,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch15,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -907,7 +907,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
 
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
@@ -1004,7 +1004,7 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
-        self.emit(abi::add_registers("x1", &scratch10, &scratch11));
+        self.emit(abi::add_registers(abi::ARG[1], &scratch10, &scratch11));
         self.emit(abi::move_register(abi::return_register(), &scratch8));
         self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1237,7 +1237,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &s15,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1253,7 +1253,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
 
         // Header: old count / old dataLength, new capacity / new data capacity.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), buffer_slot));
@@ -1300,7 +1300,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(&s10, &s9, &s16));
         self.emit(abi::add_immediate(&s10, &s10, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&s11, &s8, COLLECTION_OFFSET_DATA_CAPACITY));
-        self.emit(abi::add_registers("x1", &s10, &s11));
+        self.emit(abi::add_registers(abi::ARG[1], &s10, &s11));
         self.emit(abi::move_register(abi::return_register(), &s8));
         self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1532,7 +1532,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch15,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1548,7 +1548,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2295,7 +2295,7 @@ impl CodeBuilder<'_> {
         ));
         // Reserve the map hash bucket region (x14 = capacity, unchanged on vgrow).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -2311,7 +2311,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&valloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&valloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
         // Header: old count / old dataLength, same capacity, new data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2605,7 +2605,7 @@ impl CodeBuilder<'_> {
         ));
         // Reserve the map hash bucket region (x14 = new capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -2621,7 +2621,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2833,9 +2833,9 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&skip_put));
-        self.emit(abi::load_u64("x0", abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64("x1", "x0", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::subtract_immediate("x1", "x1", 1)); // new entry index
+        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(abi::ARG[1], abi::ARG[0], COLLECTION_OFFSET_COUNT));
+        self.emit(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 1)); // new entry index
         self.emit(abi::branch_link(MAP_BUCKET_PUT_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -2952,7 +2952,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch15,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -2968,7 +2968,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(
@@ -3384,7 +3384,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &s10,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -3400,7 +3400,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         // Header: count = 0, capacity, dataLength = 0, dataCapacity.
@@ -3659,7 +3659,7 @@ impl CodeBuilder<'_> {
         ));
         // Reserve the map hash bucket region (x12 = total count = capacity).
         self.emit_reserve_map_buckets(true, &scratch12, abi::return_register(), &scratch15);
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -3675,7 +3675,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
 
@@ -4012,7 +4012,7 @@ impl CodeBuilder<'_> {
         ));
         // Reserve the map hash bucket region (x14 = remaining count = capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -4028,7 +4028,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), count_slot));

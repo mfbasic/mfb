@@ -232,7 +232,7 @@ fn lower_link_initializer(
             &mut instructions,
             &mut relocations,
         );
-        instructions.push(abi::move_immediate("x1", "Integer", "2")); // RTLD_NOW
+        instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "2")); // RTLD_NOW
         platform.emit_libc_call(
             "dlopen",
             symbol,
@@ -253,7 +253,7 @@ fn lower_link_initializer(
             instructions.push(abi::move_register(abi::return_register(), &handle));
             emit_data_address(
                 symbol,
-                "x1",
+                abi::ARG[1],
                 &sym_symbol(fn_idx),
                 &mut instructions,
                 &mut relocations,
@@ -280,7 +280,7 @@ fn lower_link_initializer(
                 instructions.push(abi::move_register(abi::return_register(), &handle));
                 emit_data_address(
                     symbol,
-                    "x1",
+                    abi::ARG[1],
                     &free_sym_symbol(k),
                     &mut instructions,
                     &mut relocations,
@@ -815,15 +815,15 @@ fn emit_copy_string_to_cstring(
         abi::load_u64("%v9", abi::stack_pointer(), str_off),
         abi::load_u64("%v10", "%v9", 0),
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), out_off),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
         abi::load_u64("%v9", abi::stack_pointer(), str_off),
         abi::load_u64("%v10", "%v9", 0),
         abi::add_immediate("%v11", "%v9", 8),
-        abi::move_register("%v12", "x1"),
+        abi::move_register("%v12", abi::RET[1]),
         abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&loop_label),
         abi::compare_registers("%v13", "%v10"),
@@ -876,15 +876,15 @@ fn emit_copy_cstring_to_string(
         abi::label(&len_done),
         abi::store_u64("%v10", abi::stack_pointer(), LEN_OFF),
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), LEN_OFF),
-        abi::store_u64("%v10", "x1", 0),
-        abi::store_u64("x1", abi::stack_pointer(), RET_OFF),
+        abi::store_u64("%v10", abi::RET[1], 0),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), RET_OFF),
         abi::load_u64("%v11", abi::stack_pointer(), cret_off),
-        abi::add_immediate("%v12", "x1", 8),
+        abi::add_immediate("%v12", abi::RET[1], 8),
         abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v13", "%v10"),
@@ -900,7 +900,7 @@ fn emit_copy_cstring_to_string(
         // §12.4: returned bytes are validated as UTF-8 at the boundary.
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RET_OFF),
         abi::add_immediate(abi::return_register(), abi::return_register(), 8),
-        abi::load_u64("x1", abi::stack_pointer(), LEN_OFF),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), LEN_OFF),
     ]);
     emit_call_validate_utf8(symbol, encoding_fail, instructions, relocations);
     instructions.extend([
@@ -909,13 +909,13 @@ fn emit_copy_cstring_to_string(
         // NULL -> empty string [u64 0][nul].
         abi::label(&null_label),
         abi::move_immediate(abi::return_register(), "Integer", "9"),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::ZERO, "x1", 0),
-        abi::store_u8(abi::ZERO, "x1", 8),
-        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::store_u64(abi::ZERO, abi::RET[1], 0),
+        abi::store_u8(abi::ZERO, abi::RET[1], 8),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::label(&ret_done),
     ]);
 }

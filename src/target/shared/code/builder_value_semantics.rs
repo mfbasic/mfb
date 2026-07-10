@@ -377,7 +377,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(total_len, left_len, right_len));
         self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
         self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -400,7 +400,7 @@ impl CodeBuilder<'_> {
         // break the result-vs-argument dataflow, so a later consumer would
         // arg-map the value. A neutral register carries it safely.
         let result_ptr = self.allocate_register()?;
-        self.emit(abi::move_register(&result_ptr, "x1"));
+        self.emit(abi::move_register(&result_ptr, abi::RET[1]));
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(right_cur, abi::stack_pointer(), right_slot));
         self.emit(abi::add_immediate(right_cur, right_cur, 8));

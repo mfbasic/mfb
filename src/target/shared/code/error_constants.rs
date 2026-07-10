@@ -125,7 +125,7 @@ pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 /// register (AArch64 x19 via `regmodel::ARENA_BASE_REGISTER`, RISC-V s11,
 /// x86-64 r15); shared lowering never spells the AArch64 register number.
 pub(crate) const ARENA_STATE_REGISTER: &str = crate::target::shared::abi::ARENA;
-pub(crate) const CLOSURE_ENV_REGISTER: &str = "x28";
+pub(crate) const CLOSURE_ENV_REGISTER: &str = crate::target::shared::abi::CLOSURE_ENV;
 pub(crate) const CLOSURE_OBJECT_SIZE: usize = 16;
 pub(crate) const CLOSURE_OFFSET_CODE: usize = 0;
 pub(crate) const CLOSURE_OFFSET_ENV: usize = 8;

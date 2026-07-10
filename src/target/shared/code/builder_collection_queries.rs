@@ -503,7 +503,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch11,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -519,19 +519,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.kind.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, "x1", COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KIND));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
@@ -539,18 +539,18 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch13, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch13,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch9, "x1", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch9, "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(&scratch9, abi::RET[1], COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&scratch9, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -558,12 +558,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -572,14 +572,14 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(&scratch17, abi::RET[1], COLLECTION_HEADER_SIZE));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::move_immediate(
             &scratch14,

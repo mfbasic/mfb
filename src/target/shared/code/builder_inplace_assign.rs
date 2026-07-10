@@ -490,7 +490,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&newcap, abi::stack_pointer(), newcap_slot));
         // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
         self.emit(abi::add_immediate(abi::return_register(), &newcap, 9));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -506,15 +506,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), newbuf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), newbuf_slot));
         // newbuf[0] = newlen.
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64(&newlen, "x1", 0));
+        self.emit(abi::store_u64(&newlen, abi::RET[1], 0));
         // Copy the current bytes (len) to newbuf+8.
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&len, &ptr, 0)); // len
         self.emit(abi::add_immediate(&ptr, &ptr, 8)); // old data
-        self.emit(abi::add_immediate(&dst, "x1", 8)); // new data
+        self.emit(abi::add_immediate(&dst, abi::RET[1], 8)); // new data
         self.emit_copy_bytes(&dst, &ptr, &len, "concat_self_old");
         // Copy the operand bytes (rlen) to newbuf+8+len. dst now points at +8+len.
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
@@ -525,8 +525,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&zero, "Integer", "0"));
         self.emit(abi::store_u8(&zero, &dst, 0));
         // Install new buffer; spare = newcap_payload - newlen.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), newbuf_slot));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), newbuf_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
         self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));

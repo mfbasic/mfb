@@ -38,7 +38,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -46,8 +46,8 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         // accept(fd, NULL, NULL)
         abi::move_register(abi::return_register(), "%v9"),
-        abi::move_immediate("x1", "Integer", "0"),
-        abi::move_immediate("x2", "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "accept",
@@ -151,8 +151,8 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
         abi::move_immediate("%v10", "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
         abi::store_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
         abi::move_register(abi::return_register(), "%v9"),
-        abi::add_immediate("x1", abi::stack_pointer(), ADDR_OFFSET),
-        abi::add_immediate("x2", abi::stack_pointer(), LEN_OFFSET),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ADDR_OFFSET),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), LEN_OFFSET),
     ]);
     let call = if remote { "getpeername" } else { "getsockname" };
     platform.emit_libc_call(
@@ -272,7 +272,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), MAX_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -283,15 +283,15 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         abi::branch_le(&invalid),
         // Allocate a temporary read buffer of maxBytes.
         abi::move_register(abi::return_register(), "%v10"),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
         // read(fd, buf, maxBytes)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x1", abi::stack_pointer(), BUF_OFFSET),
-        abi::load_u64("x2", abi::stack_pointer(), MAX_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), MAX_OFFSET),
     ]);
     platform.emit_read_file(
         symbol,
@@ -310,11 +310,11 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
             abi::add_immediate(abi::return_register(), "%v10", 9),
-            abi::move_immediate("x1", "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
             abi::store_u64("%v10", "%v15", 0),
             abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
@@ -335,7 +335,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             // validate_utf8(bytes, len)
             abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
             abi::add_immediate(abi::return_register(), "%v9", 8),
-            abi::load_u64("x1", "%v9", 0),
+            abi::load_u64(abi::ARG[1], "%v9", 0),
         ]);
         emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
         instructions.extend([
@@ -361,11 +361,11 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::multiply_registers("%v12", "%v10", "%v11"),
             abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
             abi::add_registers(abi::return_register(), "%v12", "%v10"),
-            abi::move_immediate("x1", "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
@@ -405,7 +405,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
-            abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+            abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
         ]);
@@ -526,21 +526,21 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
     if text {
         // x1 = String*: data at +8, length at +0.
         instructions.extend([
-            abi::load_u64("%v10", "x1", 0),
+            abi::load_u64("%v10", abi::ARG[1], 0),
             abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
-            abi::add_immediate("%v11", "x1", 8),
+            abi::add_immediate("%v11", abi::ARG[1], 8),
             abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
     } else {
         // x1 = List OF Byte collection: bytes live inline in the data region at
         // collection + HEADER + count * ENTRY_SIZE.
         instructions.extend([
-            abi::load_u64("%v10", "x1", COLLECTION_OFFSET_COUNT),
+            abi::load_u64("%v10", abi::ARG[1], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
             abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", "x1", "%v13"),
+            abi::add_registers("%v11", abi::ARG[1], "%v13"),
             abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
     }
@@ -551,8 +551,8 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         abi::branch_eq(&write_done),
         // write(fd, src, remaining)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x1", abi::stack_pointer(), SRC_OFFSET),
-        abi::move_register("x2", "%v10"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SRC_OFFSET),
+        abi::move_register(abi::ARG[2], "%v10"),
     ]);
     platform.emit_write(
         symbol,
@@ -670,7 +670,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
-        abi::store_u64("x1", abi::stack_pointer(), PORT_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
     ]);
     emit_hints(HINTS_OFFSET, false, SOCK_STREAM, &mut instructions);
     emit_cstring(
@@ -684,9 +684,9 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
     );
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
-        abi::move_immediate("x1", "Integer", "0"),
-        abi::add_immediate("x2", abi::stack_pointer(), HINTS_OFFSET),
-        abi::add_immediate("x3", abi::stack_pointer(), RES_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
         "getaddrinfo",
@@ -726,11 +726,11 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::move_immediate("%v13", "Integer", "16"),
         abi::multiply_registers("%v14", "%v10", "%v13"),
         abi::add_registers(abi::return_register(), "%v12", "%v14"),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
+        abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
         abi::store_u64("%v15", abi::stack_pointer(), LIST_OFFSET),
         abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
@@ -795,9 +795,9 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::multiply_registers("%v11", "%v9", "%v10"),
         abi::load_u64("%v12", abi::stack_pointer(), DATA_OFFSET),
         abi::add_registers("%v12", "%v12", "%v11"),
-        abi::load_u64("%v13", "x1", 0),
+        abi::load_u64("%v13", abi::RET[1], 0),
         abi::store_u64("%v13", "%v12", 0),
-        abi::load_u64("%v13", "x1", 8),
+        abi::load_u64("%v13", abi::RET[1], 8),
         abi::store_u64("%v13", "%v12", 8),
         // entry descriptor at ENTRY cursor.
         abi::load_u64("%v14", abi::stack_pointer(), ENTRY_OFFSET),
@@ -926,7 +926,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
-        abi::store_u64("x1", abi::stack_pointer(), PORT_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
     ]);
     emit_hints(HINTS_OFFSET, true, SOCK_DGRAM, &mut instructions);
     // Empty host binds all interfaces (NULL host + AI_PASSIVE).
@@ -952,9 +952,9 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         abi::label(&resolved),
         // getaddrinfo(host, NULL, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
-        abi::move_immediate("x1", "Integer", "0"),
-        abi::add_immediate("x2", abi::stack_pointer(), HINTS_OFFSET),
-        abi::add_immediate("x3", abi::stack_pointer(), RES_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
         "getaddrinfo",
@@ -969,8 +969,8 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         // socket(ai_family, ai_socktype, ai_protocol)
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32("x1", "%v9", 8),
-        abi::load_u32("x2", "%v9", 12),
+        abi::load_u32(abi::ARG[1], "%v9", 8),
+        abi::load_u32(abi::ARG[2], "%v9", 12),
     ]);
     platform.emit_libc_call(
         "socket",
@@ -993,8 +993,8 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         // bind(fd, ai_addr, ai_addrlen)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("x1", "%v9", platform.addrinfo_addr_offset()),
-        abi::load_u32("x2", "%v9", 16),
+        abi::load_u64(abi::ARG[1], "%v9", platform.addrinfo_addr_offset()),
+        abi::load_u32(abi::ARG[2], "%v9", 16),
     ]);
     platform.emit_libc_call(
         "bind",
@@ -1143,7 +1143,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), MAX_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -1154,21 +1154,21 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         abi::branch_le(&invalid),
         // Allocate a maxBytes + 1 buffer to detect oversized datagrams.
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
         // recvfrom(fd, buf, maxBytes + 1, 0, &addr_storage, &addrlen)
         abi::move_immediate("%v9", "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
         abi::store_u64("%v9", abi::stack_pointer(), ADDRLEN_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x1", abi::stack_pointer(), BUF_OFFSET),
-        abi::load_u64("x2", abi::stack_pointer(), MAX_OFFSET),
-        abi::add_immediate("x2", "x2", 1),
-        abi::move_immediate("x3", "Integer", "0"),
-        abi::add_immediate("x4", abi::stack_pointer(), ADDR_STORAGE_OFFSET),
-        abi::add_immediate("x5", abi::stack_pointer(), ADDRLEN_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), MAX_OFFSET),
+        abi::add_immediate(abi::ARG[2], abi::ARG[2], 1),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::add_immediate(abi::ARG[4], abi::stack_pointer(), ADDR_STORAGE_OFFSET),
+        abi::add_immediate(abi::ARG[5], abi::stack_pointer(), ADDRLEN_OFFSET),
     ]);
     platform.emit_libc_call(
         "recvfrom",
@@ -1204,17 +1204,17 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         &alloc_fail,
         &addr_fail,
     )?;
-    instructions.push(abi::store_u64("x1", abi::stack_pointer(), ADDRPTR_OFFSET));
+    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), ADDRPTR_OFFSET));
     if text {
         // Build a String: [u64 len][bytes][nul], validate UTF-8.
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
             abi::add_immediate(abi::return_register(), "%v10", 9),
-            abi::move_immediate("x1", "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
             abi::store_u64("%v10", "%v15", 0),
             abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
@@ -1235,7 +1235,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             // validate_utf8(bytes, len)
             abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
             abi::add_immediate(abi::return_register(), "%v9", 8),
-            abi::load_u64("x1", "%v9", 0),
+            abi::load_u64(abi::ARG[1], "%v9", 0),
         ]);
         emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
     } else {
@@ -1246,11 +1246,11 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             abi::multiply_registers("%v12", "%v10", "%v11"),
             abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
             abi::add_registers(abi::return_register(), "%v12", "%v10"),
-            abi::move_immediate("x1", "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
             abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
@@ -1294,16 +1294,16 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     // Allocate the Datagram/DatagramText record: [from Address][bytes/value].
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "16"),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", "x1"), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
+        abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
         abi::load_u64("%v9", abi::stack_pointer(), ADDRPTR_OFFSET),
         abi::store_u64("%v9", "%v15", 0),
         abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
         abi::store_u64("%v9", "%v15", 8),
-        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1453,29 +1453,29 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         // x1 = Address record { host String ptr @0, port @8 }.
-        abi::load_u64("%v9", "x1", 0),
+        abi::load_u64("%v9", abi::ARG[1], 0),
         abi::store_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
-        abi::load_u64("%v9", "x1", 8),
+        abi::load_u64("%v9", abi::ARG[1], 8),
         abi::store_u64("%v9", abi::stack_pointer(), PORT_OFFSET),
     ]);
     if text {
         // x2 = String*: data at +8, length at +0.
         instructions.extend([
-            abi::load_u64("%v10", "x2", 0),
+            abi::load_u64("%v10", abi::ARG[2], 0),
             abi::store_u64("%v10", abi::stack_pointer(), DLEN_OFFSET),
-            abi::add_immediate("%v11", "x2", 8),
+            abi::add_immediate("%v11", abi::ARG[2], 8),
             abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET),
         ]);
     } else {
         // x2 = List OF Byte: bytes live inline at collection + HEADER +
         // count * ENTRY_SIZE.
         instructions.extend([
-            abi::load_u64("%v10", "x2", COLLECTION_OFFSET_COUNT),
+            abi::load_u64("%v10", abi::ARG[2], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), DLEN_OFFSET),
             abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", "x2", "%v13"),
+            abi::add_registers("%v11", abi::ARG[2], "%v13"),
             abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET),
         ]);
     }
@@ -1492,9 +1492,9 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     instructions.extend([
         // getaddrinfo(host, NULL, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
-        abi::move_immediate("x1", "Integer", "0"),
-        abi::add_immediate("x2", abi::stack_pointer(), HINTS_OFFSET),
-        abi::add_immediate("x3", abi::stack_pointer(), RES_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
         "getaddrinfo",
@@ -1515,12 +1515,12 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         abi::store_u8("%v10", "%v9", 3),
         // sendto(fd, data, dlen, 0, ai_addr, ai_addrlen)
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("x4", "%v9", platform.addrinfo_addr_offset()),
-        abi::load_u32("x5", "%v9", 16),
+        abi::load_u64(abi::ARG[4], "%v9", platform.addrinfo_addr_offset()),
+        abi::load_u32(abi::ARG[5], "%v9", 16),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x1", abi::stack_pointer(), DATA_OFFSET),
-        abi::load_u64("x2", abi::stack_pointer(), DLEN_OFFSET),
-        abi::move_immediate("x3", "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), DATA_OFFSET),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), DLEN_OFFSET),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "sendto",

@@ -197,7 +197,7 @@ impl CodeBuilder<'_> {
         ));
         // allocate output_len + 9 (block header), trapping the header add's wrap.
         self.emit_checked_size_add_immediate(abi::return_register(), output_len, 9, &overflow);
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -218,14 +218,14 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
 
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(
             output_len,
             abi::stack_pointer(),
             output_len_slot,
         ));
-        self.emit(abi::store_u64(output_len, "x1", 0));
-        self.emit(abi::add_immediate(dest, "x1", 8));
+        self.emit(abi::store_u64(output_len, abi::RET[1], 0));
+        self.emit(abi::add_immediate(dest, abi::RET[1], 8));
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
         self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
@@ -438,7 +438,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &overflow,
         );
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -458,20 +458,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&overflow));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
 
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.kind.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, "x1", COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KIND));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
@@ -479,13 +479,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch13, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch13,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), value_slot));
@@ -494,8 +494,8 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::store_u64(&scratch11, "x1", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch11, "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(&scratch11, abi::RET[1], COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&scratch11, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
@@ -503,12 +503,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch15,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch15,
-            "x1",
+            abi::RET[1],
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -520,13 +520,13 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(
             &scratch16,
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(&scratch17, abi::RET[1], COLLECTION_HEADER_SIZE));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::move_immediate(
             &scratch14,
@@ -892,7 +892,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(cursor, abi::stack_pointer(), start_slot));
 
         self.emit(abi::add_immediate(abi::return_register(), length, 9));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -908,10 +908,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, "x1", 0));
-        self.emit(abi::add_immediate(dst, "x1", 8));
+        self.emit(abi::store_u64(length, abi::RET[1], 0));
+        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
         self.emit(abi::load_u64(cursor, abi::stack_pointer(), start_slot));
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_immediate(length, "0"));
@@ -1134,7 +1134,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&validate_done));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
         self.emit(abi::add_immediate(abi::return_register(), length, 9));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1150,10 +1150,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, "x1", 0));
-        self.emit(abi::add_immediate(dst, "x1", 8));
+        self.emit(abi::store_u64(length, abi::RET[1], 0));
+        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
         self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::load_u64(list, abi::stack_pointer(), list_slot));
 
@@ -1320,7 +1320,7 @@ impl CodeBuilder<'_> {
         ));
 
         self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1336,14 +1336,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(
             total_len,
             abi::stack_pointer(),
             total_len_slot,
         ));
-        self.emit(abi::store_u64(total_len, "x1", 0));
-        self.emit(abi::add_immediate(dst, "x1", 8));
+        self.emit(abi::store_u64(total_len, abi::RET[1], 0));
+        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
         self.emit(abi::load_u64(
             cursor,
             abi::stack_pointer(),
@@ -1422,8 +1422,8 @@ impl CodeBuilder<'_> {
         precision_register: &str,
     ) -> Result<ValueResult, String> {
         let alloc_ok = self.label("float_string_alloc_ok");
-        self.emit(abi::move_register("x0", source_register));
-        self.emit(abi::move_register("x1", precision_register));
+        self.emit(abi::move_register(abi::ARG[0], source_register));
+        self.emit(abi::move_register(abi::ARG[1], precision_register));
         self.emit(abi::branch_link(FLOAT_TO_STRING_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1440,7 +1440,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register()?;
-        self.emit(abi::move_register(&result, "x1"));
+        self.emit(abi::move_register(&result, abi::RET[1]));
         Ok(ValueResult {
             type_: "String".to_string(),
             location: result,

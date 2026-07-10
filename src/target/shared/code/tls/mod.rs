@@ -229,15 +229,15 @@ pub(super) fn emit_cstring(
         abi::load_u64("x9", abi::stack_pointer(), str_off),
         abi::load_u64("x10", "x9", 0),
         abi::add_immediate(abi::return_register(), "x10", 1),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), out_off),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
         abi::load_u64("x9", abi::stack_pointer(), str_off),
         abi::load_u64("x10", "x9", 0),
         abi::add_immediate("x11", "x9", 8),
-        abi::move_register("x12", "x1"),
+        abi::move_register("x12", abi::RET[1]),
         abi::move_immediate("x13", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("x13", "x10"),
@@ -272,7 +272,7 @@ pub(super) fn emit_dlopen_libssl(
         instructions,
         relocations,
     );
-    instructions.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
+    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -292,7 +292,7 @@ pub(super) fn emit_dlopen_libssl(
         instructions,
         relocations,
     );
-    instructions.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
+    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -328,7 +328,7 @@ pub(super) fn emit_dlsym(
     ));
     emit_data_address(
         symbol,
-        "x1",
+        abi::ARG[1],
         &sym_data_symbol(name),
         instructions,
         relocations,
@@ -359,10 +359,10 @@ pub(super) fn emit_set_sock_timeouts(
     for opt in [platform.so_rcvtimeo(), platform.so_sndtimeo()] {
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
-            abi::move_immediate("x1", "Integer", platform.sol_socket()),
-            abi::move_immediate("x2", "Integer", opt),
-            abi::add_immediate("x3", abi::stack_pointer(), tv_off),
-            abi::move_immediate("x4", "Integer", "16"),
+            abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
+            abi::move_immediate(abi::ARG[2], "Integer", opt),
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), tv_off),
+            abi::move_immediate(abi::ARG[4], "Integer", "16"),
         ]);
         platform.emit_libc_call(
             "setsockopt",

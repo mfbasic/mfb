@@ -134,9 +134,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
         // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
-        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_register(abi::ARG[0], &count));
         self.emit(abi::move_immediate(
-            "x1",
+            abi::ARG[1],
             "Integer",
             &result_type_code.to_string(),
         ));
@@ -152,12 +152,12 @@ impl CodeBuilder<'_> {
         // Everything below runs after the only call, so registers are free.
         self.reset_temporary_registers();
         let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, "x0"));
+        self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label("simd_alloc_ok");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(abi::RET[1], "0"));
         self.emit(abi::branch_eq(&alloc_ok));
         // Surface the arena tag (returned in x1) as the allocation error.
-        self.emit(abi::move_register("x0", "x1"));
+        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
 
@@ -502,9 +502,9 @@ impl CodeBuilder<'_> {
         let count_slot = self.allocate_stack_object("simd_bin_count", 8);
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_register(abi::ARG[0], &count));
         self.emit(abi::move_immediate(
-            "x1",
+            abi::ARG[1],
             "Integer",
             &result_type_code.to_string(),
         ));
@@ -519,11 +519,11 @@ impl CodeBuilder<'_> {
 
         self.reset_temporary_registers();
         let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, "x0"));
+        self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label("simd_bin_alloc_ok");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(abi::RET[1], "0"));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit(abi::move_register("x0", "x1"));
+        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
 
@@ -682,9 +682,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_register(abi::ARG[0], &count));
         self.emit(abi::move_immediate(
-            "x1",
+            abi::ARG[1],
             "Integer",
             &result_type_code.to_string(),
         ));
@@ -699,11 +699,11 @@ impl CodeBuilder<'_> {
 
         self.reset_temporary_registers();
         let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, "x0"));
+        self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label("simd_clamp_alloc_ok");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(abi::RET[1], "0"));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit(abi::move_register("x0", "x1"));
+        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
 

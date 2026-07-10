@@ -82,7 +82,7 @@ fn emit_env_lock(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, "x0", instructions, relocations);
+    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, abi::ARG[0], instructions, relocations);
     platform.emit_libc_call(
         "pthread_mutex_lock",
         symbol,
@@ -115,7 +115,7 @@ fn emit_env_unlock_return(
         abi::move_register(&saved_message, RESULT_ERROR_MESSAGE_REGISTER),
         abi::move_register(&saved_source, RESULT_ERROR_SOURCE_REGISTER),
     ]);
-    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, "x0", instructions, relocations);
+    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, abi::ARG[0], instructions, relocations);
     platform.emit_libc_call(
         "pthread_mutex_unlock",
         symbol,
@@ -225,7 +225,7 @@ fn marshal_cstring(
     instructions.extend([
         abi::load_u64(&len, src, 0),
         abi::add_immediate(abi::return_register(), &len, 1),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -233,7 +233,7 @@ fn marshal_cstring(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_fail),
         abi::label(&alloc_ok),
-        abi::move_register(out, "x1"),
+        abi::move_register(out, abi::RET[1]),
         abi::load_u64(&len, src, 0),
         abi::add_immediate(&src_cursor, src, 8),
         abi::move_register(&dst, out),
@@ -290,7 +290,7 @@ fn build_string_from_cstr(
         abi::label(&count_done),
         // 8-byte length header + bytes + NUL terminator.
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -298,7 +298,7 @@ fn build_string_from_cstr(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_fail),
         abi::label(&alloc_ok),
-        abi::move_register(&block, "x1"),
+        abi::move_register(&block, abi::RET[1]),
         abi::store_u64(&length, &block, 0),
         abi::move_register(&src, cstr),
         abi::add_immediate(&dst, &block, 8),
@@ -354,9 +354,9 @@ fn lower_get_env(
     let fallback = vregs.next();
     let cname = vregs.next();
     let value = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, "x0")];
+    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
     if with_fallback {
-        instructions.push(abi::move_register(&fallback, "x1"));
+        instructions.push(abi::move_register(&fallback, abi::ARG[1]));
     }
     let mut relocations = Vec::new();
     // Serialize the whole `getenv` + marshal-into-arena against a concurrent
@@ -372,7 +372,7 @@ fn lower_get_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register("x0", &cname));
+    instructions.push(abi::move_register(abi::ARG[0], &cname));
     platform.emit_libc_call("getenv", symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
         abi::move_register(&value, abi::return_register()),
@@ -404,7 +404,7 @@ fn lower_get_env(
         instructions.extend([
             abi::load_u64(&flen, &fallback, 0),
             abi::add_immediate(abi::return_register(), &flen, 9),
-            abi::move_immediate("x1", "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
             abi::branch_link(ARENA_ALLOC_SYMBOL),
         ]);
         alloc_reloc(symbol, &mut relocations);
@@ -412,7 +412,7 @@ fn lower_get_env(
             abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
             abi::branch_ne(&alloc_error),
             abi::label(&alloc_ok),
-            abi::move_register(&block, "x1"),
+            abi::move_register(&block, abi::RET[1]),
             abi::load_u64(&flen, &fallback, 0),
             abi::store_u64(&flen, &block, 0),
             abi::add_immediate(&src, &fallback, 8),
@@ -477,7 +477,7 @@ fn lower_has_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, "x0")];
+    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
     let mut relocations = Vec::new();
     // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
     // `environ` (bug-64).
@@ -492,7 +492,7 @@ fn lower_has_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register("x0", &cname));
+    instructions.push(abi::move_register(abi::ARG[0], &cname));
     platform.emit_libc_call("getenv", symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -548,8 +548,8 @@ fn lower_set_env(
     let errno = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&name, "x0"),
-        abi::move_register(&value, "x1"),
+        abi::move_register(&name, abi::ARG[0]),
+        abi::move_register(&value, abi::ARG[1]),
     ];
     let mut relocations = Vec::new();
     // Hold the lock across `setenv` so a concurrent env reader on another thread
@@ -576,9 +576,9 @@ fn lower_set_env(
         &mut relocations,
     );
     instructions.extend([
-        abi::move_register("x0", &cname),
-        abi::move_register("x1", &cvalue),
-        abi::move_immediate("x2", "Integer", "1"),
+        abi::move_register(abi::ARG[0], &cname),
+        abi::move_register(abi::ARG[1], &cvalue),
+        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
     platform.emit_libc_call("setenv", symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
@@ -643,7 +643,7 @@ fn lower_unset_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, "x0")];
+    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
     let mut relocations = Vec::new();
     // Hold the lock across `unsetenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).
@@ -658,7 +658,7 @@ fn lower_unset_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register("x0", &cname));
+    instructions.push(abi::move_register(abi::ARG[0], &cname));
     platform.emit_libc_call(
         "unsetenv",
         symbol,
@@ -796,7 +796,7 @@ fn lower_environ(
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_bytes),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);
@@ -804,7 +804,7 @@ fn lower_environ(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, "x1"),
+        abi::move_register(&collection, abi::RET[1]),
         // Header.
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_MAP.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
@@ -951,7 +951,7 @@ fn build_string_from_len(
     let byte = vregs.next();
     instructions.extend([
         abi::add_immediate(abi::return_register(), len, 9),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -959,7 +959,7 @@ fn build_string_from_len(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_fail),
         abi::label(&alloc_ok),
-        abi::move_register(&block, "x1"),
+        abi::move_register(&block, abi::RET[1]),
         abi::store_u64(len, &block, 0),
         abi::move_register(&cursor, src),
         abi::add_immediate(&dst, &block, 8),
@@ -1007,7 +1007,7 @@ fn lower_const_string(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", &(len + 9).to_string()),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = Vec::new();
@@ -1016,7 +1016,7 @@ fn lower_const_string(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&block, "x1"),
+        abi::move_register(&block, abi::RET[1]),
         abi::move_immediate(&byte, "Integer", &len.to_string()),
         abi::store_u64(&byte, &block, 0),
     ]);
@@ -1091,7 +1091,7 @@ fn lower_cpu_count(
     let count = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_immediate("x0", "Integer", sc_nprocessors_onln),
+        abi::move_immediate(abi::ARG[0], "Integer", sc_nprocessors_onln),
     ];
     let mut relocations = Vec::new();
     platform.emit_libc_call("sysconf", symbol, platform_imports, &mut instructions, &mut relocations)?;
@@ -1136,8 +1136,8 @@ fn lower_host_name(
     let buf = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::add_immediate("x0", abi::stack_pointer(), 0),
-        abi::move_immediate("x1", "Integer", &BUF.to_string()),
+        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+        abi::move_immediate(abi::ARG[1], "Integer", &BUF.to_string()),
     ];
     let mut relocations = Vec::new();
     platform.emit_libc_call("gethostname", symbol, platform_imports, &mut instructions, &mut relocations)?;
@@ -1275,8 +1275,8 @@ fn lower_executable_path(
         instructions.extend([
             abi::move_immediate("x9", "Integer", &BUF.to_string()),
             abi::store_u32("x9", abi::stack_pointer(), BUF),
-            abi::add_immediate("x0", abi::stack_pointer(), 0),
-            abi::add_immediate("x1", abi::stack_pointer(), BUF),
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BUF),
         ]);
         platform.emit_libc_call(
             "_NSGetExecutablePath",
@@ -1310,9 +1310,9 @@ fn lower_executable_path(
         }
         let count = vregs.next();
         instructions.extend([
-            abi::add_immediate("x0", abi::stack_pointer(), 0),
-            abi::add_immediate("x1", abi::stack_pointer(), 16),
-            abi::move_immediate("x2", "Integer", &BUF.to_string()),
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 16),
+            abi::move_immediate(abi::ARG[2], "Integer", &BUF.to_string()),
         ]);
         platform.emit_libc_call("readlink", symbol, platform_imports, &mut instructions, &mut relocations)?;
         instructions.extend([
@@ -1427,7 +1427,7 @@ fn lower_args(
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_bytes),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);
@@ -1435,7 +1435,7 @@ fn lower_args(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, "x1"),
+        abi::move_register(&collection, abi::RET[1]),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),

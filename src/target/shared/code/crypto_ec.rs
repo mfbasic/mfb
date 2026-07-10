@@ -138,11 +138,11 @@ pub(super) fn emit_read_byte_list(
         abi::load_u64("%v10", "%v9", COLLECTION_OFFSET_COUNT),
         abi::store_u64("%v10", abi::stack_pointer(), len_off),
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), buf_off),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), buf_off),
         // dataBase = coll + HEADER + capacity*ENTRY_SIZE
         abi::load_u64("%v9", abi::stack_pointer(), coll_off),
         abi::load_u64("%v11", "%v9", COLLECTION_OFFSET_CAPACITY),
@@ -192,25 +192,25 @@ pub(super) fn emit_build_byte_list(
         abi::multiply_registers("%v12", "%v10", "%v11"),
         abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), "%v12", "%v10"),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), coll_off),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), coll_off),
         abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KIND),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KIND),
         abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KEY_TYPE),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
         abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
         abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_immediate("%v11", "x1", COLLECTION_HEADER_SIZE),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_COUNT),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate("%v11", abi::RET[1], COLLECTION_HEADER_SIZE),
         abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
         abi::multiply_registers("%v13", "%v10", "%v12"),
         abi::add_registers("%v14", "%v11", "%v13"), // data base

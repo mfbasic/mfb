@@ -58,11 +58,11 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // Allocate a scratch buffer of `count` bytes (arena_alloc rounds up, so a
         // zero request still yields a valid pointer we simply never read).
         abi::move_register(abi::return_register(), abi::return_register()),
-        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_arena_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
         // Fill the buffer from OS entropy in <=256-byte chunks.
         abi::move_immediate("%v9", "Integer", "0"),
         abi::store_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
@@ -81,7 +81,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // getentropy(buf + off, chunk)
         abi::load_u64("%v13", abi::stack_pointer(), BUF_OFFSET),
         abi::add_registers(abi::return_register(), "%v13", "%v9"),
-        abi::move_register("x1", "%v11"),
+        abi::move_register(abi::ARG[1], "%v11"),
     ]);
     platform.emit_libc_call(
         "getentropy",
@@ -115,25 +115,25 @@ pub(super) fn lower_crypto_random_bytes_helper(
         abi::multiply_registers("%v12", "%v10", "%v11"),
         abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), "%v12", "%v10"),
-        abi::move_immediate("x1", "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_arena_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64("x1", abi::stack_pointer(), COLLECTION_OFFSET),
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), COLLECTION_OFFSET),
         abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KIND),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KIND),
         abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KEY_TYPE),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
         abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
         abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
         abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_immediate("%v11", "x1", COLLECTION_HEADER_SIZE),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_COUNT),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate("%v11", abi::RET[1], COLLECTION_HEADER_SIZE),
         abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
         abi::multiply_registers("%v13", "%v10", "%v12"),
         abi::add_registers("%v14", "%v11", "%v13"),
@@ -157,7 +157,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         abi::add_immediate("%v9", "%v9", 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),
-        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
