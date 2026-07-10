@@ -87,6 +87,8 @@ fn emit_append_to_stdout_buffer(
     let cap = OUT_BUFFER_CAPACITY.to_string();
     let have_buf = format!("{symbol}_buf_{tag}_have");
     let alloc_failed = format!("{symbol}_buf_{tag}_alloc_failed");
+    let alloc_failed_loop = format!("{symbol}_buf_{tag}_alloc_failed_loop");
+    let big_write_loop = format!("{symbol}_buf_{tag}_big_write_loop");
     let fits = format!("{symbol}_buf_{tag}_fits");
     let copy_loop = format!("{symbol}_buf_{tag}_copy_loop");
     let byte_tail = format!("{symbol}_buf_{tag}_byte_tail");
@@ -110,16 +112,27 @@ fn emit_append_to_stdout_buffer(
         abi::branch(&have_buf),
         // Allocation failed: fall back to writing this chunk directly so no output
         // is lost — buffering is an optimization, never a correctness dependency.
+        // Loop on short writes (bug-51): one write() may transfer fewer than
+        // `remaining` bytes; advance the cursor and retry until nothing remains. A 0
+        // or -1 return is a failure, never success. %v40/%v41 are vregs, so the
+        // allocator spills the cursor/remaining across each `bl write`.
         abi::label(&alloc_failed),
+        abi::move_register("%v40", src),
+        abi::move_register("%v41", len),
+        abi::label(&alloc_failed_loop),
+        abi::compare_immediate("%v41", "0"),
+        abi::branch_eq(&appended),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_register(abi::string_data_register(), src),
-        abi::move_register(abi::string_length_register(), len),
+        abi::move_register(abi::string_data_register(), "%v40"),
+        abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(write_error),
-        abi::branch(&appended),
+        abi::branch_le(write_error),
+        abi::add_registers("%v40", "%v40", abi::return_register()),
+        abi::subtract_registers("%v41", "%v41", abi::return_register()),
+        abi::branch(&alloc_failed_loop),
         abi::label(&have_buf),
         abi::load_u64("%v21", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::add_registers("%v22", "%v21", len),
@@ -140,15 +153,25 @@ fn emit_append_to_stdout_buffer(
         abi::branch_ls(&fits),
         // The chunk is larger than the whole buffer: write it directly (the buffer
         // was just drained, so ordering is preserved) rather than splitting it.
+        // Loop on short writes (bug-51) until the whole chunk lands; a 0/-1 return is
+        // a failure. %v40/%v41 (cursor/remaining) are vregs → spilled/reloaded across
+        // each `bl write`.
+        abi::move_register("%v40", src),
+        abi::move_register("%v41", len),
+        abi::label(&big_write_loop),
+        abi::compare_immediate("%v41", "0"),
+        abi::branch_eq(&appended),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_register(abi::string_data_register(), src),
-        abi::move_register(abi::string_length_register(), len),
+        abi::move_register(abi::string_data_register(), "%v40"),
+        abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(write_error),
-        abi::branch(&appended),
+        abi::branch_le(write_error),
+        abi::add_registers("%v40", "%v40", abi::return_register()),
+        abi::subtract_registers("%v41", "%v41", abi::return_register()),
+        abi::branch(&big_write_loop),
         abi::label(&fits),
         // Copy len bytes from src into OUT_PTR[filled..].
         abi::load_u64("%v20", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
@@ -256,14 +279,26 @@ pub(super) fn lower_io_write_helper(
             abi::label(&direct),
         ]);
     }
+    let write_error = format!("{symbol}_write_error");
+    let done = format!("{symbol}_done");
+    let fd_str = if stderr { "2" } else { "1" };
+    let direct_loop = format!("{symbol}_direct_loop");
+    let direct_written = format!("{symbol}_direct_written");
+    // Loop on short writes (bug-51): a single write() may transfer fewer than the
+    // string's byte count (pipe/FIFO, filling disk, signal); advance the cursor and
+    // retry until nothing remains. A 0 or -1 return is a write failure, never
+    // success. %v13/%v14 (cursor/remaining) are vregs, so the allocator spills them
+    // across each `bl write` and reloads them afterward (compiler.md register
+    // lifetimes) — the pointer/count are never read from a caller-saved register.
     instructions.extend([
-        abi::load_u64(abi::string_length_register(), abi::return_register(), 0),
-        abi::add_immediate(abi::string_data_register(), abi::return_register(), 8),
-        abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            if stderr { "2" } else { "1" },
-        ),
+        abi::load_u64("%v14", abi::return_register(), 0),
+        abi::add_immediate("%v13", abi::return_register(), 8),
+        abi::label(&direct_loop),
+        abi::compare_immediate("%v14", "0"),
+        abi::branch_eq(&direct_written),
+        abi::move_register(abi::string_data_register(), "%v13"),
+        abi::move_register(abi::string_length_register(), "%v14"),
+        abi::move_immediate(abi::return_register(), "Integer", fd_str),
     ]);
     platform.emit_write(
         symbol,
@@ -271,23 +306,30 @@ pub(super) fn lower_io_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    let write_error = format!("{symbol}_write_error");
-    let done = format!("{symbol}_done");
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&write_error),
+        abi::branch_le(&write_error),
+        abi::add_registers("%v13", "%v13", abi::return_register()),
+        abi::subtract_registers("%v14", "%v14", abi::return_register()),
+        abi::branch(&direct_loop),
+        abi::label(&direct_written),
     ]);
     if append_newline {
+        let newline_loop = format!("{symbol}_newline_loop");
+        let newline_written = format!("{symbol}_newline_written");
         instructions.extend([
             abi::move_immediate("%v9", "Integer", "10"),
             abi::store_u64("%v9", abi::stack_pointer(), 8),
-            abi::move_immediate(
-                abi::return_register(),
-                "Integer",
-                if stderr { "2" } else { "1" },
-            ),
-            abi::add_immediate(abi::string_data_register(), abi::stack_pointer(), 8),
-            abi::move_immediate(abi::string_length_register(), "Integer", "1"),
+            abi::add_immediate("%v13", abi::stack_pointer(), 8),
+            abi::move_immediate("%v14", "Integer", "1"),
+            // A 1-byte write cannot short-count positively, but a 0 return still
+            // means the byte was not written — loop and treat 0/-1 as a failure.
+            abi::label(&newline_loop),
+            abi::compare_immediate("%v14", "0"),
+            abi::branch_eq(&newline_written),
+            abi::move_register(abi::string_data_register(), "%v13"),
+            abi::move_register(abi::string_length_register(), "%v14"),
+            abi::move_immediate(abi::return_register(), "Integer", fd_str),
         ]);
         platform.emit_write(
             symbol,
@@ -297,7 +339,11 @@ pub(super) fn lower_io_write_helper(
         )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_lt(&write_error),
+            abi::branch_le(&write_error),
+            abi::add_registers("%v13", "%v13", abi::return_register()),
+            abi::subtract_registers("%v14", "%v14", abi::return_register()),
+            abi::branch(&newline_loop),
+            abi::label(&newline_written),
         ]);
     }
     instructions.extend([
@@ -1346,11 +1392,20 @@ pub(super) fn lower_io_read_line_helper(
         // platform-independent failure signal. No fsync (its errno depends on the
         // fd type, not on the write). An empty prompt writes nothing and so
         // cannot fail; it joins at `prompt_flush` and proceeds to the read.
+        let prompt_loop = format!("{symbol}_prompt_loop");
         instructions.extend([
-            abi::load_u64(abi::string_length_register(), abi::return_register(), 0),
-            abi::compare_immediate(abi::string_length_register(), "0"),
+            abi::load_u64("%v42", abi::return_register(), 0),
+            abi::add_immediate("%v41", abi::return_register(), 8),
+            // Loop on short writes (bug-51): write the whole prompt or report
+            // output_error; a 0 or -1 return is a failure, never success. An empty
+            // prompt writes nothing (remaining == 0) and joins at prompt_flush.
+            // %v41/%v42 (cursor/remaining) are vregs → spilled/reloaded across each
+            // `bl write`.
+            abi::label(&prompt_loop),
+            abi::compare_immediate("%v42", "0"),
             abi::branch_eq(&prompt_flush),
-            abi::add_immediate(abi::string_data_register(), abi::return_register(), 8),
+            abi::move_register(abi::string_data_register(), "%v41"),
+            abi::move_register(abi::string_length_register(), "%v42"),
             abi::move_immediate(abi::return_register(), "Integer", "1"),
         ]);
         platform.emit_write(
@@ -1361,7 +1416,10 @@ pub(super) fn lower_io_read_line_helper(
         )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_lt(&output_error),
+            abi::branch_le(&output_error),
+            abi::add_registers("%v41", "%v41", abi::return_register()),
+            abi::subtract_registers("%v42", "%v42", abi::return_register()),
+            abi::branch(&prompt_loop),
             abi::label(&prompt_flush),
         ]);
     }

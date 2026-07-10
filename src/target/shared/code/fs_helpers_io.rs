@@ -85,6 +85,8 @@ fn emit_append_to_file_buffer(
     let cap = FILE_BUFFER_CAPACITY.to_string();
     let have_buf = format!("{symbol}_fbuf_{tag}_have");
     let alloc_failed = format!("{symbol}_fbuf_{tag}_alloc_failed");
+    let alloc_failed_loop = format!("{symbol}_fbuf_{tag}_alloc_failed_loop");
+    let big_write_loop = format!("{symbol}_fbuf_{tag}_big_write_loop");
     let fits = format!("{symbol}_fbuf_{tag}_fits");
     let copy_loop = format!("{symbol}_fbuf_{tag}_copy_loop");
     let byte_tail = format!("{symbol}_fbuf_{tag}_byte_tail");
@@ -107,17 +109,30 @@ fn emit_append_to_file_buffer(
         abi::move_register("%v30", "x1"),
         abi::branch(&have_buf),
         // Allocation failed: write this chunk directly to the fd so no data is lost.
+        // Loop on short writes (bug-51): a single write() may transfer fewer than
+        // `remaining` bytes (pipe/FIFO, filling disk, signal); advance the cursor and
+        // retry until nothing remains. A 0 or -1 return is a write failure, never
+        // success. %v40/%v41 are vregs, so the allocator spills the cursor/remaining
+        // across each `bl write` and reloads them afterward (compiler.md register
+        // lifetimes).
         abi::label(&alloc_failed),
         abi::load_u64("%v31", file, FILE_OFFSET_FD),
+        abi::move_register("%v40", src),
+        abi::move_register("%v41", len),
+        abi::label(&alloc_failed_loop),
+        abi::compare_immediate("%v41", "0"),
+        abi::branch_eq(&appended),
         abi::move_register(abi::return_register(), "%v31"),
-        abi::move_register(abi::string_data_register(), src),
-        abi::move_register(abi::string_length_register(), len),
+        abi::move_register(abi::string_data_register(), "%v40"),
+        abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(write_error),
-        abi::branch(&appended),
+        abi::branch_le(write_error),
+        abi::add_registers("%v40", "%v40", abi::return_register()),
+        abi::subtract_registers("%v41", "%v41", abi::return_register()),
+        abi::branch(&alloc_failed_loop),
         abi::label(&have_buf),
         abi::load_u64("%v32", file, FILE_OFFSET_BUF_FILLED),
         abi::add_registers("%v33", "%v32", len),
@@ -136,17 +151,27 @@ fn emit_append_to_file_buffer(
         abi::move_immediate("%v34", "Integer", &cap),
         abi::compare_registers(len, "%v34"),
         abi::branch_ls(&fits),
-        // The chunk is larger than the whole buffer: write it directly to the fd.
+        // The chunk is larger than the whole buffer: write it directly to the fd,
+        // looping on short writes (bug-51) until the whole chunk lands. A 0/-1 return
+        // is a write failure. %v40/%v41 (cursor/remaining) are vregs → spilled and
+        // reloaded across each `bl write`.
         abi::load_u64("%v31", file, FILE_OFFSET_FD),
+        abi::move_register("%v40", src),
+        abi::move_register("%v41", len),
+        abi::label(&big_write_loop),
+        abi::compare_immediate("%v41", "0"),
+        abi::branch_eq(&appended),
         abi::move_register(abi::return_register(), "%v31"),
-        abi::move_register(abi::string_data_register(), src),
-        abi::move_register(abi::string_length_register(), len),
+        abi::move_register(abi::string_data_register(), "%v40"),
+        abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(write_error),
-        abi::branch(&appended),
+        abi::branch_le(write_error),
+        abi::add_registers("%v40", "%v40", abi::return_register()),
+        abi::subtract_registers("%v41", "%v41", abi::return_register()),
+        abi::branch(&big_write_loop),
         abi::label(&fits),
         abi::load_u64("%v30", file, FILE_OFFSET_BUF_PTR),
         abi::add_registers("%v35", "%v30", "%v32"),

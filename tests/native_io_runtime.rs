@@ -1184,3 +1184,145 @@ END FUNC
         "isOn should be TRUE while active: {out:?}"
     );
 }
+
+/// Build a `write()` interposer that caps every call to 4096 bytes, forcing the
+/// short *positive* returns that bug-51's output loops must survive. macOS routes
+/// `write` through libSystem, so a `__DATA,__interpose` shim reaches the mfb
+/// binary; linux-x86_64 issues a raw `write` syscall that no libc interposer can
+/// hook, so this validation is macOS-only.
+#[cfg(target_os = "macos")]
+fn build_short_write_interposer(root: &Path) -> PathBuf {
+    let source = root.join("short_write.c");
+    fs::write(
+        &source,
+        r#"
+#include <stdlib.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+static long mfb_short_write(int fd, const void *buf, unsigned long n) {
+  unsigned long cap = n > 4096 ? 4096 : n;
+  return syscall(SYS_write, fd, buf, (size_t)cap);
+}
+
+typedef struct {
+  const void *replacement;
+  const void *replacee;
+} interpose_t;
+__attribute__((used)) static const interpose_t interposers[] __attribute__((section("__DATA,__interpose"))) = {
+  { (const void *)mfb_short_write, (const void *)write }
+};
+"#,
+    )
+    .expect("write short-write interposer source");
+    let library = root.join("libshort_write.dylib");
+    let output = Command::new("cc")
+        .args(["-dynamiclib", "-o"])
+        .arg(&library)
+        .arg(&source)
+        .output()
+        .expect("compile short-write interposer");
+    assert!(
+        output.status.success(),
+        "interposer build failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    library
+}
+
+/// bug-51: output paths that issue a single `write()` treated a short *positive*
+/// return as a complete write, silently dropping the tail while reporting success.
+/// Under a `write()` capped to 4096 bytes, a 300000-byte write returns dozens of
+/// short counts; the fixed advance-and-loop must transfer every byte. Covers the
+/// default `io::write` stdout path (`lower_io_write_helper`) and the `fs::writeAll`
+/// buffered large-chunk path (`emit_append_to_file_buffer`). Before the fix each
+/// path wrote a single 4096-byte chunk, reported OK, and dropped the remaining
+/// ~296 KB.
+#[cfg(target_os = "macos")]
+#[test]
+fn native_io_short_write_returns_do_not_truncate_output() {
+    const N: usize = 300000;
+
+    // Default stdout path: a large io::write must survive short writes.
+    let io_project = temp_project(
+        "native_io_short_write_stdout",
+        r#"
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  io::write(strings::repeat("y", 300000))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let io_exe = build_project(&io_project);
+    let io_interposer = build_short_write_interposer(&io_project);
+    let io_envs = vec![
+        ("DYLD_INSERT_LIBRARIES", io_interposer.display().to_string()),
+        ("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()),
+    ];
+    let (io_status, io_stdout, io_stderr) = run_capture_with_env(&io_exe, &io_envs);
+    assert_eq!(
+        io_status, 0,
+        "io::write should succeed under short writes: {io_stderr}"
+    );
+    assert_eq!(
+        io_stdout.len(),
+        N,
+        "io::write dropped output on short writes: got {} of {N} bytes",
+        io_stdout.len()
+    );
+    assert!(
+        io_stdout.bytes().all(|b| b == b'y'),
+        "io::write payload corrupted under short writes"
+    );
+
+    // fs::writeAll buffered large-chunk path: write to a regular file, read it
+    // back, and confirm the whole payload landed.
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let out_path = std::env::temp_dir().join(format!("bug51_fs_{nonce}.bin"));
+    let fs_source = format!(
+        r#"
+IMPORT fs
+IMPORT strings
+
+FUNC main AS Integer
+  RES f AS File = fs::open("{}", "write")
+  fs::setBuffered(f, TRUE)
+  fs::writeAll(f, strings::repeat("z", 300000))
+  fs::close(f)
+  RETURN 0
+END FUNC
+"#,
+        out_path.display()
+    );
+    let fs_project = temp_project("native_io_short_write_fs", &fs_source);
+    let fs_exe = build_project(&fs_project);
+    let fs_interposer = build_short_write_interposer(&fs_project);
+    let fs_envs = vec![
+        ("DYLD_INSERT_LIBRARIES", fs_interposer.display().to_string()),
+        ("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()),
+    ];
+    let (fs_status, _fs_stdout, fs_stderr) = run_capture_with_env(&fs_exe, &fs_envs);
+    assert_eq!(
+        fs_status, 0,
+        "fs::writeAll should succeed under short writes: {fs_stderr}"
+    );
+    let written = fs::read(&out_path).expect("read fs output");
+    let _ = fs::remove_file(&out_path);
+    assert_eq!(
+        written.len(),
+        N,
+        "fs::writeAll buffered dropped output on short writes: got {} of {N} bytes",
+        written.len()
+    );
+    assert!(
+        written.iter().all(|&b| b == b'z'),
+        "fs::writeAll payload corrupted under short writes"
+    );
+}
