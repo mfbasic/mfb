@@ -246,7 +246,7 @@ fn patch_relocations(
             "internal" if relocation.kind == "riscv_call" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
-                let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64);
+                let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64)?;
                 patch_riscv_auipc(text, relocation.offset, hi20);
                 patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
             }
@@ -260,7 +260,7 @@ fn patch_relocations(
                     ));
                 };
                 let site = text_vmaddr + relocation.offset as u64;
-                let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64);
+                let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64)?;
                 patch_riscv_auipc(text, relocation.offset, hi20);
                 patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
             }
@@ -271,7 +271,7 @@ fn patch_relocations(
             "data" if relocation.kind == "riscv_pcrel_hi20" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
-                let (hi20, _) = riscv_hi_lo(target as i64 - site as i64);
+                let (hi20, _) = riscv_hi_lo(target as i64 - site as i64)?;
                 patch_riscv_auipc(text, relocation.offset, hi20);
             }
             "data" if relocation.kind == "riscv_pcrel_lo12" => {
@@ -282,7 +282,7 @@ fn patch_relocations(
                     "riscv_pcrel_hi20",
                 )?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
-                let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64);
+                let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64)?;
                 patch_riscv_itype_imm(text, relocation.offset, lo12);
             }
             // Imported data global addressed through its GOT slot: `auipc rd,
@@ -297,7 +297,7 @@ fn patch_relocations(
                     ));
                 };
                 let site = text_vmaddr + relocation.offset as u64;
-                let (hi20, _) = riscv_hi_lo(slot as i64 - site as i64);
+                let (hi20, _) = riscv_hi_lo(slot as i64 - site as i64)?;
                 patch_riscv_auipc(text, relocation.offset, hi20);
             }
             "external" if relocation.kind == "riscv_got_lo12" => {
@@ -314,7 +314,7 @@ fn patch_relocations(
                     "riscv_got_hi20",
                 )?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
-                let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64);
+                let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64)?;
                 patch_riscv_itype_imm(text, relocation.offset, lo12);
             }
             _ => {
@@ -354,7 +354,7 @@ fn append_import_stubs(
         // Every import gets a GOT slot. Function imports also get a call stub
         // that branches through it; data globals are addressed via the GOT slot
         // directly (their stub is unused).
-        emit_import_stub(arch, text, stub_vmaddr, entry_vmaddr);
+        emit_import_stub(arch, text, stub_vmaddr, entry_vmaddr)?;
         locations.stubs.insert(import.symbol.clone(), stub_vmaddr);
         locations
             .got_entries
@@ -394,10 +394,20 @@ fn paired_auipc_offset(
 /// the upper 20 bits (rounded so the sign-extended low 12 corrects it) and the
 /// paired `addi`/`ld`/`jalr` adds the low 12. Returns `(auipc_imm20_field,
 /// lo12)` where `lo12 ∈ [-2048, 2047]`.
-fn riscv_hi_lo(delta: i64) -> (u32, i32) {
-    let hi = (delta + 0x800) >> 12;
+///
+/// The pair reaches roughly ±2 GiB. Masking `hi` to 20 bits without checking it
+/// would silently drop the high bits of a longer displacement and patch a jump or
+/// data load to the wrong address, so an out-of-reach displacement is an error
+/// (the same discipline the other backends' branch/rel encoders follow).
+fn riscv_hi_lo(delta: i64) -> Result<(u32, i32), String> {
+    let out_of_reach =
+        || format!("linux-riscv64 linker: displacement {delta} exceeds the ±2 GiB reach of auipc");
+    let hi = delta.checked_add(0x800).ok_or_else(out_of_reach)? >> 12;
+    if !(-(1 << 19)..(1 << 19)).contains(&hi) {
+        return Err(out_of_reach());
+    }
     let lo = (delta - (hi << 12)) as i32;
-    ((hi as u32) & 0xfffff, lo)
+    Ok(((hi as u32) & 0xfffff, lo))
 }
 
 /// Patch a RISC-V `auipc rd, hi20` word in place, preserving `rd`.
@@ -414,19 +424,24 @@ fn patch_riscv_itype_imm(text: &mut [u8], offset: usize, lo12: i32) {
     write_u32(text, offset, existing | (((lo12 as u32) & 0xfff) << 20));
 }
 
-fn emit_import_stub(arch: &str, text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
+fn emit_import_stub(
+    arch: &str,
+    text: &mut Vec<u8>,
+    stub_vmaddr: u64,
+    got_vmaddr: u64,
+) -> Result<(), String> {
     if arch == "riscv64" {
         // Load the resolved address from the GOT slot and jump: `auipc t3, hi;
         // ld t3, lo(t3); jr t3` (t3 = x28). 12 bytes, matching the fixed stub
         // slot. The loader fills the GOT slot via the JUMP_SLOT reloc.
-        let (hi20, lo12) = riscv_hi_lo(got_vmaddr as i64 - stub_vmaddr as i64);
+        let (hi20, lo12) = riscv_hi_lo(got_vmaddr as i64 - stub_vmaddr as i64)?;
         put_u32(text, (hi20 << 12) | (28 << 7) | 0x17); // auipc t3, hi20
         put_u32(
             text,
             (((lo12 as u32) & 0xfff) << 20) | (28 << 15) | (0b011 << 12) | (28 << 7) | 0x03,
         ); // ld t3, lo12(t3)
         put_u32(text, (28 << 15) | 0x67); // jalr x0, 0(t3)
-        return;
+        return Ok(());
     }
     if arch == "x86_64" {
         // PLT stub `jmp *disp32(%rip)` (FF 25 disp32): jump through the GOT slot,
@@ -440,7 +455,7 @@ fn emit_import_stub(arch: &str, text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr
         let disp = (got_vmaddr as i64 - rip as i64) as i32;
         text.extend_from_slice(&disp.to_le_bytes());
         text.extend_from_slice(&[0xcc; 6]);
-        return;
+        return Ok(());
     }
     // aarch64: adrp x16, GOT_page; ldr x16, [x16, GOT_off]; br x16.
     let page_delta = ((got_vmaddr & !0xfff) as i64 - (stub_vmaddr & !0xfff) as i64) >> 12;
@@ -453,6 +468,7 @@ fn emit_import_stub(arch: &str, text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr
         0xf940_0211 | ((((got_vmaddr & 0xfff) / 8) as u32) << 10),
     );
     put_u32(text, 0xd61f_0220);
+    Ok(())
 }
 
 fn symbol_vmaddr(

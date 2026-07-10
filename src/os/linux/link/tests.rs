@@ -981,3 +981,59 @@ fn riscv_pcrel_lo12_pairs_with_nearest_preceding_hi_of_same_target() {
     let orphan = vec![riscv_reloc(50, "Z", "riscv_pcrel_lo12")];
     assert!(paired_auipc_offset(&orphan, &orphan[0], "riscv_pcrel_hi20").is_err());
 }
+
+/// bug-39: the SysV `DT_HASH` chain must begin with the unused null-symbol slot.
+/// Writing the first link into `chain[0]` shifted every entry down one slot, so a
+/// by-name lookup of the second and later symbols walked past its own entry.
+#[test]
+fn dynamic_elf_hash_chain_starts_at_the_null_symbol() {
+    let image = glob_dat_image("libc.so.6");
+    let bytes = encode_dynamic_elf(
+        "aarch64",
+        LinuxFlavor::Glibc,
+        0,
+        &image.text,
+        &image.data,
+        &image,
+    )
+    .expect("encode dynamic elf");
+
+    // nbucket=1, nchain=3 (2 imports + null), bucket[0]=1, then the chain:
+    // chain[0]=0 (null symbol), chain[1]=2 (link to symbol 2), chain[2]=0 (end).
+    let expected: Vec<u8> = [1u32, 3, 1, 0, 2, 0]
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect();
+    assert!(
+        bytes.windows(expected.len()).any(|w| w == expected),
+        "DT_HASH section not found with a null-symbol chain[0]"
+    );
+    // The pre-fix layout put the first link where chain[0] belongs.
+    let shifted: Vec<u8> = [1u32, 3, 1, 2, 0, 0]
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect();
+    assert!(!bytes.windows(shifted.len()).any(|w| w == shifted));
+}
+
+/// bug-39: `auipc` reaches ±2 GiB. Masking the high 20 bits without a range check
+/// silently dropped the rest and patched a jump or load to the wrong address.
+#[test]
+fn riscv_hi_lo_rejects_a_displacement_past_the_auipc_reach() {
+    // In-range displacements encode as before.
+    assert_eq!(riscv_hi_lo(0), Ok((0, 0)));
+    assert_eq!(riscv_hi_lo(0x7ff), Ok((0, 2047)));
+    assert_eq!(riscv_hi_lo(0x800), Ok((1, -2048)));
+    assert_eq!(riscv_hi_lo(-4), Ok((0, -4)));
+    // A displacement below -2048 rounds hi down, so the sign-extended lo12 corrects it.
+    assert_eq!(riscv_hi_lo(-0x801), Ok((0xfffff, 2047)));
+    // The exact boundaries of the auipc + lo12 reach.
+    assert!(riscv_hi_lo(0x7fff_f7ff).is_ok());
+    assert!(riscv_hi_lo(-0x8000_0800).is_ok());
+    // One byte past either end is an error, not a truncated immediate.
+    let err = riscv_hi_lo(0x7fff_f800).expect_err("beyond +2 GiB");
+    assert!(err.contains("exceeds the ±2 GiB reach"), "{err}");
+    assert!(riscv_hi_lo(-0x8000_0801).is_err());
+    assert!(riscv_hi_lo(i64::MAX).is_err());
+    assert!(riscv_hi_lo(i64::MIN + 0x800).is_err());
+}

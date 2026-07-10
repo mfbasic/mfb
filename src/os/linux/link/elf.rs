@@ -514,10 +514,17 @@ impl DynamicPayload {
             put_u64(&mut bytes, 0);
         }
 
+        // SysV `DT_HASH`: nbucket, nchain, one bucket, then `nchain` chain words.
+        // Symbol 0 is the null symbol, so `chain[0]` is unused and must be 0; the
+        // bucket starts the list at symbol 1 and each `chain[i]` links to the next
+        // symbol, with 0 (STN_UNDEF) terminating it. Writing the first link into
+        // `chain[0]` shifted every entry down one slot, so a by-name lookup of the
+        // second and later symbols walked past its own entry.
         bytes.resize(hash_offset - payload_start, 0);
         put_u32(&mut bytes, 1);
         put_u32(&mut bytes, (image.imports.len() + 1) as u32);
         put_u32(&mut bytes, if image.imports.is_empty() { 0 } else { 1 });
+        put_u32(&mut bytes, 0); // chain[0] — the null symbol
         for index in 1..=image.imports.len() {
             let next = if index == image.imports.len() {
                 0
@@ -526,7 +533,6 @@ impl DynamicPayload {
             };
             put_u32(&mut bytes, next as u32);
         }
-        put_u32(&mut bytes, 0);
 
         bytes.resize(rela_offset - payload_start, 0);
         for (index, import) in image.imports.iter().enumerate() {

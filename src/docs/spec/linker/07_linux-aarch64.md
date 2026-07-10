@@ -42,6 +42,11 @@ For a dynamic image the linker builds `.dynstr`, `.dynsym` (entry 0 is the null
 symbol), a SysV `.hash` table, `.rela`, and `.got`, then a `.dynamic` section
 carrying at least:
 
+The `.hash` table is one bucket over every imported symbol: `nbucket=1`,
+`nchain=imports+1`, `bucket[0]=1`, then the chain — `chain[0]=0` for the null
+symbol, `chain[i]` linking to symbol `i+1`, and `0` (`STN_UNDEF`) terminating it.
+[[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+
 ```text
 DT_NEEDED (one per distinct imported library)
 DT_HASH DT_STRTAB DT_SYMTAB DT_STRSZ DT_SYMENT
