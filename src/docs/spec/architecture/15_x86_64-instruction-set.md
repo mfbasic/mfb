@@ -43,32 +43,41 @@ structural conversion, reached through `Backend::select`. [[src/arch/x86_64/sele
 
 [[src/arch/x86_64/select.rs:select_x86]]
 
-**ABI remapping is a direct table lookup.** A selected stream carries its
-call-boundary registers as neutral role tokens (`%arg0`–`%arg7`, `%ret0`–`%ret3`,
-`%sysnr`, `%sysarg0`–`%sysarg5`, `%sysret`, `%closure_env`; plan-34-B), plus the
-stack pointer `sp`, the zero token `xzr`, the link reg `x30`, and residual scratch
-`x9`–`x30`. `remap_x86_abi` rewrites each to its System V home via
-`map_x86_operand`. Because the shared lowering already names each register by its
-ABI role, the x86 backend no longer reconstructs those roles from control flow —
-the earlier CFG role-inference pass (an `AbiBoundary` classifier, a
-`boundary_before` fixpoint, a staged-error-`Result` BFS, and an incoming-parameter
-bridge prologue) is gone:
+**The hard part of selection is ABI remapping.** Shared lowering names its
+call-boundary registers by role token (`%arg`/`%ret`/`%sysnr`/`%sysarg`/`%sysret`/
+`%closure_env`, plan-34-B Phase 3b), which a seam (`abi::realize_abi_token`)
+translates back to the AArch64 spelling (`%arg3` → `x3`, `%sysnr` → `x8`, …) before
+selection. A selected stream then still carries residual AArch64 physical registers
+(the ABI regs `x0`–`x8`, `sp`, `x31`/`xzr`, link reg `x30`, and leftover scratch
+`x9`–`x30`). `remap_x86_abi` rewrites them to System V homes. This is materially
+more complex than AArch64 selection because AArch64 has 8 argument registers while
+System V has 6, and because a register's role (argument vs return vs staged result)
+must be resolved by the nearest call / syscall / `ret` boundary along the
+control-flow graph:
 
-- `%arg[n]` → `CALL_ARGS[n]`, `%ret[n]` → `RETS[n]`, `%sysarg[n]` → `SYS_ARGS[n]`,
-  `%sysnr`/`%sysret` → `rax`, `%closure_env` → `x28`'s callee-saved home `r13`.
+- `AbiBoundary` classifies each Call / Syscall / Ret boundary.
+- `map_abi_register` maps `x0`–`x8` to a home from `CALL_ARGS` / `SYS_ARGS` / `RETS`.
 - `map_scratch_register` maps residual `x9`+ scratch, deliberately avoiding `rax`
   and `rdx` (implicit in `mul`/`div`) and arranging AArch64 callee-saved `x19`–`x28`
   onto x86 callee-saved `rbx`/`rbp`/`r12`/`r13`.
-- A residual bare `x0`–`x8` (a scratch use the migration left un-tokenized) falls
-  back to that index's `RETS` home — the one case where an ABI-range register is
-  not a role token.
 - The link register `x30` has no x86 equivalent (`call` pushes / `ret` pops), so
   its frame save/restore is dropped entirely; `x31`/`xzr` is the zero register.
+- A forward CFG dataflow distinguishes call arguments from call results and
+  handles the runtime's 4-register error-`Result` convention.
 
-The extension `CALL_ARGS` needs (System V has 6 argument registers, AArch64 has 8)
-is described below.
+> **Why the inference still exists.** plan-34-B Phase 4 tried to delete this pass
+> and map role tokens straight to SysV homes, on the premise that the tokens
+> already carry each register's role. That held for the package-generating builders
+> but NOT for the entry stub and runtime-helper bodies, which stage call/syscall
+> arguments through result-accessors (`return_register()` = `%ret0`,
+> `string_data/length_register` = `x1`/`x2`) — byte-identical on AArch64 (where
+> `%ret0` and `%arg0` are both `x0`) but wrong on x86 (`%ret0` → `rax`, an argument
+> needs `rdi`). The inference is the only thing that distinguishes them by context,
+> so Phase 4 was reverted; re-deleting it needs those sites audited to use
+> `%arg`/`%sysarg` tokens, verified against the full-executable inference oracle
+> (bug-85).
 
-[[src/arch/x86_64/select.rs:remap_x86_abi]] [[src/arch/x86_64/select.rs:map_x86_operand]] [[src/arch/x86_64/select.rs:map_scratch_register]]
+[[src/arch/x86_64/select.rs:remap_x86_abi]] [[src/arch/x86_64/select.rs:map_abi_register]] [[src/arch/x86_64/select.rs:map_scratch_register]]
 
 ## Encoding (REX / ModRM / SIB)
 

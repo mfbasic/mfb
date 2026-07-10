@@ -152,10 +152,12 @@ pub(crate) const SYSRET: &str = "%sysret";
 pub(crate) const CLOSURE_ENV: &str = "%closure_env";
 
 /// Translate a call-boundary role token to its AArch64 register spelling — the
-/// realization table the AArch64 and riscv64 backends apply during selection
-/// (riscv then remaps the `xN` to its own register file). The x86-64 backend does
-/// NOT use this: after plan-34-B Phase 4 it maps each role token straight to its
-/// System V home (`%arg1` → `rsi`), since AArch64's `xN` is not x86's home. A
+/// seam **all three** backends apply during selection before their per-ISA remap
+/// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64
+/// then runs `remap_x86_abi`'s CFG role-inference to reach its SysV home). This is
+/// the plan-34-B Phase 3b state: Phase 4's x86 direct-lookup (`map_x86_operand`)
+/// was reverted because the entry stub and runtime-helper bodies stage arguments
+/// with result-accessors that only the inference disambiguates on x86 (bug-85). A
 /// non-token value passes through unchanged.
 pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
     Some(match value {
