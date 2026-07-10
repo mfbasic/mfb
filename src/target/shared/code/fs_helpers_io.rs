@@ -1277,6 +1277,7 @@ pub(super) fn lower_fs_write_all_bytes_helper(
     let closed_flag = vregs.next();
     let scratch = vregs.next();
     let buf_enabled = vregs.next();
+    let entry_size = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
@@ -1302,8 +1303,8 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         abi::load_u64(&remaining, &bytes, COLLECTION_OFFSET_DATA_LENGTH),
         abi::add_immediate(&cursor, &bytes, COLLECTION_HEADER_SIZE),
         abi::load_u64(&scratch, &bytes, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("x9", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&scratch, &scratch, "x9"),
+        abi::move_immediate(&entry_size, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&scratch, &scratch, &entry_size),
         abi::add_registers(&cursor, &cursor, &scratch),
         // Opt-in per-File buffering (plan-14-B): append into the handle's buffer
         // when enabled; off falls into today's unbuffered direct-write loop.

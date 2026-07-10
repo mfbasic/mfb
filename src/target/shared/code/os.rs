@@ -1272,9 +1272,10 @@ fn lower_executable_path(
 
     if platform.target().starts_with("macos") {
         // Frame: [0..BUF) path buffer, [BUF..BUF+8) uint32 size word (=BUF).
+        let size_word = vregs.next();
         instructions.extend([
-            abi::move_immediate("x9", "Integer", &BUF.to_string()),
-            abi::store_u32("x9", abi::stack_pointer(), BUF),
+            abi::move_immediate(&size_word, "Integer", &BUF.to_string()),
+            abi::store_u32(&size_word, abi::stack_pointer(), BUF),
             abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BUF),
         ]);
@@ -1305,8 +1306,9 @@ fn lower_executable_path(
         // Frame: [0..16) "/proc/self/exe\0" path, [16..16+BUF) readlink buffer.
         let path = b"/proc/self/exe\0";
         for (i, b) in path.iter().enumerate() {
-            instructions.push(abi::move_immediate("x9", "Byte", &b.to_string()));
-            instructions.push(abi::store_u8("x9", abi::stack_pointer(), i));
+            let byte = vregs.next();
+            instructions.push(abi::move_immediate(&byte, "Byte", &b.to_string()));
+            instructions.push(abi::store_u8(&byte, abi::stack_pointer(), i));
         }
         let count = vregs.next();
         instructions.extend([
