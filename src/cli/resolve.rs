@@ -440,28 +440,42 @@ fn load_import_edges(
     Ok(edges)
 }
 
+/// Compare one dotted component of a version.
+///
+/// A component that is not a `u64` (`"2x"`, or a number too large to fit) must not
+/// be coerced to `0` — that silently ranks `"2x.0.0"` as `"0.0.0"`. Numeric
+/// components compare as numbers; a numeric component outranks a malformed one;
+/// two malformed components compare lexically, so the order is total and stable.
+fn compare_version_components(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a.parse::<u64>(), b.parse::<u64>()) {
+        (Ok(left), Ok(right)) => left.cmp(&right),
+        (Ok(_), Err(_)) => Ordering::Greater,
+        (Err(_), Ok(_)) => Ordering::Less,
+        (Err(_), Err(_)) => a.cmp(b),
+    }
+}
+
 /// Compare two dotted version strings: numeric components compared as numbers,
 /// a `-prerelease` suffix sorting below the same release.
 fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
-    let split = |version: &str| -> (Vec<u64>, Option<String>) {
+    fn split(version: &str) -> (Vec<&str>, Option<&str>) {
         let (release, pre) = match version.split_once('-') {
-            Some((release, pre)) => (release, Some(pre.to_string())),
+            Some((release, pre)) => (release, Some(pre)),
             None => (version, None),
         };
-        let numbers = release
-            .split('.')
-            .map(|part| part.parse::<u64>().unwrap_or(0))
-            .collect();
-        (numbers, pre)
-    };
+        (release.split('.').collect(), pre)
+    }
     let (a_nums, a_pre) = split(a);
     let (b_nums, b_pre) = split(b);
     let width = a_nums.len().max(b_nums.len());
     for index in 0..width {
-        let left = a_nums.get(index).copied().unwrap_or(0);
-        let right = b_nums.get(index).copied().unwrap_or(0);
-        match left.cmp(&right) {
+        // A version shorter than the other is padded with implicit zeroes, so
+        // `1.2` and `1.2.0` are the same version.
+        let left = a_nums.get(index).copied().unwrap_or("0");
+        let right = b_nums.get(index).copied().unwrap_or("0");
+        match compare_version_components(left, right) {
             Ordering::Equal => {}
             other => return other,
         }
@@ -654,6 +668,25 @@ mod tests {
             compare_versions("1.0.0-rc2", "1.0.0-rc1"),
             Ordering::Greater
         );
+        // Missing trailing components are implicit zeroes.
+        assert_eq!(compare_versions("1.2", "1.2.0"), Ordering::Equal);
+    }
+
+    #[test]
+    fn version_comparison_does_not_coerce_malformed_components_to_zero() {
+        // `"2x"` used to parse as 0, ranking `2x.0.0` exactly like `0.0.0` — so
+        // a malformed registry version could silently outrank `0.9.0`.
+        assert_ne!(compare_versions("2x.0.0", "0.0.0"), Ordering::Equal);
+        assert_eq!(compare_versions("2.0.0", "2x.0.0"), Ordering::Greater);
+        assert_eq!(compare_versions("2x.0.0", "2.0.0"), Ordering::Less);
+        // A component too large for u64 is malformed, not zero.
+        assert_eq!(
+            compare_versions("18446744073709551616.0.0", "1.0.0"),
+            Ordering::Less
+        );
+        // Two malformed components order lexically, so the comparison is total.
+        assert_eq!(compare_versions("2x.0.0", "2y.0.0"), Ordering::Less);
+        assert_eq!(compare_versions("2x.0.0", "2x.0.0"), Ordering::Equal);
     }
 
     #[test]

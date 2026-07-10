@@ -1371,12 +1371,21 @@ pub(crate) fn package_dependency_status(
         return PackageVerifyStatus::InvalidPackage;
     }
     if dependency.pin {
-        package_version_status(&dependency.version, actual_version)
+        // A pin demands exactly the version the manifest names — including
+        // refusing an empty pinned version, which can never equal an installed
+        // one. This mirrors the gate builds enforce in `installed_package_files`.
+        if dependency.version == actual_version {
+            PackageVerifyStatus::Ok
+        } else {
+            PackageVerifyStatus::NeedsUpdate
+        }
     } else {
         package_version_status(&dependency.version, actual_version)
     }
 }
 
+/// The status of an *unpinned* dependency, whose empty `expected_version` means
+/// "any version".
 fn package_version_status(expected_version: &str, actual_version: &str) -> PackageVerifyStatus {
     if package_version_matches(expected_version, actual_version) {
         PackageVerifyStatus::Ok
@@ -1544,6 +1553,42 @@ mod tests {
         assert!(select_index_version(&index, None)
             .unwrap_err()
             .contains("no install-eligible version"));
+    }
+
+    #[test]
+    fn a_pinned_dependency_demands_an_exact_version() {
+        let dependency = |version: &str, pin: bool| ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: version.to_string(),
+            pin,
+            source: "ada#shape".to_string(),
+            ident_key: String::new(),
+        };
+        let status = |version: &str, pin: bool, actual: &str| {
+            package_dependency_status(&dependency(version, pin), "shape", "ada#shape", actual)
+        };
+
+        assert_eq!(status("1.0.0", true, "1.0.0"), PackageVerifyStatus::Ok);
+        assert_eq!(
+            status("1.0.0", true, "1.2.0"),
+            PackageVerifyStatus::NeedsUpdate
+        );
+        // An empty pinned version can never match: builds reject it too
+        // (`installed_package_files`), so `pkg verify` must not report `Ok`.
+        assert_eq!(status("", true, "1.0.0"), PackageVerifyStatus::NeedsUpdate);
+        // Unpinned: an empty version means "any version".
+        assert_eq!(status("", false, "1.0.0"), PackageVerifyStatus::Ok);
+        assert_eq!(status("1.0.0", false, "1.0.0"), PackageVerifyStatus::Ok);
+        assert_eq!(
+            status("1.0.0", false, "1.2.0"),
+            PackageVerifyStatus::NeedsUpdate
+        );
+        // A name or ident disagreement outranks the version check either way.
+        assert_eq!(
+            package_dependency_status(&dependency("1.0.0", true), "other", "ada#shape", "1.0.0"),
+            PackageVerifyStatus::InvalidPackage
+        );
     }
 
     #[test]
