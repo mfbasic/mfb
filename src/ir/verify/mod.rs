@@ -399,6 +399,10 @@ struct FnSig {
     params: Vec<String>,
     /// `func` or `sub` — a SUB call produces no value (TYPE_SUB_HAS_NO_VALUE).
     kind: String,
+    /// The declared return type. A call node carries its own result type, which
+    /// on decoded package IR is attacker-controlled; this is the independent
+    /// truth it is reconciled against (`check_call_result_type`).
+    returns: String,
 }
 
 /// The reconstructed typing context: everything the semantic rules need to
@@ -581,6 +585,7 @@ impl TypeEnv {
                         .count(),
                     params: function.params.iter().map(|p| p.type_.clone()).collect(),
                     kind: function.kind.clone(),
+                    returns: function.returns.clone(),
                 },
             );
         }
@@ -1335,6 +1340,7 @@ impl TypeEnv {
             IrValue::MemberAccess { target, member, .. } => {
                 self.check_value(target, locals);
                 self.check_member_access(target, member, locals);
+                self.check_member_access_type(target, member, value, locals);
             }
             IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
                 // Statement position permits a value-less SUB call; any nested
@@ -1359,6 +1365,7 @@ impl TypeEnv {
                 self.check_call_arity(target, args.len(), locals);
                 self.check_call_argument_types(target, args, locals);
                 self.check_builtin_call_args(target, args, locals);
+                self.check_call_result_type(target, value, locals);
             }
             IrValue::Constructor { type_, args } => {
                 for arg in args {
@@ -1388,6 +1395,10 @@ impl TypeEnv {
             IrValue::Unary { op, operand, .. } => {
                 self.check_value(operand, locals);
                 self.check_unary_operand(op, operand, locals);
+                self.check_operator_result_type(
+                    value,
+                    derived_unary_type(op, self.infer_type(operand, locals).as_deref()),
+                );
             }
             IrValue::Binary {
                 op, left, right, ..
@@ -1395,6 +1406,14 @@ impl TypeEnv {
                 self.check_value(left, locals);
                 self.check_value(right, locals);
                 self.check_binary_operands(op, left, right, locals);
+                self.check_operator_result_type(
+                    value,
+                    derived_binary_type(
+                        op,
+                        self.infer_type(left, locals).as_deref(),
+                        self.infer_type(right, locals).as_deref(),
+                    ),
+                );
             }
             IrValue::WithUpdate {
                 type_,
@@ -3063,6 +3082,103 @@ impl TypeEnv {
         }
     }
 
+    /// Reject a `MemberAccess` whose annotated result type disagrees with the
+    /// declared type of the field it reads.
+    ///
+    /// `infer_type` prefers this annotation over resolving the field, so a lie
+    /// here propagates into every downstream rule: an `Integer` field annotated
+    /// `String` lets `field & "x"` pass and codegen concatenates through an
+    /// integer. Reject only when the target's record type and the field are both
+    /// resolvable — an unresolved shape is left unchecked, as elsewhere.
+    fn check_member_access_type(
+        &self,
+        target: &IrValue,
+        member: &str,
+        node: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let Some(annotated) = usable_type(node.annotated_type()) else {
+            return;
+        };
+        let Some(target_type) = self.infer_type(target, locals) else {
+            return;
+        };
+        let Some(declared) = self.field_type(resource_base_type(&target_type), member) else {
+            return;
+        };
+        if !self.compatible(&declared, &annotated) {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "member `{target_type}::{member}` is annotated as {annotated}, but the field is declared {declared}"
+                ),
+            );
+        }
+    }
+
+    /// Reject an operator node whose annotated result type disagrees with the
+    /// type its operands produce. `derived` is `None` when the result cannot be
+    /// derived (an operand type is unknown, or the operands disagree), in which
+    /// case the annotation is left alone.
+    fn check_operator_result_type(&self, node: &IrValue, derived: Option<String>) {
+        let (Some(derived), Some(annotated)) = (derived, usable_type(node.annotated_type())) else {
+            return;
+        };
+        if !self.compatible(&derived, &annotated) {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "operator result is annotated {annotated}, but its operands produce {derived}"
+                ),
+            );
+        }
+    }
+
+    /// Reject a call node whose annotated result type disagrees with the callee's
+    /// declared return type.
+    ///
+    /// Every computed node carries its own result type (plan-20-B) and
+    /// `infer_type` echoes it. That is the front end's truth on the source path,
+    /// but on the decoded-package path the annotation is attacker-controlled, and
+    /// every rule built on `infer_type` — member access, operator operands, call
+    /// arguments — then validates a fiction. A `String`-returning call annotated
+    /// `Account` makes `MemberAccess{member:"balance"}` typecheck against a
+    /// foreign record's layout; annotated `Integer`, it makes `result - 5` emit an
+    /// integer subtract over a string pointer.
+    ///
+    /// The callee's declared `returns` is the independent source of truth, so the
+    /// annotation must agree with it. Both `Call` and `CallResult` annotate the
+    /// callee's return type (a fallible call's `Result OF T` is unwrapped to `T`
+    /// by the node kind itself). Builtins have no `FnSig` and are skipped, as is
+    /// an indirect call through a local; `Unknown` on either side never rejects.
+    fn check_call_result_type(
+        &self,
+        target: &str,
+        node: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        if locals.contains_key(target) {
+            return; // indirect call — no named signature
+        }
+        let Some(sig) = self.functions.get(target) else {
+            return;
+        };
+        let Some(declared) = usable_type(Some(&sig.returns)) else {
+            return;
+        };
+        let Some(annotated) = usable_type(node.annotated_type()) else {
+            return;
+        };
+        if !self.expression_compatible(&declared, &annotated, node) {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "call to `{target}` is annotated as returning {annotated}, but `{target}` returns {declared}"
+                ),
+            );
+        }
+    }
+
     /// Reject a call to a numeric built-in whose argument types match no
     /// overload — the IR-level counterpart of `syntaxcheck`'s per-built-in
     /// `TYPE_CALL_ARGUMENT_MISMATCH`, reusing the *same* `resolve_call` dispatch
@@ -3703,6 +3819,35 @@ impl TypeEnv {
 /// explicit `"Unknown"` marker lowering stamps when it cannot name a type.
 /// Filtering `"Unknown"` here is what keeps the type-relational rules from
 /// rejecting a node whose type simply could not be reconstructed (plan-20-C).
+/// The result type a binary operator produces from its operand types, or `None`
+/// when it cannot be derived independently of the node's own annotation.
+///
+/// Comparisons and logical operators always produce `Boolean`, and `&` always
+/// produces `String`, whatever their operands. Arithmetic produces its operand
+/// type, but only when both operands agree — a mixed or unknown pair is left
+/// underived so no valid program is rejected.
+fn derived_binary_type(op: &str, left: Option<&str>, right: Option<&str>) -> Option<String> {
+    match op {
+        "AND" | "OR" | "XOR" | "<" | ">" | "<=" | ">=" | "=" | "<>" => Some("Boolean".to_string()),
+        "&" => Some("String".to_string()),
+        "+" | "-" | "*" | "/" | "MOD" | "^" => match (left, right) {
+            (Some(left), Some(right)) if left == right => Some(left.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The result type a unary operator produces from its operand type: `NOT` is
+/// always `Boolean`, and negation preserves its operand's numeric type.
+fn derived_unary_type(op: &str, operand: Option<&str>) -> Option<String> {
+    match op {
+        "NOT" => Some("Boolean".to_string()),
+        "-" => operand.map(str::to_string),
+        _ => None,
+    }
+}
+
 fn usable_type(annotated: Option<&str>) -> Option<String> {
     match annotated {
         Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),

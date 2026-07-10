@@ -4577,3 +4577,212 @@ fn enum_member_access_returns_after_check() {
         vec![enum_type("Color", &["Red", "Green"])],
     ));
 }
+
+// --- bug-31: computed nodes must not be trusted to report their own type ------
+//
+// On the package path every `type_` annotation is attacker-controlled. Each test
+// below crafts the IR a hostile `.mfp` would carry and asserts the verifier
+// contradicts the annotation from an independent source of truth.
+
+/// `getName` really returns `String`; the call node claims it returns `Account`,
+/// so the member access reads a string at `Account.balance`'s offset.
+#[test]
+fn call_result_annotated_as_a_foreign_record_is_rejected() {
+    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let confused = IrValue::MemberAccess {
+        target: Box::new(IrValue::Call {
+            target: "getName".to_string(),
+            args: vec![],
+            type_: "Account".to_string(),
+            loc: IrSourceLoc::default(),
+        }),
+        member: "balance".to_string(),
+        type_: "Integer".to_string(),
+    };
+    let caller = func("run", vec![], vec![ret(confused)]);
+    expect_rule(
+        &project(
+            vec![get_name, caller],
+            vec![record_typed("Account", &[("balance", "Integer")])],
+        ),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// A `String`-returning call annotated `Integer` used to satisfy the numeric
+/// operand rule, so codegen emitted an integer subtract over a string pointer.
+#[test]
+fn string_call_annotated_integer_cannot_feed_arithmetic() {
+    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let confused = binary(
+        "-",
+        IrValue::Call {
+            target: "getName".to_string(),
+            args: vec![],
+            type_: "Integer".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        int_const("5"),
+        "Integer",
+    );
+    let caller = func("run", vec![], vec![ret(confused)]);
+    expect_rule(
+        &project(vec![get_name, caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// The same lie through a fallible call node.
+#[test]
+fn call_result_node_annotation_is_reconciled_too() {
+    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let caller = func(
+        "run",
+        vec![],
+        vec![ret(IrValue::CallResult {
+            target: "getName".to_string(),
+            args: vec![],
+            type_: "Integer".to_string(),
+            loc: IrSourceLoc::default(),
+        })],
+    );
+    expect_rule(
+        &project(vec![get_name, caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// A truthful annotation still verifies, on both call node kinds.
+#[test]
+fn a_truthful_call_annotation_is_accepted() {
+    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let caller = func_returns(
+        "run",
+        "String",
+        vec![],
+        vec![ret(IrValue::Call {
+            target: "getName".to_string(),
+            args: vec![],
+            type_: "String".to_string(),
+            loc: IrSourceLoc::default(),
+        })],
+    );
+    accept(&project(vec![get_name, caller], vec![]));
+
+    // An `Unknown` annotation is unresolved, not a disagreement.
+    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let caller = func_returns(
+        "run",
+        "String",
+        vec![],
+        vec![ret(IrValue::Call {
+            target: "getName".to_string(),
+            args: vec![],
+            type_: "Unknown".to_string(),
+            loc: IrSourceLoc::default(),
+        })],
+    );
+    accept(&project(vec![get_name, caller], vec![]));
+}
+
+/// A member access that lies about the field's declared type poisons every rule
+/// downstream of it (`infer_type` prefers the annotation).
+#[test]
+fn member_access_annotated_against_its_field_type_is_rejected() {
+    let confused = IrValue::MemberAccess {
+        target: Box::new(IrValue::Local("acct".to_string())),
+        member: "balance".to_string(),
+        type_: "String".to_string(),
+    };
+    let body = vec![
+        bind(
+            "acct",
+            "Account",
+            Some(IrValue::Constructor {
+                type_: "Account".to_string(),
+                args: vec![int_const("1")],
+            }),
+            true,
+            false,
+        ),
+        ret(confused),
+    ];
+    expect_rule(
+        &project(
+            vec![func("run", vec![], body)],
+            vec![record_typed("Account", &[("balance", "Integer")])],
+        ),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// Operator nodes are reconciled against the type their operands produce.
+#[test]
+fn operator_result_annotations_are_reconciled_with_their_operands() {
+    // `1 < 2` is a Boolean, whatever the node claims.
+    let caller = func(
+        "run",
+        vec![],
+        vec![ret(binary("<", int_const("1"), int_const("2"), "Integer"))],
+    );
+    expect_rule(
+        &project(vec![caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+
+    // `"a" & "b"` is a String.
+    let caller = func(
+        "run",
+        vec![],
+        vec![ret(binary(
+            "&",
+            const_of("String", "a"),
+            const_of("String", "b"),
+            "Integer",
+        ))],
+    );
+    expect_rule(
+        &project(vec![caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+
+    // Integer arithmetic over Integer operands is an Integer.
+    let caller = func(
+        "run",
+        vec![],
+        vec![ret(binary("+", int_const("1"), int_const("2"), "String"))],
+    );
+    expect_rule(
+        &project(vec![caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+
+    // `NOT` yields a Boolean; negation preserves its operand type.
+    let caller = func(
+        "run",
+        vec![],
+        vec![ret(unary("NOT", const_of("Boolean", "true"), "Integer"))],
+    );
+    expect_rule(
+        &project(vec![caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+    let caller = func(
+        "run",
+        vec![],
+        vec![ret(unary("-", int_const("1"), "String"))],
+    );
+    expect_rule(
+        &project(vec![caller], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+
+    // Truthful operator annotations still verify.
+    let caller = func_returns(
+        "run",
+        "Boolean",
+        vec![],
+        vec![ret(binary("<", int_const("1"), int_const("2"), "Boolean"))],
+    );
+    accept(&project(vec![caller], vec![]));
+}
