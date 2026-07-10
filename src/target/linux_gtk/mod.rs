@@ -202,7 +202,7 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_signal_connect_data" => GOBJECT,
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
-        "pipe" | "dup2" | "getenv" | "setenv" | "write" | "_exit" | "__libc_start_main"
+        "pipe" | "dup2" | "close" | "setenv" | "write" | "_exit" | "__libc_start_main"
         | "malloc" | "free" | "memcpy" | "memset" | "memmove" | "pause" => LIBC,
         // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
         "gdk_keyval_to_unicode" => GTK,
@@ -671,7 +671,9 @@ pub(crate) fn app_mode_imports() -> Vec<crate::target::shared::plan::PlatformImp
         (LIBC, "__libc_start_main"),
         (LIBC, "pipe"),
         (LIBC, "dup2"),
-        (LIBC, "getenv"),
+        // The activate handler dup2's the pipe read end onto fd 0, then closes
+        // the redundant original descriptor so stdin EOF works (bug-59).
+        (LIBC, "close"),
         (LIBC, "setenv"),
         (LIBC, "write"),
         // Output marshaling to the GTK main thread + the worker park-on-finish.
@@ -757,4 +759,38 @@ fn hex_cstring(text: &str) -> String {
     }
     hex.push_str("00");
     hex
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    /// bug-59: the GTK backend never calls `getenv`, so it must not be declared as
+    /// an import; and the activate handler now calls `close`, which must be. Guard
+    /// the import plan against reintroducing the dead symbol or dropping `close`.
+    #[test]
+    fn app_mode_imports_drop_getenv_add_close() {
+        let symbols: Vec<String> = app_mode_imports()
+            .into_iter()
+            .map(|import| import.symbol)
+            .collect();
+        assert!(
+            !symbols.iter().any(|s| s == "getenv"),
+            "getenv is dead in the GTK backend and must not be imported (bug-59)"
+        );
+        assert!(
+            symbols.iter().any(|s| s == "close"),
+            "the activate handler closes the redundant read fd, so `close` must be imported"
+        );
+        // The genuinely-used libc env call must remain.
+        assert!(symbols.iter().any(|s| s == "setenv"), "setenv is still used");
+    }
+
+    /// `lib_for` maps every symbol the backend references; `close` must resolve to
+    /// libc, and `getenv` must no longer be listed (a call would now panic through
+    /// the catch-all, surfacing any accidental reintroduction).
+    #[test]
+    fn lib_for_maps_close_to_libc() {
+        assert_eq!(lib_for("close"), LIBC);
+    }
 }

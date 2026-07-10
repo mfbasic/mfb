@@ -207,16 +207,34 @@ pub(super) fn emit_activate_handler() -> CodeFunction {
     asm.call_external("gtk_window_present");
 
     // pipe(fds@sp+16); read end -> fd 0 so the reused console readers consume
-    // committed input; both ends stashed in the runtime state (plan-05 §6.6).
+    // committed input; the write end is stashed in the runtime state (plan-05
+    // §6.6). The key handler writes committed input to the write end; the read
+    // end is collapsed onto fd 0 below.
     asm.push(abi::add_immediate("x0", abi::stack_pointer(), 16));
     asm.call_external("pipe");
-    asm.push(abi::load_u32("x10", abi::stack_pointer(), 16)); // read fd
     asm.push(abi::load_u32("x11", abi::stack_pointer(), 20)); // write fd
-    asm.store_state("x10", ST_PIPE_READ_FD);
     asm.store_state("x11", ST_PIPE_WRITE_FD);
-    asm.push(abi::move_register("x0", "x10"));
-    asm.push(abi::move_immediate("x1", "Integer", "0")); // dup2(read, 0)
+
+    // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
+    // on the stack (sp+16) rather than in a register — a caller-saved register
+    // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
+    asm.push(abi::load_u32("x0", abi::stack_pointer(), 16)); // read fd
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("dup2");
+
+    // close(read): fd 0 now holds the read end, so the original read descriptor
+    // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
+    // at process start), so `read` is a distinct descriptor from the fd-0 copy;
+    // closing it leaves exactly ONE read end, so closing the write end signals
+    // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
+    // the stack — `bl dup2` clobbered the caller-saved registers.
+    asm.push(abi::load_u32("x0", abi::stack_pointer(), 16)); // read fd
+    asm.call_external("close");
+
+    // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
+    // value because store_state materializes the state base into x9.
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.store_state("x10", ST_PIPE_READ_FD);
 
     // pthread_create(&thread@sp+8, NULL, _mfb_gtkapp_worker, NULL); detach.
     asm.push(abi::add_immediate("x0", abi::stack_pointer(), 8));
@@ -684,6 +702,64 @@ mod tests {
             guard_idx < utf8_call,
             "bound check must precede the g_unichar_to_utf8 store"
         );
+    }
+
+    /// bug-59: `emit_activate_handler` must close the redundant pipe read fd after
+    /// `dup2(read, 0)`. Assert exactly one `bl dup2` and one `bl close`, that the
+    /// close follows the dup2, and that both take the read fd reloaded from the
+    /// pipe-fds stack slot (`ldr_u32 x0, [sp, #16]`). Loading offset 16 (the read
+    /// end; the write end is offset 20) proves we close the read descriptor, and
+    /// reloading from the stack (rather than a register held across the call)
+    /// respects the register-lifetime rules.
+    #[test]
+    fn activate_closes_redundant_pipe_read_fd_after_dup2() {
+        let func = emit_activate_handler();
+        let ins = &func.instructions;
+
+        let dup2_calls: Vec<usize> = ins
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target") == Some("dup2"))
+            .map(|(idx, _)| idx)
+            .collect();
+        assert_eq!(dup2_calls.len(), 1, "activate must call dup2 exactly once");
+        let dup2 = dup2_calls[0];
+
+        let close_calls: Vec<usize> = ins
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target") == Some("close"))
+            .map(|(idx, _)| idx)
+            .collect();
+        assert_eq!(
+            close_calls.len(),
+            1,
+            "activate must close the redundant read fd exactly once (bug-59)"
+        );
+        let close = close_calls[0];
+        assert!(close > dup2, "close(read) must follow dup2(read, 0)");
+
+        // The instruction immediately before `bl close` reloads the read fd from
+        // the pipe-fds stack slot at offset 16.
+        let load = &ins[close - 1];
+        assert_eq!(load.op, CodeOp::LdrU32, "close's fd must be a fresh stack load");
+        assert_eq!(load.get("dst"), Some("x0"));
+        assert_eq!(load.get("base"), Some("sp"));
+        assert_eq!(
+            load.get("offset"),
+            Some("16"),
+            "must close the READ end (offset 16), not the write end (offset 20)"
+        );
+
+        // dup2's read-fd argument is loaded from the same stack slot (offset 16),
+        // never carried in a caller-saved register across the pipe/dup2 calls.
+        let dup2_load = ins[..dup2]
+            .iter()
+            .rev()
+            .find(|i| i.op == CodeOp::LdrU32 && i.get("dst") == Some("x0"))
+            .expect("dup2 must load the read fd into x0");
+        assert_eq!(dup2_load.get("base"), Some("sp"));
+        assert_eq!(dup2_load.get("offset"), Some("16"));
     }
 
     /// The commit path streams `ST_LINE_LEN` bytes from `ST_LINE_BUF` to the pipe.
