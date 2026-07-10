@@ -112,14 +112,70 @@ pub fn is_error(rule_name: &str) -> bool {
     matches!(rule_for(rule_name).severity, Severity::Error)
 }
 
+/// Resolve a rule name to its `(code, name)` identity as rendered in a
+/// diagnostic header. Returns the `0-000-0000 UNKNOWN_RULE` sentinel when the
+/// name is not defined in `RULES` (and, in debug builds, asserts). Used by tests
+/// to prove an emit site references a defined rule.
+#[cfg(test)]
+pub(crate) fn code_and_name(rule_name: &str) -> (&'static str, &'static str) {
+    let rule = rule_for(rule_name);
+    (rule.code, rule.name)
+}
+
 fn rule_for(rule_name: &str) -> &'static Rule {
-    RULES
-        .iter()
-        .find(|rule| rule.name == rule_name)
-        .unwrap_or(&Rule {
-            code: "0-000-0000",
-            name: "UNKNOWN_RULE",
-            severity: Severity::Error,
-            message: "unknown diagnostic rule",
-        })
+    match RULES.iter().find(|rule| rule.name == rule_name) {
+        Some(rule) => rule,
+        None => {
+            // An emit site referenced a rule name absent from `RULES`: the emit
+            // site and the table have drifted (see bug-40). Fail loudly in debug
+            // builds so the mismatch is caught by tests rather than silently
+            // degraded to the `0-000-0000 UNKNOWN_RULE` sentinel at runtime.
+            debug_assert!(
+                false,
+                "diagnostic rule `{rule_name}` is not defined in RULES (src/rules/table.rs)"
+            );
+            &Rule {
+                code: "0-000-0000",
+                name: "UNKNOWN_RULE",
+                severity: Severity::Error,
+                message: "unknown diagnostic rule",
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_package_invalid_is_a_defined_rule() {
+        // bug-40: the corrupt-`.mfp` import path emits `IMPORT_PACKAGE_INVALID`;
+        // it must resolve to its defined identity, not the `UNKNOWN_RULE` sentinel.
+        assert_eq!(
+            code_and_name("IMPORT_PACKAGE_INVALID"),
+            ("2-201-0001", "IMPORT_PACKAGE_INVALID")
+        );
+    }
+
+    #[test]
+    fn dead_import_missing_package_name_is_gone() {
+        // The old dead rule name was renamed onto slot 2-201-0001; nothing should
+        // reference it any longer.
+        assert!(
+            !RULES.iter().any(|rule| rule.name == "IMPORT_MISSING_PACKAGE"),
+            "IMPORT_MISSING_PACKAGE was renamed to IMPORT_PACKAGE_INVALID (bug-40)"
+        );
+    }
+
+    #[test]
+    fn rule_names_are_unique() {
+        // `rule_for` resolves by name, so a duplicate name would shadow a rule.
+        let mut names: Vec<&str> = RULES.iter().map(|rule| rule.name).collect();
+        names.sort_unstable();
+        assert!(
+            names.windows(2).all(|w| w[0] != w[1]),
+            "duplicate rule name in RULES"
+        );
+    }
 }

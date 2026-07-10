@@ -177,9 +177,9 @@ pub(super) const RULES: &[Rule] = &[
     },
     Rule {
         code: "2-201-0001",
-        name: "IMPORT_MISSING_PACKAGE",
+        name: "IMPORT_PACKAGE_INVALID",
         severity: Severity::Error,
-        message: "imported package could not be resolved",
+        message: "imported package binary could not be read",
     },
     Rule {
         code: "2-201-0002",

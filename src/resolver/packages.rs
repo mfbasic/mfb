@@ -348,7 +348,16 @@ mod tests {
         fs::create_dir_all(&packages).unwrap();
         fs::write(packages.join("shape.mfp"), b"not a real package").unwrap();
         let manifest = manifest_with_package("shape", None);
+        // bug-40: this path emits `IMPORT_PACKAGE_INVALID`, which must be a defined
+        // rule. `resolve_import` -> `report` -> `show_diagnostic` -> `rule_for`
+        // debug-asserts the name resolves, so this test panics if the emit site and
+        // the rule table drift (previously it degraded to `0-000-0000 UNKNOWN_RULE`).
         assert!(resolve_import(dir.path(), &manifest, "shape"));
+        // The emitted identity is defined and non-sentinel.
+        assert_eq!(
+            crate::rules::code_and_name("IMPORT_PACKAGE_INVALID"),
+            ("2-201-0001", "IMPORT_PACKAGE_INVALID")
+        );
     }
 
     #[test]

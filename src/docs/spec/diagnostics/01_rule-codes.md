@@ -284,7 +284,7 @@ entire registry; every other rule is `error`. [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
-| `2-201-0001` | `IMPORT_MISSING_PACKAGE` | error | imported package could not be resolved |
+| `2-201-0001` | `IMPORT_PACKAGE_INVALID` | error | imported package binary could not be read |
 | `2-201-0002` | `IMPORT_PACKAGE_NOT_DECLARED` | error | imported package is not declared |
 | `2-201-0003` | `IMPORT_PACKAGE_NOT_INSTALLED` | error | declared package is not installed |
 | `2-201-0004` | `IMPORT_LOCAL_PATH_INVALID` | error | local package source must be an absolute local URL |
