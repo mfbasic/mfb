@@ -95,16 +95,24 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         };
 
         // The consumer must be an add/sub reading `product` in a register operand,
-        // and neither multiply operand may be redefined in between (else the fused
-        // form would read a stale value).
+        // and neither multiply operand — nor the product itself — may be redefined
+        // in between (else the fused form would read a stale value, or fold across
+        // a redefinition that overwrote the un-rounded product).
         let consumer_op = instructions[j].op;
         if consumer_op != CodeOp::FAddD && consumer_op != CodeOp::FSubD {
             continue;
         }
+        // `product` is used exactly once (checked above), but a *definition* is not
+        // a use, so `use_counts` cannot see a redefinition of `%p` between the
+        // multiply and its consumer. Guard it explicitly: a fresh def of `%p` in the
+        // span means the consumer reads that new value, not `a*b`. Today the product
+        // is always a single-def fresh vreg (`emit_float_binary`), so this never
+        // fires and the emitted code is unchanged; it converts a future reused
+        // product vreg from a silent miscompile into a skipped fusion.
         let redefined_between = instructions[i + 1..j].iter().any(|inst| {
             inst.fields
                 .iter()
-                .any(|(name, v)| is_def_field(name) && (v == &a || v == &b))
+                .any(|(name, v)| is_def_field(name) && (v == &a || v == &b || v == &product))
         });
         if redefined_between {
             continue;
@@ -261,5 +269,23 @@ mod tests {
         fuse_scalar_fma(&mut ins);
         assert_eq!(ins.len(), 3);
         assert_eq!(ins[0].op, CodeOp::FMulD);
+    }
+
+    /// If the *product* vreg is redefined between the multiply and the add, the add
+    /// no longer reads `a*b` and the chain must NOT be fused. (`%f2` is still read
+    /// exactly once — by the `fadd_d` — so `use_counts` alone cannot catch this; the
+    /// product-redefinition guard must.)
+    #[test]
+    fn does_not_fuse_when_product_redefined() {
+        let mut ins = vec![
+            ci("fmul_d", &[("dst", "%f2"), ("lhs", "%f0"), ("rhs", "%f1")]),
+            // `%f2` re-defined here to an unrelated value.
+            ci("fmov_d_from_d", &[("dst", "%f2"), ("src", "%f5")]),
+            ci("fadd_d", &[("dst", "%f3"), ("lhs", "%f2"), ("rhs", "%f9")]),
+        ];
+        fuse_scalar_fma(&mut ins);
+        assert_eq!(ins.len(), 3);
+        assert_eq!(ins[0].op, CodeOp::FMulD);
+        assert_eq!(ins[2].op, CodeOp::FAddD);
     }
 }

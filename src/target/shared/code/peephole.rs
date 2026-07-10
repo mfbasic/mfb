@@ -155,12 +155,34 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction]) {
     let invalidate_reg = |slots: &mut Vec<(String, String)>, reg: &str| {
         slots.retain(|(_, src)| src != reg);
     };
+    // Record an 8-byte store of `src` to `[sp + offset]`, first invalidating every
+    // slot whose 8-byte range `[o, o+8)` overlaps this store's `[offset, offset+8)`.
+    // A forward is sound only when the stored value still fully occupies the loaded
+    // slot; a partial overwrite of a neighbouring slot must therefore drop it.
+    //
+    // Today the frame allocator hands out 8-byte-granular, 8-aligned sp objects
+    // (`allocate_stack_object(_, 8)`) and every sp store is a full 8-byte `StrU64`,
+    // so no two *distinct* recorded offsets are within 8 bytes and this loop only
+    // ever removes the exact-offset match (identical to the previous behaviour —
+    // byte-identical output). It converts a future packed/unaligned sp store from a
+    // silent stale-forward into a correct invalidation. Non-numeric offsets (which
+    // the frame model never produces for sp slots) fall back to exact-string
+    // matching so their behaviour is likewise unchanged.
     let set_slot = |slots: &mut Vec<(String, String)>, offset: &str, src: &str| {
-        if let Some(entry) = slots.iter_mut().find(|(off, _)| off == offset) {
-            entry.1 = src.to_string();
-        } else {
-            slots.push((offset.to_string(), src.to_string()));
-        }
+        let this = offset.parse::<i64>().ok();
+        slots.retain(|(off, _)| {
+            if off == offset {
+                return false; // exact slot: re-inserted below with the new source
+            }
+            match (this, off.parse::<i64>().ok()) {
+                // Both numeric: keep only when the 8-byte ranges are disjoint.
+                (Some(a), Some(b)) => (a - b).abs() >= 8,
+                // A non-numeric offset on either side is not range-comparable; keep
+                // it (exact-string keying, as before).
+                _ => true,
+            }
+        });
+        slots.push((offset.to_string(), src.to_string()));
     };
     let slot_reg = |slots: &[(String, String)], offset: &str| -> Option<String> {
         slots
@@ -219,9 +241,11 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction]) {
 /// another instruction needs.
 ///
 /// Runs after `forward_stores_to_loads` and on physical registers (post register
-/// allocation), before `finalize_frame`.
-pub(super) fn remove_fp_shuttles(instructions: &mut Vec<CodeInstruction>) {
-    let live_out = regalloc::integer_live_out(instructions);
+/// allocation), before `finalize_frame`. `is_riscv` selects the per-ISA
+/// call-clobber masks in the underlying liveness (threaded from the active
+/// backend's arch, not sniffed from operand strings).
+pub(super) fn remove_fp_shuttles(instructions: &mut Vec<CodeInstruction>, is_riscv: bool) {
+    let live_out = regalloc::integer_live_out(instructions, is_riscv);
     // Index of the first (def) instruction of each matched pair -> the rewritten
     // second instruction. The def instruction is dropped; the second is replaced.
     let mut drop_def: Vec<bool> = vec![false; instructions.len()];
@@ -334,7 +358,7 @@ mod tests {
             op("fmov_d_from_x").field("dst", "d9").field("src", "x8"),
             op("ret"),
         ];
-        remove_fp_shuttles(&mut instructions);
+        remove_fp_shuttles(&mut instructions, false);
         assert_eq!(instructions.len(), 3);
         assert_eq!(instructions[0].op, CodeOp::StrD);
         assert_eq!(instructions[0].get("src"), Some("d11"));
@@ -363,9 +387,62 @@ mod tests {
             op("ret"),
         ];
         let before = instructions.len();
-        remove_fp_shuttles(&mut instructions);
+        remove_fp_shuttles(&mut instructions, false);
         assert_eq!(instructions.len(), before);
         assert_eq!(instructions[0].op, CodeOp::FMovXFromD);
         assert_eq!(instructions[1].op, CodeOp::StrU64);
+    }
+
+    /// Full-slot, non-overlapping sp stores still forward: the `ldr` from `#8`
+    /// becomes a `mov` from the register that stored it. (This is the today path —
+    /// proves the overlap guard did not disturb byte-identical behaviour.)
+    #[test]
+    fn forwards_disjoint_full_slot_store() {
+        let mut instructions = vec![
+            op("str_u64")
+                .field("src", "x10")
+                .field("base", "sp")
+                .field("offset", "8"),
+            op("str_u64")
+                .field("src", "x11")
+                .field("base", "sp")
+                .field("offset", "16"),
+            op("ldr_u64")
+                .field("dst", "x8")
+                .field("base", "sp")
+                .field("offset", "8"),
+        ];
+        forward_stores_to_loads(&mut instructions);
+        assert_eq!(instructions[2].op, CodeOp::Mov);
+        assert_eq!(instructions[2].get("dst"), Some("x8"));
+        assert_eq!(instructions[2].get("src"), Some("x10"));
+    }
+
+    /// A later store that *partially overwrites* an 8-byte slot (offset `#12`
+    /// clobbers bytes 12..16 of the value stored at `#8`) must invalidate that slot,
+    /// so the reload from `#8` is NOT forwarded to the stale register. Without the
+    /// range-overlap invalidation this would wrongly rewrite the load to `mov x8,x10`.
+    #[test]
+    fn does_not_forward_partially_overwritten_slot() {
+        let mut instructions = vec![
+            op("str_u64")
+                .field("src", "x10")
+                .field("base", "sp")
+                .field("offset", "8"),
+            // Overlaps bytes 12..16 of the store above (|12 - 8| = 4 < 8).
+            op("str_u64")
+                .field("src", "x11")
+                .field("base", "sp")
+                .field("offset", "12"),
+            op("ldr_u64")
+                .field("dst", "x8")
+                .field("base", "sp")
+                .field("offset", "8"),
+        ];
+        forward_stores_to_loads(&mut instructions);
+        // The load survives as a real memory reload.
+        assert_eq!(instructions[2].op, CodeOp::LdrU64);
+        assert_eq!(instructions[2].get("dst"), Some("x8"));
+        assert_eq!(instructions[2].get("offset"), Some("8"));
     }
 }

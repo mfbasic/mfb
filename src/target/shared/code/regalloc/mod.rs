@@ -294,8 +294,8 @@ mod linear_scan;
 /// dead before dropping the shuttle. (The analysis items are `pub(super)` within
 /// `regalloc`, so they are surfaced to the parent module through these wrappers
 /// rather than re-exported.)
-pub(super) fn integer_live_out(instructions: &[CodeInstruction]) -> Vec<u64> {
-    analysis::integer_live_out(instructions)
+pub(super) fn integer_live_out(instructions: &[CodeInstruction], is_riscv: bool) -> Vec<u64> {
+    analysis::integer_live_out(instructions, is_riscv)
 }
 
 pub(super) fn physical_busy(bits: u64, index: u32) -> bool {

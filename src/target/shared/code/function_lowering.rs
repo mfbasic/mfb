@@ -776,8 +776,12 @@ pub(super) fn lower_function(
     // Store-to-load forwarding over the lowered stream (offsets are still
     // pre-prologue here, before finalize_frame shifts them).
     peephole::forward_stores_to_loads(&mut instructions);
-    // Drop the GP shuttle a checked float value round-trips through (plan-16).
-    peephole::remove_fp_shuttles(&mut instructions);
+    // Drop the GP shuttle a checked float value round-trips through (plan-16). The
+    // ISA (for the FP-shuttle liveness' per-ISA clobber masks) is read from the
+    // active backend's arena base — `s11` on rv64 (plan-99) — not sniffed from
+    // operand strings.
+    let is_riscv = mir::active_backend().register_model().arena_base() == "s11";
+    peephole::remove_fp_shuttles(&mut instructions, is_riscv);
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,
@@ -906,7 +910,8 @@ pub(super) fn lower_builtin_function_wrapper(
     builder.run_register_allocation();
     let mut instructions = builder.instructions;
     peephole::forward_stores_to_loads(&mut instructions);
-    peephole::remove_fp_shuttles(&mut instructions);
+    let is_riscv = mir::active_backend().register_model().arena_base() == "s11";
+    peephole::remove_fp_shuttles(&mut instructions, is_riscv);
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,

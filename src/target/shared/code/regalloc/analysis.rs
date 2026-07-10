@@ -206,21 +206,6 @@ pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
     riscv_fp_index(name)
 }
 
-/// Whether an instruction stream is rv64 code, detected by any operand naming a
-/// RISC-V-distinctive ABI register (`ra`/`t0`–`t6`/`s0`–`s11`/`a0`–`a7`/`ft*`/
-/// `fs*`/`fa*`). These names never appear in AArch64 (`x*`/`d*`/`v*`) or x86
-/// (`r*`/`xmm*`) streams; the only shared spellings (`sp`, `zero`) are excluded,
-/// so there are no false positives. Used to pick the per-ISA call-clobber masks
-/// where the arch is not otherwise threaded in (`integer_live_out`).
-pub(super) fn stream_is_riscv(instructions: &[CodeInstruction]) -> bool {
-    instructions.iter().any(|inst| {
-        inst.fields.iter().any(|(_, v)| {
-            let v = v.as_str();
-            v != "sp" && v != "zero" && (riscv_int_index(v).is_some() || riscv_fp_index(v).is_some())
-        })
-    })
-}
-
 /// The RISC-V FP register index (0–31) for an ABI register name, or `None`.
 pub(super) fn riscv_fp_index(name: &str) -> Option<u32> {
     const RISCV_FPRS: &[&str] = &[
@@ -431,8 +416,13 @@ pub(super) fn physical_busy(bits: PhysMask, index: u32) -> bool {
 ///
 /// A call destroys its caller-saved registers, so they are modeled as definitions
 /// (killed) at the call — a value left in one is not live across it.
-pub(super) fn integer_live_out(instructions: &[CodeInstruction]) -> Vec<PhysMask> {
-    let is_riscv = stream_is_riscv(instructions);
+///
+/// `is_riscv` selects the per-ISA call-clobber masks (RISC-V's caller-saved set
+/// lives at different physical indices, plan-99). It is threaded in explicitly from
+/// the codegen entry point (the active backend's `arena_base`), never sniffed out of
+/// operand strings, so a label/symbol literally spelled like a RISC-V register on a
+/// non-RISC-V target cannot select the wrong mask.
+pub(super) fn integer_live_out(instructions: &[CodeInstruction], is_riscv: bool) -> Vec<PhysMask> {
     let model = ClassModel {
         parse_vreg: |_| None,
         physical_index: int_physical_index,
