@@ -387,7 +387,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_,
             by_ref,
         } => NirValue::Capture {
-            index: *index,
+            index: *index as usize,
             type_: type_.clone(),
             by_ref: *by_ref,
         },
