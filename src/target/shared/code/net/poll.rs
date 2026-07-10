@@ -140,8 +140,11 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        // x1 = timeoutMs; reject negatives.
-        abi::compare_immediate("x1", "0"),
+        // timeoutMs arrives in the incoming-arg register; copy it to an
+        // allocator-placed vreg (plan-34-B Phase 3) so the tv math below is not
+        // pinned to a physical register. Reject negatives.
+        abi::move_register("%v14", "x1"),
+        abi::compare_immediate("%v14", "0"),
         abi::branch_lt(&invalid),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
@@ -150,8 +153,8 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
         abi::move_immediate("%v10", "Integer", "1000"),
-        abi::unsigned_divide_registers("%v11", "x1", "%v10"),
-        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "x1"),
+        abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
         abi::move_immediate("%v13", "Integer", "1000"),
         abi::multiply_registers("%v12", "%v12", "%v13"),
         abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
