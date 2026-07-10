@@ -1214,12 +1214,13 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
+            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "x1", 0),
+            abi::store_u64("%v10", "%v15", 0),
             abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate("%v12", "x1", 8),
+            abi::add_immediate("%v12", "%v15", 8),
             abi::move_immediate("%v13", "Integer", "0"),
-            abi::store_u64("x1", abi::stack_pointer(), STR_OFFSET),
+            abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
             abi::label(&str_copy),
             abi::compare_registers("%v13", "%v10"),
             abi::branch_eq(&str_done),
@@ -1297,10 +1298,11 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_register("%v15", "x1"), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
         abi::load_u64("%v9", abi::stack_pointer(), ADDRPTR_OFFSET),
-        abi::store_u64("%v9", "x1", 0),
+        abi::store_u64("%v9", "%v15", 0),
         abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
-        abi::store_u64("%v9", "x1", 8),
+        abi::store_u64("%v9", "%v15", 8),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
