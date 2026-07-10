@@ -621,6 +621,15 @@ pub(super) fn emit_append_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x19")); // receiver: text storage
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // [attr release] — the attributed string was created owned (alloc +
+    // initWithString:attributes:, retain count 1) and appendAttributedString:
+    // copies its contents rather than taking ownership, so we hold the sole
+    // reference and must release it (bug-53). x20 (the attributed string) is
+    // callee-saved and survives the appendAttributedString: msgSend above.
+    asm.load_selector(SEL_RELEASE.0);
+    asm.push(abi::move_register("x0", "x20")); // attributed string
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));

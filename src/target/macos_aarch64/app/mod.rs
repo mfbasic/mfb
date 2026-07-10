@@ -36,6 +36,11 @@ const SEL_SET_ACTIVATION_POLICY: (&str, &str) = (
     "setActivationPolicy:",
 );
 const SEL_ALLOC: (&str, &str) = ("_mfb_macapp_sel_alloc", "alloc");
+/// `release` — sent to owned Cocoa objects (created via `alloc`/`init…`) on the
+/// worker-thread write paths once their consuming call has copied them, so
+/// output-heavy app-mode programs do not leak an NSString/NSAttributedString per
+/// write (bug-53).
+const SEL_RELEASE: (&str, &str) = ("_mfb_macapp_sel_release", "release");
 const SEL_INIT_WINDOW: (&str, &str) = (
     "_mfb_macapp_sel_initWindow",
     "initWithContentRect:styleMask:backing:defer:",
@@ -564,6 +569,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_SHARED_APPLICATION,
         SEL_SET_ACTIVATION_POLICY,
         SEL_ALLOC,
+        SEL_RELEASE,
         SEL_INIT_WINDOW,
         SEL_STRING_WITH_UTF8,
         SEL_SET_TITLE,
@@ -694,4 +700,71 @@ fn hex_cstring(text: &str) -> String {
     }
     hex.push_str("00");
     hex
+}
+
+#[cfg(test)]
+mod bug53_release_tests {
+    use super::*;
+
+    /// A `-release` send is emitted by `load_selector(SEL_RELEASE)`, which lays
+    /// down the `adrp/add` page pair for the selector C-string. That page pair
+    /// contributes exactly one `DataAddrHi` relocation to `_mfb_macapp_sel_release`
+    /// per send, so counting those Hi relocations counts the release sends.
+    fn release_send_count(rel: &[CodeRelocation]) -> usize {
+        rel.iter()
+            .filter(|r| r.to.as_str() == SEL_RELEASE.0 && r.kind == RelocIntent::DataAddrHi)
+            .count()
+    }
+
+    /// bug-53: the transcript append helper allocates an owned `NSAttributedString`
+    /// (`alloc` + `initWithString:attributes:`, retain count 1). `appendAttributedString:`
+    /// copies it, so the helper must `-release` it or it leaks on every write.
+    #[test]
+    fn append_helper_releases_owned_attributed_string() {
+        let func = emit_append_helper();
+        assert_eq!(
+            release_send_count(&func.relocations),
+            1,
+            "emit_append_helper must -release the owned NSAttributedString it \
+             allocates (bug-53)"
+        );
+    }
+
+    /// bug-53: each `io::print`/`io::write` write arm allocates an owned `NSString`
+    /// (`alloc` + `initWithBytes:length:encoding:`, retain count 1) that its
+    /// consuming call copies; each arm must `-release` it.
+    #[test]
+    fn write_helper_releases_owned_nsstring_in_both_arms() {
+        // term_state_offset = Some => both the GUI transcript arm and the TUI
+        // surface arm are emitted; each must release its owned NSString.
+        let (_frame, _ins, rel) =
+            emit_app_io_write_helper("_mfb_rt_io_io_print", false, true, Some(4096));
+        assert_eq!(
+            release_send_count(&rel),
+            2,
+            "both write arms (GUI transcript + TUI surface) must -release their \
+             owned NSString (bug-53)"
+        );
+
+        // No term:: => only the GUI transcript arm is emitted => one release.
+        let (_frame, _ins, rel_no_term) =
+            emit_app_io_write_helper("_mfb_rt_io_io_print", false, true, None);
+        assert_eq!(
+            release_send_count(&rel_no_term),
+            1,
+            "the GUI transcript arm must -release its owned NSString (bug-53)"
+        );
+    }
+
+    /// The `release` selector C-string must be emitted or the `-release`
+    /// relocations added above would dangle at link time.
+    #[test]
+    fn release_selector_string_is_emitted() {
+        assert!(
+            app_mode_data_objects()
+                .iter()
+                .any(|d| d.symbol.as_str() == SEL_RELEASE.0),
+            "the `release` selector C-string must be emitted (bug-53)"
+        );
+    }
 }

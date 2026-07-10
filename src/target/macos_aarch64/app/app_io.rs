@@ -77,9 +77,17 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
     asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x22", "x0")); // owned NSString (save across append)
     asm.push(abi::move_register("x1", "x0")); // text nsstring
     asm.push(abi::move_register("x0", "x20"));
     asm.call_internal(APPEND_SYMBOL);
+    // [text release] — the NSString was created owned (alloc +
+    // initWithBytes:length:encoding:, retain count 1) and _mfb_macapp_append
+    // copies it into the text storage, so we hold the sole reference (bug-53).
+    // x22 is callee-saved and preserved by _mfb_macapp_append (it saves x19-x22).
+    asm.load_selector(SEL_RELEASE.0);
+    asm.push(abi::move_register("x0", "x22"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
     if newline {
         build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
         asm.push(abi::move_register("x1", "x0"));
@@ -140,6 +148,14 @@ pub(crate) fn emit_app_io_write_helper(
         asm.push(abi::move_register("x3", "x21"));
         asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
         asm.push(abi::move_register("x0", "x20"));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [text release] — the NSString was created owned (alloc +
+        // initWithBytes:length:encoding:); mfbWriteString: only reads its glyphs
+        // (synchronous, waitUntilDone:YES) and does not retain it, so we hold the
+        // sole reference and must release it (bug-53). x21 is callee-saved and
+        // survives the performSelectorOnMainThread: msgSend above.
+        asm.load_selector(SEL_RELEASE.0);
+        asm.push(abi::move_register("x0", "x21"));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         if newline {
             build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
