@@ -54,11 +54,15 @@ relocations       from/to/kind/section records
 ```
 [[src/os/linux/object.rs:NativeObjectPlan]]
 
-The JSON form is tagged `"mfb-native-object-plan"`, version 2. Each call's
+The JSON form is tagged `"mfb-native-object-plan"`, version 2. A call's
 `CallKind` maps to an object-plan relocation kind: `Local` and `Runtime` become
-`internalCall`, `Import` becomes `packageCall` (a legacy label for native `LINK`
-thunk calls), and `Indirect` becomes `indirectCall`. Data references and the
-`_main` error-message references are recorded as `dataReference` relocations.
+`internalCall`, and `Import` becomes `packageCall` (a legacy label for native
+`LINK` thunk calls). An `Indirect` call produces *no relocation*: it dispatches
+through a `FUNC`-typed runtime value (a local, parameter, or lambda binding) and
+has no linker symbol, so its plan-call record carries an empty `symbol` and the
+machine-code path emits a genuine indirect branch through the callable value.
+[[src/os/macos/object.rs:relocations]] Data references and the `_main`
+error-message references are recorded as `dataReference` relocations.
 
 ## Validation checks
 

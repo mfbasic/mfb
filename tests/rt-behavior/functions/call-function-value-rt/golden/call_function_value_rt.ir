@@ -1,0 +1,113 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "call_function_value_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "add",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 12, "type": "Integer", "default": null },
+    { "name": "b", "line": 12, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    ]
+  },
+  {
+    "name": "makeAdder",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 17, "type": "Integer", "default": null }
+    ],
+    "returns": "FUNC(Integer) AS Integer",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "local", "name": "base" } },
+    { "op": "return", "line": 19, "value": { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Integer", "captures": [{ "kind": "local", "name": "captured" }] } }
+    ]
+  },
+  {
+    "name": "apply",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 23, "type": "FUNC(Integer, Integer) AS Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 24, "value": { "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
+    ]
+  },
+  {
+    "name": "tripler",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "FUNC(Integer) AS Integer",
+    "body": [
+    { "op": "return", "line": 29, "value": { "kind": "functionRef", "name": "$lambda1", "type": "FUNC(Integer) AS Integer" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 34, "mutable": false, "name": "g", "type": "FUNC(Integer, Integer) AS Integer", "value": { "kind": "functionRef", "name": "add", "type": "FUNC(Integer, Integer) AS Integer" } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }] }] }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "apply", "args": [{ "kind": "functionRef", "name": "add", "type": "FUNC(Integer, Integer) AS Integer" }] }] }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "addTwo", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "makeAdder", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "addTwo", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "t", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "tripler", "args": [] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "t", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] }] }] } },
+    { "op": "return", "line": 48, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 19,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 19, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "line": 19, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "captured" } } }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "line": 29,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 29, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 29, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } }
+    ]
+  }
+  ]
+}

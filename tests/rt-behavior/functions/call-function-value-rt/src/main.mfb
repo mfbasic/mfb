@@ -1,0 +1,49 @@
+IMPORT io
+
+' bug-72: calling a `FUNC`-typed value directly by name must link and execute.
+' The object plan used to turn every call into a symbol relocation, including the
+' `CallKind::Indirect` call whose "symbol" was the source binding's name (a stack
+' local, never a defined or imported linker symbol), so the build died with
+' "native object plan relocation target '<var>' is neither defined nor imported".
+' This exercises every shape of the indirect call: a lambda, a local holding a
+' function reference, a `FUNC` parameter, a captured closure, and a function value
+' returned from a function then bound and called.
+
+FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+' A closure over a captured parameter, returned as a first-class value.
+FUNC makeAdder(base AS Integer) AS FUNC(Integer) AS Integer
+  LET captured AS Integer = base
+  RETURN LAMBDA(value AS Integer) -> value + captured
+END FUNC
+
+' The callee arrives as a `FUNC` parameter and is invoked indirectly.
+FUNC apply(f AS FUNC(Integer, Integer) AS Integer) AS Integer
+  RETURN f(2, 3)
+END FUNC
+
+' Returns a lambda so `main` can bind and call it (returned-then-called).
+FUNC tripler AS FUNC(Integer) AS Integer
+  RETURN LAMBDA(x AS Integer) -> x * 3
+END FUNC
+
+FUNC main AS Integer
+  ' 1. Local holding a function reference, called indirectly.
+  LET g AS FUNC(Integer, Integer) AS Integer = add
+  io::print(toString(g(10, 20)))
+
+  ' 2. `FUNC` parameter, called indirectly inside `apply`.
+  io::print(toString(apply(add)))
+
+  ' 3. Captured closure, bound to a local and called (the bug-72 reproduction).
+  LET addTwo AS FUNC(Integer) AS Integer = makeAdder(2)
+  io::print(toString(addTwo(5)))
+
+  ' 4. A function value returned from a function, then bound and called.
+  LET t AS FUNC(Integer) AS Integer = tripler()
+  io::print(toString(t(4)))
+
+  RETURN 0
+END FUNC

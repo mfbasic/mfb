@@ -297,14 +297,32 @@ impl PlannedFunction {
             ));
         }
         for call in &self.calls {
-            if call.target.is_empty() || call.symbol.is_empty() {
+            if call.target.is_empty() {
                 return Err(format!(
-                    "native plan function '{}' has an empty call target or symbol",
+                    "native plan function '{}' has an empty call target",
                     self.name
                 ));
             }
             match call.kind {
-                CallKind::Local | CallKind::Import | CallKind::Runtime | CallKind::Indirect => {}
+                CallKind::Local | CallKind::Import | CallKind::Runtime => {
+                    if call.symbol.is_empty() {
+                        return Err(format!(
+                            "native plan function '{}' has a call to '{}' with an empty symbol",
+                            self.name, call.target
+                        ));
+                    }
+                }
+                CallKind::Indirect => {
+                    // An indirect call dispatches through a runtime value and has
+                    // no linker symbol; carrying one would be a lie the object
+                    // plan could turn into a bogus relocation (bug-72).
+                    if !call.symbol.is_empty() {
+                        return Err(format!(
+                            "native plan function '{}' has an indirect call to '{}' that carries a linker symbol '{}'",
+                            self.name, call.target, call.symbol
+                        ));
+                    }
+                }
             }
         }
         Ok(())

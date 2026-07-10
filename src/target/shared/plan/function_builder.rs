@@ -383,7 +383,11 @@ impl FunctionPlanBuilder<'_> {
         } else if let Some(helper) = runtime::helper_for_call(target) {
             (CallKind::Runtime, runtime::symbol_for_call(helper, target))
         } else {
-            (CallKind::Indirect, target.to_string())
+            // An indirect call dispatches through a `FUNC`-typed value (a local,
+            // parameter, or lambda binding); there is no linker symbol for the
+            // callee. Record no symbol so the object plan cannot mistake the
+            // source binding's name for a relocation target (bug-72).
+            (CallKind::Indirect, String::new())
         };
         push_call(&mut self.calls, target, symbol, kind);
     }

@@ -448,7 +448,9 @@ fn relocations(
             let kind = match call.kind {
                 CallKind::Local | CallKind::Runtime => "internalCall",
                 CallKind::Import => "packageCall",
-                CallKind::Indirect => "indirectCall",
+                // An indirect call dispatches through a `FUNC`-typed runtime value
+                // and has no symbol; emit no relocation (bug-72).
+                CallKind::Indirect => continue,
             };
             push_relocation(
                 &mut relocations,
@@ -823,13 +825,13 @@ mod tests {
                     CallKind::Runtime,
                     Vec::new(),
                 ),
-                call("dyn", "_mfb_fn_dyn", CallKind::Indirect, Vec::new()),
+                // Indirect call through a `FUNC`-typed local binding: no linker
+                // symbol, and it must not become a relocation (bug-72).
+                call("addTwo", "", CallKind::Indirect, Vec::new()),
             ],
         )];
         plan.functions
             .push(function("_mfb_fn_helper", vec!["ret"], Vec::new()));
-        plan.functions
-            .push(function("_mfb_fn_dyn", vec!["ret"], Vec::new()));
         plan
     }
 
@@ -877,14 +879,17 @@ mod tests {
         // Import call becomes an external symbol (packageCall relocation target).
         assert!(object.external_symbols.contains(&"_pkg_f".to_string()));
         assert!(object.imported_symbols.iter().any(|s| s.symbol == "write"));
-        // Relocation kinds: internalCall (entry), packageCall, indirectCall,
+        // Relocation kinds: internalCall (entry), packageCall,
         // dataReference (runtime symbol -> data unit).
         let kinds: std::collections::HashSet<_> =
             object.relocations.iter().map(|r| r.kind.as_str()).collect();
         assert!(kinds.contains("internalCall"));
         assert!(kinds.contains("packageCall"));
-        assert!(kinds.contains("indirectCall"));
         assert!(kinds.contains("dataReference"));
+        // An indirect call has no symbol, so it produces no relocation (bug-72):
+        // there must be no `indirectCall` kind and nothing targeting the binding.
+        assert!(!kinds.contains("indirectCall"));
+        assert!(object.relocations.iter().all(|r| r.to != "addTwo"));
     }
 
     #[test]
