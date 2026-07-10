@@ -774,8 +774,31 @@ impl CodeBuilder<'_> {
         ));
         let mul_loop = self.label("fixed_pow_int_loop");
         let mul_done = self.label("fixed_pow_int_done");
+        // Bounded-base fast path (bug-61): |base| == 1.0 has bounded powers, so the
+        // loop's only exit (the multiply overflow trap) never fires and it would
+        // iterate the full |exponent|. Resolve ±1.0 in closed form, then fall
+        // through to the shared negative-exponent reciprocal handling below.
+        let fixed_neg_one = -(FIXED_ONE as i64) as u64;
+        self.emit(abi::compare_immediate(&base_reg, &FIXED_ONE.to_string()));
+        self.emit(abi::branch_eq(&mul_done)); // 1.0^n == 1.0 (result already 1.0).
+        self.emit(abi::compare_immediate(&base_reg, &fixed_neg_one.to_string()));
+        self.emit(abi::branch_ne(&mul_loop)); // |base| != 1.0: run the loop.
+        // base == -1.0: 1.0 for an even |exponent|, -1.0 for an odd one.
+        let parity = self.allocate_register()?;
+        let one_bit = self.allocate_register()?;
+        self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&parity, &count, &one_bit));
+        self.emit(abi::compare_immediate(&parity, "0"));
+        self.emit(abi::branch_eq(&mul_done)); // even: result stays 1.0.
+        self.emit_neg_i64(&result)?; // odd: result = -1.0.
+        self.emit(abi::branch(&mul_done));
         self.emit(abi::label(&mul_loop));
         self.emit(abi::compare_immediate(&count, "0"));
+        self.emit(abi::branch_eq(&mul_done));
+        // A product that truncates to 0 (any |base| < 1.0, or base == 0.0) stays 0
+        // for every remaining multiply, so stop now rather than iterate the whole
+        // (possibly enormous) |exponent| (bug-61). This never changes a result.
+        self.emit(abi::compare_immediate(&result, "0"));
         self.emit(abi::branch_eq(&mul_done));
         self.emit_fixed_multiply(&product, &result, &base_reg)?;
         self.emit(abi::move_register(&result, &product));

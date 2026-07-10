@@ -1256,6 +1256,35 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&nonnegative));
         self.emit(abi::move_register(&remaining, exponent));
         self.emit(abi::move_immediate(dst, "Integer", "1"));
+        // Bounded-base fast path (bug-61): a base in {-1, 0, 1} has bounded powers,
+        // so the checked-multiply loop below never overflows and would iterate the
+        // full exponent (up to i64::MAX) — an effective hang. Resolve those bases
+        // in closed form. Any |base| >= 2 falls through to the loop, which still
+        // terminates within ~63 iterations via the multiply overflow trap.
+        let bounded_zero = self.label("pow_bounded_zero");
+        self.emit(abi::compare_immediate(base, "1"));
+        self.emit(abi::branch_gt(&loop_label)); // base > 1: slow path.
+        self.emit(abi::compare_immediate(base, &(-1_i64 as u64).to_string()));
+        self.emit(abi::branch_lt(&loop_label)); // base < -1: slow path.
+        // base is now one of {-1, 0, 1}; `dst` currently holds 1.
+        self.emit(abi::compare_immediate(base, "0"));
+        self.emit(abi::branch_eq(&bounded_zero));
+        self.emit(abi::branch_gt(&done_label)); // base == 1: 1^n == 1.
+        // base == -1: 1 for an even exponent, -1 for an odd exponent.
+        let parity = self.allocate_register()?;
+        let one_bit = self.allocate_register()?;
+        self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&parity, exponent, &one_bit));
+        self.emit(abi::compare_immediate(&parity, "0"));
+        self.emit(abi::branch_eq(&done_label)); // even exponent: (-1)^n == 1.
+        self.emit_neg_i64(dst)?; // odd exponent: (-1)^n == -1.
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&bounded_zero));
+        // base == 0: 0^0 == 1 (dst already 1); 0^n == 0 for n > 0.
+        self.emit(abi::compare_immediate(exponent, "0"));
+        self.emit(abi::branch_eq(&done_label));
+        self.emit(abi::move_immediate(dst, "Integer", "0"));
+        self.emit(abi::branch(&done_label));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&remaining, "0"));
         self.emit(abi::branch_eq(&done_label));
@@ -1335,7 +1364,15 @@ impl CodeBuilder<'_> {
         let max_integer = self.allocate_register()?;
         let overflow = self.label("fixed_div_overflow");
         let integer_ok = self.label("fixed_div_integer_ok");
-        self.emit(abi::move_immediate(&max_integer, "Integer", "2147483647"));
+        // Admit an integer magnitude up to 2^31 (not 2^31 - 1). The exact result
+        // -2147483648.0 (raw i64::MIN) has magnitude integer part 2^31 with a zero
+        // fraction; rejecting it here wrongly traps its own representable minimum
+        // (bug-61). Anything strictly above 2^31 cannot fit even the negative range
+        // and would corrupt the `integer << 32` below, so it still traps. The final
+        // signed range check (see below) rejects the sub-cases of 2^31 that are not
+        // representable (a positive result, or a negative one with a nonzero
+        // fraction).
+        self.emit(abi::move_immediate(&max_integer, "Integer", "2147483648"));
         self.emit(abi::compare_registers(&integer, &max_integer));
         self.emit(abi::branch_hi(&overflow));
         self.emit(abi::shift_left_immediate(dst, &integer, 32));
@@ -1365,14 +1402,43 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&done));
         self.emit(abi::or_registers(dst, dst, &fraction));
+        // `dst` now holds the unsigned magnitude of the quotient in Q32.32. Apply
+        // the sign and range-check the signed result the way `emit_fixed_multiply`
+        // does, so the representable minimum -2147483648.0 (raw i64::MIN, magnitude
+        // 2^63) is admitted while genuine overflows still trap (bug-61).
         let negative = self.label("fixed_div_negative");
+        let negate = self.label("fixed_div_negate");
+        let magnitude_overflow = self.label("fixed_div_mag_overflow");
         let quotient_done = self.label("fixed_div_signed");
         self.emit(abi::compare_immediate(&sign, "0"));
         self.emit(abi::branch_lt(&negative));
+        // Positive result: the magnitude must fit a signed i64 (top bit clear). A
+        // magnitude of 2^63 (exactly +2147483648.0) has the top bit set, so it
+        // correctly traps here — only the negative form of that magnitude is
+        // representable.
         self.emit(abi::compare_immediate(dst, "0"));
         self.emit(abi::branch_ge(&quotient_done));
-        self.emit_overflow_return()?;
+        self.emit(abi::branch(&magnitude_overflow));
         self.emit(abi::label(&negative));
+        // Negative result = -(magnitude). Representable iff magnitude <= 2^63.
+        //  - magnitude < 2^63  (dst >= 0 as signed): negate normally.
+        //  - magnitude == 2^63 (dst == i64::MIN): the result is exactly
+        //    -2147483648.0, whose raw value is i64::MIN; negating i64::MIN is a
+        //    no-op, so keep `dst` unchanged.
+        //  - magnitude > 2^63: overflow.
+        self.emit(abi::compare_immediate(dst, "0"));
+        self.emit(abi::branch_ge(&negate));
+        let min_raw = self.allocate_register()?;
+        self.emit(abi::move_immediate(
+            &min_raw,
+            "Integer",
+            &(i64::MIN as u64).to_string(),
+        ));
+        self.emit(abi::compare_registers(dst, &min_raw));
+        self.emit(abi::branch_eq(&quotient_done));
+        self.emit(abi::label(&magnitude_overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&negate));
         self.emit_neg_i64(dst)?;
         self.emit(abi::label(&quotient_done));
         self.next_register = saved_registers;
@@ -1404,8 +1470,30 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&exponent_is_whole));
         self.emit(abi::move_register(&remaining, &whole));
         self.emit(abi::move_immediate(dst, "Fixed", &one_raw.to_string()));
+        // Bounded-base fast path (bug-61): |base| == 1.0 has bounded powers, so the
+        // loop's only exit (the multiply overflow trap) never fires and it would
+        // iterate the full exponent. Resolve ±1.0 in closed form.
+        let neg_one_raw = -(one_raw as i64) as u64;
+        self.emit(abi::compare_immediate(base, &one_raw.to_string()));
+        self.emit(abi::branch_eq(&done_label)); // 1.0^n == 1.0 (dst already 1.0).
+        self.emit(abi::compare_immediate(base, &neg_one_raw.to_string()));
+        self.emit(abi::branch_ne(&loop_label)); // |base| != 1.0: enter the loop.
+        // base == -1.0: 1.0 for an even exponent, -1.0 for an odd exponent.
+        let parity = self.allocate_register()?;
+        let one_bit = self.allocate_register()?;
+        self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&parity, &whole, &one_bit));
+        self.emit(abi::compare_immediate(&parity, "0"));
+        self.emit(abi::branch_eq(&done_label)); // even exponent: (-1.0)^n == 1.0.
+        self.emit_neg_i64(dst)?; // odd exponent: (-1.0)^n == -1.0.
+        self.emit(abi::branch(&done_label));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&remaining, "0"));
+        self.emit(abi::branch_eq(&done_label));
+        // A product that truncates to 0 (any |base| < 1.0, or base == 0.0) stays 0
+        // for every remaining multiply, so stop now rather than iterate the whole
+        // (possibly enormous) exponent (bug-61). This never changes a result.
+        self.emit(abi::compare_immediate(dst, "0"));
         self.emit(abi::branch_eq(&done_label));
         self.emit_fixed_multiply(dst, dst, base)?;
         self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
