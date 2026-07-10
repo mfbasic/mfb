@@ -692,6 +692,31 @@ mod binary_repr_tests {
         assert_eq!(bytes, bytes2);
     }
 
+    /// bug-33: `Capture.index` was a `usize` written as a `u32`, so an index past
+    /// `u32::MAX` encoded its low 32 bits and decoded to a different slot. The
+    /// field is now the wire's `u32`, and the maximum value round-trips exactly.
+    #[test]
+    fn capture_index_round_trips_at_the_u32_boundary() {
+        let mut project = corpus_project();
+        project.functions[0].body.insert(
+            0,
+            IrOp::Bind {
+                mutable: false,
+                name: "$captured".to_string(),
+                type_: "Integer".to_string(),
+                value: Some(IrValue::Capture {
+                    index: u32::MAX,
+                    type_: "Integer".to_string(),
+                    by_ref: false,
+                }),
+                explicit_type: false,
+                loc: IrSourceLoc::default(),
+            },
+        );
+        let decoded = decode_binary_repr(&encode_binary_repr(&project)).expect("decode");
+        assert_eq!(project.to_json(), decoded.to_json());
+    }
+
     #[test]
     fn binary_repr_rejects_bad_magic() {
         let mut bytes = encode_binary_repr(&corpus_project());

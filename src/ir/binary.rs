@@ -1010,7 +1010,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             by_ref,
         } => {
             put_u8(out, 5);
-            put_u32(out, *index as u32);
+            put_u32(out, *index);
             put_str(out, type_);
             put_bool(out, *by_ref);
         }
@@ -1178,7 +1178,7 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             captures: decode_vec(r, decode_value)?,
         },
         5 => IrValue::Capture {
-            index: r.u32()? as usize,
+            index: r.u32()?,
             type_: r.string()?,
             by_ref: r.bool()?,
         },
@@ -1344,9 +1344,11 @@ fn verify_ops(ops: &[IrOp], depth: usize) -> Result<(), String> {
                 verify_ops(then_body, depth + 1)?;
                 verify_ops(else_body, depth + 1)?;
             }
-            IrOp::While { body, .. } | IrOp::ForEach { body, .. } | IrOp::Trap { body, .. } => {
-                verify_ops(body, depth + 1)?
-            }
+            IrOp::While { body, .. }
+            | IrOp::For { body, .. }
+            | IrOp::DoUntil { body, .. }
+            | IrOp::ForEach { body, .. }
+            | IrOp::Trap { body, .. } => verify_ops(body, depth + 1)?,
             IrOp::Match { cases, .. } => {
                 if cases.is_empty() {
                     return Err(

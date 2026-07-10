@@ -802,6 +802,41 @@ fn verify_package_rejects_duplicate_type() {
     assert!(err.contains("duplicate type"), "{err}");
 }
 
+/// bug-33: the structural walk recursed into `If`/`While`/`ForEach`/`Trap`/`Match`
+/// bodies but not `For`/`DoUntil`, so the empty-`MATCH` invariant went unapplied
+/// inside a counted or do-until loop.
+#[test]
+fn verify_package_recurses_into_for_and_do_until_bodies() {
+    let empty_match = || IrOp::Match {
+        value: c("Integer", "1"),
+        cases: vec![],
+        loc: loc(),
+    };
+    let for_loop = IrOp::For {
+        name: "i".to_string(),
+        type_: "Integer".to_string(),
+        start: c("Integer", "0"),
+        end: c("Integer", "1"),
+        step: c("Integer", "1"),
+        body: vec![empty_match()],
+        loc: loc(),
+    };
+    let mut project = empty_project("loops");
+    project.functions = vec![fn_body("f", vec![for_loop])];
+    let err = verify_package(&project).unwrap_err();
+    assert!(err.contains("MATCH has no cases"), "{err}");
+
+    let do_until = IrOp::DoUntil {
+        body: vec![empty_match()],
+        condition: c("Boolean", "true"),
+        loc: loc(),
+    };
+    let mut project = empty_project("loops");
+    project.functions = vec![fn_body("f", vec![do_until])];
+    let err = verify_package(&project).unwrap_err();
+    assert!(err.contains("MATCH has no cases"), "{err}");
+}
+
 #[test]
 fn verify_package_rejects_deeply_nested_ops() {
     // Nest IF bodies past the structural depth cap. Building + verifying the

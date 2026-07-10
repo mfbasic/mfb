@@ -43,7 +43,10 @@ pub(crate) enum IrValue {
         captures: Vec<IrValue>,
     },
     Capture {
-        index: usize,
+        /// The closure environment slot this capture reads. `u32` is the width
+        /// the package format encodes, so the in-memory value cannot silently
+        /// disagree with its serialization.
+        index: u32,
         type_: String,
         /// When set, the env slot at `index` holds a pointer to the parent
         /// binding's slot (a non-escaping `MUT` borrow), so the capture binds a

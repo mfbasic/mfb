@@ -3109,7 +3109,9 @@ fn lower_expression_with_expected(
                     name: capture.name.clone(),
                     type_: capture.type_.clone(),
                     value: Some(IrValue::Capture {
-                        index,
+                        // A closure's environment is far smaller than `u32::MAX`
+                        // slots; the cast cannot lose an index a program produces.
+                        index: index as u32,
                         type_: capture.type_.clone(),
                         by_ref,
                     }),

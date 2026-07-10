@@ -3710,7 +3710,7 @@ impl TypeEnv {
         };
         let mut violation = None;
         walk_captures(value, &mut |index| {
-            if index >= slots && violation.is_none() {
+            if index as usize >= slots && violation.is_none() {
                 violation = Some(index);
             }
         });
@@ -4227,7 +4227,7 @@ fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>)
 
 /// Visit every `Capture` index reachable from a value expression (captures
 /// never nest through ops — a closure body's captures live in leading binds).
-fn walk_captures(value: &IrValue, visit: &mut impl FnMut(usize)) {
+fn walk_captures(value: &IrValue, visit: &mut impl FnMut(u32)) {
     match value {
         IrValue::Capture { index, .. } => visit(*index),
         IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
