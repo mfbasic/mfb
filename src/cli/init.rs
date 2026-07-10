@@ -41,12 +41,24 @@ pub(crate) fn init_package_project(location: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Create `path` and write `contents`, refusing if anything is already there.
+///
+/// `create_new` is `O_EXCL`: it fails on an existing path without following a
+/// final-component symlink, and leaves no window between the check and the write.
+/// An `exists()` test followed by `fs::write` would both race and follow a
+/// pre-planted (even dangling) symlink onto its target.
 fn write_new_file(path: &Path, contents: String) -> Result<(), String> {
-    if path.exists() {
-        return Err(format!("refusing to overwrite '{}'", path.display()));
-    }
+    use std::io::Write;
 
-    fs::write(path, contents).map_err(|err| format!("failed to write '{}': {err}", path.display()))
+    let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(format!("refusing to overwrite '{}'", path.display()));
+        }
+        Err(err) => return Err(format!("failed to write '{}': {err}", path.display())),
+    };
+    file.write_all(contents.as_bytes())
+        .map_err(|err| format!("failed to write '{}': {err}", path.display()))
 }
 
 pub(crate) fn project_manifest(location: &Path) -> String {
@@ -233,6 +245,31 @@ mod tests {
         // Re-running refuses to clobber the existing project.json.
         let err = init_project(&location).unwrap_err();
         assert!(err.contains("refusing to overwrite"));
+    }
+
+    #[test]
+    fn write_new_file_never_follows_a_symlink_at_the_target() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, b"original").expect("victim");
+        let target = dir.path().join("project.json");
+        std::os::unix::fs::symlink(&victim, &target).expect("symlink");
+        let err = write_new_file(&target, "clobbered".to_string()).unwrap_err();
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert_eq!(std::fs::read(&victim).expect("victim"), b"original");
+
+        // A *dangling* symlink passed the old `exists()` check and was followed
+        // onto its target; `create_new` refuses it too.
+        let dangling = dir.path().join("dangling.mfb");
+        std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("symlink");
+        let err = write_new_file(&dangling, "clobbered".to_string()).unwrap_err();
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert!(!dir.path().join("absent").exists());
+
+        // A fresh path still writes.
+        let fresh = dir.path().join("fresh.mfb");
+        write_new_file(&fresh, "hello".to_string()).expect("fresh write");
+        assert_eq!(std::fs::read_to_string(&fresh).expect("fresh"), "hello");
     }
 
     #[test]
