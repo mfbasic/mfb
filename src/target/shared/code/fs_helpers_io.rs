@@ -617,6 +617,7 @@ pub(super) fn lower_fs_open_helper(
     let index = vregs.next();
     let byte = vregs.next();
     let mode_len = vregs.next();
+    let mode_byte = vregs.next();
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
@@ -640,13 +641,14 @@ pub(super) fn lower_fs_open_helper(
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64(&mode_len, &mode, 0),
     ]);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"r", &read, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"read", &read, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"w", &write, symbol);
+    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"r", &read, symbol);
+    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"read", &read, symbol);
+    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"w", &write, symbol);
     emit_branch_if_ascii_literal(
         &mut instructions,
         &mode,
         &mode_len,
+        &mode_byte,
         b"write",
         &write,
         symbol,
@@ -655,6 +657,7 @@ pub(super) fn lower_fs_open_helper(
         &mut instructions,
         &mode,
         &mode_len,
+        &mode_byte,
         b"rw",
         &read_write,
         symbol,
@@ -663,15 +666,17 @@ pub(super) fn lower_fs_open_helper(
         &mut instructions,
         &mode,
         &mode_len,
+        &mode_byte,
         b"readWrite",
         &read_write,
         symbol,
     );
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"a", &append, symbol);
+    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"a", &append, symbol);
     emit_branch_if_ascii_literal(
         &mut instructions,
         &mode,
         &mode_len,
+        &mode_byte,
         b"append",
         &append,
         symbol,
@@ -2219,6 +2224,7 @@ fn emit_branch_if_ascii_literal(
     instructions: &mut Vec<CodeInstruction>,
     ptr: &str,
     len: &str,
+    scratch: &str,
     literal: &[u8],
     target: &str,
     symbol: &str,
@@ -2234,8 +2240,8 @@ fn emit_branch_if_ascii_literal(
     ]);
     for (index, byte) in literal.iter().enumerate() {
         instructions.extend([
-            abi::load_u8("x12", ptr, 8 + index),
-            abi::compare_immediate("x12", &byte.to_string()),
+            abi::load_u8(scratch, ptr, 8 + index),
+            abi::compare_immediate(scratch, &byte.to_string()),
             abi::branch_ne(&next),
         ]);
     }
