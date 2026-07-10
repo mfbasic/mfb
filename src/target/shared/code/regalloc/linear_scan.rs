@@ -177,6 +177,13 @@ pub(super) fn run(
     let evict_base = spill_base_offset + spill_slot_count * slot_bytes;
     let mut max_evictions = 0usize;
     let spilled_set: std::collections::HashSet<u32> = spilled.iter().copied().collect();
+    // Callee-saved registers borrowed by the *genuinely-free* scratch branch
+    // below. Unlike a colored home (recorded from `assignment` later) or an
+    // eviction victim (save/restored around its single use), a genuinely-free
+    // callee-saved scratch is written by this function and never bracketed, so
+    // the frame must save/restore it or the caller's value in it is silently
+    // clobbered (bug-54). Collected here and merged into `extra_callee_saved`.
+    let mut scratch_callee_saved: Vec<String> = Vec::new();
     let mut out: Vec<CodeInstruction> = Vec::with_capacity(n);
     for (i, instruction) in instructions.iter().enumerate() {
         let eff = analysis::effect(instruction, class_model);
@@ -222,9 +229,19 @@ pub(super) fn run(
                     .iter()
                     .find(|&&(_, pi)| (occupied & (1u64 << pi)) == 0)
                 {
-                    // A genuinely free register — no save/restore needed.
+                    // A genuinely free register — no per-use save/restore needed
+                    // (nothing live is there to preserve around this one use).
+                    // But if it is callee-saved, this function still *writes* it,
+                    // and the caller relies on the PCS preserving it, so it must
+                    // be added to the frame's save set — exactly like a
+                    // callee-saved colored home (bug-54).
                     occupied |= 1u64 << pi;
                     reserved |= 1u64 << pi;
+                    if model.is_callee_saved(name)
+                        && !scratch_callee_saved.iter().any(|s| s == name)
+                    {
+                        scratch_callee_saved.push(name.to_string());
+                    }
                     scratch_for.insert(v, name.to_string());
                 } else {
                     // Every register is live, so borrow one that this instruction
@@ -272,7 +289,37 @@ pub(super) fn run(
             extra_callee_saved.push(phys.clone());
         }
     }
+    // Callee-saved registers borrowed only as genuinely-free reload scratch are
+    // never colored homes, so they are absent from `assignment` — merge them in
+    // so `finalize_frame` saves/restores them too (bug-54). The same generic
+    // `run` colors both the Int and Fp classes, so this covers `x20`–`x28` and
+    // `d8`–`d15` alike.
+    for phys in &scratch_callee_saved {
+        if !extra_callee_saved.iter().any(|s| s == phys) {
+            extra_callee_saved.push(phys.clone());
+        }
+    }
     extra_callee_saved.sort();
+
+    // Invariant (bug-54): every callee-saved register generated code *keeps*
+    // written — a colored home or a genuinely-free reload scratch — is in the
+    // frame's save set. Eviction victims are excluded: they are bracketed by a
+    // save/reload around their single use, so the function does not leave them
+    // modified.
+    #[cfg(debug_assertions)]
+    {
+        for phys in assignment
+            .values()
+            .filter(|p| model.is_callee_saved(p))
+            .chain(scratch_callee_saved.iter())
+        {
+            debug_assert!(
+                extra_callee_saved.iter().any(|s| s == phys),
+                "bug-54: callee-saved register {phys} written by generated code \
+                 (colored home or reload scratch) is missing from the frame save set",
+            );
+        }
+    }
 
     RunResult {
         instructions: out,
