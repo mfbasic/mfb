@@ -564,6 +564,8 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
 
         // Header: total count / total data length (recomputed from the pointer
         // slots, which survive `arena_alloc`; the pre-alloc registers do not).
@@ -591,10 +593,10 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch15, &scratch14, &scratch15));
-        self.emit_write_list_header_from_registers(&layout, "x1", &scratch13, &scratch15);
+        self.emit_write_list_header_from_registers(&layout, &nb, &scratch13, &scratch15);
 
         // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
-        self.emit_collection_data_pointer(&scratch17, "x1"); // dst data base
+        self.emit_collection_data_pointer(&scratch17, &nb); // dst data base
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
         self.emit(abi::load_u64(
@@ -631,8 +633,8 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         // Head: dst.table[0..i) <- A.table[0..i) verbatim.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst table cursor
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst table cursor
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -2967,12 +2969,14 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
             data_len_slot,
         ));
-        self.emit_write_list_header_from_registers(&layout, "x1", &scratch13, &scratch15);
+        self.emit_write_list_header_from_registers(&layout, &nb, &scratch13, &scratch15);
 
         // Copy phase (no allocations, so registers hold across it). removeAt
         // punches a single contiguous hole in the data region — the removed
@@ -3017,8 +3021,8 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_HEADER_SIZE,
         )); // src.entry[0]
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst.entry[0]
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
                                                                                  // Prefix [0..index): index*ENTRY bytes. Advances scratch17 -> dst.entry[index]
                                                                                  // and scratch12 -> src.entry[index] (the removed entry).
         self.emit(abi::multiply_registers(&scratch15, &scratch10, &scratch16));
@@ -3053,8 +3057,8 @@ impl CodeBuilder<'_> {
 
         // --- Data region: two verbatim blocks around the hole. ---
         self.emit_collection_data_pointer(&scratch20, &scratch8); // src data base (capacity-based)
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer(&scratch21, "x1"); // dst data base (tight)
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer(&scratch21, &nb); // dst data base (tight)
                                                              // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
                                                              // and scratch20 -> src.data[holeOffset].
         self.emit(abi::move_register(&scratch15, &scratch23)); // holeOffset (copy consumes it)
@@ -3084,8 +3088,8 @@ impl CodeBuilder<'_> {
         );
 
         // --- Fix up each surviving entry whose payload sat past the hole. ---
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst.entry[0]
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
         self.emit(abi::load_u64(
             &scratch11,
             &scratch8,
@@ -3397,12 +3401,14 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         // Header: count = 0, capacity, dataLength = 0, dataCapacity.
         self.emit(abi::move_immediate(&zero, "Integer", "0"));
         self.emit(abi::load_u64(&s9, abi::stack_pointer(), cap_slot));
         self.emit(abi::load_u64(&s10, abi::stack_pointer(), dcap_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_write_collection_header_full(&layout, "x1", &zero, &s9, &zero, &s10);
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit_write_collection_header_full(&layout, &nb, &zero, &s9, &zero, &s10);
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
@@ -3670,6 +3676,8 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
 
         // Header: recompute total count / total data length from the pointer slots
         // (the pre-alloc registers do not survive `arena_alloc`).
@@ -3698,11 +3706,11 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch14, &scratch13, &scratch14));
-        self.emit_write_list_header_from_registers(&layout, "x1", &scratch12, &scratch14);
+        self.emit_write_list_header_from_registers(&layout, &nb, &scratch12, &scratch14);
 
         // --- Data region: A verbatim at base, B verbatim at align(dataLen_A). ---
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer(&scratch17, "x1"); // x17 = dst data base (stable)
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer(&scratch17, &nb); // x17 = dst data base (stable)
         self.emit(abi::move_register(&scratch23, &scratch17)); // moving copy dst
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
@@ -3747,8 +3755,8 @@ impl CodeBuilder<'_> {
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst table cursor
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst table cursor
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -4021,17 +4029,19 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        let nb = self.temporary_vreg();
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
             data_len_slot,
         ));
-        self.emit_write_list_header_from_registers(&layout, "x1", &scratch14, &scratch15);
+        self.emit_write_list_header_from_registers(&layout, &nb, &scratch14, &scratch15);
 
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(
             &scratch10,
             &scratch8,
@@ -4044,9 +4054,9 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit(abi::load_u64(&scratch14, "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&scratch14, &nb, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
