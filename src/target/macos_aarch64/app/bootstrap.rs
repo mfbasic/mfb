@@ -770,6 +770,14 @@ pub(super) fn emit_finish_helper(uses_term: bool) -> CodeFunction {
 fn emit_format_exit_code(asm: &mut Asm, _frame: usize) {
     // h = code/100; rem = code%100; t = rem/10; o = rem%10.
     asm.push(abi::move_register("x9", "x19")); // n
+    // Mask to the low 8 bits: `_exit(status)` (the headless path) delivers only
+    // `status & 0xFF` to the parent, so the GUI transcript must show that same
+    // truncated value — never the raw code. Without this, a code > 255 (e.g.
+    // 300 or 1000) formatted garbage digits (`'0' + 10 = ':'`) since only
+    // hundreds/tens/ones are computed (bug-70). Masking bounds n to 0..255, so
+    // hundreds <= 2 and every digit is valid.
+    asm.push(abi::move_immediate("x11", "Integer", "255"));
+    asm.push(abi::and_registers("x9", "x9", "x11"));
     asm.push(abi::move_immediate("x11", "Integer", "100"));
     asm.push(abi::unsigned_divide_registers("x10", "x9", "x11")); // hundreds
     asm.push(abi::multiply_subtract_registers("x9", "x10", "x11", "x9")); // n %= 100
@@ -870,5 +878,42 @@ pub(super) fn emit_should_terminate_helper() -> CodeFunction {
         stack_slots: Vec::new(),
         instructions: asm.ins,
         relocations: asm.rel,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // bug-70: `emit_format_exit_code` only computed hundreds/tens/ones, so a
+    // program exit code > 255 (e.g. 300 or 1000) rendered garbage digits in the
+    // GUI transcript. It must first mask the code to its low 8 bits — the value
+    // `_exit(status)` actually delivers to the parent — so the printed code is
+    // always 0..255 and matches the headless path.
+    #[test]
+    fn exit_code_formatter_masks_to_low_8_bits() {
+        let mut asm = Asm::new("test");
+        emit_format_exit_code(&mut asm, 0);
+        let field = |ins: &CodeInstruction, key: &str| -> Option<String> {
+            ins.fields
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| v.clone())
+        };
+        // A `mov_imm <r>, 255` immediately followed by `and x9, x9, <r>` masks
+        // the code copied into x9 before any digit is extracted.
+        let has_mask = asm.ins.windows(2).any(|w| {
+            let mask_reg = match (field(&w[0], "value"), field(&w[0], "dst")) {
+                (Some(v), Some(reg)) if v == "255" => reg,
+                _ => return false,
+            };
+            field(&w[1], "dst").as_deref() == Some("x9")
+                && field(&w[1], "lhs").as_deref() == Some("x9")
+                && field(&w[1], "rhs") == Some(mask_reg)
+        });
+        assert!(
+            has_mask,
+            "emit_format_exit_code must mask the exit code to 0..255 before formatting"
+        );
     }
 }

@@ -4,9 +4,10 @@ use super::super::*;
 
 const UNICODE_PROPERTY_SIZE: usize = 24;
 const UNICODE_PROPERTY_OFFSET_COMBINING_CLASS: usize = 0;
-const UNICODE_PROPERTY_OFFSET_CASEFOLD_SEQINDEX: usize = 6;
-const UNICODE_PROPERTY_OFFSET_UPPERCASE_SEQINDEX: usize = 8;
-const UNICODE_PROPERTY_OFFSET_LOWERCASE_SEQINDEX: usize = 10;
+// Offsets 6/8/10 (casefold/uppercase/lowercase seqindex) exist in the on-disk
+// record but are never read: case mapping uses the flattened u32 tables. The
+// former `UNICODE_PROPERTY_OFFSET_*_SEQINDEX` constants and their emit helpers
+// were dead and were removed (bug-70).
 const UNICODE_PROPERTY_OFFSET_COMB_INDEX: usize = 12;
 const UNICODE_PROPERTY_OFFSET_COMB_LENGTH: usize = 14;
 const UNICODE_PROPERTY_OFFSET_FLAGS: usize = 16;
@@ -277,38 +278,6 @@ impl CodeBuilder<'_> {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMBINING_CLASS);
     }
 
-    pub(in crate::target::shared::code) fn emit_unicode_property_casefold_seqindex(
-        &mut self,
-        property: &str,
-        output: &str,
-    ) {
-        self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_CASEFOLD_SEQINDEX);
-    }
-
-    pub(in crate::target::shared::code) fn emit_unicode_property_uppercase_seqindex(
-        &mut self,
-        property: &str,
-        output: &str,
-    ) {
-        self.emit_unicode_property_u16(
-            property,
-            output,
-            UNICODE_PROPERTY_OFFSET_UPPERCASE_SEQINDEX,
-        );
-    }
-
-    pub(in crate::target::shared::code) fn emit_unicode_property_lowercase_seqindex(
-        &mut self,
-        property: &str,
-        output: &str,
-    ) {
-        self.emit_unicode_property_u16(
-            property,
-            output,
-            UNICODE_PROPERTY_OFFSET_LOWERCASE_SEQINDEX,
-        );
-    }
-
     pub(in crate::target::shared::code) fn emit_unicode_property_comb_index(
         &mut self,
         property: &str,
@@ -457,59 +426,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::or_registers(x6, x6, x7));
         self.emit(abi::store_u8(x6, cursor, 3));
         self.emit(abi::add_immediate(cursor, cursor, 4));
-        self.emit(abi::label(&done));
-    }
-
-    pub(in crate::target::shared::code) fn emit_utf8proc_sequence_init(
-        &mut self,
-        seqindex: &str,
-        entry_ptr: &str,
-        remaining: &str,
-    ) {
-        let x6 = self.temporary_vreg();
-        let x6 = x6.as_str();
-        self.emit(abi::move_immediate(x6, "Integer", "16383"));
-        self.emit(abi::and_registers(x6, seqindex, x6));
-        self.emit(abi::shift_left_immediate(x6, x6, 1));
-        self.emit_load_data_address(entry_ptr, UNICODE_SEQUENCES_SYMBOL);
-        self.emit(abi::add_registers(entry_ptr, entry_ptr, x6));
-        self.emit(abi::shift_right_immediate(remaining, seqindex, 14));
-        let short = self.label("utf8proc_sequence_short");
-        self.emit(abi::compare_immediate(remaining, "3"));
-        self.emit(abi::branch_lt(&short));
-        self.emit(abi::load_u16(remaining, entry_ptr, 0));
-        self.emit(abi::add_immediate(entry_ptr, entry_ptr, 2));
-        self.emit(abi::label(&short));
-    }
-
-    pub(in crate::target::shared::code) fn emit_utf8proc_sequence_decode_next(
-        &mut self,
-        entry_ptr: &str,
-        codepoint: &str,
-    ) {
-        let done = self.label("utf8proc_sequence_decode_done");
-        let x6 = self.temporary_vreg();
-        let x7 = self.temporary_vreg();
-        let x6 = x6.as_str();
-        let x7 = x7.as_str();
-        self.emit(abi::load_u16(codepoint, entry_ptr, 0));
-        self.emit(abi::add_immediate(entry_ptr, entry_ptr, 2));
-        self.emit(abi::move_immediate(x6, "Integer", "55296"));
-        self.emit(abi::compare_registers(codepoint, x6));
-        self.emit(abi::branch_lt(&done));
-        self.emit(abi::move_immediate(x6, "Integer", "56320"));
-        self.emit(abi::compare_registers(codepoint, x6));
-        self.emit(abi::branch_ge(&done));
-        self.emit(abi::move_immediate(x6, "Integer", "1023"));
-        self.emit(abi::and_registers(codepoint, codepoint, x6));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 10));
-        self.emit(abi::load_u16(x6, entry_ptr, 0));
-        self.emit(abi::add_immediate(entry_ptr, entry_ptr, 2));
-        self.emit(abi::move_immediate(x7, "Integer", "1023"));
-        self.emit(abi::and_registers(x6, x6, x7));
-        self.emit(abi::or_registers(codepoint, codepoint, x6));
-        self.emit(abi::move_immediate(x6, "Integer", "65536"));
-        self.emit(abi::add_registers(codepoint, codepoint, x6));
         self.emit(abi::label(&done));
     }
 

@@ -519,12 +519,10 @@ pub(super) fn scan_loop_locals(
                 condition, body, ..
             }
             | NirOp::DoUntil { body, condition } => {
-                if depth >= 1 {
-                    collect_value_local_reads(condition, excluded);
-                } else {
-                    // The nested loop's condition is at depth+1.
-                    collect_value_local_reads(condition, excluded);
-                }
+                // A nested loop's condition reads its own locals regardless of
+                // depth (bug-70: the former if/else ran the same call in both
+                // branches).
+                collect_value_local_reads(condition, excluded);
                 scan_loop_locals(body, depth + 1, top_assigns, excluded);
             }
             NirOp::For {
@@ -613,6 +611,7 @@ pub(super) fn lower_function(
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
+        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -722,7 +721,7 @@ pub(super) fn lower_function(
     fma_fusion::fuse_scalar_fma(&mut builder.instructions);
     // Color virtual registers to physical registers (plan-03 Stage A) before the
     // body is moved out for the peephole pass and finalize_frame.
-    builder.run_register_allocation();
+    builder.run_register_allocation()?;
     let mut instructions = builder.instructions;
     // Zero every string self-append capacity shadow at function entry: the buffer a
     // parameter or first assignment hands the local is tight (no spare). Stores are
@@ -853,6 +852,7 @@ pub(super) fn lower_builtin_function_wrapper(
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
+        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -907,7 +907,7 @@ pub(super) fn lower_builtin_function_wrapper(
     ));
     builder.emit(abi::return_());
 
-    builder.run_register_allocation();
+    builder.run_register_allocation()?;
     let mut instructions = builder.instructions;
     peephole::forward_stores_to_loads(&mut instructions);
     let is_riscv = mir::active_backend().register_model().arena_base() == "s11";

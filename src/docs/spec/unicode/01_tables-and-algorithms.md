@@ -89,9 +89,9 @@ one `u16` of zero padding, producing a **24-byte** on-disk record (11 × 2 + 2).
 | 0   | `combining_class`      | 1                           | `UNICODE_PROPERTY_OFFSET_COMBINING_CLASS` = 0   |
 | 2   | `decomp_type`          | 3                           | (emitted; not read by runtime helpers)          |
 | 4   | `decomp_seqindex`      | 4                           | (emitted; not read by runtime helpers)          |
-| 6   | `casefold_seqindex`    | 5                           | `UNICODE_PROPERTY_OFFSET_CASEFOLD_SEQINDEX` = 6 |
-| 8   | `uppercase_seqindex`   | 6                           | `UNICODE_PROPERTY_OFFSET_UPPERCASE_SEQINDEX` = 8|
-| 10  | `lowercase_seqindex`   | 7                           | `UNICODE_PROPERTY_OFFSET_LOWERCASE_SEQINDEX`=10 |
+| 6   | `casefold_seqindex`    | 5                           | (emitted; not read by runtime helpers)          |
+| 8   | `uppercase_seqindex`   | 6                           | (emitted; not read by runtime helpers)          |
+| 10  | `lowercase_seqindex`   | 7                           | (emitted; not read by runtime helpers)          |
 | 12  | `comb_index`           | 9                           | `UNICODE_PROPERTY_OFFSET_COMB_INDEX` = 12       |
 | 14  | `comb_length`          | 10                          | `UNICODE_PROPERTY_OFFSET_COMB_LENGTH` = 14      |
 | 16  | `flags`                | 11/13/14/15 (packed)        | `UNICODE_PROPERTY_OFFSET_FLAGS` = 16            |
@@ -104,9 +104,10 @@ noting: the `casefold`/`upper`/`lower` *seqindex* fields and the `decomp`
 fields are **present in `PackedProperty` and embedded**, but the runtime case
 and decomposition algorithms do **not** read them. Case mapping and NFD use the
 separate flattened mapping tables (below) instead; the seqindex fields are
-carried for parity with utf8proc and are dead at runtime. The runtime offset
-constants in `private/unicode.rs` are a parallel definition of the same layout
-and must stay in sync with `PackedProperty::encode_le`.
+carried for parity with utf8proc and are dead at runtime — no runtime offset
+constant nor emit helper exists for them. The offset constants in
+`private/unicode.rs` for the fields that *are* read are a parallel definition of
+the same layout and must stay in sync with `PackedProperty::encode_le`.
 [[src/target/shared/code/private/unicode.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans:
@@ -128,17 +129,16 @@ canonical ordering / composition and by grapheme segmentation.
 ## The utf8proc sequences table
 
 `sequences` is a `Vec<u16>` of UTF-16-style packed decomposition/composition
-data, addressed via a `seqindex` from a property record. `emit_utf8proc_sequence_init`
-decodes a seqindex: the low 14 bits (`& 0x3FFF`) are the u16 offset into the
-table; the top 2 bits (`>> 14`) are a length, and a length of `>= 3` means the
-real length is stored in-band as the first u16 (the entry pointer is then
-advanced past it). `emit_utf8proc_sequence_decode_next` reads one codepoint per
-call, recombining UTF-16 surrogate pairs (high surrogate 0xD800–0xDBFF followed
-by a trailing unit) into a scalar `>= 0x10000`. This sequence machinery is
-present but is exercised only by the composition path's table form; the case
-and NFD paths use the u32 flattened tables instead.
-[[src/target/shared/code/private/unicode.rs:emit_utf8proc_sequence_init]]
-[[src/target/shared/code/private/unicode.rs:emit_utf8proc_sequence_decode_next]]
+data, addressed via a `seqindex` from a property record. The table's bytes are
+still embedded (`UNICODE_SEQUENCES_SYMBOL`), but **no codegen path decodes it**:
+case mapping and NFD use the flattened u32 mapping tables (below), and NFC
+recomposition uses the `combinations_*` tables. The former
+`emit_utf8proc_sequence_init` / `emit_utf8proc_sequence_decode_next` seqindex
+decoders had no callers and were removed (bug-70); the raw `seqindex` encoding
+(low 14 bits = u16 offset; top 2 bits = length, `>= 3` meaning the real length
+is the in-band first u16; UTF-16 surrogate pairs recombine into a scalar
+`>= 0x10000`) is documented here for reference only.
+[[src/target/shared/code/data_objects.rs:UNICODE_SEQUENCES_SYMBOL]]
 
 ## Composition (combinations) tables
 

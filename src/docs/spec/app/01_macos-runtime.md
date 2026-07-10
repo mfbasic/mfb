@@ -163,8 +163,12 @@ the headless fallback inside the finish helper itself) still terminates via
   **nil** (headless / no window) → `headless_exit`: `_exit(code)`, preserving the
   console-like behavior the runtime tests rely on. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
 - **GUI**: it appends `"\nProgram exited with code "` (`STR_EXIT_PREFIX`), then the
-  decimal exit code formatted in-register by `emit_format_exit_code` (0..255 →
-  ASCII into the stack buffer at `sp+40`, leading zeros suppressed, count in `x22`)
+  decimal exit code formatted in-register by `emit_format_exit_code`. The code is
+  first masked to its low 8 bits (`& 0xFF`), matching what `_exit(status)` actually
+  delivers to the parent, so a code > 255 shows its truncated value (e.g. `300` →
+  `44`) consistently with the headless path — never garbage digits. The masked
+  `0..255` value is written as ASCII into the stack buffer at `sp+40` (leading
+  zeros suppressed, count in `x22`)
   rendered via `[[NSString alloc] initWithBytes:length:encoding:NSUTF8StringEncoding]`,
   then `"\n"`. Each append goes through `_mfb_macapp_append`. The worker then
   **parks** in `pause()` forever (`park` loop): it must **not** `pthread_exit`,

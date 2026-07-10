@@ -1258,12 +1258,10 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_direct_callable_branch(&mut self, location: &str) {
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
-        let code_register = self
-            .allocate_register()
-            .expect("closure call needs a scratch register");
-        let env_register = self
-            .allocate_register()
-            .expect("closure call needs a scratch register");
+        // Infallible vreg minters: an exhaustion under `-regalloc bump` is recorded
+        // and surfaced by `run_register_allocation` instead of panicking (bug-70).
+        let code_register = self.temporary_vreg();
+        let env_register = self.temporary_vreg();
         self.emit(abi::store_u64(
             CLOSURE_ENV_REGISTER,
             abi::stack_pointer(),

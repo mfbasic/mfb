@@ -1089,10 +1089,9 @@ impl CodeBuilder<'_> {
             }
         }
         // LinearScan's `allocate_register` is infallible (it never overflows a
-        // pool — it spills); the physical-pinning backends never reach here.
-        let reg = self
-            .allocate_register()
-            .expect("math pool-base virtual register allocation");
+        // pool — it spills); an exhaustion under `-regalloc bump` is recorded and
+        // surfaced by `run_register_allocation` rather than panicking (bug-70).
+        let reg = self.temporary_vreg();
         self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg.clone()));
         reg
     }

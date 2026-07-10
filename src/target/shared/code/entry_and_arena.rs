@@ -2086,10 +2086,17 @@ fn emit_write_integer_to_stderr_with_labels(
     instructions.extend([
         abi::subtract_stack(64),
         abi::load_u64("x21", ARENA_STATE_REGISTER, 32),
+        // Record the value's original sign in x28 *before* negating: x21 is
+        // overwritten (absolute value, then consumed by the digit loop), so the
+        // minus test below must read this saved flag, not the value register
+        // (bug-70: the test read x19/arena_base — always non-negative — so the
+        // minus branch was dead). x28 is untouched by the digit loop.
+        abi::move_immediate("x28", "Integer", "0"),
         abi::compare_immediate("x21", "0"),
         abi::branch_ge(&absolute_ready_label),
         abi::move_immediate("x22", "Integer", "0"),
         abi::subtract_registers("x21", "x22", "x21"),
+        abi::move_immediate("x28", "Integer", "1"),
         abi::label(&absolute_ready_label),
         abi::add_immediate("x23", abi::stack_pointer(), 64),
         abi::move_immediate("x24", "Integer", "10"),
@@ -2109,8 +2116,8 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::compare_immediate("x21", "0"),
         abi::branch_ne(&digit_loop_label),
         abi::label(&digits_done_label),
-        abi::compare_immediate("x19", "0"),
-        abi::branch_ge(&write_label),
+        abi::compare_immediate("x28", "0"),
+        abi::branch_eq(&write_label),
         abi::subtract_immediate("x23", "x23", 1),
         abi::move_immediate("x22", "Integer", "45"),
         abi::store_u8("x22", "x23", 0),

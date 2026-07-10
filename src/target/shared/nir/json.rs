@@ -97,7 +97,11 @@ impl ToNirJson for NirType {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match self.kind.as_str() {
-            "type" => format!(
+            // `record` and `resource` share the field-carrying shape of `type`
+            // (`validate_nir`'s `type_value_names` accepts all three
+            // interchangeably), so they render identically. A crafted `.mfp` can
+            // carry either kind and must dump without panicking (bug-70).
+            "type" | "record" | "resource" => format!(
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
@@ -167,7 +171,12 @@ impl ToNirJson for NirType {
                 pad,
                 pad
             ),
-            _ => unreachable!("known NIR type kind"),
+            // `validate_nir` (`type_value_names`) runs before every `to_json`
+            // caller and rejects any kind other than
+            // type/record/resource/union/enum, so no other kind can reach here.
+            other => unreachable!(
+                "validate_nir rejects NIR type kind '{other}' before to_json is called"
+            ),
         }
     }
 }
@@ -827,4 +836,60 @@ fn join_values(values: &[NirValue]) -> String {
         .map(|value| value.to_json(0))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn type_with_kind(kind: &str) -> NirType {
+        NirType {
+            kind: kind.to_string(),
+            visibility: "public".to_string(),
+            name: "Widget".to_string(),
+            fields: vec![NirField {
+                visibility: None,
+                name: "id".to_string(),
+                type_: "Integer".to_string(),
+            }],
+            includes: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+        }
+    }
+
+    // bug-70: a crafted `.mfp` can carry a `record`/`resource` NIR type kind
+    // (`validate_nir` whitelists both alongside `type`). The `-nir` dump must
+    // render them instead of hitting the old `unreachable!("known NIR type
+    // kind")`.
+    #[test]
+    fn renders_record_and_resource_kinds_without_panicking() {
+        for kind in ["record", "resource"] {
+            let json = type_with_kind(kind).to_json(2);
+            assert!(
+                json.contains(&format!("\"kind\": \"{kind}\"")),
+                "expected kind '{kind}' in dump, got: {json}"
+            );
+            assert!(
+                json.contains("\"name\": \"Widget\""),
+                "expected the type name in dump, got: {json}"
+            );
+            assert!(
+                json.contains("\"fields\""),
+                "record/resource render with the field-carrying `type` shape: {json}"
+            );
+        }
+    }
+
+    // The valid-package shape (`type`) is unchanged — record/resource render
+    // byte-identically to it apart from the kind string.
+    #[test]
+    fn record_kind_matches_type_shape() {
+        let as_type = type_with_kind("type").to_json(2);
+        let as_record = type_with_kind("record").to_json(2);
+        assert_eq!(
+            as_type.replace("\"kind\": \"type\"", "\"kind\": \"record\""),
+            as_record
+        );
+    }
 }

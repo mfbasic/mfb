@@ -63,6 +63,13 @@ struct CodeBuilder<'a> {
     address_taken_locals: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
+    /// First scratch-register-exhaustion error recorded by an infallible vreg
+    /// minter (`temporary_vreg`/`temporary_fp_vreg`), which cannot return a
+    /// `Result` to their many call sites. Only the fixed-pool `-regalloc bump`
+    /// oracle can exhaust; the default linear-scan spills and never sets this.
+    /// `run_register_allocation` surfaces it as a clean build error instead of
+    /// letting the former `.expect` panic (an ICE) escape (bug-70).
+    regalloc_error: Option<String>,
     next_label: usize,
     trap: Option<TrapState>,
     loop_stack: Vec<LoopLabels>,
@@ -2317,6 +2324,7 @@ fn lower_direct_builtin_runtime_helper(
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
+        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -2382,7 +2390,7 @@ fn lower_direct_builtin_runtime_helper(
     ));
     builder.emit(abi::return_());
 
-    builder.run_register_allocation();
+    builder.run_register_allocation()?;
     let mut instructions = builder.instructions;
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(

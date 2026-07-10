@@ -71,7 +71,12 @@ pub(crate) const IO_FLUSH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi {
         params: &[],
         returns: "Nothing",
-        clobbers: &[],
+        // `bl _mfb_rt_io_io_flush` clobbers caller-saved registers like every
+        // runtime call; declare it truthfully to match every sibling io spec
+        // (bug-70). Only read as an is-implemented gate today, but a false
+        // empty-clobbers declaration would mislead any future per-call clobber
+        // reader.
+        clobbers: abi::IO_PRINT_CLOBBERS,
     },
 };
 
@@ -190,3 +195,18 @@ pub(crate) const IO_IS_ERROR_TERMINAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpe
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // bug-70: `io.flush` is a `bl _mfb_rt_io_io_flush` call and clobbers
+    // caller-saved registers like every sibling io helper; it must declare that,
+    // not the former `clobbers: &[]`, so no future per-call clobber reader is
+    // misled by a false empty declaration.
+    #[test]
+    fn io_flush_declares_call_clobbers() {
+        assert_eq!(IO_FLUSH_SPEC.abi.clobbers, abi::IO_PRINT_CLOBBERS);
+        assert!(!IO_FLUSH_SPEC.abi.clobbers.is_empty());
+    }
+}
