@@ -47,4 +47,58 @@ tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:7 error[2-203-0022 TYP
      | ^
 tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   8 |   ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
+   9 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.connectTcp` omits parameter `port` before a later supplied argument.
+   9 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:11 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `net.connectTcp` does not have a parameter named `deadline`.
+  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:12 error[2-203-0058 TYPE_DUPLICATE_ARGUMENT_NAME]: call argument is supplied more than once
+               Call to `net.connectTcp` supplies parameter `host` more than once.
+  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.connectTcp` has argument type(s) (String, String, Integer), expected String, Integer, Integer or Address, Integer.
+  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `duplicateName` does not have a known type.
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = net::connectTcp("h", host := "h2")
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.connectTcp` omits parameter `port` before a later supplied argument.
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = net::connectTcp("h", host := "h2")
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.connectTcp` has argument type(s) (String, String), expected String, Integer, Integer or Address, Integer.
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = net::connectTcp("h", host := "h2")
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `positionalCollision` does not have a known type.
+  12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = net::connectTcp("h", host := "h2")
+  14 |   RES noSuchOverload = net::connectTcp(address := "h", port := 80)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.connectTcp` has no overload taking these arguments.
 [exit 1]

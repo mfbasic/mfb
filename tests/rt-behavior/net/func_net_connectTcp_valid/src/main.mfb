@@ -10,6 +10,15 @@ FUNC main AS Integer
   RES c2 = net::connectTcp("127.0.0.1", bound.port, 5000)
   RES c3 = net::connectTcp(address)
   RES c4 = net::connectTcp(address, 5000)
+  ' Every overload is reachable with named arguments, and `timeoutMs` binds to
+  ' the timeout parameter in each of them — never to `port`.
+  RES n1 = net::connectTcp(host := "127.0.0.1", port := bound.port)
+  RES n2 = net::connectTcp(host := "127.0.0.1", port := bound.port, timeoutMs := 5000)
+  RES n3 = net::connectTcp(address := address)
+  RES n4 = net::connectTcp(address := address, timeoutMs := 5000)
+  ' Named arguments may be given out of order, or follow a positional one.
+  RES n5 = net::connectTcp(timeoutMs := 5000, port := bound.port, host := "127.0.0.1")
+  RES n6 = net::connectTcp("127.0.0.1", timeoutMs := 5000, port := bound.port)
   io::print("connected all overloads")
   RETURN 0
 END FUNC

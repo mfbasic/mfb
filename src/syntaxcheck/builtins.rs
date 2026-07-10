@@ -1635,6 +1635,15 @@ impl<'a> SyntaxChecker<'a> {
                 .map(|argument| call_arg_value(argument).clone())
                 .collect();
         }
+        if let Some(overloads) = builtins::call_param_name_overloads(callee) {
+            return self.normalize_overloaded_builtin_call_arguments(
+                file,
+                display_callee,
+                overloads,
+                arguments,
+                line,
+            );
+        }
         let Some(param_names) = builtins::call_param_names(callee) else {
             return arguments
                 .iter()
@@ -1714,6 +1723,126 @@ impl<'a> SyntaxChecker<'a> {
         let mut normalized = ordered.into_iter().flatten().collect::<Vec<_>>();
         normalized.extend(extras);
         normalized
+    }
+
+    /// Normalize a call to a builtin whose overloads place the same parameter name
+    /// at different positions (`net::connectTcp`'s `timeoutMs` is param 1 of the
+    /// `Address` forms and param 2 of the host/port forms).
+    ///
+    /// A merged per-position alias table cannot express that: the first group
+    /// containing a name wins, so `timeoutMs` would always bind to `port`. Select
+    /// the overload first — the one whose parameter names cover every supplied name
+    /// with no positional collision and no missing argument — then bind names
+    /// within it.
+    fn normalize_overloaded_builtin_call_arguments(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        overloads: &[&[&str]],
+        arguments: &[CallArg],
+        line: usize,
+    ) -> Vec<Expression> {
+        let positionals: Vec<&Expression> = arguments
+            .iter()
+            .filter_map(|argument| match argument {
+                CallArg::Positional(value) => Some(value),
+                CallArg::Named { .. } => None,
+            })
+            .collect();
+        let named: Vec<(&String, &Expression, usize)> = arguments
+            .iter()
+            .filter_map(|argument| match argument {
+                CallArg::Named { name, value, line } => Some((name, value, *line)),
+                CallArg::Positional(_) => None,
+            })
+            .collect();
+
+        let fallback = || {
+            arguments
+                .iter()
+                .map(|argument| call_arg_value(argument).clone())
+                .collect::<Vec<_>>()
+        };
+
+        for (index, (name, _, named_line)) in named.iter().enumerate() {
+            if named[..index].iter().any(|(earlier, _, _)| earlier == name) {
+                self.report(
+                    "TYPE_DUPLICATE_ARGUMENT_NAME",
+                    &format!(
+                        "Call to `{display_callee}` supplies parameter `{name}` more than once."
+                    ),
+                    file,
+                    *named_line,
+                );
+                return fallback();
+            }
+        }
+        if let Some((name, _, named_line)) = named
+            .iter()
+            .find(|(name, _, _)| !overloads.iter().any(|params| params.contains(&name.as_str())))
+        {
+            self.report(
+                "TYPE_UNKNOWN_ARGUMENT_NAME",
+                &format!("Call to `{display_callee}` does not have a parameter named `{name}`."),
+                file,
+                *named_line,
+            );
+            return fallback();
+        }
+
+        let supplied_names: Vec<&str> = named.iter().map(|(name, _, _)| name.as_str()).collect();
+        if let Some(params) =
+            builtins::select_param_name_overload(overloads, positionals.len(), &supplied_names)
+        {
+            let mut ordered: Vec<Option<&Expression>> = vec![None; params.len()];
+            for (index, value) in positionals.iter().enumerate() {
+                ordered[index] = Some(value);
+            }
+            for (name, value, _) in &named {
+                let index = params
+                    .iter()
+                    .position(|param| param == name)
+                    .expect("the selected overload names every supplied argument");
+                ordered[index] = Some(value);
+            }
+            return ordered.into_iter().flatten().cloned().collect();
+        }
+
+        // Every supplied name exists, but no overload's arity and layout accept
+        // this combination: report the first parameter left unsupplied by the
+        // smallest overload that names them all (`connectTcp(host:, timeoutMs:)`
+        // omits `port`).
+        let covering = overloads
+            .iter()
+            .filter(|params| {
+                named
+                    .iter()
+                    .all(|(name, _, _)| params.contains(&name.as_str()))
+            })
+            .collect::<Vec<_>>();
+        if let Some(params) = covering.iter().min_by_key(|params| params.len()) {
+            let missing = params.iter().enumerate().find(|(index, param)| {
+                *index >= positionals.len() && !named.iter().any(|(name, _, _)| name == *param)
+            });
+            if let Some((_, missing)) = missing {
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` omits parameter `{missing}` before a later supplied argument."
+                    ),
+                    file,
+                    line,
+                );
+                return fallback();
+            }
+        }
+        self.report(
+            "TYPE_CALL_ARITY_MISMATCH",
+            &format!("Call to `{display_callee}` has no overload taking these arguments."),
+            file,
+            line,
+        );
+        fallback()
     }
 
     pub(super) fn normalize_named_arguments(

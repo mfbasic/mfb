@@ -350,6 +350,37 @@ pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
     math::constant_value(name).or_else(|| errorcode::constant_value(name))
 }
 
+/// Parameter names for a builtin whose overloads disagree on where a given name
+/// sits, listed one overload at a time. A builtin with such a table is normalized
+/// by selecting the overload first, then binding names within it; every other
+/// builtin uses the merged per-position table of [`call_param_names`].
+pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    net::call_param_name_overloads(name)
+}
+
+/// Pick the overload a call selects, given how many arguments were passed
+/// positionally and the names of the rest.
+///
+/// The chosen overload takes exactly this many arguments, names every supplied
+/// name, and places none of those names in a slot a positional argument already
+/// filled. Both the type checker and IR lowering resolve named arguments through
+/// this, so they cannot disagree about which parameter a name binds to.
+pub(crate) fn select_param_name_overload<'a>(
+    overloads: &'a [&'a [&'a str]],
+    positional_count: usize,
+    names: &[&str],
+) -> Option<&'a [&'a str]> {
+    overloads.iter().copied().find(|params| {
+        params.len() == positional_count + names.len()
+            && names.iter().all(|name| {
+                params
+                    .iter()
+                    .position(|param| param == name)
+                    .is_some_and(|index| index >= positional_count)
+            })
+    })
+}
+
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     general::call_param_names(name)
         .or_else(|| collections::call_param_names(name))
@@ -376,6 +407,94 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every documented builtin, as `package.function`, read from the man pages
+    /// (`src/docs/man/builtins/<package>/<function>.txt`).
+    fn documented_builtins() -> Vec<String> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/docs/man/builtins");
+        let mut names = Vec::new();
+        for package in std::fs::read_dir(&root).expect("man builtins dir") {
+            let package = package.expect("package dir").path();
+            let Some(package_name) = package.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if !package.is_dir() {
+                continue;
+            }
+            for page in std::fs::read_dir(&package).expect("package dir") {
+                let page = page.expect("man page").path();
+                if page.extension().and_then(|ext| ext.to_str()) != Some("txt") {
+                    continue;
+                }
+                let Some(function) = page.file_stem().and_then(|name| name.to_str()) else {
+                    continue;
+                };
+                names.push(format!("{package_name}.{function}"));
+            }
+        }
+        assert!(names.len() > 100, "expected the full builtin man corpus");
+        names
+    }
+
+    #[test]
+    fn no_named_argument_alias_repeats_across_positions() {
+        // `call_param_names` resolves a name to the *first* position group that
+        // lists it, with no backtracking. An alias appearing in two groups is
+        // therefore unresolvable: it pins to the earlier position and collides
+        // with that parameter (bug-28, `net.connectTcp`'s `timeoutMs`). A builtin
+        // whose overloads genuinely disagree on a name's position must declare a
+        // per-overload table instead.
+        for name in documented_builtins() {
+            let Some(groups) = call_param_names(&name) else {
+                continue;
+            };
+            for (index, aliases) in groups.iter().enumerate() {
+                for alias in *aliases {
+                    let earlier = groups[..index]
+                        .iter()
+                        .any(|group| group.contains(alias));
+                    assert!(
+                        !earlier,
+                        "`{name}` lists the argument name `{alias}` at two positions; \
+                         a named `{alias}` can never bind to position {index}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn overloaded_param_name_tables_are_well_formed() {
+        for name in documented_builtins() {
+            let Some(overloads) = call_param_name_overloads(&name) else {
+                continue;
+            };
+            // A per-overload table replaces the merged one; carrying both would
+            // leave the merged table silently unused.
+            assert!(
+                call_param_names(&name).is_none(),
+                "`{name}` declares both a merged and a per-overload param table"
+            );
+            for params in overloads {
+                for (index, param) in params.iter().enumerate() {
+                    assert!(
+                        !params[..index].contains(param),
+                        "`{name}` repeats the parameter `{param}` in one overload"
+                    );
+                }
+            }
+            // Two overloads of the same arity must differ by name, or selection
+            // between them would be arbitrary.
+            for (index, params) in overloads.iter().enumerate() {
+                for other in &overloads[..index] {
+                    assert!(
+                        params.len() != other.len() || params != other,
+                        "`{name}` declares the same overload twice"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn inline_builtin_fallibility_census() {

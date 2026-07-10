@@ -104,7 +104,10 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         LOOKUP => Some(&[&["host"], &["port"]]),
-        CONNECT_TCP => Some(&[&["host", "address"], &["port", "timeoutMs"], &["timeoutMs"]]),
+        // CONNECT_TCP's overloads do not share a positional layout (`timeoutMs`
+        // is param 1 of the Address forms and param 2 of the host/port forms), so
+        // it cannot be described by a merged per-position alias table. It has a
+        // per-overload table instead; see `call_param_name_overloads`.
         LISTEN_TCP => Some(&[&["host"], &["port"], &["backlog"]]),
         ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
         POLL => Some(&[&["sock"], &["timeoutMs"]]),
@@ -122,6 +125,22 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         TO_URL => Some(&[&["href", "value", "url"]]),
         PERCENT_DECODE => Some(&[&["s", "text", "value"]]),
         PARSE_QUERY => Some(&[&["s", "query", "value"]]),
+        _ => None,
+    }
+}
+
+/// Per-overload parameter names for a builtin whose overloads have structurally
+/// different positional layouts, so a named argument binds to a different index
+/// depending on which overload it selects. Each entry is one overload's parameter
+/// names, in order.
+pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        CONNECT_TCP => Some(&[
+            &["host", "port"],
+            &["host", "port", "timeoutMs"],
+            &["address"],
+            &["address", "timeoutMs"],
+        ]),
         _ => None,
     }
 }
@@ -434,7 +453,10 @@ mod tests {
     #[test]
     fn call_param_names_present_and_absent() {
         assert!(call_param_names(LOOKUP).is_some());
-        assert!(call_param_names(CONNECT_TCP).is_some());
+        // CONNECT_TCP carries a per-overload table instead of a merged one.
+        assert!(call_param_names(CONNECT_TCP).is_none());
+        assert!(call_param_name_overloads(CONNECT_TCP).is_some());
+        assert!(call_param_name_overloads(LOOKUP).is_none());
         assert!(call_param_names(LISTEN_TCP).is_some());
         assert!(call_param_names(ACCEPT).is_some());
         assert!(call_param_names(POLL).is_some());

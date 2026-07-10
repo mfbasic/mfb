@@ -2485,6 +2485,11 @@ fn normalize_builtin_call_arguments<'a>(
     {
         return arguments.iter().map(call_arg_value).collect();
     }
+    // A builtin whose overloads place a name at different positions selects the
+    // overload first; the type checker has already proven one exists.
+    if let Some(overloads) = builtins::call_param_name_overloads(callee) {
+        return normalize_overloaded_builtin_call_arguments(overloads, arguments);
+    }
     let Some(param_names) = builtins::call_param_names(callee) else {
         return arguments.iter().map(call_arg_value).collect();
     };
@@ -2517,6 +2522,47 @@ fn normalize_builtin_call_arguments<'a>(
     let mut normalized = ordered.into_iter().flatten().collect::<Vec<_>>();
     normalized.extend(extras);
     normalized
+}
+
+/// Order the arguments of a call to a builtin with a per-overload parameter-name
+/// table, mirroring `syntaxcheck`'s selection so both agree on which parameter a
+/// name binds to. An unresolvable call was already rejected by the type checker;
+/// keep its source order so lowering has something well-formed to walk.
+fn normalize_overloaded_builtin_call_arguments<'a>(
+    overloads: &[&[&str]],
+    arguments: &'a [CallArg],
+) -> Vec<&'a Expression> {
+    let positionals: Vec<&Expression> = arguments
+        .iter()
+        .filter_map(|argument| match argument {
+            CallArg::Positional(value) => Some(value),
+            CallArg::Named { .. } => None,
+        })
+        .collect();
+    let named: Vec<(&str, &Expression)> = arguments
+        .iter()
+        .filter_map(|argument| match argument {
+            CallArg::Named { name, value, .. } => Some((name.as_str(), value)),
+            CallArg::Positional(_) => None,
+        })
+        .collect();
+    let supplied_names: Vec<&str> = named.iter().map(|(name, _)| *name).collect();
+    let Some(params) =
+        builtins::select_param_name_overload(overloads, positionals.len(), &supplied_names)
+    else {
+        return arguments.iter().map(call_arg_value).collect();
+    };
+
+    let mut ordered: Vec<Option<&Expression>> = vec![None; params.len()];
+    for (index, value) in positionals.into_iter().enumerate() {
+        ordered[index] = Some(value);
+    }
+    for (name, value) in named {
+        if let Some(index) = params.iter().position(|param| *param == name) {
+            ordered[index] = Some(value);
+        }
+    }
+    ordered.into_iter().flatten().collect()
 }
 
 fn normalize_local_call_arguments<'a>(

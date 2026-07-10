@@ -5,5 +5,12 @@ FUNC main AS Integer
   RES wrongHost = net::connectTcp(1, 80)
   RES wrongPort = net::connectTcp("h", "p")
   RES tooMany = net::connectTcp("h", 80, 0, 0)
+  ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
+  ' this omits `port` and is an arity error, not a connection to port 5000.
+  RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+  RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+  RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)
+  RES positionalCollision = net::connectTcp("h", host := "h2")
+  RES noSuchOverload = net::connectTcp(address := "h", port := 80)
   RETURN 0
 END FUNC
