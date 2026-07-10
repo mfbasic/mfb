@@ -3431,6 +3431,7 @@ mod encoding_error_release_tests {
         fn emit_errno(
         &self,
         _from: &str,
+        _dst: &str,
         _platform_imports: &HashMap<String, String>,
         _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
         _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,

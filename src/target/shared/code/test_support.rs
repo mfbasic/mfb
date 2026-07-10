@@ -44,11 +44,11 @@ impl CodegenPlatform for TestPlatform {
     fn emit_current_directory(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_current_directory") }
     fn emit_environ_pointer(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_environ_pointer") }
     fn emit_fs_path_operation(&self, _from: &str, _op: FsPathOperation, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_fs_path_operation") }
-    fn emit_errno(&self, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
-        // Leave a plausible errno value in the return register; a plain move is
-        // enough for helpers (e.g. the non-blocking connect timeout path) to
-        // lower and register-allocate.
-        instructions.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    fn emit_errno(&self, _from: &str, dst: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+        // Leave a plausible errno value in `dst`; a plain move is enough for
+        // helpers (e.g. the non-blocking connect timeout path) to lower and
+        // register-allocate.
+        instructions.push(abi::move_immediate(dst, "Integer", "0"));
         Ok(())
     }
     fn emit_libc_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {

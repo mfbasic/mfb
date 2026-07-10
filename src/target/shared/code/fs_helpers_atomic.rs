@@ -205,13 +205,15 @@ pub(super) fn lower_fs_create_temp_file_helper(
         abi::branch(&done),
         abi::label(&open_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -619,8 +621,10 @@ pub(super) fn lower_fs_atomic_write_helper(
         abi::branch(&done),
         abi::label(&rename_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -631,12 +635,13 @@ pub(super) fn lower_fs_atomic_write_helper(
     instructions.push(abi::label(&rename_failed));
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register(&saved_errno, "x9"),
+        abi::move_register(&saved_errno, &errno_reg),
         abi::add_immediate(abi::return_register(), &temp_path, 8),
     ]);
     platform.emit_fs_path_operation(
@@ -647,10 +652,10 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register("x9", &saved_errno),
+        abi::move_register(&errno_reg, &saved_errno),
         abi::label(&rename_error_map),
     ]);
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     // `emit_errno_error_mapping`'s generic `err_output` case does not branch to
     // `done` — terminate the mkstemps/rename errno path explicitly so it cannot
     // fall through into the write/sync close tail below and re-close the fd (a
@@ -905,13 +910,15 @@ pub(super) fn lower_fs_write_text_path_helper(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1175,14 +1182,17 @@ pub(super) fn lower_fs_read_text_path_helper(
     ]);
     push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     emit_fs_path_errno_error_mapping(
         symbol,
+        &errno_reg,
         platform.target(),
         false,
         &mut instructions,
@@ -1391,13 +1401,15 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1604,14 +1616,17 @@ pub(super) fn lower_fs_read_bytes_path_helper(
         abi::branch(&done),
         abi::label(&open_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     emit_fs_path_errno_error_mapping(
         symbol,
+        &errno_reg,
         platform.target(),
         false,
         &mut instructions,

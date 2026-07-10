@@ -500,6 +500,7 @@ impl code::CodegenPlatform for Platform {
     fn emit_errno(
         &self,
         from: &str,
+        dst: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -511,7 +512,7 @@ impl code::CodegenPlatform for Platform {
             instructions,
             relocations,
         )?;
-        instructions.push(abi::load_u32("x9", abi::return_register(), 0));
+        instructions.push(abi::load_u32(dst, abi::return_register(), 0));
         Ok(())
     }
 

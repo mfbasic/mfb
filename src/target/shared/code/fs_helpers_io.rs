@@ -69,22 +69,24 @@ pub(super) fn emit_eintr_retry_or_error(
     retry_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    // `ret` (the syscall return) is dead once we branch to retry/error here, so
+    // reuse it as the errno scratch instead of naming a physical register
+    // (plan-34-C): the retry edge reloads its cursor/remaining from spill slots.
+    let eintr = EINTR_ERRNO.parse::<usize>().expect("EINTR_ERRNO is numeric");
     if raw_return {
         // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
-        // `ret + EINTR == 0`. `x9` is scratch (dead here); on the retry edge the
-        // loop reloads its cursor/remaining from spill slots.
+        // `ret + EINTR == 0`.
         instructions.extend([
-            abi::move_immediate("x9", "Integer", EINTR_ERRNO),
-            abi::add_registers("x9", "x9", ret),
-            abi::compare_immediate("x9", "0"),
+            abi::add_immediate(ret, ret, eintr),
+            abi::compare_immediate(ret, "0"),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
     } else if errno_accessor_available(platform_imports) {
-        // `emit_errno` leaves the current `errno` in `x9` on every backend.
-        platform.emit_errno(symbol, platform_imports, instructions, relocations)?;
+        // `emit_errno` loads the current `errno` into `ret` (reused).
+        platform.emit_errno(symbol, ret, platform_imports, instructions, relocations)?;
         instructions.extend([
-            abi::compare_immediate("x9", EINTR_ERRNO),
+            abi::compare_immediate(ret, EINTR_ERRNO),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
@@ -769,14 +771,17 @@ pub(super) fn lower_fs_open_helper(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     emit_fs_path_errno_error_mapping(
         symbol,
+        &errno_reg,
         platform.target(),
         no_follow,
         &mut instructions,

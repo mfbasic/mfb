@@ -212,9 +212,14 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+    /// Load the current `errno` into `dst` (a caller-supplied register, normally a
+    /// vreg). The call to `__errno_location`/`___error` clobbers all caller-saved
+    /// registers, so `dst` must not be a value needed across this call (plan-34-C:
+    /// callers pass an allocator-placed vreg rather than the historical `x9`).
     fn emit_errno(
         &self,
         from: &str,
+        dst: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,

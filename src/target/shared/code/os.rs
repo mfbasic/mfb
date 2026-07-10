@@ -592,9 +592,8 @@ fn lower_set_env(
     ]);
     // Distinguish ENOMEM (→ ErrOutOfMemory) from every other errno (→
     // ErrInvalidArgument: empty name, or a name containing '=').
-    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(symbol, &errno, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
-        abi::move_register(&errno, "x9"),
         abi::compare_immediate(&errno, ERRNO_ENOMEM),
         abi::branch_eq(&oom),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),

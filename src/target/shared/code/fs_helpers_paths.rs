@@ -628,14 +628,17 @@ pub(super) fn lower_fs_path_operation_helper(
         abi::branch(&done),
         abi::label(&call_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     emit_fs_path_errno_error_mapping(
         symbol,
+        &errno_reg,
         platform.target(),
         false,
         &mut instructions,
@@ -773,14 +776,16 @@ pub(super) fn lower_fs_create_directories_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&prefix_ok),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("x9", "17"),
+        abi::compare_immediate(&errno_reg, "17"),
         abi::branch_ne(&call_error),
         abi::label(&prefix_ok),
         abi::add_immediate(&cursor, &cursor, 1),
@@ -801,21 +806,22 @@ pub(super) fn lower_fs_create_directories_helper(
     ]);
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("x9", "17"),
+        abi::compare_immediate(&errno_reg, "17"),
         abi::branch_eq(&final_ok),
         abi::branch(&call_error),
         abi::label(&final_ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&call_error),
-        abi::compare_immediate("x9", "2"),
+        abi::compare_immediate(&errno_reg, "2"),
         abi::branch_eq(&err_not_found),
-        abi::compare_immediate("x9", "13"),
+        abi::compare_immediate(&errno_reg, "13"),
         abi::branch_eq(&err_access_denied),
         abi::branch(&err_output),
         abi::label(&invalid_path),
@@ -1254,13 +1260,15 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::branch(&done),
         abi::label(&open_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1457,13 +1465,15 @@ pub(super) fn lower_fs_canonical_path_helper(
         abi::branch(&done),
         abi::label(&realpath_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1721,13 +1731,15 @@ pub(super) fn lower_fs_is_within_helper(
         abi::branch(&done),
         abi::label(&realpath_error),
     ]);
+    let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
+        &errno_reg,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),

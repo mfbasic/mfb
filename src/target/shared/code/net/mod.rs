@@ -515,11 +515,11 @@ fn lower_net_endpoint_helper(
         // In progress? Anything other than EINPROGRESS is a hard failure.
         platform.emit_errno(
             symbol,
+            "%v9",
             platform_imports,
             &mut instructions,
             &mut relocations,
         )?;
-        instructions.push(abi::move_register("%v9", "x9"));
         instructions.extend([
             abi::compare_immediate("%v9", platform.einprogress()),
             abi::branch_ne(&op_fail),

@@ -423,11 +423,11 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     instructions.push(abi::label(&read_fail));
     platform.emit_errno(
         symbol,
+        "%v9",
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.push(abi::move_register("%v9", "x9"));
     instructions.extend([
         abi::compare_immediate("%v9", platform.eagain()),
         abi::branch_eq(&timeout),
@@ -577,11 +577,11 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
     ]);
     platform.emit_errno(
         symbol,
+        "%v9",
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.push(abi::move_register("%v9", "x9"));
     instructions.extend([
         abi::compare_immediate("%v9", platform.eagain()),
         abi::branch_eq(&timeout),
@@ -1312,11 +1312,11 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     instructions.push(abi::label(&recv_fail));
     platform.emit_errno(
         symbol,
+        "%v9",
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.push(abi::move_register("%v9", "x9"));
     instructions.extend([
         abi::compare_immediate("%v9", platform.eagain()),
         abi::branch_eq(&timeout),
@@ -1537,11 +1537,11 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     // Capture errno before freeaddrinfo can disturb it.
     platform.emit_errno(
         symbol,
+        "%v9",
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.push(abi::move_register("%v9", "x9"));
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET));
     instructions.push(abi::load_u64(
         abi::return_register(),

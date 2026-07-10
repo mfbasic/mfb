@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn emit_errno_error_mapping(
     symbol: &str,
+    errno_reg: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
@@ -11,11 +12,11 @@ pub(super) fn emit_errno_error_mapping(
     let err_already_exists = format!("{symbol}_errno_already_exists");
     let err_output = format!("{symbol}_errno_output");
     instructions.extend([
-        abi::compare_immediate("x9", "2"),
+        abi::compare_immediate(errno_reg, "2"),
         abi::branch_eq(&err_not_found),
-        abi::compare_immediate("x9", "13"),
+        abi::compare_immediate(errno_reg, "13"),
         abi::branch_eq(&err_access_denied),
-        abi::compare_immediate("x9", "17"),
+        abi::compare_immediate(errno_reg, "17"),
         abi::branch_eq(&err_already_exists),
         abi::branch(&err_output),
         abi::label(&err_not_found),
@@ -55,6 +56,7 @@ pub(super) fn emit_errno_error_mapping(
 /// The host errno is expected in `x9`, as produced by `emit_errno`.
 pub(super) fn emit_fs_path_errno_error_mapping(
     symbol: &str,
+    errno_reg: &str,
     target: &str,
     no_follow: bool,
     instructions: &mut Vec<CodeInstruction>,
@@ -80,21 +82,21 @@ pub(super) fn emit_fs_path_errno_error_mapping(
     };
 
     instructions.extend([
-        abi::compare_immediate("x9", "2"),
+        abi::compare_immediate(errno_reg, "2"),
         abi::branch_eq(&err_path_not_found),
-        abi::compare_immediate("x9", "13"),
+        abi::compare_immediate(errno_reg, "13"),
         abi::branch_eq(&err_access_denied),
-        abi::compare_immediate("x9", "17"),
+        abi::compare_immediate(errno_reg, "17"),
         abi::branch_eq(&err_already_exists),
-        abi::compare_immediate("x9", enotempty),
+        abi::compare_immediate(errno_reg, enotempty),
         abi::branch_eq(&err_not_empty),
-        abi::compare_immediate("x9", "20"),
+        abi::compare_immediate(errno_reg, "20"),
         abi::branch_eq(&err_invalid_path),
-        abi::compare_immediate("x9", enametoolong),
+        abi::compare_immediate(errno_reg, enametoolong),
         abi::branch_eq(&err_invalid_path),
-        abi::compare_immediate("x9", eilseq),
+        abi::compare_immediate(errno_reg, eilseq),
         abi::branch_eq(&err_invalid_path),
-        abi::compare_immediate("x9", eloop),
+        abi::compare_immediate(errno_reg, eloop),
         abi::branch_eq(&eloop_target),
         abi::branch(&err_output),
         abi::label(&err_path_not_found),
