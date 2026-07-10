@@ -1,0 +1,57 @@
+{
+  "project": "math_simd_signzero_tail_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 12 },
+    { "module": "math", "line": 13 },
+    { "module": "collections", "line": 14 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "signOfZero",
+      "line": 16,
+      "params": [
+      { "name": "z", "type": "Float", "default": null }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "math.atan2", "arguments": [{ "kind": "identifier", "value": "z" }, { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "number", "value": "1.0" } }] }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "4" }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "pz", "type": "Float", "value": { "kind": "number", "value": "0.0" }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "nz", "type": "Float", "value": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "number", "value": "1.0" } } }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "aMin", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "pz" }, { "kind": "number", "value": "9.0" }, { "kind": "identifier", "value": "pz" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "bMin", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "nz" }, { "kind": "number", "value": "9.0" }, { "kind": "identifier", "value": "nz" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "mn", "type": "List OF Float", "value": { "kind": "call", "callee": "math.min", "arguments": [{ "kind": "identifier", "value": "aMin" }, { "kind": "identifier", "value": "bMin" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "signOfZero", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "mn" }, { "kind": "number", "value": "0" }] }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "signOfZero", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "mn" }, { "kind": "number", "value": "2" }] }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "aMax", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "nz" }, { "kind": "number", "value": "9.0" }, { "kind": "identifier", "value": "nz" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "bMax", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "pz" }, { "kind": "number", "value": "9.0" }, { "kind": "identifier", "value": "pz" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "mx", "type": "List OF Float", "value": { "kind": "call", "callee": "math.max", "arguments": [{ "kind": "identifier", "value": "aMax" }, { "kind": "identifier", "value": "bMax" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "signOfZero", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "mx" }, { "kind": "number", "value": "0" }] }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "signOfZero", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "mx" }, { "kind": "number", "value": "2" }] }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "nz" }, { "kind": "number", "value": "9.0" }, { "kind": "identifier", "value": "nz" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "cl", "type": "List OF Float", "value": { "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "1.0" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "signOfZero", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "cl" }, { "kind": "number", "value": "0" }] }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "signOfZero", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "cl" }, { "kind": "number", "value": "2" }] }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 45 }
+      ]
+    }
+    ]
+  }
+  ]
+}

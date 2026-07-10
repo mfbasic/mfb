@@ -35,8 +35,12 @@ DESCRIPTION
   The comparisons are plain ordered comparisons. The Integer and Fixed
   overloads compare the underlying signed 64-bit representations. The Float
   overload performs ordered floating-point comparisons and does no rounding or
-  domain checking. The function has no side effects and does not mutate its
-  arguments.
+  domain checking. Clamping is defined as max(min(value, high), low), so a
+  signed-zero bound follows the same rule as math::min and math::max: +0.0 and
+  -0.0 compare equal, min prefers -0.0 and max prefers +0.0. This holds for the
+  scalar overload and for every element of the array overload, including the
+  final odd element of a List whose length is not a multiple of the SIMD lane
+  count. The function has no side effects and does not mutate its arguments.
 
 OVERLOADS
   math::clamp(value AS Integer, low AS Integer, high AS Integer) AS Integer

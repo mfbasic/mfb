@@ -1154,9 +1154,13 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// Lower a two-array `math::` Float overload (`atan2`/`pow`). Both lists must
-    /// have the same length (`ErrInvalidArgument` otherwise). `left_slot`/
-    /// `right_slot` already hold the two list pointers (the caller spilled them).
+    /// Lower a two-array `math::` Float overload. `atan2` is the only kernel that
+    /// reaches this driver — array `pow` is diverted to `lower_pow_array`
+    /// (`builder_math.rs`) because it needs the per-element fdlibm kernel — so the
+    /// error reduce below only has to cover `atan2`'s single `Nan` failure. Both
+    /// lists must have the same length (`ErrInvalidArgument` otherwise).
+    /// `left_slot`/`right_slot` already hold the two list pointers (the caller
+    /// spilled them).
     pub(super) fn lower_simd_float_binary(
         &mut self,
         kernel: FloatBinaryKernel,
@@ -1255,9 +1259,23 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x0", &out_data, 0));
         self.emit(abi::label(&tail_done));
 
-        // atan2/pow fail with ErrFloatNan on a NaN result (matching the scalar
-        // man pages); the length-mismatch ErrInvalidArgument is raised above.
-        self.emit_float_error_reduce(FloatError::Nan, k)?;
+        // `atan2` is the only kernel routed here (array `pow` is diverted); it
+        // fails only with `ErrFloatNan` on a NaN result, matching the scalar man
+        // page. Reduce every error the kernel declares (mirroring the scalar
+        // sibling `lower_simd_float_binary_scalar`) rather than hardcoding `Nan`,
+        // so a future kernel wired here reduces its full error set. Any kernel
+        // that raises `Inf` (e.g. `Pow`) also needs its `v24` mask zeroed before
+        // the loop and kept out of the per-iteration body — assert atan2-only
+        // until that is wired, since the length-mismatch `ErrInvalidArgument` is
+        // raised above.
+        debug_assert!(
+            matches!(kernel, FloatBinaryKernel::Atan2),
+            "lower_simd_float_binary is atan2-only; wiring an Inf-raising kernel \
+             (e.g. Pow) requires hoisting the v24 zero out of the loop body"
+        );
+        for err in kernel.errors() {
+            self.emit_float_error_reduce(*err, k)?;
+        }
 
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
@@ -1324,10 +1342,6 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_and("v2", "v2", &k.v20)); // & (x<0)
                 self.emit(abi::vector_fadd("v0", "v0", "v2"));
                 self.emit_result_nan_into_mask(k);
-                // self.emit(abi::vector_orr("v2", &k.v23, &k.v21)); // copysign(pi, y)
-                // self.emit(abi::vector_and("v2", "v2", &k.v20)); // & (x<0)
-                // self.emit(abi::vector_fadd("v0", "v0", "v2"));
-                // self.emit_result_nan_into_mask(k);
             }
             FloatBinaryKernel::Pow => {
                 // pow(x=v0, y=v1) = exp(y * log(x)). Re-broadcast each kernel's

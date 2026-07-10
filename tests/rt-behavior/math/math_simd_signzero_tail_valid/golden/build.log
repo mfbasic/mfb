@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/math/math_simd_signzero_tail_valid
+Wrote AST to tests/rt-behavior/math/math_simd_signzero_tail_valid/math_simd_signzero_tail_valid.ast
+Wrote IR to tests/rt-behavior/math/math_simd_signzero_tail_valid/math_simd_signzero_tail_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/math_simd_signzero_tail_valid
+Wrote executable to tests/rt-behavior/math/math_simd_signzero_tail_valid/math_simd_signzero_tail_valid.out
+[exit 0]
+$ tests/rt-behavior/math/math_simd_signzero_tail_valid/math_simd_signzero_tail_valid.out
+-3.1416
+-3.1416
+3.1416
+3.1416
+3.1416
+3.1416
+[exit 0]

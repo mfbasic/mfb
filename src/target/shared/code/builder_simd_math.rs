@@ -603,16 +603,22 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register("x0", "x1"));
             }
             SimdBinaryKernel::MinFloat | SimdBinaryKernel::MaxFloat => {
+                // `fminnm`/`fmaxnm` — the same sign-of-zero-aware instruction the
+                // vector body (`fmin`/`fmax`) and the scalar `math::min(Float,
+                // Float)` overload use, so the odd tail lane is bit-identical to a
+                // body lane. The old `fsub`+`fcmp #0` treated `+0.0`/`-0.0` as
+                // equal on a tie and kept the wrong-signed zero (bug-68). For the
+                // finite values a `List OF Float` can hold (NaN/Inf are rejected at
+                // the finiteness boundary) `fminnm`/`fmaxnm` equals the body's
+                // `fmin`/`fmax` exactly.
                 self.emit(abi::float_move_d_from_x("d0", "x0"));
                 self.emit(abi::float_move_d_from_x("d1", "x1"));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
                 if matches!(kernel, SimdBinaryKernel::MinFloat) {
-                    self.emit(abi::branch_le(&done)); // d0 <= d1 → keep x0
+                    self.emit(abi::float_min_d("d0", "d0", "d1"));
                 } else {
-                    self.emit(abi::branch_ge(&done));
+                    self.emit(abi::float_max_d("d0", "d0", "d1"));
                 }
-                self.emit(abi::move_register("x0", "x1"));
+                self.emit(abi::float_move_x_from_d("x0", "d0"));
             }
         }
         self.emit(abi::label(&done));
@@ -791,24 +797,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&skip_lo));
             }
             SimdClampKernel::Float => {
-                // lane = min(lane, high) via FP compare
+                // `fminnm`/`fmaxnm` — matching the vector body
+                // (`vector_fmin`/`vector_fmax`) so the odd tail lane is
+                // bit-identical to a body lane on signed zeros. The old
+                // `fsub`+`fcmp #0` lost the sign of a `±0.0` tie (bug-68).
+                // lane = max(min(lane, high), low)
                 self.emit(abi::float_move_d_from_x("d0", lane));
                 self.emit(abi::float_move_d_from_x("d1", high));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
-                let skip_hi = self.label("simd_clamp_tail_skip_hi");
-                self.emit(abi::branch_le(&skip_hi));
-                self.emit(abi::move_register(lane, high));
-                self.emit(abi::label(&skip_hi));
-                // lane = max(lane, low)
-                self.emit(abi::float_move_d_from_x("d0", lane));
+                self.emit(abi::float_min_d("d0", "d0", "d1")); // min(lane, high)
                 self.emit(abi::float_move_d_from_x("d1", low));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
-                let skip_lo = self.label("simd_clamp_tail_skip_lo");
-                self.emit(abi::branch_ge(&skip_lo));
-                self.emit(abi::move_register(lane, low));
-                self.emit(abi::label(&skip_lo));
+                self.emit(abi::float_max_d("d0", "d0", "d1")); // max(.., low)
+                self.emit(abi::float_move_x_from_d(lane, "d0"));
             }
         }
     }

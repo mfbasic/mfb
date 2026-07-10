@@ -29,7 +29,10 @@ DESCRIPTION
   and Fixed overloads compare the underlying signed 64-bit representations.
   The Float overload performs an ordered floating-point comparison and does no
   rounding or domain checking. The function never overflows and has no side
-  effects.
+  effects. The two zeros +0.0 and -0.0 compare equal; min treats -0.0 as the
+  smaller and returns it. This signed-zero result is the same for the scalar
+  overload and for every element of the array overload, including the final
+  odd element of a List whose length is not a multiple of the SIMD lane count.
 
 OVERLOADS
   math::min(a AS Integer, b AS Integer) AS Integer

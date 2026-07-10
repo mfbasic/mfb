@@ -1,0 +1,46 @@
+' bug-68 regression: the odd (scalar) tail lane of the Float array min/max/clamp
+' overloads must be bit-identical to a SIMD body lane, including the sign of a
+' zero on a tie. The vector body uses fmin/fmax and the scalar overload uses
+' fminnm/fmaxnm; both give min(+0,-0) = -0 and max(-0,+0) = +0. The old tail used
+' fsub + fcmp #0, which treated +0.0/-0.0 as equal on a tie and kept the
+' wrong-signed zero, diverging from the body.
+'
+' toString collapses +0.0 and -0.0 to "0.0", so the sign is observed through
+' atan2: atan2(+0, -1) = +pi, atan2(-0, -1) = -pi. Each list places the
+' signed-zero pair at index 0 (a 2-lane SIMD body pair) and at index 2 (the
+' scalar tail); the two must print the same value.
+IMPORT io
+IMPORT math
+IMPORT collections
+
+FUNC signOfZero(z AS Float) AS Float
+  RETURN math::atan2(z, 0.0 - 1.0)
+END FUNC
+
+FUNC main AS Integer
+  LET p AS Byte = 4
+  LET pz AS Float = 0.0
+  LET nz AS Float = 0.0 * (0.0 - 1.0)   ' a genuine -0.0
+
+  ' min(+0, -0) = -0 -> -pi, at both the body lane (0) and the tail lane (2).
+  LET aMin AS List OF Float = [pz, 9.0, pz]
+  LET bMin AS List OF Float = [nz, 9.0, nz]
+  LET mn AS List OF Float = math::min(aMin, bMin)
+  io::print(toString(signOfZero(collections::get(mn, 0)), p))
+  io::print(toString(signOfZero(collections::get(mn, 2)), p))
+
+  ' max(-0, +0) = +0 -> +pi, at the body lane (0) and the tail lane (2).
+  LET aMax AS List OF Float = [nz, 9.0, nz]
+  LET bMax AS List OF Float = [pz, 9.0, pz]
+  LET mx AS List OF Float = math::max(aMax, bMax)
+  io::print(toString(signOfZero(collections::get(mx, 0)), p))
+  io::print(toString(signOfZero(collections::get(mx, 2)), p))
+
+  ' clamp(-0, [+0, 1]) computes max(min(-0, 1), +0) = +0 -> +pi; the max(-0, +0)
+  ' step is the sign-of-zero tie, at the body lane (0) and the tail lane (2).
+  LET c AS List OF Float = [nz, 9.0, nz]
+  LET cl AS List OF Float = math::clamp(c, 0.0, 1.0)
+  io::print(toString(signOfZero(collections::get(cl, 0)), p))
+  io::print(toString(signOfZero(collections::get(cl, 2)), p))
+  RETURN 0
+END FUNC
