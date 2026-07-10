@@ -381,16 +381,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
 
         // Scalar tail: broadcast the single element, run the kernel, store lane 0.
-        self.emit(abi::move_immediate("x1", "Integer", "1"));
-        self.emit(abi::and_registers("x1", &count, "x1"));
+        let tail_bit = self.temporary_vreg();
+        self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_fl_tail_done");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        self.emit(abi::load_u64("x0", &in_data, 0));
-        self.emit(abi::vector_dup_from_x("v0", "x0"));
+        let elem = self.temporary_vreg();
+        self.emit(abi::load_u64(&elem, &in_data, 0));
+        self.emit(abi::vector_dup_from_x("v0", &elem));
         self.emit_float_kernel_body(kernel, k);
-        self.emit(abi::vector_extract_to_x("x0", "v0", 0));
-        self.emit(abi::store_u64("x0", &out_data, 0));
+        let res_lane = self.temporary_vreg();
+        self.emit(abi::vector_extract_to_x(&res_lane, "v0", 0));
+        self.emit(abi::store_u64(&res_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         for err in kernel.errors() {
@@ -412,11 +415,13 @@ impl CodeBuilder<'_> {
             FloatError::Domain | FloatError::Nan => &k.v22,
             FloatError::Inf => &k.v24,
         };
-        self.emit(abi::vector_extract_to_x("x0", mask, 0));
-        self.emit(abi::vector_extract_to_x("x1", mask, 1));
-        self.emit(abi::or_registers("x0", "x0", "x1"));
+        let lane0 = self.temporary_vreg();
+        let lane1 = self.temporary_vreg();
+        self.emit(abi::vector_extract_to_x(&lane0, mask, 0));
+        self.emit(abi::vector_extract_to_x(&lane1, mask, 1));
+        self.emit(abi::or_registers(&lane0, &lane0, &lane1));
         let no_err = self.label("simd_fl_no_err");
-        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::compare_immediate(&lane0, "0"));
         self.emit(abi::branch_eq(&no_err));
         match err {
             FloatError::Domain => self.emit_float_domain_return()?,
@@ -763,12 +768,14 @@ impl CodeBuilder<'_> {
             self.emit(abi::vector_eor(&k.v25, &k.v26, &k.v25)); // bit0 XOR bit1
         }
         // Branch on bit0. sin: bit0 ? cos_r : sin_r; cos: bit0 ? sin_r : cos_r.
-        self.emit(abi::vector_extract_to_x("x0", "v5", 0));
-        self.emit(abi::move_immediate("x1", "Integer", "1"));
-        self.emit(abi::and_registers("x0", "x0", "x1"));
+        let bit0 = self.temporary_vreg();
+        let one = self.temporary_vreg();
+        self.emit(abi::vector_extract_to_x(&bit0, "v5", 0));
+        self.emit(abi::move_immediate(&one, "Integer", "1"));
+        self.emit(abi::and_registers(&bit0, &bit0, &one));
         let bit0_clear = self.label("simd_sc_bit0_clear");
         let sc_done = self.label("simd_sc_done");
-        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::compare_immediate(&bit0, "0"));
         self.emit(abi::branch_eq(&bit0_clear));
         // bit0 set.
         if !want_cos {
@@ -897,12 +904,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_orr(&k.v23, "v6", "v6")); // sin_hi
         self.emit(abi::vector_orr(&k.v24, "v7", "v7")); // sin_lo
                                                         // bit0 ? -cos_r/sin_r : sin_r/cos_r (bit1 cancels in the ratio).
-        self.emit(abi::vector_extract_to_x("x0", "v5", 0));
-        self.emit(abi::move_immediate("x1", "Integer", "1"));
-        self.emit(abi::and_registers("x0", "x0", "x1"));
+        let bit0 = self.temporary_vreg();
+        let one = self.temporary_vreg();
+        self.emit(abi::vector_extract_to_x(&bit0, "v5", 0));
+        self.emit(abi::move_immediate(&one, "Integer", "1"));
+        self.emit(abi::and_registers(&bit0, &bit0, &one));
         let bit0_clear = self.label("simd_tan_bit0_clear");
         let tan_done = self.label("simd_tan_done");
-        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::compare_immediate(&bit0, "0"));
         self.emit(abi::branch_eq(&bit0_clear));
         // bit0 set: num = cos_r, den = -sin_r.
         self.emit(abi::vector_fneg(&k.v30, &k.v23)); // -sin_hi
@@ -1129,12 +1138,13 @@ impl CodeBuilder<'_> {
             let pool_base = self.math_pool_base_reg();
             self.emit(abi::vector_load(vreg, &pool_base, offset));
         } else {
+            let tmp = self.temporary_vreg();
             self.emit(abi::move_immediate(
-                "x0",
+                &tmp,
                 "Integer",
                 &value.to_bits().to_string(),
             ));
-            self.emit(abi::vector_dup_from_x(vreg, "x0"));
+            self.emit(abi::vector_dup_from_x(vreg, &tmp));
         }
     }
 
@@ -1144,12 +1154,13 @@ impl CodeBuilder<'_> {
             let pool_base = self.math_pool_base_reg();
             self.emit(abi::vector_load(vreg, &pool_base, offset));
         } else {
+            let tmp = self.temporary_vreg();
             self.emit(abi::move_immediate(
-                "x0",
+                &tmp,
                 "Integer",
                 &(value as u64).to_string(),
             ));
-            self.emit(abi::vector_dup_from_x(vreg, "x0"));
+            self.emit(abi::vector_dup_from_x(vreg, &tmp));
         }
     }
 
@@ -1244,18 +1255,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
 
         // Tail: broadcast both single elements, run the kernel, store lane 0.
-        self.emit(abi::move_immediate("x1", "Integer", "1"));
-        self.emit(abi::and_registers("x1", &count, "x1"));
+        let tail_bit = self.temporary_vreg();
+        self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
+        self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_flb_tail_done");
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        self.emit(abi::load_u64("x0", &left_data, 0));
-        self.emit(abi::vector_dup_from_x("v0", "x0"));
-        self.emit(abi::load_u64("x0", &right_data, 0));
-        self.emit(abi::vector_dup_from_x("v1", "x0"));
+        let lane = self.temporary_vreg();
+        self.emit(abi::load_u64(&lane, &left_data, 0));
+        self.emit(abi::vector_dup_from_x("v0", &lane));
+        self.emit(abi::load_u64(&lane, &right_data, 0));
+        self.emit(abi::vector_dup_from_x("v1", &lane));
         self.emit_float_binary_body(kernel, k);
-        self.emit(abi::vector_extract_to_x("x0", "v0", 0));
-        self.emit(abi::store_u64("x0", &out_data, 0));
+        let res_lane = self.temporary_vreg();
+        self.emit(abi::vector_extract_to_x(&res_lane, "v0", 0));
+        self.emit(abi::store_u64(&res_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         // `atan2` is the only kernel routed here (array `pow` is diverted); it
