@@ -350,6 +350,61 @@ pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
     math::constant_value(name).or_else(|| errorcode::constant_value(name))
 }
 
+/// Split a comma-separated type list on the commas at paren depth 0.
+///
+/// A type argument can itself be a comma-bearing type — `FUNC(Integer, String) AS
+/// Boolean` is one argument, not two — so a flat `split(", ")` shreds it. Callers
+/// parsing a type-argument list or a `FUNC` parameter list must use this.
+pub(crate) fn split_top_level_commas(value: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in value.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(value[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(value[start..].trim());
+    parts
+}
+
+/// Split the body of a `FUNC(<params>) AS <return>` type — everything after the
+/// `FUNC(` prefix — into its parameter types and its return type.
+///
+/// The closing paren and the parameter separators are the ones at depth 0, so a
+/// parameter that is itself a function type is kept whole. Returns `None` when the
+/// parameter list has no top-level close paren or no `) AS ` follows it.
+pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &str)> {
+    let mut depth = 0usize;
+    let mut close = None;
+    for (index, ch) in rest.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' if depth == 0 => {
+                close = Some(index);
+                break;
+            }
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    let close = close?;
+    let returns = rest.get(close..)?.strip_prefix(") AS ")?;
+    let params_text = &rest[..close];
+    let params = if params_text.trim().is_empty() {
+        Vec::new()
+    } else {
+        split_top_level_commas(params_text)
+    };
+    Some((params, returns))
+}
+
 /// Parameter names for a builtin whose overloads disagree on where a given name
 /// sits, listed one overload at a time. A builtin with such a table is normalized
 /// by selecting the overload first, then binding names within it; every other

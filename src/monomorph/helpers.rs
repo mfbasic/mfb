@@ -136,19 +136,13 @@ pub(super) fn unify_type(
 }
 
 /// Splits a function type `FUNC(p1, p2) AS Ret` (or `ISOLATED FUNC(...) AS Ret`)
-/// into its parameter types and return type for template unification. Parameters
-/// are split on top-level `", "`, matching the rest of the builtin type parsing.
+/// into its parameter types and return type for template unification. A parameter
+/// may itself be a comma-bearing function type, so the split is paren-depth aware.
 pub(super) fn func_type_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
     let rest = type_name
         .strip_prefix("FUNC(")
         .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))?;
-    let (params, ret) = rest.split_once(") AS ")?;
-    let params = if params.trim().is_empty() {
-        Vec::new()
-    } else {
-        params.split(", ").collect()
-    };
-    Some((params, ret))
+    crate::builtins::split_func_params_and_return(rest)
 }
 
 pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
@@ -228,8 +222,13 @@ pub(super) fn split_top_level_to(value: &str) -> Option<(String, String)> {
         .map(|(left, right)| (left.to_string(), right.to_string()))
 }
 
+/// The type arguments of `Name OF A, B` — split only on the commas at paren depth
+/// 0, so a `FUNC(Integer, String) AS Boolean` argument stays one argument.
 pub(super) fn split_top_level_commas(value: &str) -> Vec<String> {
-    value.split(", ").map(str::to_string).collect()
+    crate::builtins::split_top_level_commas(value)
+        .into_iter()
+        .map(str::to_string)
+        .collect()
 }
 
 /// Read each imported package's exported functions and collect the overloaded
@@ -559,6 +558,56 @@ mod tests {
         );
         assert_eq!(func_type_parts("Integer"), None);
         assert_eq!(func_type_parts("FUNC(Integer)"), None);
+    }
+
+    /// bug-35: a type argument that is itself a comma-bearing function type must
+    /// survive the split, or unification and mangling operate on garbage.
+    #[test]
+    fn nested_function_type_arguments_are_not_shredded() {
+        assert_eq!(
+            func_type_parts("FUNC(FUNC(Integer, String) AS Boolean, Integer) AS Nothing"),
+            Some((vec!["FUNC(Integer, String) AS Boolean", "Integer"], "Nothing"))
+        );
+        assert_eq!(
+            func_type_parts("ISOLATED FUNC(FUNC(A, B) AS C) AS D"),
+            Some((vec!["FUNC(A, B) AS C"], "D"))
+        );
+        // A two-argument template whose first argument is a two-parameter FUNC.
+        assert_eq!(
+            user_template_parts("Pair OF FUNC(Integer, String) AS Boolean, Integer"),
+            Some((
+                "Pair".to_string(),
+                vec![
+                    "FUNC(Integer, String) AS Boolean".to_string(),
+                    "Integer".to_string()
+                ]
+            ))
+        );
+        // A nested user template argument keeps its own arguments.
+        assert_eq!(
+            split_top_level_commas("Pair OF Integer, String"),
+            vec!["Pair OF Integer".to_string(), "String".to_string()]
+        );
+        assert_eq!(
+            split_top_level_commas("FUNC(A, B) AS C, D"),
+            vec!["FUNC(A, B) AS C".to_string(), "D".to_string()]
+        );
+    }
+
+    /// Substitution walks the type arguments the depth-aware split produces, so a
+    /// nested function-typed argument no longer swallows the argument after it.
+    #[test]
+    fn substitution_walks_each_top_level_type_argument() {
+        let mut substitutions = HashMap::new();
+        substitutions.insert("T".to_string(), "Integer".to_string());
+        assert_eq!(
+            substitute_type_params("Pair OF List OF T, T", &substitutions),
+            "Pair OF List OF Integer, Integer"
+        );
+        assert_eq!(
+            substitute_type_params("List OF T", &substitutions),
+            "List OF Integer"
+        );
     }
 
     #[test]

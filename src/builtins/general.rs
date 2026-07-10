@@ -596,40 +596,7 @@ fn map_parts(type_name: &str) -> Option<(&str, &str)> {
 /// two-argument function values — so the parameter list is scanned with paren
 /// depth: the closing paren and the separating commas are the ones at depth 0.
 fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
-    let rest = type_name.strip_prefix("FUNC(")?;
-
-    let mut depth = 0usize;
-    let mut close = None;
-    let mut splits = Vec::new();
-    for (index, ch) in rest.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' if depth == 0 => {
-                close = Some(index);
-                break;
-            }
-            ')' => depth -= 1,
-            ',' if depth == 0 => splits.push(index),
-            _ => {}
-        }
-    }
-    let close = close?;
-    let returns = rest.get(close..)?.strip_prefix(") AS ")?;
-
-    let params_text = &rest[..close];
-    let params = if params_text.trim().is_empty() {
-        Vec::new()
-    } else {
-        let mut params = Vec::with_capacity(splits.len() + 1);
-        let mut start = 0;
-        for split in splits {
-            params.push(params_text[start..split].trim_start());
-            start = split + 1;
-        }
-        params.push(params_text[start..].trim_start());
-        params
-    };
-    Some((params, returns))
+    super::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
 }
 
 #[cfg(test)]
