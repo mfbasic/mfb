@@ -524,8 +524,14 @@ fn remap_riscv_abi(instructions: &mut [CodeInstruction]) {
 fn remap_register(value: &str) -> Option<String> {
     match value {
         "sp" | "raw_sp" => return Some("sp".to_string()),
-        "x31" | "xzr" => return Some(ZERO.to_string()),
-        "x30" | "lr" => return Some("ra".to_string()),
+        // Neutral invariant-register tokens (plan-34-A). The legacy AArch64
+        // spellings `"x31"`/`"x30"` are no longer accepted here: shared lowering
+        // and the RISC-V platform backend both emit the tokens, and on RISC-V
+        // `x31` is a *real* register (`t6`) — silently realizing a stray `"x31"`
+        // as `t6` instead of `zero` is exactly the miscompile this narrowing
+        // forecloses.
+        "xzr" => return Some(ZERO.to_string()),
+        "lr" => return Some("ra".to_string()),
         _ => {}
     }
     // Integer `xN`/`wN`.
@@ -541,7 +547,11 @@ fn remap_register(value: &str) -> Option<String> {
         } else if n <= 29 {
             map_scratch_register(n)
         } else {
-            // x30/x31 handled above; nothing else is valid.
+            // n >= 30: the link register and zero register are named by the
+            // neutral `lr`/`xzr` tokens now (plan-34-A), matched above; a bare
+            // `x30`/`x31` here is a stray physical name — deliberately mapped to
+            // an invalid `a{n}` so the encoder rejects it loudly rather than
+            // realizing `x31` as the real register `t6`.
             format!("a{n}")
         });
     }
@@ -576,7 +586,7 @@ mod tests {
         let out = sel(&[
             build("mov", &[("dst", "x0"), ("src", "x1")]),
             build("mov", &[("dst", "x7"), ("src", "sp")]),
-            build("mov", &[("dst", "x9"), ("src", "x31")]),
+            build("mov", &[("dst", "x9"), ("src", "xzr")]),
             build("ret", &[]),
         ]);
         let vals = values(&out);
@@ -590,11 +600,11 @@ mod tests {
     #[test]
     fn link_register_maps_to_ra() {
         let out = sel(&[
-            build("str_u64", &[("src", "x30"), ("base", "sp"), ("offset", "0")]),
+            build("str_u64", &[("src", "lr"), ("base", "sp"), ("offset", "0")]),
             build("ret", &[]),
         ]);
         assert!(values(&out).iter().any(|v| v == "ra"));
-        assert!(!values(&out).iter().any(|v| v == "x30"));
+        assert!(!values(&out).iter().any(|v| v == "lr"));
     }
 
     #[test]

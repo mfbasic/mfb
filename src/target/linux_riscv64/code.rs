@@ -572,7 +572,7 @@ impl code::CodegenPlatform for Platform {
             abi::add_immediate("x15", "x15", 1),
             abi::branch(&copy_loop),
             abi::label(&copy_done),
-            abi::store_u8("x31", "x11", 0),
+            abi::store_u8(abi::ZERO, "x11", 0),
             abi::move_register(abi::return_register(), "x14"),
             abi::branch(&done),
             abi::label(&fallback),

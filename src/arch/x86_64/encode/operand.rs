@@ -38,10 +38,11 @@ pub(super) fn reg(name: String) -> Result<u8, String> {
         "r13" => 13,
         "r14" => 14,
         "r15" => 15,
-        // A canonical zero token (`xzr`/`rzero`) names "no register" — used by
-        // the explicit-carry ops to express "no carry-in". Reported as 16 so the
-        // emitter can branch on it without colliding with a real register.
-        "xzr" | "rzero" | "zero" => 16,
+        // The neutral zero token (`abi::ZERO`, spelled `xzr`) names "no register"
+        // — used by the explicit-carry ops to express "no carry-in". Reported as
+        // 16 so the emitter can branch on it without colliding with a real
+        // register. The dead `"rzero"`/`"zero"` aliases were retired in plan-34-A.
+        "xzr" => 16,
         other => return Err(format!("unknown x86-64 register '{other}'")),
     })
 }

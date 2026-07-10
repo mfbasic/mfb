@@ -1566,10 +1566,11 @@ fn encoder_data_and_got_relocations() {
 #[test]
 fn operand_decoding_edge_cases() {
     use super::operand::{fp_reg, immediate, is_zero_token, reg, shift};
-    // Zero tokens map to 16 and are recognized.
+    // The neutral zero token maps to 16 and is recognized (plan-34-A retired the
+    // dead `rzero`/`zero` aliases).
     assert!(is_zero_token(reg("xzr".to_string()).unwrap()));
-    assert!(is_zero_token(reg("rzero".to_string()).unwrap()));
-    assert!(is_zero_token(reg("zero".to_string()).unwrap()));
+    assert!(reg("rzero".to_string()).is_err());
+    assert!(reg("zero".to_string()).is_err());
     // raw_sp / sp alias rsp (4).
     assert_eq!(reg("raw_sp".to_string()).unwrap(), 4);
     assert_eq!(reg("sp".to_string()).unwrap(), 4);
