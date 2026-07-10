@@ -181,3 +181,72 @@ END FUNC
     );
     assert_eq!(out, "40\n");
 }
+
+/// Regression test for bug-67: `op_requires_empty_string_constant`
+/// (`src/target/shared/code/module_analysis.rs`) skipped the `FOR` and
+/// `DO ... LOOP UNTIL` loop bodies, so an uninitialized `MUT String` declared
+/// *only* inside those loops did not force emission of the shared
+/// `_mfb_str_empty` data object — while the codegen for the default bind still
+/// referenced it, producing a dangling relocation that failed plan validation
+/// ("native code data relocation target '_mfb_str_empty' is not a data object").
+/// The `WHILE` and top-level forms already worked; all loop forms must now build
+/// and print empty lines for the uninitialized default.
+#[test]
+fn native_uninitialized_string_in_for_loop_builds() {
+    let out = build_and_run(
+        "loop_for_uninit_string",
+        r#"
+IMPORT io
+
+SUB main()
+  FOR i = 0 TO 2
+    MUT s AS String
+    io::print(s)
+  NEXT
+END SUB
+"#,
+    );
+    assert_eq!(out, "\n\n\n");
+}
+
+#[test]
+fn native_uninitialized_string_in_do_until_loop_builds() {
+    let out = build_and_run(
+        "loop_do_until_uninit_string",
+        r#"
+IMPORT io
+
+SUB main()
+  MUT n AS Integer = 0
+  DO
+    MUT s AS String
+    io::print(s)
+    n = n + 1
+  LOOP UNTIL n >= 3
+END SUB
+"#,
+    );
+    assert_eq!(out, "\n\n\n");
+}
+
+/// Guard cases: the same uninitialized bind inside `WHILE` and at function top
+/// level built correctly before the fix and must continue to.
+#[test]
+fn native_uninitialized_string_in_while_loop_builds() {
+    let out = build_and_run(
+        "loop_while_uninit_string",
+        r#"
+IMPORT io
+
+SUB main()
+  MUT n AS Integer = 0
+  WHILE n < 3
+    MUT s AS String
+    io::print(s)
+    n = n + 1
+  WEND
+END SUB
+"#,
+    );
+    assert_eq!(out, "\n\n\n");
+}

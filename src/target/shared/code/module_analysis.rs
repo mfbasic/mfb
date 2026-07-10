@@ -32,10 +32,27 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
                 .iter()
                 .any(|op| op_requires_empty_string_constant(op, type_model))
         }),
-        NirOp::While { body, .. } | NirOp::ForEach { body, .. } | NirOp::Trap { body, .. } => body
+        NirOp::While { body, .. }
+        | NirOp::For { body, .. }
+        | NirOp::DoUntil { body, .. }
+        | NirOp::ForEach { body, .. }
+        | NirOp::Trap { body, .. } => body
             .iter()
             .any(|op| op_requires_empty_string_constant(op, type_model)),
-        _ => false,
+        // An initialized bind supplies its own value; the remaining ops carry no
+        // loop/branch bodies to descend into. Enumerated exhaustively (no
+        // `_ => false`) so a future `NirOp` variant with a body cannot silently
+        // regress this analysis — the same gap that produced bug-45 and bug-67.
+        NirOp::Bind { value: Some(_), .. }
+        | NirOp::StoreGlobal { .. }
+        | NirOp::Assign { .. }
+        | NirOp::StateAssign { .. }
+        | NirOp::Return { .. }
+        | NirOp::ExitLoop { .. }
+        | NirOp::ContinueLoop { .. }
+        | NirOp::ExitProgram { .. }
+        | NirOp::Fail { .. }
+        | NirOp::Eval { .. } => false,
     }
 }
 
@@ -136,7 +153,17 @@ fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> b
         | NirOp::DoUntil { body, .. }
         | NirOp::ForEach { body, .. }
         | NirOp::Trap { body, .. } => ops_bind_type_in(body, names),
-        _ => false,
+        // Enumerated exhaustively (no `_ => false`) so a future body-bearing
+        // `NirOp` variant cannot silently skip this traversal (bug-67 class).
+        NirOp::StoreGlobal { .. }
+        | NirOp::Assign { .. }
+        | NirOp::StateAssign { .. }
+        | NirOp::Return { .. }
+        | NirOp::ExitLoop { .. }
+        | NirOp::ContinueLoop { .. }
+        | NirOp::ExitProgram { .. }
+        | NirOp::Fail { .. }
+        | NirOp::Eval { .. } => false,
     })
 }
 
