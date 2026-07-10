@@ -161,6 +161,10 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_immediate("x3", "Integer", "1"));
     asm.push(abi::move_register("x0", "x22"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // Terminate the line-echo backspace path here; without this the block falls
+    // through into `kd_raw` and injects the DEL/BS key byte into the input pipe.
+    // Mirrors `tkd_backspace`'s terminating branch (bug-46).
+    asm.push(abi::branch("kd_done"));
 
     // Raw read mode: write this key event's UTF-8 bytes to the input pipe now,
     // with no transcript echo and no line buffering.
@@ -1222,5 +1226,60 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
         stack_slots: Vec::new(),
         instructions: asm.ins,
         relocations: asm.rel,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::aarch64::ops::CodeOp;
+
+    /// Index of the first `label` instruction with the given name.
+    fn label_index(ins: &[CodeInstruction], name: &str) -> usize {
+        ins.iter()
+            .position(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+            .unwrap_or_else(|| panic!("label {name:?} not found"))
+    }
+
+    /// bug-46: in the transcript keyDown handler the line-echo backspace block
+    /// must terminate with an unconditional branch to `kd_done`. Without it,
+    /// control falls through into the `kd_raw` block and writes the Backspace
+    /// key's own UTF-8 byte (DEL/BS) into the input pipe. The instruction
+    /// immediately preceding the `kd_raw` label must be `b kd_done`.
+    #[test]
+    fn kd_backspace_does_not_fall_through_into_kd_raw() {
+        let func = emit_key_down_helper();
+        let ins = &func.instructions;
+
+        let bs = label_index(ins, "kd_backspace");
+        let raw = label_index(ins, "kd_raw");
+        assert!(bs < raw, "kd_backspace must precede kd_raw");
+
+        let last = &ins[raw - 1];
+        assert_eq!(
+            last.op,
+            CodeOp::Branch,
+            "kd_backspace must end with an unconditional branch (found {:?}), \
+             else it falls through into kd_raw and leaks the Backspace byte",
+            last.op
+        );
+        assert_eq!(
+            last.get("target"),
+            Some("kd_done"),
+            "the terminating branch must target kd_done"
+        );
+    }
+
+    /// Sibling anchor: the structurally identical TUI handler was already
+    /// correct and is the template for the fix above.
+    #[test]
+    fn tkd_backspace_does_not_fall_through_into_tkd_raw() {
+        let func = emit_term_key_down_helper();
+        let ins = &func.instructions;
+
+        let raw = label_index(ins, "tkd_raw");
+        let last = &ins[raw - 1];
+        assert_eq!(last.op, CodeOp::Branch);
+        assert_eq!(last.get("target"), Some("tkd_done"));
     }
 }

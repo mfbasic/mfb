@@ -1896,6 +1896,7 @@
     { "op": "mov_imm", "dst": "x3", "type": "Integer", "value": "1" },
     { "op": "mov", "dst": "x0", "src": "x22" },
     { "op": "bl", "target": "_objc_msgSend" },
+    { "op": "b", "target": "kd_done" },
     { "op": "label", "name": "kd_raw" },
     { "op": "mov", "dst": "x0", "src": "x20" },
     { "op": "adrp", "dst": "x1", "symbol": "_mfb_macapp_pipe_key" },
