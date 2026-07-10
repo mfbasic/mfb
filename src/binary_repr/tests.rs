@@ -3159,6 +3159,24 @@ mod reader_gap_tests {
         assert!(err.contains("is missing from the type table"), "{err}");
     }
 
+    /// bug-37: a decoded 64-bit length or offset is rejected, not truncated, when
+    /// it does not fit the host's address space. Every value fits on a 64-bit
+    /// host, so the guard is exercised directly rather than through a crafted
+    /// package.
+    #[test]
+    fn checked_usize_rejects_a_length_beyond_the_address_space() {
+        assert_eq!(checked_usize(0, "length"), Ok(0));
+        assert_eq!(checked_usize(usize::MAX as u64, "length"), Ok(usize::MAX));
+        // Only a target narrower than 64 bits can overflow; assert the guard
+        // rejects there and admits everything here.
+        assert_eq!(checked_usize(u64::MAX, "length").is_ok(), usize::BITS >= 64);
+        if usize::BITS < 64 {
+            let err = checked_usize(u64::from(u32::MAX) + 1, "MFPC section length")
+                .expect_err("oversized length must be rejected");
+            assert!(err.contains("exceeds the address space"), "{err}");
+        }
+    }
+
     #[test]
     fn abi_serializer_rejects_reserved_type_ids_without_overflow() {
         // Ids 0 and 9 are neither primitives nor table ids (>= 10). A tampered

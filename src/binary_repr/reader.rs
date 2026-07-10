@@ -208,7 +208,10 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
     if offset > bytes.len() {
         return Err("truncated .mfp packageBinaryHash".to_string());
     }
-    let binary_repr_length = checked_u64_at(bytes, offset)? as usize;
+    let binary_repr_length = checked_usize(
+        checked_u64_at(bytes, offset)?,
+        ".mfp binary representation length",
+    )?;
     offset = offset
         .checked_add(8)
         .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
@@ -315,8 +318,8 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
     for index in 0..section_count {
         let entry = 16 + index * 24;
         let id = checked_u16_at(bytes, entry)?;
-        let offset = checked_u64_at(bytes, entry + 8)? as usize;
-        let length = checked_u64_at(bytes, entry + 16)? as usize;
+        let offset = checked_usize(checked_u64_at(bytes, entry + 8)?, "MFPC section offset")?;
+        let length = checked_usize(checked_u64_at(bytes, entry + 16)?, "MFPC section length")?;
         let end = offset
             .checked_add(length)
             .ok_or_else(|| "invalid MFPC section length".to_string())?;
@@ -813,8 +816,8 @@ pub(super) fn read_function_table(
         let param_count = cursor_u32(bytes, &mut offset)? as usize;
         let return_type = cursor_u32(bytes, &mut offset)?;
         let register_count = cursor_u32(bytes, &mut offset)? as usize;
-        let code_offset = cursor_u64(bytes, &mut offset)? as usize;
-        let code_length = cursor_u64(bytes, &mut offset)? as usize;
+        let code_offset = checked_usize(cursor_u64(bytes, &mut offset)?, "function code offset")?;
+        let code_length = checked_usize(cursor_u64(bytes, &mut offset)?, "function code length")?;
         let _source_map = cursor_u32(bytes, &mut offset)?;
         let cleanup_count = cursor_u32(bytes, &mut offset)? as usize;
         let _cleanup_offset = cursor_u64(bytes, &mut offset)?;

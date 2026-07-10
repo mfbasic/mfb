@@ -176,7 +176,11 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     package_binary_hash.copy_from_slice(&bytes[offset..hash_end]);
     offset = hash_end;
 
-    let binary_repr_length = read_u64(&bytes, offset)? as usize;
+    // `as usize` would truncate a hostile 64-bit length on a 32-bit target, and
+    // the structural `offset != bytes.len()` check below would then validate the
+    // truncated value instead of the declared one.
+    let binary_repr_length = usize::try_from(read_u64(&bytes, offset)?)
+        .map_err(|_| "invalid .mfp binary representation length".to_string())?;
     offset = offset
         .checked_add(8)
         .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
@@ -984,6 +988,28 @@ mod tests {
         let (_dir, path) = write_temp(&bytes);
         let err = header_err(&path);
         assert!(err.contains("invalid .mfp binary representation length"));
+    }
+
+    /// bug-37: a 64-bit body length is narrowed to `usize`. `as` would truncate a
+    /// hostile `0x1_0000_0000` to `0` on a 32-bit target and the structural
+    /// `offset != bytes.len()` check would then validate the truncated value. Any
+    /// oversized length must be rejected — here it fails the trailing check on a
+    /// 64-bit host and the `try_from` guard on a narrower one.
+    #[test]
+    fn read_mfp_header_rejects_a_length_that_cannot_address_the_body() {
+        let mut bytes = build_mfp("p", "1");
+        let at = bytes.len() - 14;
+        bytes[at..at + 8].copy_from_slice(&0x1_0000_0000u64.to_le_bytes());
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("invalid .mfp binary representation length"), "{err}");
+
+        // The maximum u64 cannot describe any body on any target.
+        let mut bytes = build_mfp("p", "1");
+        bytes[at..at + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("invalid .mfp binary representation length"), "{err}");
     }
 
     #[test]

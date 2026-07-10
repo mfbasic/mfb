@@ -227,6 +227,17 @@ pub(super) fn checked_u64_at(bytes: &[u8], offset: usize) -> Result<u64, String>
     ]))
 }
 
+/// Narrow a decoded 64-bit offset or length to `usize`, rejecting a value the host
+/// cannot address.
+///
+/// `as usize` truncates on a 32-bit target, so a hostile `.mfp` declaring a length
+/// of `0x1_0000_0000` would have its bounds validated against `0` — the structural
+/// checks downstream would then pass on a length that does not describe the real
+/// body.
+pub(super) fn checked_usize(value: u64, field: &str) -> Result<usize, String> {
+    usize::try_from(value).map_err(|_| format!("invalid {field}: {value} exceeds the address space"))
+}
+
 impl Section {
     pub(super) fn new(id: u16, data: Vec<u8>) -> Self {
         Self { id, data }
