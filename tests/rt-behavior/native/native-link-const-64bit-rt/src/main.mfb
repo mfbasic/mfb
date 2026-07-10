@@ -1,0 +1,32 @@
+' Runtime test for 64-bit `CONST` pins (bug-34). A C flag constant is unsigned, so
+' a pin with bit 63 set exceeds i64::MAX; lowering used to parse it as signed and
+' default to 0, silently handing the native call a zero.
+'
+' sqlite3_soft_heap_limit64(N) sets the limit to N and returns the previous one,
+' EXCEPT that a negative N only queries it. `query` pins N = 0xFFFFFFFFFFFFFFFF
+' (-1), so it must never change the limit: calling it twice must report 1234 both
+' times. With the pin flattened to 0, the first query would SET the limit to zero
+' and the second would report 0.
+IMPORT io
+
+LINK "sqlite3" AS sql
+  FUNC setLimit() AS Integer
+    SYMBOL "sqlite3_soft_heap_limit64"
+    ABI (n CInt64) AS previous CInt64
+    CONST n = 1234
+    RESULT previous
+  END FUNC
+  FUNC query() AS Integer
+    SYMBOL "sqlite3_soft_heap_limit64"
+    ABI (n CInt64) AS current CInt64
+    CONST n = 0xFFFFFFFFFFFFFFFF
+    RESULT current
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  LET previous = sql::setLimit()
+  io::print(toString(sql::query()))
+  io::print(toString(sql::query()))
+  RETURN 0
+END FUNC

@@ -375,17 +375,12 @@ fn link_aliases(ast: &AstProject) -> Vec<(String, String)> {
 /// honored; booleans map to `0`/`1`.
 fn eval_link_const(expr: &Expression) -> i64 {
     match expr {
-        // A LINK const is an integer; canonicalize a radix/separator/exponent
-        // literal to its decimal value first so e.g. `0x10`/`1e3` resolve to their
-        // real integer instead of silently parsing to `0` (plan-28).
-        Expression::Number(text) => numeric::expand_scientific_notation(&numeric::classify_literal(text).0)
-            .parse::<i64>()
-            .unwrap_or(0),
+        Expression::Number(text) => link_const_bits(text),
         Expression::Boolean(value) => i64::from(*value),
         Expression::Identifier(name) if name == "NOTHING" => 0,
         Expression::Unary {
             operator, operand, ..
-        } if operator == "-" => -eval_link_const(operand),
+        } if operator == "-" => eval_link_const(operand).wrapping_neg(),
         Expression::Unary {
             operator, operand, ..
         } if operator == "+" => eval_link_const(operand),
@@ -393,15 +388,28 @@ fn eval_link_const(expr: &Expression) -> i64 {
     }
 }
 
+/// The 64-bit pattern a native-`LINK` integer literal denotes.
+///
+/// A radix/separator/exponent literal is canonicalized to decimal first, so
+/// `0x10`/`1e3` resolve to their real integer rather than parsing to `0`
+/// (plan-28). C flag and mask constants are conventionally *unsigned*, so a
+/// value with bit 63 set (`0xFFFFFFFFFFFFFFFF`) exceeds `i64::MAX` and a signed
+/// parse alone would default it to `0` — a NULL where the mask belongs, with no
+/// diagnostic. The ABI cares about the bits, not the sign, so fall back to `u64`
+/// and keep the exact pattern.
+fn link_const_bits(text: &str) -> i64 {
+    let decimal = numeric::expand_scientific_notation(&numeric::classify_literal(text).0);
+    decimal
+        .parse::<i64>()
+        .or_else(|_| decimal.parse::<u64>().map(|bits| bits as i64))
+        .unwrap_or(0)
+}
+
 /// Lower a `SUCCESS_ON`/`RESULT` expression to [`IrLinkExpr`] over the native
 /// return variable named `var`.
 fn lower_link_expr(expr: &Expression, var: &str) -> IrLinkExpr {
     match expr {
-        Expression::Number(text) => IrLinkExpr::Int(
-            numeric::expand_scientific_notation(&numeric::classify_literal(text).0)
-                .parse::<i64>()
-                .unwrap_or(0),
-        ),
+        Expression::Number(text) => IrLinkExpr::Int(link_const_bits(text)),
         Expression::Boolean(value) => IrLinkExpr::Int(i64::from(*value)),
         Expression::Identifier(name) if name == var => IrLinkExpr::Var,
         Expression::Identifier(name) if name == "NOTHING" => IrLinkExpr::Int(0),
@@ -409,7 +417,7 @@ fn lower_link_expr(expr: &Expression, var: &str) -> IrLinkExpr {
         Expression::Unary {
             operator, operand, ..
         } if operator == "-" => match lower_link_expr(operand, var) {
-            IrLinkExpr::Int(value) => IrLinkExpr::Int(-value),
+            IrLinkExpr::Int(value) => IrLinkExpr::Int(value.wrapping_neg()),
             other => other,
         },
         Expression::Unary {

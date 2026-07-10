@@ -2423,6 +2423,49 @@ mod lower_tests {
             .any(|f| f.name == "probe2" && f.result.is_some()));
     }
 
+    /// bug-34: a C flag/mask constant is unsigned, so a pin with bit 63 set
+    /// exceeds `i64::MAX`. The signed parse failed and `unwrap_or(0)` handed the
+    /// native call a NULL where the mask belonged, with no diagnostic.
+    #[test]
+    fn link_const_keeps_the_exact_bits_of_a_64_bit_flag() {
+        let src = "RESOURCE H CLOSE BY lib::done\n\
+             LINK \"c\" AS lib\n\
+               FUNC make() AS RES H\n\
+                 SYMBOL \"make\"\n\
+                 ABI (a CInt64, b CInt64, c CInt64, d CInt64, return OUT CPtr) AS status CInt32\n\
+                 CONST a = 0xFFFFFFFFFFFFFFFF\n\
+                 CONST b = 9223372036854775808\n\
+                 CONST c = -9223372036854775808\n\
+                 CONST d = 0x7FFFFFFFFFFFFFFF\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+               FUNC done(RES h AS H) AS Nothing\n\
+                 SYMBOL \"done\"\n\
+                 ABI (h CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("64-bit CONST pins should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make");
+        let pin = |slot: &str| {
+            make.consts
+                .iter()
+                .find(|(name, _)| name == slot)
+                .unwrap_or_else(|| panic!("pin {slot}"))
+                .1
+        };
+        // The ABI cares about the bits, not the sign.
+        assert_eq!(pin("a") as u64, 0xFFFF_FFFF_FFFF_FFFF);
+        assert_eq!(pin("b") as u64, 1u64 << 63);
+        assert_eq!(pin("c"), i64::MIN);
+        assert_eq!(pin("d"), i64::MAX);
+    }
+
     // ---- external functions (lower_project_with_external_functions) -------
 
     #[test]
