@@ -199,6 +199,9 @@ impl plan::NativePlanPlatform for Platform {
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
                     imports.push(self.libc_import("mkstemps", spec.symbol));
                     imports.push(self.libc_import("rename", spec.symbol));
+                    // bug-63: the atomic-write failure tails unlink the leftover
+                    // temp file, so the helper needs the `unlink` wrapper too.
+                    imports.push(self.libc_import("unlink", spec.symbol));
                 }
                 imports
             }

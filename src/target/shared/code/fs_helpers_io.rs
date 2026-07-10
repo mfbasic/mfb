@@ -718,6 +718,18 @@ pub(super) fn lower_fs_open_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&file_alloc_ok),
+        // The File-record alloc failed after `open` succeeded: close the fd before
+        // reporting OOM so the error path does not leak the OS fd (bug-63). `fd` is
+        // a spilled vreg, so it survives the failed `arena_alloc` and this close.
+        abi::move_register(abi::return_register(), &fd),
+    ]);
+    platform.emit_close_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
@@ -835,10 +847,16 @@ pub(super) fn lower_fs_close_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&close_error),
+        // Mark the File closed regardless of the `close` result (bug-63). On Linux
+        // a failing `close` (EINTR/EIO) has still released the fd, so leaving CLOSED
+        // at 0 would let a later `fs::close` drain again and close the same fd
+        // number — which may by then name an unrelated open file. Set CLOSED before
+        // branching on the result so the failure surfaces ErrCloseFailed once while
+        // a re-close is refused by the `already_closed` guard.
         abi::move_immediate(&flag, "Integer", "1"),
         abi::store_u64(&flag, &file, FILE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&close_error),
     ]);
     if flush_on_close {
         // The fd is released; if the pre-close flush failed, report ErrOutput.

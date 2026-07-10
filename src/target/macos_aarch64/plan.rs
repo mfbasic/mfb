@@ -472,6 +472,13 @@ impl plan::NativePlanPlatform for Platform {
                         symbol: "_rename".to_string(),
                         required_by: spec.symbol.to_string(),
                     });
+                    // bug-63: the atomic-write failure tails unlink the leftover
+                    // temp file, so the helper needs the `_unlink` wrapper too.
+                    imports.push(PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: "_unlink".to_string(),
+                        required_by: spec.symbol.to_string(),
+                    });
                 }
                 imports
             }

@@ -171,6 +171,20 @@ pub(super) fn lower_fs_create_temp_file_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&file_alloc_ok),
+        // The File-record alloc failed after `open` created the temp file: close the
+        // fd before reporting OOM so the error path does not leak the OS fd
+        // (bug-63). `fd` is a spilled vreg, surviving the failed alloc and this
+        // close. (The temp file itself is the caller's to clean up, matching the
+        // success contract of createTempFile.)
+        abi::move_register(abi::return_register(), &fd),
+    ]);
+    platform.emit_close_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         abi::branch(&alloc_error),
         abi::label(&file_alloc_ok),
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
@@ -362,7 +376,12 @@ pub(super) fn lower_fs_atomic_write_helper(
     let rename_ok = format!("{symbol}_rename_ok");
     let invalid = format!("{symbol}_invalid");
     let alloc_error = format!("{symbol}_alloc_error");
+    // bug-63: post-`mkstemps` failure tails unlink the temp file before erroring so
+    // a failed atomic write never litters the target directory with a stray temp.
+    let unlink_alloc_error = format!("{symbol}_unlink_alloc_error");
     let rename_error = format!("{symbol}_rename_error");
+    let rename_failed = format!("{symbol}_rename_failed");
+    let rename_error_map = format!("{symbol}_rename_error_map");
     let done = format!("{symbol}_done");
 
     let mut vregs = Vregs::new();
@@ -381,6 +400,9 @@ pub(super) fn lower_fs_atomic_write_helper(
     let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
+    // Holds the rename errno across the temp-file unlink call (which itself sets
+    // errno) so the rename failure is still mapped to the right Result (bug-63).
+    let saved_errno = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
@@ -531,7 +553,7 @@ pub(super) fn lower_fs_atomic_write_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&c_temp_alloc_ok),
-        abi::branch(&alloc_error),
+        abi::branch(&unlink_alloc_error),
         abi::label(&c_temp_alloc_ok),
         abi::move_register(&c_temp, "x1"),
         abi::load_u64(abi::return_register(), &path, 0),
@@ -543,7 +565,7 @@ pub(super) fn lower_fs_atomic_write_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&c_final_alloc_ok),
-        abi::branch(&alloc_error),
+        abi::branch(&unlink_alloc_error),
         abi::label(&c_final_alloc_ok),
         abi::move_register(&c_final, "x1"),
         abi::load_u64(&plen, &temp_path, 0),
@@ -588,7 +610,10 @@ pub(super) fn lower_fs_atomic_write_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&rename_ok),
-        abi::branch(&rename_error),
+        // rename failed: the temp file still exists on disk — unlink it before
+        // mapping the errno (bug-63). The mkstemps-failure path (no temp) enters at
+        // `rename_error` instead and skips the unlink.
+        abi::branch(&rename_failed),
         abi::label(&rename_ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -600,7 +625,37 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::branch(&rename_error_map));
+    // rename failure: capture the rename errno, unlink the leftover temp file
+    // (which sets errno itself), restore the rename errno, then map it.
+    instructions.push(abi::label(&rename_failed));
+    platform.emit_errno(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_register(&saved_errno, "x9"),
+        abi::add_immediate(abi::return_register(), &temp_path, 8),
+    ]);
+    platform.emit_fs_path_operation(
+        symbol,
+        FsPathOperation::Unlink,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_register("x9", &saved_errno),
+        abi::label(&rename_error_map),
+    ]);
     emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    // `emit_errno_error_mapping`'s generic `err_output` case does not branch to
+    // `done` — terminate the mkstemps/rename errno path explicitly so it cannot
+    // fall through into the write/sync close tail below and re-close the fd (a
+    // garbage fd vreg on mkstemps failure; an already-closed fd on rename failure).
+    instructions.push(abi::branch(&done));
     instructions.extend([
         abi::label(&write_error),
         abi::label(&sync_error),
@@ -612,8 +667,21 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // bug-63: the write/fsync/close failure tails converge here — the temp file
+    // exists on disk, so unlink it before reporting ErrOutput. ErrOutput carries a
+    // fixed code, so clobbering errno in the unlink call is harmless.
     instructions.extend([
         abi::label(&close_error),
+        abi::add_immediate(abi::return_register(), &temp_path, 8),
+    ]);
+    platform.emit_fs_path_operation(
+        symbol,
+        FsPathOperation::Unlink,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
@@ -635,8 +703,23 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     );
+    // bug-63: an alloc failure AFTER mkstemps (the c_temp/c_final C-string buffers)
+    // must unlink the leftover temp file before reporting OOM. The pre-mkstemps
+    // temp_path alloc branches straight to `alloc_error`, where no temp exists yet.
+    // This block unlinks, then falls through into the shared `alloc_error` result.
     instructions.extend([
         abi::branch(&done),
+        abi::label(&unlink_alloc_error),
+        abi::add_immediate(abi::return_register(), &temp_path, 8),
+    ]);
+    platform.emit_fs_path_operation(
+        symbol,
+        FsPathOperation::Unlink,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         abi::label(&alloc_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -1465,6 +1548,18 @@ pub(super) fn lower_fs_read_bytes_path_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&file_alloc_ok),
+        // The File-record alloc failed after `open` succeeded: close the fd before
+        // reporting OOM so the error path does not leak the OS fd (bug-63). `fd` is
+        // a spilled vreg, surviving the failed alloc and this close.
+        abi::move_register(abi::return_register(), &fd),
+    ]);
+    platform.emit_close_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         abi::branch(&alloc_error),
         abi::label(&file_alloc_ok),
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
