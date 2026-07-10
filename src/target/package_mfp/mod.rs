@@ -50,6 +50,13 @@ pub fn write_package(
     packages: &[PathBuf],
     signing: Option<&PackageSigning>,
 ) -> Result<PathBuf, String> {
+    // The output path is `project_dir/<name>.mfp`, so the name is validated
+    // (single safe path component — see `validate_metadata`) BEFORE it is ever
+    // interpolated into a filesystem path. `build_package_bytes` re-validates,
+    // but doing it here first guarantees a traversing name like `../../evil` is
+    // rejected before any lowering work is done or any path is built (bug-58,
+    // same class as bug-27's pre-verify package write).
+    validate_metadata(metadata)?;
     let binary_repr = binary_repr::build_package_binary_repr_bytes(ir, metadata, packages)?;
     let package = build_package_bytes(metadata, &binary_repr, signing)?;
     let path = project_dir.join(format!("{}.mfp", metadata.name));
@@ -404,6 +411,56 @@ mod tests {
         metadata.name = "../evil".to_string();
         let err = build_package_bytes(&metadata, b"", None).expect_err("traversing name");
         assert!(err.contains("not a valid path component"), "{err}");
+    }
+
+    /// An empty IR project, enough to type-check a `write_package` call. The
+    /// name-traversal guard fires before the IR is lowered, so it is never used.
+    fn empty_ir_project() -> IrProject {
+        IrProject {
+            name: "shape".to_string(),
+            entry: None,
+            bindings: Vec::new(),
+            types: Vec::new(),
+            functions: Vec::new(),
+            native_resources: Vec::new(),
+            link_functions: Vec::new(),
+            link_aliases: Vec::new(),
+            docs: crate::ir::ProjectDocs::default(),
+        }
+    }
+
+    #[test]
+    fn write_package_rejects_a_traversing_name_and_writes_nothing_outside_the_dir() {
+        // bug-58: `metadata.name` flows into `project_dir.join("<name>.mfp")`. A
+        // name of `../../evil` would escape the project directory; the write must
+        // be refused before any path is built.
+        // Nest the project dir two levels down so the naive sink
+        // `project_dir/../../evil.mfp` resolves back inside the tempdir (which is
+        // auto-cleaned) rather than polluting the shared temp root.
+        let root = tempfile::tempdir().expect("tempdir");
+        let escape_target = root.path().join("evil.mfp");
+        let project_dir = root.path().join("nested").join("project");
+        fs::create_dir_all(&project_dir).expect("project dir");
+
+        let mut metadata = test_metadata();
+        metadata.name = "../../evil".to_string();
+        let ir = empty_ir_project();
+
+        let err = write_package(&project_dir, &ir, &metadata, &[], None)
+            .expect_err("traversing name must be rejected");
+        assert!(err.contains("not a valid path component"), "{err}");
+
+        // Nothing escaped the project directory to the resolved traversal target.
+        assert!(
+            !escape_target.exists(),
+            "no package may be written outside the project directory"
+        );
+        // And nothing was written inside the project directory either.
+        let wrote_anything = fs::read_dir(&project_dir)
+            .expect("read project dir")
+            .next()
+            .is_some();
+        assert!(!wrote_anything, "no package file should be written on rejection");
     }
 
     #[test]
