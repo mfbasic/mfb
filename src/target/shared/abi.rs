@@ -151,10 +151,11 @@ pub(crate) const SYSRET: &str = "%sysret";
 /// color.
 pub(crate) const CLOSURE_ENV: &str = "%closure_env";
 
-/// Translate the Phase 3b role tokens back to their AArch64 register spellings —
-/// the temporary seam that keeps all three backends on today's `xN` input while
-/// shared lowering migrates to tokens (plan-34-B Phase 3b). Applied to a selected
-/// instruction stream before the per-ISA backend remap; Phase 4 removes it. A
+/// Translate a call-boundary role token to its AArch64 register spelling — the
+/// realization table the AArch64 and riscv64 backends apply during selection
+/// (riscv then remaps the `xN` to its own register file). The x86-64 backend does
+/// NOT use this: after plan-34-B Phase 4 it maps each role token straight to its
+/// System V home (`%arg1` → `rsi`), since AArch64's `xN` is not x86's home. A
 /// non-token value passes through unchanged.
 pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
     Some(match value {
