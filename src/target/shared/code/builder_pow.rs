@@ -380,8 +380,7 @@ impl CodeBuilder<'_> {
         let odata = self.allocate_register()?;
         self.emit_collection_data_pointer(&odata, &result_base);
         self.emit(abi::store_u64(&odata, abi::stack_pointer(), odata_slot));
-        self.emit(abi::move_immediate("x0", "Integer", "0"));
-        self.emit(abi::store_u64("x0", abi::stack_pointer(), index_slot));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
 
         let loop_label = self.label("pow_arr_loop");
         let loop_done = self.label("pow_arr_done");
