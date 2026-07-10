@@ -1,0 +1,36 @@
+' bug-64 regression: concurrent os:: env/pwd access must not read freed/torn
+' memory. Two writer threads relocate `environ` via os::setEnv/os::unsetEnv while
+' two reader threads walk it via os::environ()/os::getEnv(). With the process-
+' global env lock every call sees a self-consistent snapshot, so the program
+' finishes deterministically; without it the readers crash (use-after-free) or
+' read a torn length that overflows their accumulator.
+IMPORT thread
+IMPORT os_env_race_workers
+IMPORT io
+
+FUNC main AS Integer
+  LET iters AS Integer = 8000
+  LET writerA AS Thread OF Nothing TO Integer = thread::start(os_env_race_workers::envWriter, iters, 1, 1)
+  LET writerB AS Thread OF Nothing TO Integer = thread::start(os_env_race_workers::envWriter, iters, 1, 1)
+  LET readerA AS Thread OF Nothing TO Integer = thread::start(os_env_race_workers::envReader, iters, 1, 1)
+  LET readerB AS Thread OF Nothing TO Integer = thread::start(os_env_race_workers::envReader, iters, 1, 1)
+
+  LET wroteA AS Integer = thread::waitFor(writerA) TRAP(err)
+    RETURN 100 + err.code
+  END TRAP
+  LET wroteB AS Integer = thread::waitFor(writerB) TRAP(err)
+    RETURN 200 + err.code
+  END TRAP
+  ' Join the readers; their totals are timing-dependent, so only success matters.
+  LET readA AS Integer = thread::waitFor(readerA) TRAP(err)
+    RETURN 300 + err.code
+  END TRAP
+  LET readB AS Integer = thread::waitFor(readerB) TRAP(err)
+    RETURN 400 + err.code
+  END TRAP
+
+  IF wroteA <> iters THEN RETURN 1
+  IF wroteB <> iters THEN RETURN 2
+  io::print("env race survived")
+  RETURN 0
+END FUNC

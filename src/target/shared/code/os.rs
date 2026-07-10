@@ -19,6 +19,120 @@ use crate::arch::aarch64::abi;
 // Linux and macOS.
 const ERRNO_ENOMEM: &str = "12";
 
+/// Process-global mutex serializing `os::` env/pwd access against a concurrent
+/// `os::setEnv`/`os::unsetEnv` from another MFBASIC thread (bug-64). The env
+/// readers (`getEnv`/`getEnvOr`/`hasEnv`/`environ`/`userName`) hold it across the
+/// libc call *and* the marshal-into-arena, and the writers (`setEnv`/`unsetEnv`)
+/// hold it across `setenv`/`unsetenv`, so a reader never walks a `char **environ`
+/// array a concurrent `setenv` is relocating/freeing, and `userName` never has its
+/// static `getpwuid` buffer overwritten mid-copy. Single-threaded programs pay one
+/// uncontended lock/unlock per call.
+pub(crate) const OS_ENV_LOCK_SYMBOL: &str = "_mfb_rt_os_env_lock";
+
+/// Storage size of the env/pwd mutex. 64 bytes covers the largest `pthread_mutex_t`
+/// on every supported libc (glibc aarch64 = 48, glibc x86_64/riscv64 = 40,
+/// musl = 40, macOS = 64), so one fixed-size, statically-initialized global works
+/// on all targets.
+pub(crate) const OS_ENV_LOCK_SIZE: usize = 64;
+
+/// The frontend `os::` calls whose lowering takes the env/pwd lock. Kept in sync
+/// with the plan-layer import gate (`module_uses_os_env_lock` in
+/// `target::shared::plan::symbols`).
+const OS_ENV_LOCK_CALLS: &[&str] = &[
+    "os.getEnv",
+    "os.getEnvOr",
+    "os.hasEnv",
+    "os.environ",
+    "os.userName",
+    "os.setEnv",
+    "os.unsetEnv",
+];
+
+/// Whether `module` uses any `os::` helper that must serialize on the env/pwd
+/// lock, so the writable mutex global is emitted (see `OS_ENV_LOCK_SYMBOL`).
+pub(crate) fn module_uses_env_lock(module: &NirModule) -> bool {
+    OS_ENV_LOCK_CALLS
+        .iter()
+        .any(|call| module_uses_call(module, call))
+}
+
+/// The statically-initialized bytes of the env/pwd mutex for `target`, as a hex
+/// string (two chars per byte), so no runtime initializer call is needed. Linux
+/// `PTHREAD_MUTEX_INITIALIZER` is an all-zero `pthread_mutex_t`; macOS is
+/// `{ _PTHREAD_MUTEX_SIG_init, {0} }`, i.e. the `0x32AAABA7` signature in the first
+/// 8-byte `__sig` word with the rest zero, which libc lazily first-use-initializes
+/// on the first `pthread_mutex_lock` (exactly as a static `PTHREAD_MUTEX_INITIALIZER`
+/// does).
+pub(crate) fn os_env_lock_init_hex(target: &str) -> String {
+    let mut bytes = vec![0u8; OS_ENV_LOCK_SIZE];
+    if target.starts_with("macos") {
+        // `_PTHREAD_MUTEX_SIG_init` = 0x32AAABA7, little-endian in the `long __sig`.
+        bytes[0..4].copy_from_slice(&0x32AA_ABA7u32.to_le_bytes());
+    }
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Acquire the env/pwd lock: `pthread_mutex_lock(&_mfb_rt_os_env_lock)`. Emitted at
+/// helper entry, after incoming `String*` arguments have been saved into vregs (the
+/// call clobbers all caller-saved registers).
+fn emit_env_lock(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, "x0", instructions, relocations);
+    platform.emit_libc_call(
+        "pthread_mutex_lock",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )
+}
+
+/// Release the env/pwd lock and return. The four result registers (tag/value/
+/// message/source) are preserved across the `pthread_mutex_unlock` call — which
+/// clobbers all caller-saved registers — through vregs the allocator keeps live.
+/// Every helper routes all exit paths through a single `done` label so exactly one
+/// balanced unlock runs per (matched) lock.
+fn emit_env_unlock_return(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    vregs: &mut Vregs,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let saved_tag = vregs.next();
+    let saved_value = vregs.next();
+    let saved_message = vregs.next();
+    let saved_source = vregs.next();
+    instructions.extend([
+        abi::move_register(&saved_tag, RESULT_TAG_REGISTER),
+        abi::move_register(&saved_value, RESULT_VALUE_REGISTER),
+        abi::move_register(&saved_message, RESULT_ERROR_MESSAGE_REGISTER),
+        abi::move_register(&saved_source, RESULT_ERROR_SOURCE_REGISTER),
+    ]);
+    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, "x0", instructions, relocations);
+    platform.emit_libc_call(
+        "pthread_mutex_unlock",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::move_register(RESULT_TAG_REGISTER, &saved_tag),
+        abi::move_register(RESULT_VALUE_REGISTER, &saved_value),
+        abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, &saved_message),
+        abi::move_register(RESULT_ERROR_SOURCE_REGISTER, &saved_source),
+        abi::return_(),
+    ]);
+    Ok(())
+}
+
 pub(super) fn lower_os_helper(
     call: &str,
     symbol: &str,
@@ -245,6 +359,9 @@ fn lower_get_env(
         instructions.push(abi::move_register(&fallback, "x1"));
     }
     let mut relocations = Vec::new();
+    // Serialize the whole `getenv` + marshal-into-arena against a concurrent
+    // `os::setEnv` relocating/freeing `environ` (bug-64).
+    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
     marshal_cstring(
         symbol,
         &name,
@@ -326,7 +443,15 @@ fn lower_get_env(
     }
     instructions.push(abi::label(&alloc_error));
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_env_unlock_return(
+        symbol,
+        platform_imports,
+        platform,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -354,6 +479,9 @@ fn lower_has_env(
     let cname = vregs.next();
     let mut instructions = vec![abi::label("entry"), abi::move_register(&name, "x0")];
     let mut relocations = Vec::new();
+    // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
+    // `environ` (bug-64).
+    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
     marshal_cstring(
         symbol,
         &name,
@@ -379,7 +507,15 @@ fn lower_has_env(
         abi::label(&alloc_error),
     ]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_env_unlock_return(
+        symbol,
+        platform_imports,
+        platform,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -416,6 +552,9 @@ fn lower_set_env(
         abi::move_register(&value, "x1"),
     ];
     let mut relocations = Vec::new();
+    // Hold the lock across `setenv` so a concurrent env reader on another thread
+    // never observes a half-relocated `environ` (bug-64).
+    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
     marshal_cstring(
         symbol,
         &name,
@@ -471,7 +610,15 @@ fn lower_set_env(
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_env_unlock_return(
+        symbol,
+        platform_imports,
+        platform,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -498,6 +645,9 @@ fn lower_unset_env(
     let cname = vregs.next();
     let mut instructions = vec![abi::label("entry"), abi::move_register(&name, "x0")];
     let mut relocations = Vec::new();
+    // Hold the lock across `unsetenv` so a concurrent env reader on another thread
+    // never observes a half-relocated `environ` (bug-64).
+    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
     marshal_cstring(
         symbol,
         &name,
@@ -524,7 +674,15 @@ fn lower_unset_env(
         abi::label(&alloc_error),
     ]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_env_unlock_return(
+        symbol,
+        platform_imports,
+        platform,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -588,6 +746,10 @@ fn lower_environ(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Hold the lock across the whole two-pass `environ` walk and the marshal into
+    // the arena `Map`, so a concurrent `os::setEnv` cannot relocate/free the array
+    // or its strings mid-walk (bug-64).
+    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
     platform.emit_environ_pointer(symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
         abi::move_register(&envp, abi::return_register()),
@@ -745,7 +907,15 @@ fn lower_environ(
         abi::label(&alloc_error),
     ]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_env_unlock_return(
+        symbol,
+        platform_imports,
+        platform,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1027,6 +1197,10 @@ fn lower_user_name(
     let pwname = vregs.next();
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Hold the lock across `getpwuid` and the copy of its static `passwd`/`pw_name`
+    // buffer, so a concurrent `getpwuid`/`getpwnam` cannot overwrite it mid-copy.
+    // The env lock doubles as the process-global pwd lock (bug-64).
+    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
     platform.emit_libc_call("getuid", symbol, platform_imports, &mut instructions, &mut relocations)?;
     platform.emit_libc_call("getpwuid", symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
@@ -1057,7 +1231,15 @@ fn lower_user_name(
     push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_env_unlock_return(
+        symbol,
+        platform_imports,
+        platform,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
 }

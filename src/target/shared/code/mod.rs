@@ -485,6 +485,24 @@ pub(crate) fn lower_module_for_platform(
             });
         }
     }
+    // Process-global mutex serializing `os::` env/pwd access against a concurrent
+    // `os::setEnv`/`os::unsetEnv` from another MFBASIC thread (bug-64). Statically
+    // initialized so no runtime initializer runs: Linux `PTHREAD_MUTEX_INITIALIZER`
+    // is an all-zero `pthread_mutex_t`; macOS carries the `_PTHREAD_MUTEX_SIG_init`
+    // signature in the first word so libc lazily first-use-initializes it. Writable
+    // (the same section guarantee as the arena/argv globals above), and emitted only
+    // when the module uses an env/pwd helper so existing programs' layout is
+    // unchanged.
+    if os::module_uses_env_lock(module) {
+        data_objects.push(CodeDataObject {
+            symbol: os::OS_ENV_LOCK_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.os_env_lock.v1 { u8 pthread_mutex[64] }".to_string(),
+            align: 8,
+            size: os::OS_ENV_LOCK_SIZE,
+            value: os::os_env_lock_init_hex(platform.target()),
+        });
+    }
     if native_plan
         .runtime_symbols
         .iter()

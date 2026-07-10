@@ -97,6 +97,40 @@ pub(super) fn platform_imports(
             push_platform_import(&mut imports, import);
         }
     }
+    // The `os::` env/pwd helpers serialize their libc-global access behind a
+    // process-global mutex (bug-64), so a concurrent `os::setEnv` from another
+    // MFBASIC thread cannot free/relocate the memory a reader is copying. Pull in
+    // the same `pthread_mutex_lock`/`unlock` the thread runtime uses — reusing the
+    // `thread.drop` import set gives the platform-correct symbol name and library
+    // (`_pthread_mutex_*`/libSystem on macOS, libpthread/libc on Linux) without the
+    // rest of the pthread surface. Each import is attributed to every env/pwd helper
+    // the module actually emits (mirroring how `getenv` is imported once per using
+    // helper), so the object-plan model records the call against a defined runtime
+    // code unit. The mutex storage itself is a statically initialized writable
+    // global emitted during code lowering.
+    let env_lock_helpers = os_env_lock_helper_symbols(module);
+    if !env_lock_helpers.is_empty() {
+        let mutex_imports: Vec<PlatformImport> =
+            platform_imports_for_runtime_call(platform, "thread.drop")
+                .into_iter()
+                .filter(|import| {
+                    import.symbol.contains("pthread_mutex_lock")
+                        || import.symbol.contains("pthread_mutex_unlock")
+                })
+                .collect();
+        for helper in &env_lock_helpers {
+            for import in &mutex_imports {
+                push_platform_import(
+                    &mut imports,
+                    PlatformImport {
+                        library: import.library.clone(),
+                        symbol: import.symbol.clone(),
+                        required_by: (*helper).to_string(),
+                    },
+                );
+            }
+        }
+    }
     if !module.link_functions.is_empty() {
         for import in platform.link_imports(nir::LINK_INIT_SYMBOL) {
             push_platform_import(&mut imports, import);
@@ -112,6 +146,32 @@ pub(super) fn platform_imports(
         }
     }
     imports
+}
+
+/// The frontend `os::` calls whose lowering takes the process-global env/pwd lock
+/// (bug-64): the readers `getEnv`/`getEnvOr`/`hasEnv`/`environ`/`userName` and the
+/// writers `setEnv`/`unsetEnv`. Kept in sync with the code-layer gate
+/// `os::module_uses_env_lock`.
+const OS_ENV_LOCK_CALLS: &[&str] = &[
+    "os.getEnv",
+    "os.getEnvOr",
+    "os.hasEnv",
+    "os.environ",
+    "os.userName",
+    "os.setEnv",
+    "os.unsetEnv",
+];
+
+/// The runtime helper symbols for the env/pwd helpers `module` actually emits, so
+/// the pthread mutex imports can be attributed to each real caller (the object-plan
+/// model records an import against the runtime code unit named by `required_by`).
+fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<&'static str> {
+    let symbols = runtime_symbols(module);
+    OS_ENV_LOCK_CALLS
+        .iter()
+        .filter_map(|call| runtime::spec_for_call(call).map(|spec| spec.symbol))
+        .filter(|helper| symbols.iter().any(|symbol| symbol.as_str() == *helper))
+        .collect()
 }
 
 pub(super) fn is_thread_type(type_: &str) -> bool {
