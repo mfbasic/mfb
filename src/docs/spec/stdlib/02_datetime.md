@@ -134,9 +134,10 @@ portable.
 
 These three are excluded from the public-call rewrite (`implementation_name`
 returns `None`); they lower to runtime helpers
-(`_mfb_rt_datetime_datetime_*`) rather than to `__datetime_*` MFBASIC code. They
-take no failure path — each returns an `Integer` with the OK tag set.
-[[src/builtins/datetime.rs:NOW_NANOS]]
+(`_mfb_rt_datetime_datetime_*`) rather than to `__datetime_*` MFBASIC code.
+`nowNanos` and `monotonicNanos` take no failure path — each returns an `Integer`
+with the OK tag set. `localOffset` uses the same result form but can fail (see
+below). [[src/builtins/datetime.rs:NOW_NANOS]]
 
 Platform notes from the native lowering: `CLOCK_REALTIME` is `0` on both Linux
 and macOS; `CLOCK_MONOTONIC` is `1` on Linux but `6` on Darwin. `localOffset`
@@ -144,7 +145,12 @@ stashes its `epochSeconds` argument as a `time_t`, calls `localtime_r`, and
 reads the `tm_gmtoff` field (offset `40` in `struct tm` on both glibc and Darwin
 BSD libc). The host's TZ database / `TZ` environment variable therefore governs
 local-zone results — DST transitions and historical offsets are whatever libc
-reports for that instant. [[src/target/shared/code/datetime.rs:lower_datetime_helper]]
+reports for that instant. `localtime_r` returns `NULL` when the instant's year
+overflows `tm_year`'s `int` (roughly `abs(epochSeconds)` beyond `6.7e16`),
+leaving `tm` unwritten; `localOffset` branches on that return and raises
+`ErrInvalidArgument` (`77050002`) rather than reading the uninitialized buffer,
+and the error propagates through `offsetAt`/`toLocal` for a `Local` zone.
+[[src/target/shared/code/datetime.rs:lower_datetime_helper]]
 
 ### Zone constructors
 

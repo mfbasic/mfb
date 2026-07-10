@@ -5,9 +5,13 @@
 //! - `datetime.monotonicNanos` — `clock_gettime(CLOCK_MONOTONIC)` → nanoseconds.
 //! - `datetime.localOffset` — `localtime_r(&epochSeconds, &tm)` → `tm_gmtoff`.
 //!
-//! Each returns an `Integer` in the standard result-value register with the OK
-//! tag set; none can fail. The portable calendar math that consumes these lives
-//! in `datetime_package.mfb`.
+//! `nowNanos` / `monotonicNanos` always succeed and return an `Integer` in the
+//! standard result-value register with the OK tag set. `localOffset` takes an
+//! unvalidated user-supplied instant: `localtime_r` returns `NULL` (setting
+//! `EOVERFLOW`) when the year does not fit `tm_year`'s `int`, leaving `tm`
+//! untouched, so that arm branches on the return and raises `ErrInvalidArgument`
+//! rather than reading an uninitialized stack qword (bug-42). The portable
+//! calendar math that consumes these lives in `datetime_package.mfb`.
 
 use std::collections::HashMap;
 
@@ -49,6 +53,11 @@ pub(super) fn lower_datetime_helper(
     // sp-relative local region; the x9-x11 scratch becomes vregs.
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+
+    // Declared up front so the `localOffset` arm can branch to it and the shared
+    // error tail below can define it: the out-of-range failure label for
+    // `localtime_r` returning NULL (bug-42).
+    let localoffset_range_fail = format!("{symbol}_range");
 
     match call {
         "datetime.nowNanos" | "datetime.monotonicNanos" => {
@@ -97,6 +106,15 @@ pub(super) fn lower_datetime_helper(
                 &mut instructions,
                 &mut relocations,
             )?;
+            // `localtime_r` returns NULL (and sets EOVERFLOW) when the instant's
+            // year does not fit `tm_year`'s `int`; on that path it writes no field
+            // of `tm`, so loading `tm_gmtoff` would return an uninitialized stack
+            // qword (an ASLR info-leak). Branch on the return before touching the
+            // buffer (bug-42). The return sits in the return register, which is
+            // also `RESULT_TAG_REGISTER`, so test it before the OK tail overwrites
+            // it below.
+            instructions.push(abi::compare_immediate(abi::RETURN_REGISTER, "0"));
+            instructions.push(abi::branch_eq(&localoffset_range_fail));
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
@@ -116,6 +134,33 @@ pub(super) fn lower_datetime_helper(
         RESULT_OK_TAG,
     ));
     instructions.push(abi::return_());
+
+    if call == "datetime.localOffset" {
+        // Out-of-range `epochSeconds`: report `ErrInvalidArgument` rather than
+        // returning `tm.tm_gmtoff` from a buffer `localtime_r` never wrote. The
+        // runtime-helper call site (`emit_runtime_helper_call`) already checks the
+        // tag and auto-propagates the error up through `offsetAt`/`toLocal`, so no
+        // package-source change is needed (bug-42). This tail sits after the shared
+        // OK return so success never falls into it.
+        instructions.push(abi::label(&localoffset_range_fail));
+        instructions.push(abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            ERR_INVALID_ARGUMENT_CODE,
+        ));
+        instructions.push(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_ERR_TAG,
+        ));
+        push_error_message_address(
+            symbol,
+            ERR_INVALID_ARGUMENT_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::return_());
+    }
 
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
     Ok((frame, instructions, relocations, stack_slots))

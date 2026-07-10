@@ -101,11 +101,14 @@ on the OK tag it reads the result value from `x1` (`RESULT_VALUE_REGISTER`). [[s
 A helper that **cannot fail** therefore does not return its value bare in `x0` in
 the way an ordinary infallible callable does (see
 `./mfb spec memory native-calling-convention`); instead it sets the OK tag in
-`x0` and places its value in `x1`. The `datetime` intrinsics
-(`datetime.nowNanos`, `datetime.monotonicNanos`, `datetime.localOffset`) are the
-canonical infallible-but-result-form helpers: each returns an `Integer` with the
-OK tag set. [[src/target/shared/runtime/datetime_specs.rs:DATETIME_NOW_NANOS_SPEC]] A helper whose `returns` is `Nothing` yields no value
-register; only the tag (and, on error, the message/source) is meaningful.
+`x0` and places its value in `x1`. `datetime.nowNanos` and
+`datetime.monotonicNanos` are the canonical infallible-but-result-form helpers:
+each returns an `Integer` with the OK tag set. [[src/target/shared/runtime/datetime_specs.rs:DATETIME_NOW_NANOS_SPEC]] `datetime.localOffset` uses the same
+result form but *can* fail: it raises `ErrInvalidArgument` (setting the ERR tag)
+when `localtime_r` cannot break the instant down into calendar fields, so it must
+never be read as a bare `x0` result either. A helper whose `returns` is `Nothing`
+yields no value register; only the tag (and, on error, the message/source) is
+meaningful.
 
 ## Helper Families
 

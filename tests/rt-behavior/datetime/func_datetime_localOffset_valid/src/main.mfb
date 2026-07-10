@@ -1,0 +1,62 @@
+IMPORT io
+IMPORT datetime
+IMPORT errorCode
+
+REM bug-42 regression: `datetime::localOffset(epochSeconds)` handed `localtime_r`
+REM an instant whose year overflows `tm_year`'s `int`. `localtime_r` returns NULL
+REM and writes no field of `tm`, so the helper used to load an uninitialized stack
+REM qword and return it with an OK tag — a run-varying ASLR stack address handed to
+REM pure MFBASIC code (an info-leak) on a function documented as infallible. The fix
+REM branches on the NULL return and raises `ErrInvalidArgument`.
+
+REM The out-of-range call MUST be the program's first `datetime` call: a prior
+REM successful `localOffset` leaves a valid `tm` in the same stack slot, which
+REM masked the leak (see the bug doc's Contrast cases). Pre-fix this printed a
+REM per-run garbage value with no trap; post-fix it traps deterministically.
+FUNC outOfRangeFirst AS Integer
+  LET off AS Integer = datetime::localOffset(9223372036854775807)
+  io::print("LEAKED off=" & toString(off))
+  RETURN -1
+  TRAP(err)
+    io::print("outOfRange invalidArg=" & toString(err.code = errorCode::ErrInvalidArgument))
+    RETURN 0
+  END TRAP
+END FUNC
+
+REM In-range instants still resolve to a real host offset and must not trap. The
+REM absolute offset is host-time-zone dependent, so assert only that the result is
+REM defined and run-stable (equal across repeated calls), never a magnitude.
+FUNC inRangeStable AS Integer
+  LET a AS Integer = datetime::localOffset(0)
+  LET b AS Integer = datetime::localOffset(0)
+  LET c AS Integer = datetime::localOffset(9000000000000)
+  LET d AS Integer = datetime::localOffset(9000000000000)
+  IF a = b AND c = d THEN
+    RETURN 0
+  END IF
+  RETURN 1
+  TRAP(err)
+    io::print("inRange UNEXPECTED trap=" & toString(err.code))
+    RETURN 2
+  END TRAP
+END FUNC
+
+REM The error propagates through the higher-level consumers unchanged: `toLocal`
+REM (and `offsetAt` for the local zone) pass a far-future `Instant`'s seconds to
+REM `localOffset`, so the same `ErrInvalidArgument` surfaces here.
+FUNC downstreamToLocal AS Integer
+  LET dt AS DateTime = datetime::toLocal(datetime::instant(9223372036854775807))
+  io::print("LEAKED downstream reached")
+  RETURN -1
+  TRAP(err)
+    io::print("downstream invalidArg=" & toString(err.code = errorCode::ErrInvalidArgument))
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("outOfRangeFirst=" & toString(outOfRangeFirst()))
+  io::print("inRangeStable=" & toString(inRangeStable()))
+  io::print("downstreamToLocal=" & toString(downstreamToLocal()))
+  RETURN 0
+END FUNC

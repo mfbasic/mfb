@@ -1,0 +1,12 @@
+IMPORT datetime
+
+FUNC main AS Integer
+  ' datetime::localOffset has one overload: (epochSeconds AS Integer) AS Integer.
+  ' Missing argument (wrong arity).
+  LET a AS Integer = datetime::localOffset()
+  ' Too many arguments (wrong arity).
+  LET b AS Integer = datetime::localOffset(0, 1)
+  ' Wrong argument type (String, not Integer).
+  LET c AS Integer = datetime::localOffset("noon")
+  RETURN a + b + c
+END FUNC

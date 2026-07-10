@@ -65,7 +65,9 @@ state.
 
 ## Errors
 
-No errors.
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050002` | `ErrInvalidArgument` | `epochSeconds` names an instant the host's C library cannot break down into calendar fields — its year overflows the platform `struct tm`'s `int` year (roughly `abs(epochSeconds)` beyond `6.7e16` seconds). `localtime_r` returns no result for such an instant, so no offset is defined. [[src/target/shared/code/datetime.rs:lower_datetime_helper]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 
 ## Examples
 

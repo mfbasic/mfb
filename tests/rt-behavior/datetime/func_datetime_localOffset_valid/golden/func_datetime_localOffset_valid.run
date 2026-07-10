@@ -1,0 +1,5 @@
+outOfRange invalidArg=TRUE
+outOfRangeFirst=0
+inRangeStable=0
+downstream invalidArg=TRUE
+downstreamToLocal=0
