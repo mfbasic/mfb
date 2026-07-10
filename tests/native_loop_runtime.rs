@@ -250,3 +250,121 @@ END SUB
     );
     assert_eq!(out, "\n\n\n");
 }
+
+/// Regression test for bug-57: a `WHILE` condition that folds a loop-mutated
+/// local through a string folder (`toString`) used the local's stale loop-entry
+/// constant, frozen in the single emitted comparison above the back-edge, so the
+/// loop never observed `c` changing and ran forever. The body's guard bounds the
+/// iteration count and exits with a distinct marker so a buggy binary produces a
+/// well-formed *wrong* result (exit 0) rather than hanging: on the buggy codegen
+/// the frozen `toString(0) <> "3"` stays true, the guard fires, and it prints
+/// "looping c=21"; the fixed codegen reads the live `c` each iteration and
+/// terminates at `c = 3`.
+#[test]
+fn native_while_tostring_condition_reads_live_local() {
+    let out = build_and_run(
+        "loop_while_tostring_cond",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  MUT guard AS Integer = 0
+  WHILE toString(c) <> "3"
+    c = c + 1
+    guard = guard + 1
+    IF guard > 20 THEN
+      io::print("looping c=" & toString(c))
+      RETURN 0
+    END IF
+  WEND
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC
+"#,
+    );
+    assert_eq!(out, "terminated c=3\n");
+}
+
+/// Companion for bug-57 covering the string-concat folder: a loop-invariant
+/// `String` local (`tag`) concatenated with `toString(c)` in the condition. The
+/// `&` folder collapses `tag & toString(c)` to the rodata `"step0"` at loop
+/// entry (both operands folded), freezing the comparison. After the fix the
+/// condition reads the live `c` (and the still-invariant `tag`) each iteration.
+#[test]
+fn native_while_concat_condition_reads_live_local() {
+    let out = build_and_run(
+        "loop_while_concat_cond",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  MUT guard AS Integer = 0
+  MUT tag AS String = "step"
+  WHILE (tag & toString(c)) <> "step3"
+    c = c + 1
+    guard = guard + 1
+    IF guard > 20 THEN
+      io::print("looping c=" & toString(c))
+      RETURN 0
+    END IF
+  WEND
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC
+"#,
+    );
+    assert_eq!(out, "terminated c=3\n");
+}
+
+/// Guard case: the integer relational form of the same loop already terminated
+/// (numeric lowering never consults `local.constant`), and must continue to.
+#[test]
+fn native_while_integer_condition_terminates() {
+    let out = build_and_run(
+        "loop_while_int_cond",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  WHILE c < 3
+    c = c + 1
+  WEND
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC
+"#,
+    );
+    assert_eq!(out, "terminated c=3\n");
+}
+
+/// Guard case: the `DO ... LOOP UNTIL` sibling clears loop-entry constants before
+/// its condition already, so a `toString`-folding termination test was correct
+/// before the fix and must remain so.
+#[test]
+fn native_do_until_tostring_condition_reads_live_local() {
+    let out = build_and_run(
+        "loop_do_until_tostring_cond",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  MUT guard AS Integer = 0
+  DO
+    c = c + 1
+    guard = guard + 1
+    IF guard > 20 THEN
+      io::print("looping c=" & toString(c))
+      RETURN 0
+    END IF
+  LOOP UNTIL toString(c) = "3"
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC
+"#,
+    );
+    assert_eq!(out, "terminated c=3\n");
+}

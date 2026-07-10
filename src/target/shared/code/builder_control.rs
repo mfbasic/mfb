@@ -680,10 +680,20 @@ impl CodeBuilder<'_> {
                         let loop_label = self.label("while_loop");
                         let end_label = self.label("while_end");
                         self.emit(abi::label(&loop_label));
+                        // The back-edge jumps to `loop_label` above the condition, so
+                        // the condition (and body) is re-tested each iteration from
+                        // this one emitted comparison. Constants known at loop entry
+                        // (e.g. a `MUT` local's literal initializer) must not fold reads
+                        // in the condition or body — they go stale once the body
+                        // reassigns them. A string-producing condition like
+                        // `WHILE toString(c) <> "3"` would otherwise freeze the fold to
+                        // `c`'s entry value and loop forever (bug-57). Mirrors the
+                        // `clear_local_constants()` the `DoUntil` path runs before its
+                        // body+condition.
+                        self.clear_local_constants();
                         let condition = self.lower_value(condition)?;
                         self.emit(abi::compare_immediate(&condition.location, "0"));
                         self.emit(abi::branch_eq(&end_label));
-                        self.clear_local_constants();
                         self.loop_stack.push(LoopLabels {
                             kind: *kind,
                             continue_label: loop_label.clone(),
