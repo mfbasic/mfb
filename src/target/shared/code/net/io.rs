@@ -314,12 +314,13 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
+            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "x1", 0),
+            abi::store_u64("%v10", "%v15", 0),
             abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate("%v12", "x1", 8),
+            abi::add_immediate("%v12", "%v15", 8),
             abi::move_immediate("%v13", "Integer", "0"),
-            abi::store_u64("x1", abi::stack_pointer(), STR_OFFSET),
+            abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
             abi::label(&str_copy),
             abi::compare_registers("%v13", "%v10"),
             abi::branch_eq(&str_done),
@@ -364,20 +365,21 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
+            abi::move_register("%v15", "x1"), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KIND),
+            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KEY_TYPE),
+            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_VALUE_TYPE),
+            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
             abi::move_immediate("%v9", "Byte", "1"),
-            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
+            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate("%v11", "x1", COLLECTION_HEADER_SIZE),
+            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
+            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
+            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
+            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
             abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_registers("%v14", "%v11", "%v13"),
