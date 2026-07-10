@@ -54,6 +54,7 @@ pub(crate) fn lower_tls_connect_helper(
     let hs_timeout_clear = format!("{symbol}_hs_timeout_clear");
     let tls_fail = format!("{symbol}_tls_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    let alloc_fail_raw = format!("{symbol}_alloc_fail_raw");
     let load_fail = format!("{symbol}_load_fail");
     let use_sname = format!("{symbol}_use_sname");
     let sni_ready = format!("{symbol}_sni_ready");
@@ -69,6 +70,14 @@ pub(crate) fn lower_tls_connect_helper(
         abi::store_u64("x1", abi::stack_pointer(), PORT_OFFSET),
         abi::store_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64("x3", abi::stack_pointer(), SNAME_OFFSET),
+        // Sentinel-initialise the fd (-1) and the SSL/SSL_CTX slots (0) so the
+        // alloc_fail exit can close/free exactly what has been acquired without
+        // touching a garbage fd or object (bug-55).
+        abi::move_immediate("%v9", "Integer", "0"),
+        abi::bitwise_not("%v9", "%v9"),
+        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("x31", abi::stack_pointer(), SSL_OFFSET),
+        abi::store_u64("x31", abi::stack_pointer(), CTX_OFFSET),
     ]);
     // Resolve + connect a TCP socket. Zero a 48-byte hints block and set
     // ai_family = AF_INET, ai_socktype = SOCK_STREAM.
@@ -515,6 +524,11 @@ pub(crate) fn lower_tls_connect_helper(
         abi::move_immediate("x3", "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
+        // Require the TLS 1.2 floor to have been set (returns 1 on success),
+        // matching the checked SSL_set1_host / SSL_connect / verify-result calls
+        // — an unchecked failure would silently permit a downgrade (bug-55).
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&tls_fail),
     ]);
     // r = SSL_connect(ssl); require 1.
     emit_dlsym(
@@ -703,6 +717,70 @@ pub(crate) fn lower_tls_connect_helper(
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
+    // Free the SSL session and context and close the socket the aborted record
+    // would have owned. The tls_fail/net_fail_fd exits close the fd, but a
+    // post-handshake record-alloc OOM otherwise leaked fd + SSL + SSL_CTX
+    // (bug-55). Slots are sentinel-initialised (fd = -1, SSL/CTX = 0), so each
+    // step is null/-1-guarded and the frees' dlsym only runs once the object
+    // exists (libssl loaded). dlsym failures route to alloc_fail_raw.
+    let af_skip_ssl = format!("{symbol}_af_skip_ssl");
+    let af_skip_ctx = format!("{symbol}_af_skip_ctx");
+    let af_skip_fd = format!("{symbol}_af_skip_fd");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&af_skip_ssl),
+    ]);
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_free",
+        FNPTR_OFFSET,
+        &alloc_fail_raw,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::label(&af_skip_ssl),
+        abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&af_skip_ctx),
+    ]);
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_free",
+        FNPTR_OFFSET,
+        &alloc_fail_raw,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::label(&af_skip_ctx),
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_lt(&af_skip_fd),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&af_skip_fd));
+    instructions.push(abi::label(&alloc_fail_raw));
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
@@ -1000,6 +1078,12 @@ pub(crate) fn lower_tls_listen_helper(
         abi::move_immediate("x3", "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
+        // Require the TLS 1.2 floor to have been set (returns 1 on success),
+        // matching the checked identity-loading calls below; ctx_fail frees the
+        // context and closes the fd — an unchecked failure would silently permit
+        // a downgrade (bug-55).
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&ctx_fail),
     ]);
     // SSL_CTX_use_certificate_chain_file(ctx, certCstr) == 1
     emit_dlsym(
@@ -1448,6 +1532,35 @@ pub(crate) fn lower_tls_accept_helper(
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
+    // The record alloc is the final step; the SSL session and the accepted fd
+    // are both live, so free/close them before failing — a record-alloc OOM
+    // otherwise leaked the SSL session and the accepted socket fd (bug-55).
+    // Both are always set on the only path here. SSL_free's dlsym failure (only
+    // if libssl vanished) routes to tls_fail_conn, which still closes the fd.
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_free",
+        FNPTR_OFFSET,
+        &tls_fail_conn,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONNFD_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
@@ -2133,5 +2246,60 @@ pub(crate) fn lower_tls_close_listener_helper(
         let (frame, stack_slots) =
             finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
         Ok((frame, instructions, relocations, stack_slots))
+    }
+}
+
+#[cfg(test)]
+mod error_path_release_tests {
+    // Regression guards for bug-55 on the OpenSSL/Linux TLS backend. These paths
+    // cannot execute on this macOS host; the assertions pin the emitted release
+    // sequence so a post-handshake OOM cannot silently leak the fd + SSL(+CTX),
+    // and so the alloc_fail cleanup is null/-1-guarded.
+    use super::*;
+    use crate::target::shared::code::mir;
+    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+
+    fn reloc_count(rel: &[CodeRelocation], needle: &str) -> usize {
+        rel.iter().filter(|r| r.to.contains(needle)).count()
+    }
+
+    #[test]
+    fn connect_alloc_fail_frees_ssl_ctx_and_fd() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
+        for label in ["c_af_skip_ssl", "c_af_skip_ctx", "c_af_skip_fd", "c_alloc_fail_raw"] {
+            assert!(has_label(&ins, label), "missing alloc_fail cleanup label {label}");
+        }
+        // alloc_fail resolves SSL_free and SSL_CTX_free (neither was referenced by
+        // connect before the fix — SSL_CTX_free was close-only).
+        assert!(reloc_count(&rel, "sym_SSL_free") >= 1, "connect must free the SSL on OOM");
+        assert!(reloc_count(&rel, "sym_SSL_CTX_free") >= 1, "connect must free the SSL_CTX on OOM");
+    }
+
+    #[test]
+    fn accept_alloc_fail_frees_ssl_and_fd() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, _ins, rel, _s) =
+            lower_tls_accept_helper("a", &imports, &TestPlatform).expect("lower accept");
+        // ssl_fail resolves SSL_free once (2 data relocs); alloc_fail now adds a
+        // second resolution, so the count roughly doubles.
+        assert!(
+            reloc_count(&rel, "sym_SSL_free") > 2,
+            "accept alloc_fail must free the SSL session in addition to ssl_fail"
+        );
+    }
+
+    #[test]
+    fn listen_lowers_with_min_proto_check() {
+        // The SSL_CTX_ctrl(SET_MIN_PROTO_VERSION) return is now checked; the
+        // helper must still lower cleanly and resolve the ctrl symbol.
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, _ins, rel, _s) =
+            lower_tls_listen_helper("l", &imports, &TestPlatform).expect("lower listen");
+        assert!(reloc_count(&rel, "sym_SSL_CTX_ctrl") >= 1);
     }
 }

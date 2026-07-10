@@ -841,6 +841,22 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         &done,
     );
     instructions.push(abi::label(&addr_fail));
+    // freeaddrinfo(res): addr_fail is reached only from the inet_ntop-failure
+    // branch, where the resolver result list is always allocated (getaddrinfo
+    // succeeded). The success exit (fill_done) frees it; without this the error
+    // exit leaked the whole addrinfo chain per failed lookup (bug-55).
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "freeaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_ADDRESS_INVALID_CODE,
@@ -1608,5 +1624,32 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         let (frame, stack_slots) =
             finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
         Ok((frame, instructions, relocations, stack_slots))
+    }
+}
+
+#[cfg(test)]
+mod lookup_release_tests {
+    // Regression guard for bug-55: net::lookup's addr_fail (inet_ntop-failure)
+    // exit must freeaddrinfo(res) like the fill_done success exit, else the whole
+    // addrinfo chain leaks on a failed lookup. Counts the emitted freeaddrinfo
+    // calls (success exit + error exit).
+    use super::*;
+    use crate::target::shared::code::mir;
+    use crate::target::shared::code::test_support::TestPlatform;
+
+    #[test]
+    fn lookup_frees_addrinfo_on_addr_fail() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_net_lookup_helper("lk", &imports, &TestPlatform).expect("lower lookup");
+        let freeaddrinfo_calls = ins
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLink && i.get("target") == Some("_freeaddrinfo"))
+            .count();
+        assert!(
+            freeaddrinfo_calls >= 2,
+            "lookup must freeaddrinfo on both the success and addr_fail exits, saw {freeaddrinfo_calls}"
+        );
     }
 }

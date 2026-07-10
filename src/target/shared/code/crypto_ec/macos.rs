@@ -212,6 +212,64 @@ fn cf_release(release_off: usize, obj_off: usize, ins: &mut Vec<CodeInstruction>
     call_fn(release_off, ins);
 }
 
+/// `CFRelease(*obj_off)` only when the slot is non-NULL. Used on the error exits
+/// where a CF object may or may not have been created yet; the slots are
+/// zero-initialised at entry so a NULL slot is skipped rather than passed to
+/// `CFRelease` (which crashes on NULL). `tag` disambiguates the skip label per
+/// call site. The `CFRelease` function pointer is only dereferenced when the
+/// object is non-NULL, which implies it was resolved before the object was
+/// created — so an error before `CFRelease` is `dlsym`d cannot use a garbage
+/// pointer.
+fn cf_release_guarded(
+    symbol: &str,
+    release_off: usize,
+    obj_off: usize,
+    tag: &str,
+    ins: &mut Vec<CodeInstruction>,
+) {
+    let skip = format!("{symbol}_{tag}_norel");
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), obj_off),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&skip),
+    ]);
+    call_fn(release_off, ins);
+    ins.push(abi::label(&skip));
+}
+
+/// Overwrite `[*buf_off]`.. (`[len_off]` bytes) with zero when the buffer slot
+/// is non-NULL. Wipes raw key-material scratch (e.g. the private scalar copied
+/// out of an argument byte list) before the helper returns, so a later
+/// same-program arena allocation cannot be handed a block still holding key
+/// bytes. Call-free (vreg scratch only); `tag` disambiguates the labels.
+fn zero_scratch_guarded(
+    symbol: &str,
+    buf_off: usize,
+    len_off: usize,
+    tag: &str,
+    ins: &mut Vec<CodeInstruction>,
+) {
+    let skip = format!("{symbol}_{tag}_noz");
+    let loop_l = format!("{symbol}_{tag}_zl");
+    let end_l = format!("{symbol}_{tag}_ze");
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), buf_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64("%v10", abi::stack_pointer(), len_off),
+        abi::move_immediate("%v11", "Integer", "0"),
+        abi::label(&loop_l),
+        abi::compare_registers("%v11", "%v10"),
+        abi::branch_eq(&end_l),
+        abi::store_u8("x31", "%v9", 0),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::branch(&loop_l),
+        abi::label(&end_l),
+        abi::label(&skip),
+    ]);
+}
+
 /// Build a 2-entry CFDictionary of CFString constants into `dict_off`. Uses six
 /// contiguous scratch slots at `scratch_off` (keys[0,8], vals[16,24],
 /// callbacks[32,40]) plus `const_scratch` for the per-constant address.
@@ -394,6 +452,15 @@ fn generate(
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
+
+    // Zero the CF object slots so the error-exit cleanup can null-guard each
+    // CFRelease (the frame is not zero-initialised) — bug-55.
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), NUM),
+        abi::store_u64("x31", abi::stack_pointer(), DICT),
+        abi::store_u64("x31", abi::stack_pointer(), KEY),
+        abi::store_u64("x31", abi::stack_pointer(), DATA),
+    ]);
 
     dlopen_one(
         symbol,
@@ -617,16 +684,31 @@ fn generate(
         abi::branch(&done),
     ]);
 
-    emit_error_exits(
+    // Every error exit releases exactly the CF objects (NUM, DICT, KEY, DATA)
+    // the success path releases; the slots are zero-initialised so a release is
+    // a no-op until the object exists, and CFRelease is only dereferenced when
+    // an object is non-NULL (bug-55).
+    let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str| {
+        cf_release_guarded(symbol, RELEASE, NUM, &format!("{tag}n"), ins);
+        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
+        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
+        cf_release_guarded(symbol, RELEASE, DATA, &format!("{tag}a"), ins);
+    };
+    ins.push(abi::label(&load_fail));
+    cleanup(&mut ins, "lf");
+    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    ins.push(abi::label(&gen_fail));
+    cleanup(&mut ins, "gf");
+    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    ins.push(abi::label(&alloc_fail));
+    cleanup(&mut ins, "af");
+    emit_fail(
         symbol,
-        &load_fail,
-        &gen_fail,
-        &alloc_fail,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
-        &done,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
         &mut ins,
         &mut rel,
+        &done,
     );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
@@ -683,6 +765,16 @@ fn sign(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
+    ]);
+    // Zero the CF object slots and the private-scalar scratch pointer so the
+    // error-exit cleanup can null-guard each CFRelease / wipe (bug-55).
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), PRIVBUF),
+        abi::store_u64("x31", abi::stack_pointer(), PRIVDATA),
+        abi::store_u64("x31", abi::stack_pointer(), MSGDATA),
+        abi::store_u64("x31", abi::stack_pointer(), DICT),
+        abi::store_u64("x31", abi::stack_pointer(), KEY),
+        abi::store_u64("x31", abi::stack_pointer(), SIGDATA),
     ]);
     emit_read_byte_list(
         symbol,
@@ -854,6 +946,8 @@ fn sign(
     cf_release(RELEASE, DICT, &mut ins);
     cf_release(RELEASE, KEY, &mut ins);
     cf_release(RELEASE, SIGDATA, &mut ins);
+    // Wipe the private-scalar scratch copied out of the argument byte list.
+    zero_scratch_guarded(symbol, PRIVBUF, PRIVLEN, "privS", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -861,7 +955,20 @@ fn sign(
         abi::branch(&done),
     ]);
 
+    // Every error exit releases the CF objects (PRIVDATA/MSGDATA/DICT/KEY/
+    // SIGDATA) the success path releases and wipes the private scratch; slots
+    // are zero-initialised so releases/wipes are no-ops until they exist
+    // (bug-55).
+    let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str| {
+        cf_release_guarded(symbol, RELEASE, PRIVDATA, &format!("{tag}p"), ins);
+        cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{tag}m"), ins);
+        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
+        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
+        cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), ins);
+        zero_scratch_guarded(symbol, PRIVBUF, PRIVLEN, &format!("{tag}z"), ins);
+    };
     ins.push(abi::label(&load_fail));
+    cleanup(&mut ins, "lf");
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -871,6 +978,7 @@ fn sign(
         &done,
     );
     ins.push(abi::label(&sign_fail));
+    cleanup(&mut ins, "sf");
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -880,6 +988,7 @@ fn sign(
         &done,
     );
     ins.push(abi::label(&invalid_fail));
+    cleanup(&mut ins, "iv");
     emit_fail(
         symbol,
         ERR_INVALID_ARGUMENT_CODE,
@@ -889,6 +998,7 @@ fn sign(
         &done,
     );
     ins.push(abi::label(&alloc_fail));
+    cleanup(&mut ins, "af");
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
@@ -952,6 +1062,15 @@ fn verify(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
         abi::store_u64("x2", abi::stack_pointer(), SIGCOLL),
+    ]);
+    // Zero the CF object slots so the error-exit cleanup can null-guard each
+    // CFRelease (the frame is not zero-initialised) — bug-55.
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), PUBDATA),
+        abi::store_u64("x31", abi::stack_pointer(), MSGDATA),
+        abi::store_u64("x31", abi::stack_pointer(), SIGDATA),
+        abi::store_u64("x31", abi::stack_pointer(), KEY),
+        abi::store_u64("x31", abi::stack_pointer(), DICT),
     ]);
     emit_read_byte_list(
         symbol,
@@ -1127,7 +1246,18 @@ fn verify(
         abi::branch(&done),
     ]);
 
+    // Every error exit releases exactly the CF objects (PUBDATA/MSGDATA/SIGDATA/
+    // DICT/KEY) the success path releases; slots are zero-initialised so a
+    // release is a no-op until the object exists (bug-55).
+    let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str| {
+        cf_release_guarded(symbol, RELEASE, PUBDATA, &format!("{tag}p"), ins);
+        cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{tag}m"), ins);
+        cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), ins);
+        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
+        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
+    };
     ins.push(abi::label(&load_fail));
+    cleanup(&mut ins, "lf");
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -1137,6 +1267,7 @@ fn verify(
         &done,
     );
     ins.push(abi::label(&invalid_fail));
+    cleanup(&mut ins, "iv");
     emit_fail(
         symbol,
         ERR_INVALID_ARGUMENT_CODE,
@@ -1146,6 +1277,7 @@ fn verify(
         &done,
     );
     ins.push(abi::label(&alloc_fail));
+    cleanup(&mut ins, "af");
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
@@ -1255,29 +1387,55 @@ fn emit_cfdata_to_list(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_error_exits(
-    symbol: &str,
-    load_fail: &str,
-    op_fail: &str,
-    alloc_fail: &str,
-    op_code: &str,
-    op_message: &str,
-    done: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) {
-    ins.push(abi::label(load_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, ins, rel, done);
-    ins.push(abi::label(op_fail));
-    emit_fail(symbol, op_code, op_message, ins, rel, done);
-    ins.push(abi::label(alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        ins,
-        rel,
-        done,
-    );
+
+#[cfg(test)]
+mod error_path_release_tests {
+    // Regression guards for bug-55: the macOS SecKey `crypto::` sign/verify/
+    // generate error exits must CFRelease the SecKey/CFData/CFDictionary objects
+    // the success exit releases (each null-guarded, since the slots are zeroed at
+    // entry), and sign must wipe the raw private scalar. These lower and register-
+    // allocate on this host; the assertions pin the guarded-release cleanup and
+    // zeroing so they cannot silently regress.
+    use super::*;
+    use crate::target::shared::code::mir;
+    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+
+    fn reloc_has(rel: &[CodeRelocation], needle: &str) -> bool {
+        rel.iter().any(|r| r.to.contains(needle))
+    }
+
+    #[test]
+    fn generate_releases_cf_objects_on_error() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            generate(Curve::P256, "g", &imports, &TestPlatform).expect("lower generate");
+        assert!(reloc_has(&rel, "CFRelease"));
+        // gen_fail null-guards each CFRelease (NUM here).
+        assert!(has_label(&ins, "g_gfn_norel"), "gen_fail must null-guard CFRelease");
+    }
+
+    #[test]
+    fn sign_releases_cf_objects_and_wipes_scratch_on_error() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            sign(Curve::P256, "s", &imports, &TestPlatform).expect("lower sign");
+        assert!(reloc_has(&rel, "CFRelease"));
+        assert!(has_label(&ins, "s_sfp_norel"), "sign_fail must null-guard CFRelease(PRIVDATA)");
+        // The private scalar scratch is wiped on both the success (privS) and the
+        // error (sfz) exits.
+        assert!(has_label(&ins, "s_privS_noz"), "success exit must wipe PRIVBUF");
+        assert!(has_label(&ins, "s_sfz_noz"), "sign_fail must wipe PRIVBUF");
+    }
+
+    #[test]
+    fn verify_releases_cf_objects_on_error() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            verify(Curve::P256, "v", &imports, &TestPlatform).expect("lower verify");
+        assert!(reloc_has(&rel, "CFRelease"));
+        assert!(has_label(&ins, "v_ivp_norel"), "invalid_fail must null-guard CFRelease(PUBDATA)");
+    }
 }

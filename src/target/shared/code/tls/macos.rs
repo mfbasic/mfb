@@ -271,6 +271,18 @@ fn emit_build_block(
 /// operation can't satisfy this wait), then `dispatch_semaphore_wait` is
 /// emitted separately by the caller after the async op is launched. Resets the
 /// ctx output slots.
+///
+/// The previous `ctx->sem` (created by connect/accept and replaced on every
+/// prior readText/write) is `dispatch_release`d before the replacement is
+/// stored. Without that release each read/write leaked one `dispatch_semaphore`
+/// on both the success and error paths — `leaks` showed ~211k residual objects
+/// over 200k reads (bug-55 follow-up to bug-52). The release is safe: every
+/// operation performs exactly one `dispatch_semaphore_wait` (FOREVER) balanced
+/// by exactly one signal from its completion block, so between operations the
+/// semaphore's count is back at its initial 0 and disposing it cannot trip
+/// libdispatch's "deallocated while in use" assertion. The slot is non-NULL
+/// from connect onward, but the store is null-guarded for defence in depth
+/// (`dispatch_release(NULL)` would crash).
 #[allow(clippy::too_many_arguments)]
 fn emit_fresh_sem(
     symbol: &str,
@@ -283,6 +295,28 @@ fn emit_fresh_sem(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    // Release the semaphore left in ctx->sem by the previous operation.
+    let skip_release = format!("{symbol}_sem_skip_release");
+    dlsym(
+        symbol,
+        handle_off,
+        "dispatch_release",
+        fnptr_off,
+        fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
+        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&skip_release),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+        abi::label(&skip_release),
+    ]);
     dlsym(
         symbol,
         handle_off,
@@ -614,6 +648,29 @@ pub(super) fn lower_tls_connect_macos(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&net_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CONN),
+    ]);
+    // nw_connection_create retains both the endpoint and the parameters, so
+    // release our own references now; otherwise every successful connect leaks
+    // one nw_endpoint and one nw_parameters (bug-55). The connection (CONN),
+    // queue, and ctx are handed to the TlsSocket record and released on close.
+    dlsym(
+        symbol,
+        HANDLE,
+        "nw_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
     ]);
     // queue = dispatch_queue_create("mfb.tls", NULL)
     dlsym(
@@ -1583,6 +1640,59 @@ pub(super) fn lower_tls_close_macos(
         abi::load_u64(abi::return_register(), "%v9", REC_CONN),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::branch_link_register("%v9"),
+    ]);
+    // Release the connection, its dispatch queue, and the ctx semaphore that
+    // this socket owns; cancelling alone leaves them all leaked on every
+    // connect+close (bug-55). The arena-allocated ctx block is reclaimed with
+    // the arena. Slots are never NULL for an open (non-closed) socket.
+    dlsym(
+        symbol,
+        HANDLE,
+        "nw_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64(abi::return_register(), "%v9", REC_CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    let skip_queue = format!("{symbol}_skip_queue_release");
+    dlsym(
+        symbol,
+        HANDLE,
+        "dispatch_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        // Release the queue only if this socket owns it. A client socket stores
+        // its own per-connection queue here; an accepted socket stores 0 because
+        // it shares the listener's serial queue (released by closeListener), and
+        // releasing that shared queue per accepted-close would over-release it.
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64(abi::return_register(), "%v9", REC_QUEUE),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&skip_queue),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::label(&skip_queue),
+        // NB: ctx->sem is intentionally NOT released here. nw_connection_cancel
+        // is asynchronous; the connection's state-changed handler still fires a
+        // "cancelled" transition afterwards and does
+        // dispatch_semaphore_signal(ctx->sem) — releasing the semaphore now
+        // would make that a use-after-free. The single per-connection semaphore
+        // is reclaimed with the arena-allocated ctx block (bug-55: the leaks
+        // that scale — one per readText/write — are fixed in emit_fresh_sem).
         // Mark closed.
         abi::load_u64("%v9", abi::stack_pointer(), REC),
         abi::move_immediate("%v10", "Integer", "1"),
@@ -2317,6 +2427,29 @@ pub(super) fn lower_tls_listen_macos(
         abi::branch_eq(&net_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
     ]);
+    // The endpoint is retained into the parameters (set_local_endpoint) and the
+    // parameters are retained by the listener (nw_listener_create), so release
+    // our own references now; otherwise every successful listen leaks one
+    // nw_endpoint and one nw_parameters (bug-55).
+    dlsym(
+        symbol,
+        NWH,
+        "nw_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
     // queue = dispatch_queue_create("mfb.tls", NULL)
     dlsym(
         symbol,
@@ -2896,8 +3029,11 @@ pub(super) fn lower_tls_accept_macos(
         abi::branch(&conn_fail), // waiting/failed/cancelled
         abi::label(&ready),
     ]);
-    // Build the TlsSocket record { closed=0, conn, queue, cctx } — identical
-    // to a client socket, so read/write/close work unchanged.
+    // Build the TlsSocket record { closed=0, conn, queue=0, cctx } — the queue
+    // slot is 0 (not the listener's shared serial queue) so the shared close
+    // helper releases the connection and ctx semaphore this socket owns but not
+    // the listener-owned queue, which closeListener releases (bug-55). read/
+    // write/close otherwise work identically to a client socket.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
         abi::move_immediate("x1", "Integer", "8"),
@@ -2907,8 +3043,7 @@ pub(super) fn lower_tls_accept_macos(
         abi::store_u64("x31", "x1", REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
         abi::store_u64("%v9", "x1", REC_CONN),
-        abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
-        abi::store_u64("%v9", "x1", REC_QUEUE),
+        abi::store_u64("x31", "x1", REC_QUEUE),
         abi::load_u64("%v9", abi::stack_pointer(), CCTX),
         abi::store_u64("%v9", "x1", REC_CTX),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
@@ -3137,6 +3272,35 @@ pub(super) fn lower_tls_close_listener_macos(
         abi::load_u64(abi::return_register(), "%v9", REC_CONN),
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
         abi::branch_link_register("%v10"),
+        // Release the listener, its serial queue, and the listener-ctx
+        // semaphore this handle owns; cancelling alone leaks them (bug-55). The
+        // arena-allocated lctx block is reclaimed with the arena. RELEASEFN
+        // already holds nw_release (resolved in the drain loop above).
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64(abi::return_register(), "%v9", REC_CONN),
+        abi::load_u64("%v10", abi::stack_pointer(), RELEASEFN),
+        abi::branch_link_register("%v10"),
+    ]);
+    dlsym(
+        symbol,
+        HANDLE,
+        "dispatch_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64(abi::return_register(), "%v9", REC_QUEUE),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        // NB: the listener ctx semaphore is intentionally NOT released here, for
+        // the same reason as the connection close: nw_listener_cancel is async
+        // and the listener state handler still signals ctx->sem on the cancelled
+        // transition. It is reclaimed with the arena-allocated lctx block.
         // Mark closed.
         abi::load_u64("%v9", abi::stack_pointer(), REC),
         abi::move_immediate("%v10", "Integer", "1"),
@@ -3472,6 +3636,120 @@ mod encoding_error_release_tests {
                 .iter()
                 .any(|i| i.op == CodeOp::Label && i.get("name") == Some("t_readbytes_encoding_error")),
             "tls::read (bytes) must not have an encoding_error exit"
+        );
+    }
+
+    fn has_label(ins: &[CodeInstruction], name: &str) -> bool {
+        ins.iter()
+            .any(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+    }
+
+    // bug-55: `emit_fresh_sem` used to store a brand-new dispatch_semaphore into
+    // ctx->sem on every readText/write, leaking the previous one (~211k residual
+    // objects over 200k reads under `leaks`). The fix releases the prior
+    // semaphore first, emitting a `<sym>_sem_skip_release` guard label. These
+    // tests pin that label so the release cannot silently regress.
+    #[test]
+    fn readtext_releases_previous_semaphore() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            lower_tls_read_macos("t_rt", &imports, &TlsReadTestPlatform, true).expect("lower");
+        assert!(
+            has_label(&ins, "t_rt_sem_skip_release"),
+            "readText must release the prior semaphore before creating a fresh one"
+        );
+        assert!(
+            rel.iter().any(|r| r.to.contains("dispatch_release")),
+            "readText must resolve dispatch_release for the semaphore free"
+        );
+    }
+
+    #[test]
+    fn write_releases_previous_semaphore() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, false).expect("lower");
+        assert!(
+            has_label(&ins, "t_w_sem_skip_release"),
+            "write must release the prior semaphore before creating a fresh one"
+        );
+    }
+
+    // bug-55: connect retains the endpoint/parameters via nw_connection_create,
+    // so it must nw_release its own references; before the fix they leaked on
+    // every successful connect.
+    #[test]
+    fn connect_releases_endpoint_and_params() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, _ins, rel, _s) =
+            lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform).expect("lower");
+        assert!(
+            rel.iter().any(|r| r.to.contains("nw_release")),
+            "connect must resolve nw_release to free the endpoint and parameters"
+        );
+    }
+
+    // bug-55: close now releases the connection (nw_release) and — only when it
+    // owns them — the dispatch queue and ctx semaphore. The queue release is
+    // guarded by a `<sym>_skip_queue_release` label because an accepted socket
+    // shares the listener's queue (queue slot = 0) and must not release it.
+    #[test]
+    fn close_releases_connection_queue_and_sem() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            lower_tls_close_macos("t_cl", &imports, &TlsReadTestPlatform).expect("lower");
+        assert!(
+            rel.iter().any(|r| r.to.contains("nw_release")),
+            "close must resolve nw_release for the connection"
+        );
+        assert!(
+            rel.iter().any(|r| r.to.contains("dispatch_release")),
+            "close must resolve dispatch_release for the queue and semaphore"
+        );
+        assert!(
+            has_label(&ins, "t_cl_skip_queue_release"),
+            "close must guard the queue release so an accepted (queue=0) socket skips it"
+        );
+    }
+
+    // bug-55: an accepted socket stores 0 in its queue slot (it shares the
+    // listener's serial queue), so the shared close skips the queue release.
+    #[test]
+    fn accept_stores_zero_queue_slot() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
+        // The accepted-record build stores x31 (zero) into REC_QUEUE rather than
+        // the shared listener queue; assert no `store [x1+REC_QUEUE] <- vN` from a
+        // loaded queue exists by checking the record store uses the zero register.
+        let stores_zero_queue = ins.iter().any(|i| {
+            i.op == CodeOp::StrU64
+                && i.get("src") == Some("x31")
+                && i.get("base") == Some("x1")
+                && i.get("offset") == Some(&REC_QUEUE.to_string())
+        });
+        assert!(
+            stores_zero_queue,
+            "accept must store 0 in the accepted socket's queue slot (shared listener queue)"
+        );
+    }
+
+    // bug-55: closeListener releases the listener, its queue, and the listener
+    // ctx semaphore; before the fix it only cancelled the listener.
+    #[test]
+    fn close_listener_releases_queue_and_sem() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, _ins, rel, _s) =
+            lower_tls_close_listener_macos("t_ll", &imports, &TlsReadTestPlatform).expect("lower");
+        assert!(
+            rel.iter().any(|r| r.to.contains("dispatch_release")),
+            "closeListener must resolve dispatch_release for the queue and ctx semaphore"
         );
     }
 }

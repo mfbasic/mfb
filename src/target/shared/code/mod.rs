@@ -2772,6 +2772,8 @@ mod error_constants;
 pub(crate) use error_constants::*;
 mod types;
 pub(crate) use types::*;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod entry_and_arena;
 mod validation;
 pub(crate) use entry_and_arena::lower_program_entry;

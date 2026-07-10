@@ -53,6 +53,7 @@ const SYMBOLS: &[&str] = &[
     "EVP_EC_gen",
     "EC_KEY_new_by_curve_name",
     "EC_KEY_generate_key",
+    "EC_KEY_free",
 ];
 
 struct CurveParams {
@@ -390,6 +391,85 @@ fn emit_alloc(
     ]);
 }
 
+/// Free the object at `obj_off` via `free_name` (`dlsym`d into `fn_off`) only when
+/// the slot is non-NULL. The slots are zero-initialised at entry, and an object
+/// is non-NULL only after libcrypto is loaded and the object created, so the
+/// `dlsym` inside the guard never runs against a garbage handle. Its own dlsym
+/// failure routes to `raw_fail` (a terminal fail with no further cleanup) so the
+/// cleanup cannot re-enter itself. Used to make each error exit free exactly what
+/// the success exit frees (bug-55).
+#[allow(clippy::too_many_arguments)]
+fn free_guarded(
+    symbol: &str,
+    handle_off: usize,
+    obj_off: usize,
+    free_name: &str,
+    fn_off: usize,
+    tag: &str,
+    raw_fail: &str,
+    imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let skip = format!("{symbol}_{tag}_nofree");
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), obj_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+    ]);
+    dlsym_into(
+        symbol, handle_off, free_name, fn_off, raw_fail, imports, platform, ins, rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        obj_off,
+    ));
+    call_fn(fn_off, ins);
+    ins.push(abi::label(&skip));
+    Ok(())
+}
+
+/// Overwrite the buffer at `[buf_off]` (length `[len_off]` when `Some`, else the
+/// constant `len_const`) with zero, when the buffer slot is non-NULL. Wipes raw
+/// EC key-material scratch (the SEC1/PKCS#8 DER and raw scalar copies) before the
+/// helper returns so a later same-program arena allocation cannot be handed a
+/// block still holding key bytes (bug-55). Call-free (vreg scratch only).
+fn zero_guarded(
+    symbol: &str,
+    buf_off: usize,
+    len_off: Option<usize>,
+    len_const: usize,
+    tag: &str,
+    ins: &mut Vec<CodeInstruction>,
+) {
+    let skip = format!("{symbol}_{tag}_noz");
+    let loop_l = format!("{symbol}_{tag}_zl");
+    let end_l = format!("{symbol}_{tag}_ze");
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), buf_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+    ]);
+    match len_off {
+        Some(off) => ins.push(abi::load_u64("%v10", abi::stack_pointer(), off)),
+        None => ins.push(abi::move_immediate("%v10", "Integer", &len_const.to_string())),
+    }
+    ins.extend([
+        abi::move_immediate("%v11", "Integer", "0"),
+        abi::label(&loop_l),
+        abi::compare_registers("%v11", "%v10"),
+        abi::branch_eq(&end_l),
+        abi::store_u8("x31", "%v9", 0),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::branch(&loop_l),
+        abi::label(&end_l),
+        abi::label(&skip),
+    ]);
+}
+
 pub(super) fn lower(
     op: EcOp,
     curve: Curve,
@@ -445,12 +525,21 @@ fn generate(
     let load_fail = format!("{symbol}_load_fail");
     let gen_fail = format!("{symbol}_gen_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    let raw_fail = format!("{symbol}_raw_fail");
     let eckey_path = format!("{symbol}_eckey");
     let have_pkey = format!("{symbol}_have_pkey");
     let done = format!("{symbol}_done");
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
+
+    // Zero the pkey/eckey/scratch slots so the error-exit cleanup can null-guard
+    // each free/wipe (the frame is not zero-initialised) — bug-55.
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), PKEY),
+        abi::store_u64("x31", abi::stack_pointer(), ECKEY),
+        abi::store_u64("x31", abi::stack_pointer(), SEC1PTR),
+    ]);
 
     dlopen_libcrypto(
         symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,
@@ -555,6 +644,16 @@ fn generate(
         abi::load_u64("x2", abi::stack_pointer(), ECKEY),
     ]);
     call_fn(FN, &mut ins);
+    // EVP_PKEY_assign returns 1 on success (taking ownership of eckey) and 0 on
+    // failure (ownership NOT transferred). On failure eckey would leak because
+    // EVP_PKEY_free no longer covers it; route to gen_fail, which EC_KEY_frees
+    // the still-owned eckey. On success clear the ECKEY slot so the cleanup does
+    // not EC_KEY_free a key now owned by pkey (double-free) — bug-55.
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&gen_fail),
+        abi::store_u64("x31", abi::stack_pointer(), ECKEY),
+    ]);
 
     ins.push(abi::label(&have_pkey));
     ins.extend([
@@ -695,13 +794,52 @@ fn generate(
         PKEY,
     ));
     call_fn(FN, &mut ins);
+    // Wipe the SEC1 private-key DER scratch (holds the raw scalar).
+    zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, "sec1S", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
+    // Every error exit frees the objects (PKEY, ECKEY) the success exit frees
+    // and wipes the SEC1 scratch; slots are zero-initialised so each free/wipe
+    // is a no-op until it exists (bug-55).
+    let cleanup = |ins: &mut Vec<CodeInstruction>,
+                   rel: &mut Vec<CodeRelocation>,
+                   tag: &str|
+     -> Result<(), String> {
+        free_guarded(
+            symbol,
+            HANDLE,
+            ECKEY,
+            "EC_KEY_free",
+            FN,
+            &format!("{tag}ec"),
+            &raw_fail,
+            imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        free_guarded(
+            symbol,
+            HANDLE,
+            PKEY,
+            "EVP_PKEY_free",
+            FN,
+            &format!("{tag}pk"),
+            &raw_fail,
+            imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, &format!("{tag}sec1"), ins);
+        Ok(())
+    };
     ins.push(abi::label(&load_fail));
+    cleanup(&mut ins, &mut rel, "lf")?;
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -711,6 +849,7 @@ fn generate(
         &done,
     );
     ins.push(abi::label(&gen_fail));
+    cleanup(&mut ins, &mut rel, "gf")?;
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -720,10 +859,22 @@ fn generate(
         &done,
     );
     ins.push(abi::label(&alloc_fail));
+    cleanup(&mut ins, &mut rel, "af")?;
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
         ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    // raw_fail: a free's own dlsym failed (unreachable once libcrypto is loaded)
+    // — fail without re-running cleanup.
+    ins.push(abi::label(&raw_fail));
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
         &mut ins,
         &mut rel,
         &done,
@@ -771,6 +922,7 @@ fn sign(
     let invalid_fail = format!("{symbol}_invalid_fail");
     let sign_fail = format!("{symbol}_sign_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    let raw_fail = format!("{symbol}_raw_fail");
     let done = format!("{symbol}_done");
 
     let mut ins = vec![abi::label("entry")];
@@ -779,6 +931,14 @@ fn sign(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
+    ]);
+    // Zero the pkey/md-ctx and key-scratch slots so the error-exit cleanup can
+    // null-guard each free/wipe (the frame is not zero-initialised) — bug-55.
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), PKEY),
+        abi::store_u64("x31", abi::stack_pointer(), MDCTX),
+        abi::store_u64("x31", abi::stack_pointer(), PRIVBUF),
+        abi::store_u64("x31", abi::stack_pointer(), DERBUF),
     ]);
     emit_read_byte_list(
         symbol,
@@ -1024,13 +1184,54 @@ fn sign(
         PKEY,
     ));
     call_fn(FN, &mut ins);
+    // Wipe the raw private scalar and the spliced PKCS#8 DER (both hold the key).
+    zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, "privS", &mut ins);
+    zero_guarded(symbol, DERBUF, None, p.pkcs8_len, "derS", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
+    // Every error exit frees the objects (MDCTX, PKEY) the success exit frees
+    // and wipes the private scratch (PRIVBUF, DERBUF); slots are zero-initialised
+    // so each free/wipe is a no-op until it exists (bug-55).
+    let cleanup = |ins: &mut Vec<CodeInstruction>,
+                   rel: &mut Vec<CodeRelocation>,
+                   tag: &str|
+     -> Result<(), String> {
+        free_guarded(
+            symbol,
+            HANDLE,
+            MDCTX,
+            "EVP_MD_CTX_free",
+            FN,
+            &format!("{tag}mc"),
+            &raw_fail,
+            imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        free_guarded(
+            symbol,
+            HANDLE,
+            PKEY,
+            "EVP_PKEY_free",
+            FN,
+            &format!("{tag}pk"),
+            &raw_fail,
+            imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{tag}pz"), ins);
+        zero_guarded(symbol, DERBUF, None, p.pkcs8_len, &format!("{tag}dz"), ins);
+        Ok(())
+    };
     ins.push(abi::label(&load_fail));
+    cleanup(&mut ins, &mut rel, "lf")?;
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -1040,6 +1241,7 @@ fn sign(
         &done,
     );
     ins.push(abi::label(&sign_fail));
+    cleanup(&mut ins, &mut rel, "sf")?;
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -1049,6 +1251,7 @@ fn sign(
         &done,
     );
     ins.push(abi::label(&invalid_fail));
+    cleanup(&mut ins, &mut rel, "iv")?;
     emit_fail(
         symbol,
         ERR_INVALID_ARGUMENT_CODE,
@@ -1058,10 +1261,22 @@ fn sign(
         &done,
     );
     ins.push(abi::label(&alloc_fail));
+    cleanup(&mut ins, &mut rel, "af")?;
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
         ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    // raw_fail: a free's own dlsym failed (unreachable once libcrypto is loaded)
+    // — fail without re-running cleanup.
+    ins.push(abi::label(&raw_fail));
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
         &mut ins,
         &mut rel,
         &done,
@@ -1111,6 +1326,7 @@ fn verify(
     let load_fail = format!("{symbol}_load_fail");
     let invalid_fail = format!("{symbol}_invalid_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    let raw_fail = format!("{symbol}_raw_fail");
     let vtrue = format!("{symbol}_vtrue");
     let vstore = format!("{symbol}_vstore");
     let done = format!("{symbol}_done");
@@ -1122,6 +1338,12 @@ fn verify(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
         abi::store_u64("x2", abi::stack_pointer(), SIGCOLL),
+    ]);
+    // Zero the pkey/md-ctx slots so the error-exit cleanup can null-guard each
+    // free (the frame is not zero-initialised) — bug-55.
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), PKEY),
+        abi::store_u64("x31", abi::stack_pointer(), MDCTX),
     ]);
     emit_read_byte_list(
         symbol,
@@ -1341,7 +1563,43 @@ fn verify(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
+    // Every error exit frees the objects (MDCTX, PKEY) the success exit frees;
+    // slots are zero-initialised so each free is a no-op until it exists
+    // (bug-55). The public key, message, and signature buffers are not secret.
+    let cleanup = |ins: &mut Vec<CodeInstruction>,
+                   rel: &mut Vec<CodeRelocation>,
+                   tag: &str|
+     -> Result<(), String> {
+        free_guarded(
+            symbol,
+            HANDLE,
+            MDCTX,
+            "EVP_MD_CTX_free",
+            FN,
+            &format!("{tag}mc"),
+            &raw_fail,
+            imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        free_guarded(
+            symbol,
+            HANDLE,
+            PKEY,
+            "EVP_PKEY_free",
+            FN,
+            &format!("{tag}pk"),
+            &raw_fail,
+            imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        Ok(())
+    };
     ins.push(abi::label(&load_fail));
+    cleanup(&mut ins, &mut rel, "lf")?;
     emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
@@ -1351,6 +1609,7 @@ fn verify(
         &done,
     );
     ins.push(abi::label(&invalid_fail));
+    cleanup(&mut ins, &mut rel, "iv")?;
     emit_fail(
         symbol,
         ERR_INVALID_ARGUMENT_CODE,
@@ -1360,6 +1619,7 @@ fn verify(
         &done,
     );
     ins.push(abi::label(&alloc_fail));
+    cleanup(&mut ins, &mut rel, "af")?;
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
@@ -1368,7 +1628,85 @@ fn verify(
         &mut rel,
         &done,
     );
+    // raw_fail: a free's own dlsym failed (unreachable once libcrypto is loaded)
+    // — fail without re-running cleanup.
+    ins.push(abi::label(&raw_fail));
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
+}
+
+#[cfg(test)]
+mod error_path_release_tests {
+    // Regression guards for bug-55: the OpenSSL `crypto::` sign/verify/generate
+    // error exits must free the EVP objects (and, for generate, EC_KEY) the
+    // success exit frees, the EVP_PKEY_assign return must be checked, and the
+    // private-key scratch must be wiped. These are Linux/OpenSSL-only paths that
+    // cannot execute on this macOS host; the assertions pin the emitted
+    // instruction stream / resolved symbols so the cleanup cannot regress.
+    use super::*;
+    use crate::target::shared::code::mir;
+    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+
+    fn reloc_has(rel: &[CodeRelocation], needle: &str) -> bool {
+        rel.iter().any(|r| r.to.contains(needle))
+    }
+
+    #[test]
+    fn ec_key_free_is_emitted_as_a_data_symbol() {
+        // The OpenSSL-1.1 keygen fallback needs EC_KEY_free to release an eckey
+        // whose EVP_PKEY_assign failed; its name must have a C-string object.
+        assert!(SYMBOLS.contains(&"EC_KEY_free"));
+        assert!(data_objects()
+            .iter()
+            .any(|o| o.symbol == fn_sym("EC_KEY_free")));
+    }
+
+    #[test]
+    fn generate_frees_pkey_and_eckey_on_error() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            generate(Curve::P256, "g", &imports, &TestPlatform).expect("lower generate");
+        assert!(has_label(&ins, "g_raw_fail"), "generate needs a raw_fail terminal");
+        assert!(reloc_has(&rel, "EC_KEY_free"), "gen_fail must EC_KEY_free the eckey");
+        assert!(reloc_has(&rel, "EVP_PKEY_free"), "gen_fail must EVP_PKEY_free the pkey");
+        // The EVP_PKEY_assign result gates a branch to gen_fail (the eckey is
+        // cleared on success) — the have_pkey/gen_fail labels both exist.
+        assert!(has_label(&ins, "g_gen_fail"));
+        assert!(has_label(&ins, "g_have_pkey"));
+    }
+
+    #[test]
+    fn sign_frees_evp_objects_on_error() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            sign(Curve::P256, "s", &imports, &TestPlatform).expect("lower sign");
+        assert!(has_label(&ins, "s_raw_fail"));
+        assert!(reloc_has(&rel, "EVP_MD_CTX_free"));
+        assert!(reloc_has(&rel, "EVP_PKEY_free"));
+        // The private scratch wipe emits guarded zero loops on the error exits.
+        assert!(has_label(&ins, "s_sfpz_noz"), "sign_fail must wipe PRIVBUF");
+        assert!(has_label(&ins, "s_sfdz_noz"), "sign_fail must wipe DERBUF");
+    }
+
+    #[test]
+    fn verify_frees_evp_objects_on_error() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            verify(Curve::P256, "v", &imports, &TestPlatform).expect("lower verify");
+        assert!(has_label(&ins, "v_raw_fail"));
+        assert!(reloc_has(&rel, "EVP_MD_CTX_free"));
+        assert!(reloc_has(&rel, "EVP_PKEY_free"));
+    }
 }
