@@ -226,30 +226,30 @@ pub(super) fn emit_cstring(
     let copy_loop = format!("{symbol}_{prefix}_cstr_copy");
     let copy_done = format!("{symbol}_{prefix}_cstr_done");
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), str_off),
-        abi::load_u64("x10", "x9", 0),
-        abi::add_immediate(abi::return_register(), "x10", 1),
+        abi::load_u64("%v17", abi::stack_pointer(), str_off),
+        abi::load_u64("%v18", "%v17", 0),
+        abi::add_immediate(abi::return_register(), "%v18", 1),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
-        abi::load_u64("x9", abi::stack_pointer(), str_off),
-        abi::load_u64("x10", "x9", 0),
-        abi::add_immediate("x11", "x9", 8),
-        abi::move_register("x12", abi::RET[1]),
-        abi::move_immediate("x13", "Integer", "0"),
+        abi::load_u64("%v17", abi::stack_pointer(), str_off),
+        abi::load_u64("%v18", "%v17", 0),
+        abi::add_immediate("%v19", "%v17", 8),
+        abi::move_register("%v20", abi::RET[1]),
+        abi::move_immediate("%v21", "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("x13", "x10"),
+        abi::compare_registers("%v21", "%v18"),
         abi::branch_eq(&copy_done),
-        abi::load_u8("x14", "x11", 0),
-        abi::store_u8("x14", "x12", 0),
-        abi::add_immediate("x11", "x11", 1),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x13", "x13", 1),
+        abi::load_u8("%v22", "%v19", 0),
+        abi::store_u8("%v22", "%v20", 0),
+        abi::add_immediate("%v19", "%v19", 1),
+        abi::add_immediate("%v20", "%v20", 1),
+        abi::add_immediate("%v21", "%v21", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, "x12", 0),
+        abi::store_u8(abi::ZERO, "%v20", 0),
     ]);
 }
 
