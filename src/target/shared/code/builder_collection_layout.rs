@@ -46,6 +46,8 @@ impl CodeBuilder<'_> {
         match type_ {
             "Boolean" | "Byte" | "String" => 1,
             "Integer" | "Float" | "Fixed" => 8,
+            // A function value is an 8-byte code/closure pointer (bug-73).
+            other if is_function_type(other) => 8,
             other if self.is_pointer_collection_payload_type(other) => 8,
             other if self.inline_collection_payload_size(other).is_some() => 8,
             // An inlined flat collection block begins with `U64` header fields.
@@ -1450,6 +1452,11 @@ impl CodeBuilder<'_> {
             "Integer" | "Float" | "Fixed" => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
+            // A function value is a single 8-byte closure pointer, stored by
+            // reference exactly like a pointer payload (bug-73).
+            other if is_function_type(other) => {
+                self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
+            }
             "String" => {
                 self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), payload.slot));
                 self.emit(abi::load_u64(&scratch8, &scratch8, 0));
@@ -1546,6 +1553,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u8(&scratch12, &scratch10, 0));
             }
             "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
+                self.emit(abi::store_u64(&scratch12, &scratch10, 0));
+            }
+            // A function value stores its 8-byte closure pointer verbatim; the
+            // closure object it points at is arena-lifetime and shared, never
+            // copied on insert (reference semantics, bug-73).
+            other if is_function_type(other) => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -1689,6 +1707,13 @@ impl CodeBuilder<'_> {
                 Ok(result)
             }
             "Integer" | "Float" | "Fixed" => {
+                let result = self.allocate_register()?;
+                self.emit(abi::load_u64(&result, &data, 0));
+                Ok(result)
+            }
+            // A function value reads back its 8-byte closure pointer; the closure
+            // object stays shared (reference semantics, bug-73).
+            other if is_function_type(other) => {
                 let result = self.allocate_register()?;
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)

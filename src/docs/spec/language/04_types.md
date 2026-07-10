@@ -332,6 +332,16 @@ END TYPE
 
 Unlike `MapEntry`, `Pair` places no comparability constraint on `A` or `B`. `Partition OF T` is defaultable when `T` is (two empty lists); `Pair OF A, B` is defaultable when both `A` and `B` are. The names `Pair` and `Partition` are reserved: a user `TYPE` may not redeclare them.
 
+A `List` element type or a `Map` value type may be a **function value**
+(`FUNC(...) AS T`), including nested compositions such as `List OF List OF
+FUNC(...)` and `Map OF String TO FUNC(...)`. A function value has **reference
+semantics** (`./mfb spec memory closures`): a collection stores, copies, iterates,
+and reads it as an 8-byte pointer to one shared closure object, never a deep copy,
+so a stored element is retrievable and directly callable. A function value is not
+comparable, so it may not be a `Map` **key**. (A function value is still
+non-defaultable — see §4.10 — so a `MUT` binding of a collection of function values
+needs an initializer only for the usual defaultability reason, not a special rule.)
+
 Runtime collection storage is specified by the memory spec
 (`./mfb spec memory collections`).
 

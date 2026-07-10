@@ -1,0 +1,52 @@
+IMPORT io
+IMPORT collections
+
+' bug-73: a collection may hold function values. A function value is a single
+' 8-byte pointer to an arena-lifetime closure object; collections store, copy,
+' iterate, and read it by reference (no deep copy on insert). Each element is
+' retrievable and callable.
+
+FUNC plus(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+FUNC minus(a AS Integer, b AS Integer) AS Integer
+  RETURN a - b
+END FUNC
+
+FUNC times(a AS Integer, b AS Integer) AS Integer
+  RETURN a * b
+END FUNC
+
+FUNC main AS Integer
+  ' 1. A List OF FUNC of named function references: iterate and call each.
+  LET fns AS List OF FUNC(Integer, Integer) AS Integer = [plus, minus, times]
+  io::print("count=" & toString(len(fns)))
+  MUT i AS Integer = 0
+  WHILE i < len(fns)
+    LET f AS FUNC(Integer, Integer) AS Integer = collections::get(fns, i)
+    io::print("fns[" & toString(i) & "](10,3)=" & toString(f(10, 3)))
+    i = i + 1
+  WEND
+
+  ' 2. A Map OF String TO FUNC: look a value up and call it.
+  LET ops AS Map OF String TO FUNC(Integer, Integer) AS Integer = Map OF String TO FUNC(Integer, Integer) AS Integer { "add" := plus, "mul" := times }
+  LET g AS FUNC(Integer, Integer) AS Integer = collections::get(ops, "mul")
+  io::print("ops[mul](6,7)=" & toString(g(6, 7)))
+
+  ' 3. Capture-carrying closures stored in a list, retrieved and called.
+  LET base AS Integer = 100
+  LET closures AS List OF FUNC(Integer) AS Integer = [LAMBDA(x AS Integer) -> x + base, LAMBDA(x AS Integer) -> x * base]
+  LET c0 AS FUNC(Integer) AS Integer = collections::get(closures, 0)
+  LET c1 AS FUNC(Integer) AS Integer = collections::get(closures, 1)
+  io::print("closures[0](5)=" & toString(c0(5)))
+  io::print("closures[1](5)=" & toString(c1(5)))
+
+  ' 4. Nested List OF List OF FUNC.
+  LET grid AS List OF List OF FUNC(Integer, Integer) AS Integer = [[plus, times], [times, minus]]
+  LET row AS List OF FUNC(Integer, Integer) AS Integer = collections::get(grid, 1)
+  LET h AS FUNC(Integer, Integer) AS Integer = collections::get(row, 0)
+  io::print("grid[1][0](6,7)=" & toString(h(6, 7)))
+
+  RETURN 0
+END FUNC

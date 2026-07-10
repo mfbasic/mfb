@@ -92,6 +92,37 @@ function-value call (caller side)
 The reserved-register model that pins x28 (alongside x19 for arena state) is owned
 by `./mfb spec memory native-calling-convention`.
 
+## Ownership and Reference Semantics
+
+A function value has **reference (pointer) semantics**, not value semantics: there
+is one closure object, and every binding, argument, return, collection element, or
+map value that holds the function value holds a **copy of the 8-byte pointer** to
+that one object. A function value is never deep-copied — assigning it, passing it,
+returning it, or storing it into a collection copies the pointer only. This is the
+same discipline a resource handle follows (a borrowed pointer, `./mfb spec memory
+arenas`), and it is why `lower_value_owned`'s copy-insertion and the
+`is_freeable_flat_value` owned-value drop **exclude** function types: there is no
+per-value copy on a store and no per-value `arena_free` on scope drop. [[src/target/shared/code/builder_values.rs:is_freeable_flat_value]] [[src/target/shared/code/type_utils.rs:is_function_type]]
+
+The consequence for lifetime is the **arena-lifetime closure rule**: a closure
+object (and its capture environment, if any) is owned by the constructing scope's
+arena and is **freed only when that arena is torn down — never individually**.
+Nothing frees a closure object on a binding's scope exit, so a function value that
+has escaped into a longer-lived collection, binding, or returned value stays valid;
+correspondingly, a collection of function values frees only its own packed-pointer
+block on scope drop and never the closure objects it references. This makes storage
+sound (no dangling pointer, no double free) at the cost of not reclaiming an
+individual closure before arena teardown.
+
+Because each *evaluation* of a `FunctionRef` or `Closure` allocates a fresh 16-byte
+object (plus an environment for a capturing `Closure`), repeatedly **creating** new
+function values inside a loop accumulates arena memory for the loop's lifetime.
+Building and discarding a *collection* of already-constructed function values in a
+loop does **not** grow memory: the collection's own block is reclaimed each
+iteration and no new closure objects are produced. Function values constructed once
+and then stored, iterated, and called from collections are therefore leak-free; a
+fresh lambda constructed on every loop iteration is the arena-lifetime case above.
+
 ## Closures Across Threads
 
 When a closure is dispatched as a worker thread entry, the thread trampoline

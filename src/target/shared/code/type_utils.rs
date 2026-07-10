@@ -249,6 +249,16 @@ pub(super) fn strip_res_marker(type_: &str) -> &str {
     type_.strip_prefix("RES ").unwrap_or(type_)
 }
 
+/// True when `type_` is a first-class function value type — a `FUNC(...) AS T`
+/// or `ISOLATED FUNC(...) AS T`. A function value is a single 8-byte pointer to
+/// an arena-lifetime closure object (`{code, env}`); it has **reference**
+/// semantics, so it is stored, copied, and read as a bare pointer word with no
+/// deep copy and no per-value free (bug-73). This mirrors the front-end
+/// `is_function_type` in `target/shared/validate.rs`.
+pub(super) fn is_function_type(type_: &str) -> bool {
+    type_.starts_with("FUNC(") || type_.starts_with("ISOLATED FUNC(")
+}
+
 pub(super) fn callable_return_type(type_: &str) -> Option<String> {
     let (_, returns) = type_.rsplit_once(") AS ")?;
     Some(returns.to_string())

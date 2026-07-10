@@ -144,6 +144,19 @@ that remain an 8-byte pointer handle are a **resource** and a **non-flat** neste
 collection (one whose own payloads include a resource or a recursive type) — see
 `is_pointer_collection_payload_type`. [[src/target/shared/code/builder_collection_layout.rs:is_pointer_collection_payload_type]]
 
+A **function value** (`FUNC(...) AS T`, list element or map value) is packed as a
+single **8-byte pointer** to its arena-lifetime closure object (`./mfb spec memory
+closures`), 8-aligned, `valueLength` = 8. It is a **reference** payload with the
+same discipline as a scalar `Integer` word: the pointer is written verbatim on
+insert, read back verbatim on `get`, and `memcpy`-copied when the collection is
+copied — the closure object it points at is **never deep-copied on insert and
+never freed when the collection is dropped** (bug-73). A function value therefore
+matches the `List OF Integer` flatness class (`type_is_flat` is true for a function
+type), so a `List`/`Map` of function values is itself a flat block whose scope-drop
+`arena_free` reclaims only the packed pointer array, leaving every referenced
+closure object owned by the arena. A record **field** of function type is likewise
+a bare 8-byte slot and is unaffected. [[src/target/shared/code/type_utils.rs:is_function_type]] [[src/target/shared/code/builder_collection_layout.rs:emit_payload_length_to_stack]]
+
 ### Capacity Headroom and Growth
 
 `capacity` and `dataCapacity` carry **real headroom**: the codegen append grow
