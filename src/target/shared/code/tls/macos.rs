@@ -246,7 +246,7 @@ fn emit_build_block(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::store_u64("%v9", abi::stack_pointer(), block_off + BLK_ISA),
-        abi::store_u64("x31", abi::stack_pointer(), block_off + BLK_FLAGS),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), block_off + BLK_FLAGS),
     ]);
     emit_data_address(symbol, "%v9", invoke_symbol, ins, rel);
     ins.push(abi::store_u64(
@@ -334,8 +334,8 @@ fn emit_fresh_sem(
         abi::branch_link_register("%v9"),
         abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
         abi::store_u64(abi::return_register(), "%v9", CTX_SEM),
-        abi::store_u64("x31", "%v9", CTX_CONTENT),
-        abi::store_u64("x31", "%v9", CTX_ERROR),
+        abi::store_u64(abi::ZERO, "%v9", CTX_CONTENT),
+        abi::store_u64(abi::ZERO, "%v9", CTX_ERROR),
     ]);
     Ok(())
 }
@@ -555,7 +555,7 @@ pub(super) fn lower_tls_connect_macos(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + BLK_ISA),
-        abi::store_u64("x31", abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
     ]);
     emit_data_address(symbol, "%v9", CFG_INVOKE, &mut ins, &mut rel);
     ins.push(abi::store_u64(
@@ -766,7 +766,7 @@ pub(super) fn lower_tls_connect_macos(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), BLOCK + BLK_ISA),
-        abi::store_u64("x31", abi::stack_pointer(), BLOCK + BLK_FLAGS),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), BLOCK + BLK_FLAGS),
     ]);
     emit_data_address(symbol, "%v9", STATE_INVOKE, &mut ins, &mut rel);
     ins.push(abi::store_u64(
@@ -895,7 +895,7 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64("x31", "x1", REC_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
         abi::store_u64("%v9", "x1", REC_CONN),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
@@ -1184,7 +1184,7 @@ pub(super) fn lower_tls_read_macos(
             abi::add_immediate("%v13", "%v13", 1),
             abi::branch(&str_copy),
             abi::label(&str_done),
-            abi::store_u8("x31", "%v12", 0),
+            abi::store_u8(abi::ZERO, "%v12", 0),
             abi::load_u64("%v9", abi::stack_pointer(), STR),
             abi::add_immediate(abi::return_register(), "%v9", 8),
             abi::load_u64("x1", "%v9", 0),
@@ -1226,8 +1226,8 @@ pub(super) fn lower_tls_read_macos(
             abi::branch_eq(&entry_done),
             abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
             abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
             abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
             abi::move_immediate("%v12", "Integer", "1"),
             abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
@@ -1843,7 +1843,7 @@ fn emit_read_whole_file(
     emit_alloc(symbol, ins, rel, alloc_fail);
     ins.extend([
         abi::store_u64("x1", abi::stack_pointer(), buf_off),
-        abi::store_u64("x31", abi::stack_pointer(), readoff_off),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), readoff_off),
         abi::label(&read_loop),
         abi::load_u64("%v9", abi::stack_pointer(), readoff_off),
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
@@ -1926,7 +1926,7 @@ fn emit_import_pem_item(
         rel,
     )?;
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), items_off),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), items_off),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), data_off),
         abi::move_immediate("x1", "Integer", "0"),
         abi::move_immediate("x2", "Integer", "0"),
@@ -2222,7 +2222,7 @@ pub(super) fn lower_tls_listen_macos(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + BLK_ISA),
-        abi::store_u64("x31", abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
     ]);
     emit_data_address(symbol, "%v9", CFG_INVOKE, &mut ins, &mut rel);
     ins.push(abi::store_u64(
@@ -2499,11 +2499,11 @@ pub(super) fn lower_tls_listen_macos(
         abi::branch_link_register("%v9"),
         abi::load_u64("%v9", abi::stack_pointer(), LCTX),
         abi::store_u64(abi::return_register(), "%v9", CTX_SEM),
-        abi::store_u64("x31", "%v9", CTX_STATE),
-        abi::store_u64("x31", "%v9", CTX_CONTENT),
-        abi::store_u64("x31", "%v9", CTX_ERROR),
-        abi::store_u64("x31", "%v9", LCTX_HEAD),
-        abi::store_u64("x31", "%v9", LCTX_TAIL),
+        abi::store_u64(abi::ZERO, "%v9", CTX_STATE),
+        abi::store_u64(abi::ZERO, "%v9", CTX_CONTENT),
+        abi::store_u64(abi::ZERO, "%v9", CTX_ERROR),
+        abi::store_u64(abi::ZERO, "%v9", LCTX_HEAD),
+        abi::store_u64(abi::ZERO, "%v9", LCTX_TAIL),
     ]);
     dlsym(
         symbol,
@@ -2673,7 +2673,7 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64("x31", "x1", REC_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), LISTENER),
         abi::store_u64("%v9", "x1", REC_CONN),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
@@ -2925,9 +2925,9 @@ pub(super) fn lower_tls_accept_macos(
         abi::branch_link_register("%v9"),
         abi::load_u64("%v9", abi::stack_pointer(), CCTX),
         abi::store_u64(abi::return_register(), "%v9", CTX_SEM),
-        abi::store_u64("x31", "%v9", CTX_STATE),
-        abi::store_u64("x31", "%v9", CTX_CONTENT),
-        abi::store_u64("x31", "%v9", CTX_ERROR),
+        abi::store_u64(abi::ZERO, "%v9", CTX_STATE),
+        abi::store_u64(abi::ZERO, "%v9", CTX_CONTENT),
+        abi::store_u64(abi::ZERO, "%v9", CTX_ERROR),
     ]);
     dlsym(
         symbol,
@@ -3040,10 +3040,10 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64("x31", "x1", REC_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
         abi::store_u64("%v9", "x1", REC_CONN),
-        abi::store_u64("x31", "x1", REC_QUEUE),
+        abi::store_u64(abi::ZERO, "x1", REC_QUEUE),
         abi::load_u64("%v9", abi::stack_pointer(), CCTX),
         abi::store_u64("%v9", "x1", REC_CTX),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
@@ -3729,7 +3729,7 @@ mod encoding_error_release_tests {
         // loaded queue exists by checking the record store uses the zero register.
         let stores_zero_queue = ins.iter().any(|i| {
             i.op == CodeOp::StrU64
-                && i.get("src") == Some("x31")
+                && i.get("src") == Some(abi::ZERO)
                 && i.get("base") == Some("x1")
                 && i.get("offset") == Some(&REC_QUEUE.to_string())
         });

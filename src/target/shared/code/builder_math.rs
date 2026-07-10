@@ -497,7 +497,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&negative));
                 self.emit(abi::subtract_registers(
                     dst.as_str(),
-                    "xzr",
+                    abi::ZERO,
                     &value.location,
                 ));
                 self.emit(abi::label(&done));

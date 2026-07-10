@@ -261,7 +261,7 @@ fn zero_scratch_guarded(
         abi::label(&loop_l),
         abi::compare_registers("%v11", "%v10"),
         abi::branch_eq(&end_l),
-        abi::store_u8("x31", "%v9", 0),
+        abi::store_u8(abi::ZERO, "%v9", 0),
         abi::add_immediate("%v9", "%v9", 1),
         abi::add_immediate("%v11", "%v11", 1),
         abi::branch(&loop_l),
@@ -456,10 +456,10 @@ fn generate(
     // Zero the CF object slots so the error-exit cleanup can null-guard each
     // CFRelease (the frame is not zero-initialised) — bug-55.
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), NUM),
-        abi::store_u64("x31", abi::stack_pointer(), DICT),
-        abi::store_u64("x31", abi::stack_pointer(), KEY),
-        abi::store_u64("x31", abi::stack_pointer(), DATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), NUM),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DICT),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), KEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DATA),
     ]);
 
     dlopen_one(
@@ -769,12 +769,12 @@ fn sign(
     // Zero the CF object slots and the private-scalar scratch pointer so the
     // error-exit cleanup can null-guard each CFRelease / wipe (bug-55).
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), PRIVBUF),
-        abi::store_u64("x31", abi::stack_pointer(), PRIVDATA),
-        abi::store_u64("x31", abi::stack_pointer(), MSGDATA),
-        abi::store_u64("x31", abi::stack_pointer(), DICT),
-        abi::store_u64("x31", abi::stack_pointer(), KEY),
-        abi::store_u64("x31", abi::stack_pointer(), SIGDATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PRIVBUF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PRIVDATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), MSGDATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DICT),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), KEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SIGDATA),
     ]);
     emit_read_byte_list(
         symbol,
@@ -1066,11 +1066,11 @@ fn verify(
     // Zero the CF object slots so the error-exit cleanup can null-guard each
     // CFRelease (the frame is not zero-initialised) — bug-55.
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), PUBDATA),
-        abi::store_u64("x31", abi::stack_pointer(), MSGDATA),
-        abi::store_u64("x31", abi::stack_pointer(), SIGDATA),
-        abi::store_u64("x31", abi::stack_pointer(), KEY),
-        abi::store_u64("x31", abi::stack_pointer(), DICT),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PUBDATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), MSGDATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SIGDATA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), KEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DICT),
     ]);
     emit_read_byte_list(
         symbol,

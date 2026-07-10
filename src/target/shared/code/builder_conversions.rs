@@ -70,9 +70,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(value, source_register));
         self.emit(abi::compare_immediate(value, "0"));
         self.emit(abi::branch_ge(&nonnegative));
-        self.emit(abi::subtract_registers(&result, "xzr", value));
+        self.emit(abi::subtract_registers(&result, abi::ZERO, value));
         self.emit(abi::shift_right_immediate(&result, &result, 32));
-        self.emit(abi::subtract_registers(&result, "xzr", &result));
+        self.emit(abi::subtract_registers(&result, abi::ZERO, &result));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&nonnegative));
         self.emit(abi::arithmetic_shift_right_immediate(&result, value, 32));
@@ -245,7 +245,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(&positive));
-        self.emit(abi::subtract_registers(&result, "xzr", acc));
+        self.emit(abi::subtract_registers(&result, abi::ZERO, acc));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&positive));
         self.emit(abi::move_register(&result, acc));
@@ -417,7 +417,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(&positive));
-        self.emit(abi::subtract_registers(&result, "xzr", acc));
+        self.emit(abi::subtract_registers(&result, abi::ZERO, acc));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&positive));
         self.emit(abi::move_register(&result, acc));

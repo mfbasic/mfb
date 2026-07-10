@@ -49,9 +49,9 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("%v10", "Integer", POLLIN),
         abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         // poll(&pollfd, 1, timeoutMs)
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("x1", "Integer", "1"),

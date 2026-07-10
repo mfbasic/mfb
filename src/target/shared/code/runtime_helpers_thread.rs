@@ -208,7 +208,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64("%v9", "%v8", THREAD_OFFSET_STATE),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
                 abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
                 abi::load_u64("x0", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
@@ -259,7 +259,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
                 abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
                 // waitFor's own error (resource closed): no worker origin.
-                abi::store_u64("x31", abi::stack_pointer(), SOURCE_OFFSET),
+                abi::store_u64(abi::ZERO, abi::stack_pointer(), SOURCE_OFFSET),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("x0", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
@@ -471,9 +471,9 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64("%v9", "%v8", THREAD_OFFSET_STATE),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
                 abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_COUNT_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_HEAD_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_TAIL_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_TAIL_OFFSET),
                 abi::add_immediate("x0", "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
@@ -533,9 +533,9 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64("%v9", "%v8", THREAD_OFFSET_CANCELLED),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
                 abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_COUNT_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_HEAD_OFFSET),
-                abi::store_u64("x31", "%v10", THREAD_QUEUE_TAIL_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_TAIL_OFFSET),
                 abi::add_immediate("x0", "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(

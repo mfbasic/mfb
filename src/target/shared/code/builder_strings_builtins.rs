@@ -388,12 +388,12 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
         self.emit(abi::store_u64(
-            "x31",
+            abi::ZERO,
             &scratch24,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
-            "x31",
+            abi::ZERO,
             &scratch24,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));

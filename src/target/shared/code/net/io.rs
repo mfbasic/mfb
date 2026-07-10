@@ -330,7 +330,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::add_immediate("%v13", "%v13", 1),
             abi::branch(&str_copy),
             abi::label(&str_done),
-            abi::store_u8("x31", "%v12", 0),
+            abi::store_u8(abi::ZERO, "%v12", 0),
             // validate_utf8(bytes, len)
             abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
             abi::add_immediate(abi::return_register(), "%v9", 8),
@@ -389,8 +389,8 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::branch_eq(&entry_done),
             abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
             abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
             abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
             abi::move_immediate("%v12", "Integer", "1"),
             abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
@@ -699,7 +699,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         // Count AF_INET results.
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), COUNT_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), COUNT_OFFSET),
         abi::label(&count_loop),
         abi::load_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
         abi::compare_immediate("%v9", "0"),
@@ -754,7 +754,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         // Iterate results again, building one Address per AF_INET node.
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), INDEX_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), INDEX_OFFSET),
         abi::label(&fill_loop),
         abi::load_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
         abi::compare_immediate("%v9", "0"),
@@ -800,8 +800,8 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::load_u64("%v14", abi::stack_pointer(), ENTRY_OFFSET),
         abi::move_immediate("%v13", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8("%v13", "%v14", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64("x31", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64("x31", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(abi::ZERO, "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         abi::store_u64("%v11", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
         abi::move_immediate("%v13", "Integer", "16"),
         abi::store_u64("%v13", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
@@ -945,7 +945,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     instructions.push(abi::branch(&resolved));
     instructions.extend([
         abi::label(&null_host),
-        abi::store_u64("x31", abi::stack_pointer(), CSTR_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CSTR_OFFSET),
         abi::label(&resolved),
         // getaddrinfo(host, NULL, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
@@ -1227,7 +1227,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             abi::add_immediate("%v13", "%v13", 1),
             abi::branch(&str_copy),
             abi::label(&str_done),
-            abi::store_u8("x31", "%v12", 0),
+            abi::store_u8(abi::ZERO, "%v12", 0),
             // validate_utf8(bytes, len)
             abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
             abi::add_immediate(abi::return_register(), "%v9", 8),
@@ -1271,8 +1271,8 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             abi::branch_eq(&entry_done),
             abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
             abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
             abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
             abi::move_immediate("%v12", "Integer", "1"),
             abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),

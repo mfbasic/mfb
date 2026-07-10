@@ -78,7 +78,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
         abi::branch_ne(&normal),
         // subnormal (or zero): m = mantissa, e2 = -1074 (no negative immediates
         // in the encoder — build it as 0 - 1074)
-        abi::subtract_registers(&e2, "x31", &e2), // e2 == 0 here
+        abi::subtract_registers(&e2, abi::ZERO, &e2), // e2 == 0 here
         abi::subtract_immediate(&e2, &e2, 1074),
         abi::branch(&decomposed),
         abi::label(&normal),
@@ -102,7 +102,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
 
     // ======================= e2 < 0: fractional path ========================
     let k = vregs.next();
-    ins.push(abi::subtract_registers(&k, "x31", &e2)); // k = 0 - e2 (xzr source)
+    ins.push(abi::subtract_registers(&k, abi::ZERO, &e2)); // k = 0 - e2 (xzr source)
 
     // Integer part I = m >> k (k > 63 → 0; m < 2^53 so k in 54..=63 also gives 0).
     let int_part = vregs.next();
@@ -179,7 +179,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::label(&zero_loop),
             abi::compare_registers(&addr, &stop),
             abi::branch_ge(&zero_done),
-            abi::store_u64("x31", &addr, 0),
+            abi::store_u64(abi::ZERO, &addr, 0),
             abi::add_immediate(&addr, &addr, 8),
             abi::branch(&zero_loop),
             abi::label(&zero_done),
@@ -417,7 +417,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::label(&zero_loop),
             abi::compare_registers(&addr, &stop),
             abi::branch_ge(&zero_done),
-            abi::store_u64("x31", &addr, 0),
+            abi::store_u64(abi::ZERO, &addr, 0),
             abi::add_immediate(&addr, &addr, 8),
             abi::branch(&zero_loop),
             abi::label(&zero_done),
@@ -576,7 +576,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::branch(&frac_copy),
             abi::label(&frac_copy_done),
             abi::label(&no_frac),
-            abi::store_u8("x31", &dst, 0), // NUL (matches the snprintf-era tail)
+            abi::store_u8(abi::ZERO, &dst, 0), // NUL (matches the snprintf-era tail)
             abi::move_register(RESULT_VALUE_REGISTER, &string),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),

@@ -1640,6 +1640,16 @@ fn mem_load(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, S
 
 fn mem_store(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, String> {
     let src = reg(field(instruction, "src")?)?;
+    // A zero-token store source (`abi::ZERO`, spelled `xzr`) materializes the
+    // pinned zero register `r14` (`ZERO_REGISTER`, held at 0): x86 has no zero
+    // register, so what AArch64 writes as `str xzr, [..]` — zeroing arena/record
+    // fields — stores `r14`. Byte-identical to the pre-plan-34-A path, where
+    // `select` rewrote the `"x31"` spelling to `r14` before this point. (plan-34-A)
+    let src = if is_zero_token(src) {
+        reg(crate::arch::x86_64::regmodel::ZERO_REGISTER.to_string())?
+    } else {
+        src
+    };
     let base = reg(field(instruction, "base")?)?;
     let disp = checked_disp32(immediate(field(instruction, "offset")?)?)?;
     let mut bytes = Vec::new();

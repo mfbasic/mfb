@@ -15,7 +15,14 @@
 #![allow(dead_code)]
 
 use super::abi;
-use crate::target::shared::code::{CodeInstruction, ARENA_STATE_REGISTER};
+use crate::target::shared::code::CodeInstruction;
+
+/// The physical register AArch64 realizes the neutral `arena_base` token as —
+/// pinned `x19` program-wide, reserved from allocation (absent from
+/// `INT_ALLOCATABLE`). The mirror of RISC-V's `regmodel::ARENA_BASE_REGISTER`
+/// (`s11`) and x86-64's `r15`. `select_aarch64` rewrites `arena_base` back to
+/// this at selection, so the allocator sees the concrete register. (plan-34-A)
+pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
 
 /// The two register classes the allocator distinguishes. On AArch64 the
 /// floating-point/SIMD class is one physical file (`d_n` ⊂ `v_n`).
@@ -208,9 +215,10 @@ impl RegisterModel for Aarch64RegisterModel {
     }
 
     fn arena_base(&self) -> &'static str {
-        // AArch64 pins the arena-state pointer in `x19` program-wide
-        // (`error_constants::ARENA_STATE_REGISTER`).
-        ARENA_STATE_REGISTER
+        // AArch64 pins the arena-state pointer in `x19` program-wide, reserved
+        // from allocation. This is the physical realization of the neutral
+        // `arena_base` token shared code emits (plan-34-A).
+        ARENA_BASE_REGISTER
     }
 }
 
@@ -254,7 +262,7 @@ mod tests {
         assert!(!m.is_callee_saved("d0"));
         assert_eq!(m.spill_slot_bytes(), 16);
         // AArch64 pins arena_base in x19 and the math-pool base in x2.
-        assert_eq!(m.arena_base(), ARENA_STATE_REGISTER);
+        assert_eq!(m.arena_base(), ARENA_BASE_REGISTER);
         assert_eq!(m.math_pool_base(), Some("x2"));
         // The standalone FP callee-saved predicate.
         assert!(is_fp_callee_saved("d15"));

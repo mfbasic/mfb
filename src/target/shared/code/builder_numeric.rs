@@ -1512,7 +1512,7 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_neg_i64(&mut self, register: &str) -> Result<(), String> {
-        self.emit(abi::subtract_registers(register, "xzr", register));
+        self.emit(abi::subtract_registers(register, abi::ZERO, register));
         Ok(())
     }
 

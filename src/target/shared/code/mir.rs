@@ -296,15 +296,13 @@ mir_ops!(
 /// stream is byte-identical while the `-mir` dump shows `arena_base`, not `x19`.
 pub(crate) const ARENA_BASE: &str = "arena_base";
 
-/// The physical location AArch64 realizes [`ARENA_BASE`] as — pinned `x19`,
-/// asked of the [`RegisterModel`](crate::arch::aarch64::regmodel::RegisterModel)
-/// so the realization lives in the backend, not this neutral layer.
+/// The physical register AArch64 realizes [`ARENA_BASE`] as — pinned `x19`. Since
+/// plan-34-A this is the aarch64 backend's `regmodel::ARENA_BASE_REGISTER`, not
+/// the shared operand token (`ARENA_STATE_REGISTER` now *is* [`ARENA_BASE`]).
+/// Used only by the backend realization tests, which feed this physical name and
+/// prove each selection maps it back to its ISA home (`x19`/`s11`/`r15`).
 pub(crate) fn arena_base_realization() -> &'static str {
-    // The arena base is a program-wide sentinel both ISAs' helpers emit
-    // (`ARENA_STATE_REGISTER`); `lower_to_mir` renames it to the neutral
-    // `arena_base`, and each backend's selection realizes it (AArch64 → the
-    // pinned register, x86_64 → a TLS/memory load).
-    ARENA_STATE_REGISTER
+    crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER
 }
 
 /// Rewrite every field value equal to `from` to `to` across an instruction's
@@ -1428,7 +1426,7 @@ mod tests {
                 .field("offset", "0"),
             CodeInstruction::new("str_u8")
                 .field("src", "%v22")
-                .field("base", "x19")
+                .field("base", crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER)
                 .field("offset", "16"),
             CodeInstruction::new("ldr_d")
                 .field("dst", "%f0")
@@ -1599,6 +1597,46 @@ mod tests {
             .any(|m| m.fields.iter().any(|(_, v)| v == realization)));
         // …and selection restores the pinned register exactly.
         assert_round_trips(&original);
+    }
+
+    /// plan-34-A: the three invariant registers — zero, the link register, and the
+    /// arena base — are named by neutral tokens in shared lowering, never by an
+    /// AArch64 register number. This guards the rename against reintroduction of a
+    /// physical `"x19"`/`"x30"`/`"x31"` (the seed of plan-34-C's stream invariant):
+    /// a stray physical name that reached `x86_64/select.rs::map_scratch_register`
+    /// would be realized as the wrong register (`x19` → `rbp`, not the arena base
+    /// `r15`) — a silent miscompile.
+    #[test]
+    fn invariant_registers_are_neutral_tokens() {
+        use crate::arch::aarch64::abi;
+        // The tokens are neutral, never an AArch64 register number.
+        assert_eq!(abi::ZERO, "xzr");
+        assert_eq!(abi::LR, "lr");
+        assert_eq!(abi::ARENA, ARENA_BASE);
+        for token in [abi::ZERO, abi::LR, abi::ARENA] {
+            assert!(
+                !matches!(token, "x19" | "x30" | "x31"),
+                "invariant-register token must not be an AArch64 register number: {token}"
+            );
+        }
+        // A shared stream that names zero (store source + negate), the link
+        // register (frame save), and the arena base (address base) with the abi
+        // helpers carries no physical x19/x30/x31 into the MIR — `arena_base` is
+        // only realized to `x19` later, in `select_aarch64`.
+        let stream = [
+            abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, 0),
+            abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+            abi::subtract_registers("x9", abi::ZERO, "x9"),
+        ];
+        let mir = lower_to_mir(&stream);
+        for inst in &mir {
+            for (_, value) in &inst.fields {
+                assert!(
+                    !matches!(value.as_str(), "x19" | "x30" | "x31"),
+                    "MIR field leaked a physical invariant register: {value}"
+                );
+            }
+        }
     }
 
     /// Relocation intents are neutral: a `CodeRelocation` carries a

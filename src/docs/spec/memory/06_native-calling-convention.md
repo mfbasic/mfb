@@ -154,6 +154,23 @@ Unlike `x19`, `x28` is **not** excluded from the temporary map: it is the highes
 register the bump allocator can reach (allocation `26`), so `x28` serves double
 duty as both the closure-environment register and the final scratch slot.
 
+### Neutral names in shared lowering
+
+The register names above are the concrete AArch64 realizations. The three registers
+whose role is a program- or frame-wide **invariant** are never spelled by their
+AArch64 number in shared lowering (`src/target/shared/code/`); each is named by one
+neutral token, realized per ISA at selection (plan-34-A):
+
+| role | token | AArch64 | RISC-V | x86-64 |
+|---|---|---|---|---|
+| zero register | `abi::ZERO` (`xzr`) | `xzr` (`x31`) | `zero` | none — pins `r14`, or a "no register" sentinel |
+| link register | `abi::LR` (`lr`) | `x30` | `ra` | none — `call` pushes the return address |
+| arena base | `abi::ARENA` (`arena_base`) | `x19` (`regmodel::ARENA_BASE_REGISTER`) | `s11` | `r15` |
+
+The per-platform backends (`src/target/<platform>/`) and the encoders' input
+language still accept the bare AArch64 spellings; only shared lowering routes
+through the tokens.
+
 ## Stack Frame, Prologue, and Epilogue
 
 There is **no `x29` frame-pointer chain**. `finalize_frame` builds the frame once

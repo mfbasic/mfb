@@ -100,7 +100,7 @@ pub(super) fn lower_fs_exists_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &alloc),
     ]);
     platform.emit_path_exists(
@@ -234,7 +234,7 @@ pub(super) fn lower_fs_kind_exists_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &alloc),
         abi::add_immediate("x1", abi::stack_pointer(), STAT_OFFSET),
     ]);
@@ -381,7 +381,7 @@ pub(super) fn lower_fs_current_directory_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -503,7 +503,7 @@ pub(super) fn lower_fs_temp_directory_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -611,7 +611,7 @@ pub(super) fn lower_fs_path_operation_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &alloc),
     ]);
     platform.emit_fs_path_operation(
@@ -742,7 +742,7 @@ pub(super) fn lower_fs_create_directories_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(&cursor, &cstring),
         abi::load_u8(&byte, &cstring, 0),
         abi::compare_immediate(&byte, "47"),
@@ -757,7 +757,7 @@ pub(super) fn lower_fs_create_directories_helper(
         abi::add_immediate(&cursor, &cursor, 1),
         abi::branch(&scan_loop),
         abi::label(&mkdir_prefix),
-        abi::store_u8("x31", &cursor, 0),
+        abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &cstring),
     ]);
     platform.emit_fs_path_operation(
@@ -998,7 +998,7 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&path_copy_loop),
         abi::label(&path_copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
     ]);
     platform.emit_opendir(
@@ -1193,8 +1193,8 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::branch_hi(&fill_done),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         abi::store_u64(
             &data_offset,
             &entry_cursor,
@@ -1374,7 +1374,7 @@ pub(super) fn lower_fs_canonical_path_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_immediate(
             abi::return_register(),
             "Integer",
@@ -1451,7 +1451,7 @@ pub(super) fn lower_fs_canonical_path_helper(
         abi::subtract_immediate(&remaining, &remaining, 1),
         abi::branch(&result_copy_loop),
         abi::label(&result_copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, &result),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1592,7 +1592,7 @@ pub(super) fn lower_fs_is_within_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&base_copy_loop),
         abi::label(&base_copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64(&len, &child, 0),
         abi::compare_immediate(&len, "0"),
         abi::branch_eq(&invalid),
@@ -1623,7 +1623,7 @@ pub(super) fn lower_fs_is_within_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&child_copy_loop),
         abi::label(&child_copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_immediate(
             abi::return_register(),
             "Integer",

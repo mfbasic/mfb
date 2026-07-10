@@ -369,11 +369,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::store_u64("x31", "x1", 0));
-        self.emit(abi::store_u8("x31", "x1", 8));
-        self.emit(abi::store_u64("x31", abi::stack_pointer(), out_len_slot));
+        self.emit(abi::store_u64(abi::ZERO, "x1", 0));
+        self.emit(abi::store_u8(abi::ZERO, "x1", 8));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), out_len_slot));
         self.emit(abi::store_u64(
-            "x31",
+            abi::ZERO,
             abi::stack_pointer(),
             input_index_slot,
         ));
@@ -418,7 +418,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&initial_relative));
         self.emit(abi::store_u64(
-            "x31",
+            abi::ZERO,
             abi::stack_pointer(),
             input_index_slot,
         ));
@@ -643,7 +643,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
         self.emit(abi::store_u64(&scratch8, &scratch9, 0));
         self.emit(abi::add_registers(&scratch12, &scratch9, &scratch8));
-        self.emit(abi::store_u8("x31", &scratch12, 8));
+        self.emit(abi::store_u8(abi::ZERO, &scratch12, 8));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {

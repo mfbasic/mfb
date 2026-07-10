@@ -10,9 +10,10 @@
 
 use crate::arch::aarch64::abi;
 use crate::arch::aarch64::ops::CodeOp;
+use crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
 use crate::target::shared::code::mir::{
-    arena_base_realization, fused_setter_codeop, rename_field_values, MirInstruction, MirOp,
-    ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
+    fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
+    FUSED_SHARE_FIELD,
 };
 use crate::target::shared::code::CodeInstruction;
 
@@ -83,12 +84,11 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             });
         }
     }
-    // Realize `arena_base` back to its pinned AArch64 register (plan-00-D §2),
-    // the exact reverse of `lower_to_mir`'s rename — so the selected stream the
-    // allocator sees is byte-identical to the direct path.
-    let realization = arena_base_realization();
+    // Realize `arena_base` back to its pinned AArch64 register (plan-00-D §2,
+    // plan-34-A) — so the selected stream the allocator sees carries the concrete
+    // `x19`, byte-identical to the direct path.
     for instruction in &mut out {
-        rename_field_values(&mut instruction.fields, ARENA_BASE, realization);
+        rename_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     out
 }

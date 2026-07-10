@@ -252,7 +252,7 @@ pub(super) fn lower_fs_file_drain(
         abi::subtract_registers("%v2", "%v2", "%v5"),
         abi::compare_immediate("%v2", "0"),
         abi::branch_ne(&drain_loop),
-        abi::store_u64("x31", "%v0", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, "%v0", FILE_OFFSET_BUF_FILLED),
         abi::label(&ok),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::return_(),
@@ -486,7 +486,7 @@ pub(super) fn lower_fs_set_buffered_helper(
     ];
     let relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
     instructions.extend([
-        abi::store_u64("x31", "%v0", FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, "%v0", FILE_OFFSET_BUF_ENABLED),
         abi::branch(&done),
         abi::label(&enable),
         abi::move_immediate("%v1", "Integer", "1"),
@@ -635,7 +635,7 @@ pub(super) fn lower_fs_open_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64(&mode_len, &mode, 0),
     ]);
     emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"r", &read, symbol);
@@ -743,18 +743,18 @@ pub(super) fn lower_fs_open_helper(
         abi::branch(&done),
         abi::label(&file_alloc_ok),
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
-        abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_AT_EOF),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1191,7 +1191,7 @@ pub(super) fn lower_fs_read_all_helper(
     )?;
     instructions.extend([
         abi::label(&read_done),
-        abi::store_u8("x31", &cursor, 0),
+        abi::store_u8(abi::ZERO, &cursor, 0),
         abi::load_u64("x1", &string, 0),
         abi::add_immediate("x0", &string, 8),
     ]);
@@ -1532,8 +1532,8 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         abi::branch_eq(&entry_done),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         abi::store_u64(&idx, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
         abi::move_immediate(&scratch, "Integer", "1"),
         abi::store_u64(
@@ -1843,7 +1843,7 @@ fn emit_reconcile_read_buffer(
         // lseek(fd, -(unconsumed), SEEK_CUR) to rewind the read-ahead.
         abi::load_u64("%v62", file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), "%v62"),
-        abi::subtract_registers("x1", "x31", "%v61"), // -unconsumed
+        abi::subtract_registers("x1", abi::ZERO, "%v61"), // -unconsumed
         abi::move_immediate("x2", "Integer", "1"),    // SEEK_CUR
     ]);
     platform.emit_seek_file(symbol, platform_imports, instructions, relocations)?;
@@ -1857,9 +1857,9 @@ fn emit_reconcile_read_buffer(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(seek_error_label),
         // Invalidate the buffer (empty cache at the now-reconciled fd position).
-        abi::store_u64("x31", file, FILE_OFFSET_READ_POS),
-        abi::store_u64("x31", file, FILE_OFFSET_READ_FILL),
-        abi::store_u64("x31", file, FILE_OFFSET_READ_AT_EOF),
+        abi::store_u64(abi::ZERO, file, FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, file, FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, file, FILE_OFFSET_READ_AT_EOF),
         abi::label(&reconciled),
     ]);
     Ok(())
@@ -2052,13 +2052,13 @@ pub(super) fn lower_fs_read_line_helper(
         abi::branch_eq(&set_eof),
         // Got n bytes: READ_FILL = n, READ_POS = 0.
         abi::store_u64(abi::return_register(), &file, FILE_OFFSET_READ_FILL),
-        abi::store_u64("x31", &file, FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, &file, FILE_OFFSET_READ_POS),
         abi::branch(&line_loop),
         abi::label(&set_eof),
         abi::move_immediate(&byte, "Integer", "1"),
         abi::store_u64(&byte, &file, FILE_OFFSET_READ_AT_EOF),
-        abi::store_u64("x31", &file, FILE_OFFSET_READ_FILL),
-        abi::store_u64("x31", &file, FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, &file, FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, &file, FILE_OFFSET_READ_POS),
         abi::branch(&refill),
         abi::label(&refill_at_eof),
         // At EOF: emit the trailing partial line if any, else signal end of file.
@@ -2104,7 +2104,7 @@ pub(super) fn lower_fs_read_line_helper(
         abi::subtract_immediate(&remaining2, &remaining2, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64("x1", &result, 0),
         abi::add_immediate("x0", &result, 8),
     ]);

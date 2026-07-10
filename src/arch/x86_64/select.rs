@@ -107,8 +107,11 @@ fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> Str
 /// `x0`–`x8`, whose role depends on the nearest call/`svc`/`ret` boundary.
 fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     // The link register has no x86 equivalent — `call` pushes / `ret` pops the
-    // return address — so drop the frame's x30 save/restore entirely.
-    instructions.retain(|inst| !inst.fields.iter().any(|(_, value)| value == "x30"));
+    // return address — so drop the frame's LR save/restore entirely. Shared code
+    // now spells it with the neutral `abi::LR` token (`"lr"`); the `"x30"`
+    // spelling is still accepted from any non-shared producer (plan-34-A).
+    instructions
+        .retain(|inst| !inst.fields.iter().any(|(_, value)| value == "x30" || value == "lr"));
 
     let count = instructions.len();
     // The boundary each register's value flows into, resolved along CONTROL FLOW

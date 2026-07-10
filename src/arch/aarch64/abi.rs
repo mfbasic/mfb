@@ -85,8 +85,26 @@ pub(crate) fn return_register() -> &'static str {
     RETURN_REGISTER
 }
 
+/// The zero register as a register operand — the constant 0 readable as a source,
+/// a discard as a destination. AArch64 spells it `xzr`; RISC-V maps it to the
+/// hardware `zero`; x86-64 has none and either pins `r14` (`ZERO_REGISTER`, for a
+/// real store source) or treats it as a "no register" sentinel (negate / carry).
+/// Never `"x31"`. (plan-34-A)
+pub(crate) const ZERO: &str = "xzr";
+
+/// The link register (return address). AArch64 `x30`, RISC-V `ra`; x86-64 has no
+/// such register — `call` pushes the return address, so shared LR save/restore is
+/// dropped in x86 selection. Never `"x30"`. (plan-34-A)
+pub(crate) const LR: &str = "lr";
+
+/// The pinned arena base pointer — a program-wide invariant, reserved from
+/// allocation on every ISA (`RegisterModel::arena_base`). The neutral MIR token;
+/// each backend's selection realizes it (AArch64 `x19`, RISC-V `s11`, x86-64
+/// `r15`). Never `"x19"`. (plan-34-A)
+pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
+
 pub(crate) fn link_register() -> &'static str {
-    "x30"
+    LR
 }
 
 pub(crate) fn stack_pointer() -> &'static str {
@@ -921,7 +939,7 @@ mod tests {
         assert!(fp_temporary_register(8).is_err());
         // Named ABI registers.
         assert_eq!(return_register(), "x0");
-        assert_eq!(link_register(), "x30");
+        assert_eq!(link_register(), "lr");
         assert_eq!(stack_pointer(), "sp");
         assert_eq!(syscall_register(), "x8");
         assert_eq!(string_length_register(), "x2");

@@ -410,7 +410,7 @@ fn lower_link_thunk(
             let out_off = out_base + out_seq * 8;
             out_seq += 1;
             instructions.extend([
-                abi::store_u64("x31", abi::stack_pointer(), out_off),
+                abi::store_u64(abi::ZERO, abi::stack_pointer(), out_off),
                 abi::add_immediate("%v9", abi::stack_pointer(), out_off),
                 abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
             ]);
@@ -835,7 +835,7 @@ fn emit_copy_string_to_cstring(
         abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&loop_label),
         abi::label(&done_label),
-        abi::store_u8("x31", "%v12", 0),
+        abi::store_u8(abi::ZERO, "%v12", 0),
     ]);
 }
 
@@ -896,7 +896,7 @@ fn emit_copy_cstring_to_string(
         abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "%v12", 0),
+        abi::store_u8(abi::ZERO, "%v12", 0),
         // §12.4: returned bytes are validated as UTF-8 at the boundary.
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RET_OFF),
         abi::add_immediate(abi::return_register(), abi::return_register(), 8),
@@ -913,8 +913,8 @@ fn emit_copy_cstring_to_string(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64("x31", "x1", 0),
-        abi::store_u8("x31", "x1", 8),
+        abi::store_u64(abi::ZERO, "x1", 0),
+        abi::store_u8(abi::ZERO, "x1", 8),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::label(&ret_done),
     ]);

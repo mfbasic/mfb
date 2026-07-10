@@ -88,14 +88,14 @@ pub(crate) fn lower_program_entry(
         abi::move_register("x9", ARENA_STATE_REGISTER),
         abi::add_immediate("x10", ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
         abi::label("entry_arena_state_zero"),
-        abi::store_u64("x31", "x9", 0),
+        abi::store_u64(abi::ZERO, "x9", 0),
         abi::add_immediate("x9", "x9", 8),
         abi::compare_registers("x9", "x10"),
         abi::branch_lo("entry_arena_state_zero"),
     ]);
     for index in 0..global_slot_count {
         instructions.push(abi::store_u64(
-            "x31",
+            abi::ZERO,
             ARENA_STATE_REGISTER,
             ENTRY_GLOBALS_OFFSET + index * 8,
         ));
@@ -556,8 +556,8 @@ fn emit_entry_args_list_materialization(
         abi::load_u64("x15", "x10", 0), // x15 = argv[i] (NUL-terminated source)
         abi::move_immediate("x17", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8("x17", "x11", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64("x31", "x11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64("x31", "x11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(abi::ZERO, "x11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, "x11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         abi::store_u64("x13", "x11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
         // Copy bytes until the NUL, counting the length in x16 as we go (one
         // pass replaces the original separate strlen + copy loops).
@@ -808,7 +808,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_register("x1", &bin_rem),
         abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
         abi::label("arena_alloc_dv_cleared"),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
+        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
         // Acquire: largest parked bin ≥ this request becomes the new DV.
         abi::label("arena_alloc_dv_scan"),
         abi::add_immediate(
@@ -1043,7 +1043,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::shift_left_immediate(&flush_offset, &flush_index, 3),
         abi::add_registers(&flush_slot, ARENA_STATE_REGISTER, &flush_offset),
         abi::load_u64(&flush_node, &flush_slot, ARENA_QUICK_BIN_BASE_OFFSET),
-        abi::store_u64("x31", &flush_slot, ARENA_QUICK_BIN_BASE_OFFSET),
+        abi::store_u64(abi::ZERO, &flush_slot, ARENA_QUICK_BIN_BASE_OFFSET),
         abi::label("arena_alloc_flush_chain"),
         abi::compare_immediate(&flush_node, "0"),
         abi::branch_eq("arena_alloc_flush_next_bin"),
@@ -1158,7 +1158,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&map_size, abi::return_register(), 8),
         abi::subtract_immediate(&usable, &map_size, ARENA_BLOCK_HEADER_SIZE),
         abi::store_u64(&usable, abi::return_register(), 16),
-        abi::store_u64("x31", abi::return_register(), 24),
+        abi::store_u64(abi::ZERO, abi::return_register(), 24),
         abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 0),
         // Poison the new block's usable region before first use (plan-01 §6.3).
         // `ubase`/`usable` are live across the fill call, so the allocator spills
@@ -1525,7 +1525,7 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::label("insert_finish_no_next"),
         abi::compare_immediate(&merged, "0"),
         abi::branch_ne("insert_done"), // merged into prev, nothing to link
-        abi::store_u64("x31", "x0", 0), // ptr.next = 0
+        abi::store_u64(abi::ZERO, "x0", 0), // ptr.next = 0
         abi::store_u64("x1", "x0", 8), // ptr.size = size
         abi::branch("insert_link_prev"),
         abi::label("insert_link_prev"),
@@ -1670,8 +1670,8 @@ pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
         // blocks, and a stale head would turn any post-destroy allocation into
         // a use-after-free walk. The quick bins (allocator-01) point into the
         // same unmapped blocks, so clear them too.
-        abi::store_u64("x31", ARENA_STATE_REGISTER, 0),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, 0),
+        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::add_immediate(
             &clear_cursor,
             ARENA_STATE_REGISTER,
@@ -1679,7 +1679,7 @@ pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
         ),
         abi::add_immediate(&clear_limit, ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
         abi::label("arena_destroy_bins"),
-        abi::store_u64("x31", &clear_cursor, 0),
+        abi::store_u64(abi::ZERO, &clear_cursor, 0),
         abi::add_immediate(&clear_cursor, &clear_cursor, 8),
         abi::compare_registers(&clear_cursor, &clear_limit),
         abi::branch_lo("arena_destroy_bins"),
@@ -1731,7 +1731,7 @@ pub(super) fn lower_shutdown(
     );
     instructions.extend([
         abi::load_u64(&arena, &global, 0),
-        abi::store_u64("x31", &global, 0),
+        abi::store_u64(abi::ZERO, &global, 0),
         abi::compare_immediate(&arena, "0"),
         abi::branch_eq(done),
         abi::move_register(ARENA_STATE_REGISTER, &arena),
@@ -1845,8 +1845,8 @@ fn emit_pcg_step(instructions: &mut Vec<CodeInstruction>, vregs: &mut Vregs, lo:
         // Add the 128-bit increment with the carry as an explicit value.
         abi::move_immediate(&inc_lo, "Integer", &PCG_INC_LO.to_string()),
         abi::move_immediate(&inc_hi, "Integer", &PCG_INC_HI.to_string()),
-        abi::add_carry(lo, &carry, &prod_lo, &inc_lo, "xzr"),
-        abi::add_carry(hi, "xzr", &prod_hi, &inc_hi, &carry),
+        abi::add_carry(lo, &carry, &prod_lo, &inc_lo, abi::ZERO),
+        abi::add_carry(hi, abi::ZERO, &prod_hi, &inc_hi, &carry),
     ]);
 }
 
@@ -1926,8 +1926,8 @@ fn emit_seed_dance(name: &str, symbol: &str, lo_offset: usize, hi_offset: usize)
     let carry = vregs.next();
     instructions.extend([
         // state += seed, carry as an explicit value (plan-00-G §4).
-        abi::add_carry(&lo, &carry, &lo, &seed, "xzr"),
-        abi::add_carry(&hi, "xzr", &hi, "xzr", &carry),
+        abi::add_carry(&lo, &carry, &lo, &seed, abi::ZERO),
+        abi::add_carry(&hi, abi::ZERO, &hi, abi::ZERO, &carry),
     ]);
     emit_pcg_step(&mut instructions, &mut vregs, &lo, &hi);
     instructions.extend([

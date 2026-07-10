@@ -249,7 +249,7 @@ pub(super) fn emit_cstring(
         abi::add_immediate("x13", "x13", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "x12", 0),
+        abi::store_u8(abi::ZERO, "x12", 0),
     ]);
 }
 

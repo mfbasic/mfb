@@ -109,7 +109,7 @@ fn emit_cstring(
         abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "%v12", 0),
+        abi::store_u8(abi::ZERO, "%v12", 0),
     ]);
 }
 
@@ -124,7 +124,7 @@ fn emit_hints(
 ) {
     for offset in (0..48).step_by(8) {
         instructions.push(abi::store_u64(
-            "x31",
+            abi::ZERO,
             abi::stack_pointer(),
             hints_off + offset,
         ));
@@ -226,7 +226,7 @@ fn emit_address_from_sockaddr(
         abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "%v12", 0),
+        abi::store_u8(abi::ZERO, "%v12", 0),
         // Allocate the Address record: [host ptr][port].
         abi::move_immediate(abi::return_register(), "Integer", "16"),
         abi::move_immediate("x1", "Integer", "8"),
@@ -264,8 +264,8 @@ fn emit_make_handle(
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), fd_off),
         abi::store_u64("%v9", "x1", FILE_OFFSET_FD),
-        abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_STATE),
     ]);
 }
 
@@ -358,7 +358,7 @@ fn lower_net_endpoint_helper(
     if listen {
         instructions.extend([
             abi::label(&null_host),
-            abi::store_u64("x31", abi::stack_pointer(), CSTR_OFFSET),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), CSTR_OFFSET),
         ]);
     }
     instructions.extend([
@@ -525,9 +525,9 @@ fn lower_net_endpoint_helper(
             abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
             abi::move_immediate("%v10", "Integer", "4"), // POLLOUT
             abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
-            abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
-            abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
-            abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
             abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
             abi::move_immediate("x1", "Integer", "1"),
             abi::load_u64("x2", abi::stack_pointer(), EXTRA_OFFSET),
@@ -546,7 +546,7 @@ fn lower_net_endpoint_helper(
             // getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
             abi::move_immediate("%v9", "Integer", "4"),
             abi::store_u64("%v9", abi::stack_pointer(), SOLEN_OFFSET),
-            abi::store_u64("x31", abi::stack_pointer(), SOERR_OFFSET),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), SOERR_OFFSET),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
             abi::move_immediate("x1", "Integer", platform.sol_socket()),
             abi::move_immediate("x2", "Integer", platform.so_error()),

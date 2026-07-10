@@ -836,7 +836,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&zero));
         if signed {
             self.emit(abi::branch_ge(&nonnegative));
-            self.emit(abi::subtract_registers(value, "xzr", value));
+            self.emit(abi::subtract_registers(value, abi::ZERO, value));
             self.emit(abi::move_immediate(negative, "Integer", "1"));
             self.emit(abi::label(&nonnegative));
         }
@@ -1244,7 +1244,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(negative, "Integer", "0"));
         self.emit(abi::compare_immediate(raw, "0"));
         self.emit(abi::branch_ge(&nonnegative));
-        self.emit(abi::subtract_registers(raw, "xzr", raw));
+        self.emit(abi::subtract_registers(raw, abi::ZERO, raw));
         self.emit(abi::move_immediate(negative, "Integer", "1"));
         self.emit(abi::label(&nonnegative));
         self.emit(abi::store_u64(raw, abi::stack_pointer(), magnitude_slot));

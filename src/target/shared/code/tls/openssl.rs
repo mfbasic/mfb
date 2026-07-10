@@ -76,14 +76,14 @@ pub(crate) fn lower_tls_connect_helper(
         abi::move_immediate("%v9", "Integer", "0"),
         abi::bitwise_not("%v9", "%v9"),
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), SSL_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SSL_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CTX_OFFSET),
     ]);
     // Resolve + connect a TCP socket. Zero a 48-byte hints block and set
     // ai_family = AF_INET, ai_socktype = SOCK_STREAM.
     for offset in (0..48).step_by(8) {
         instructions.push(abi::store_u64(
-            "x31",
+            abi::ZERO,
             abi::stack_pointer(),
             HINTS_OFFSET + offset,
         ));
@@ -217,9 +217,9 @@ pub(crate) fn lower_tls_connect_helper(
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("%v10", "Integer", "4"), // POLLOUT
         abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("x1", "Integer", "1"),
         abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
@@ -238,7 +238,7 @@ pub(crate) fn lower_tls_connect_helper(
         // getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
         abi::move_immediate("%v9", "Integer", "4"),
         abi::store_u64("%v9", abi::stack_pointer(), SOLEN_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), SOERR_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SOERR_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate("x1", "Integer", platform.sol_socket()),
         abi::move_immediate("x2", "Integer", platform.so_error()),
@@ -573,8 +573,8 @@ pub(crate) fn lower_tls_connect_helper(
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::compare_immediate("%v9", "0"),
         abi::branch_le(&hs_timeout_clear),
-        abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
     emit_set_sock_timeouts(
         symbol,
@@ -595,7 +595,7 @@ pub(crate) fn lower_tls_connect_helper(
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", "x1", TLS_OFFSET_FD),
-        abi::store_u64("x31", "x1", TLS_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
         abi::store_u64("%v9", "x1", TLS_OFFSET_SSL),
         abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
@@ -863,7 +863,7 @@ pub(crate) fn lower_tls_listen_helper(
     // net::listenTcp (an empty host binds all interfaces via a NULL node).
     for offset in (0..48).step_by(8) {
         instructions.push(abi::store_u64(
-            "x31",
+            abi::ZERO,
             abi::stack_pointer(),
             HINTS_OFFSET + offset,
         ));
@@ -891,7 +891,7 @@ pub(crate) fn lower_tls_listen_helper(
     instructions.extend([
         abi::branch(&resolved),
         abi::label(&null_host),
-        abi::store_u64("x31", abi::stack_pointer(), HOSTCSTR_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), HOSTCSTR_OFFSET),
         abi::label(&resolved),
         // getaddrinfo(host, NULL, &hints, &res)
         abi::load_u64(
@@ -1154,10 +1154,10 @@ pub(crate) fn lower_tls_listen_helper(
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", "x1", TLS_LISTENER_OFFSET_FD),
-        abi::store_u64("x31", "x1", TLS_LISTENER_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", TLS_LISTENER_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
         abi::store_u64("%v9", "x1", TLS_LISTENER_OFFSET_CTX),
-        abi::store_u64("x31", "x1", 24),
+        abi::store_u64(abi::ZERO, "x1", 24),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1339,9 +1339,9 @@ pub(crate) fn lower_tls_accept_helper(
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("%v10", "Integer", "1"), // POLLIN
         abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
-        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("x1", "Integer", "1"),
         abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
@@ -1455,10 +1455,10 @@ pub(crate) fn lower_tls_accept_helper(
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CONNFD_OFFSET),
         abi::store_u64("%v9", "x1", TLS_OFFSET_FD),
-        abi::store_u64("x31", "x1", TLS_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
         abi::store_u64("%v9", "x1", TLS_OFFSET_SSL),
-        abi::store_u64("x31", "x1", TLS_OFFSET_CTX),
+        abi::store_u64(abi::ZERO, "x1", TLS_OFFSET_CTX),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1694,7 +1694,7 @@ pub(crate) fn lower_tls_read_helper(
             abi::add_immediate("%v13", "%v13", 1),
             abi::branch(&str_copy),
             abi::label(&str_done),
-            abi::store_u8("x31", "%v12", 0),
+            abi::store_u8(abi::ZERO, "%v12", 0),
             abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
             abi::add_immediate(abi::return_register(), "%v9", 8),
             abi::load_u64("x1", "%v9", 0),
@@ -1749,8 +1749,8 @@ pub(crate) fn lower_tls_read_helper(
             abi::branch_eq(&entry_done),
             abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
             abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
             abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
             abi::move_immediate("%v12", "Integer", "1"),
             abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),

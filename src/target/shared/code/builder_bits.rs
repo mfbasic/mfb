@@ -159,7 +159,7 @@ impl CodeBuilder<'_> {
             "rr64" => self.emit(abi::rotate_right_registers(&dst, &value_reg, &count_reg)),
             "rl64" => {
                 let neg = self.allocate_register()?;
-                self.emit(abi::subtract_registers(&neg, "xzr", &count_reg));
+                self.emit(abi::subtract_registers(&neg, abi::ZERO, &count_reg));
                 self.emit(abi::rotate_right_registers(&dst, &value_reg, &neg));
             }
             "rr32" => self.emit(abi::rotate_right_word_registers(
@@ -167,7 +167,7 @@ impl CodeBuilder<'_> {
             )),
             "rl32" => {
                 let neg = self.allocate_register()?;
-                self.emit(abi::subtract_registers(&neg, "xzr", &count_reg));
+                self.emit(abi::subtract_registers(&neg, abi::ZERO, &count_reg));
                 self.emit(abi::rotate_right_word_registers(&dst, &value_reg, &neg));
             }
             other => {

@@ -418,7 +418,7 @@ impl CodeBuilder<'_> {
                     "x1",
                     CLOSURE_OFFSET_CODE,
                 ));
-                self.emit(abi::store_u64("x31", "x1", CLOSURE_OFFSET_ENV));
+                self.emit(abi::store_u64(abi::ZERO, "x1", CLOSURE_OFFSET_ENV));
                 self.emit(abi::move_register(&closure_register, "x1"));
                 Ok(ValueResult {
                     type_: type_.clone(),
@@ -555,7 +555,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                     self.emit(abi::store_u64(&env_register, "x1", CLOSURE_OFFSET_ENV));
                 } else {
-                    self.emit(abi::store_u64("x31", "x1", CLOSURE_OFFSET_ENV));
+                    self.emit(abi::store_u64(abi::ZERO, "x1", CLOSURE_OFFSET_ENV));
                 }
                 self.emit(abi::move_register(&closure_register, "x1"));
                 Ok(ValueResult {

@@ -248,7 +248,7 @@ fn marshal_cstring(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
     ]);
 }
 
@@ -313,7 +313,7 @@ fn build_string_from_cstr(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, &block),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
     ]);
@@ -428,7 +428,7 @@ fn lower_get_env(
             abi::add_immediate(&index, &index, 1),
             abi::branch(&copy_loop),
             abi::label(&copy_done),
-            abi::store_u8("x31", &dst, 0),
+            abi::store_u8(abi::ZERO, &dst, 0),
             abi::move_register(RESULT_VALUE_REGISTER, &block),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
@@ -974,7 +974,7 @@ fn build_string_from_len(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, &block),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
     ]);
@@ -1148,7 +1148,7 @@ fn lower_host_name(
         abi::label(&ok),
         // Defensive NUL at the last byte, then build the String from the buffer.
         abi::add_immediate(&buf, abi::stack_pointer(), 0),
-        abi::store_u8("x31", &buf, BUF - 1),
+        abi::store_u8(abi::ZERO, &buf, BUF - 1),
     ]);
     build_string_from_cstr(
         symbol,
@@ -1473,8 +1473,8 @@ fn lower_args(
         abi::label(&str_len_done),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         abi::store_u64(&data_offset, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
         abi::store_u64(&arg_len, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         abi::move_register(&src, &arg_ptr),

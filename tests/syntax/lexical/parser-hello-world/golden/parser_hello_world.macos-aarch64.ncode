@@ -44,7 +44,7 @@
     { "op": "mov", "dst": "x9", "src": "x19" },
     { "op": "add_imm", "dst": "x10", "src": "x19", "imm": "1680" },
     { "op": "label", "name": "entry_arena_state_zero" },
-    { "op": "str_u64", "src": "x31", "base": "x9", "offset": "0" },
+    { "op": "str_u64", "src": "xzr", "base": "x9", "offset": "0" },
     { "op": "add_imm", "dst": "x9", "src": "x9", "imm": "8" },
     { "op": "cmp", "lhs": "x9", "rhs": "x10" },
     { "op": "b.lo", "target": "entry_arena_state_zero" },
@@ -205,7 +205,7 @@
     "name": "main",
     "symbol": "_mfb_fn_main",
     "returns": "Nothing",
-    "frame": { "stackSize": 48, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 48, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -216,7 +216,7 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "48" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "adrp", "dst": "x8", "symbol": "_mfb_str_0" },
     { "op": "add_pageoff", "dst": "x8", "src": "x8", "symbol": "_mfb_str_0" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
@@ -237,12 +237,12 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
     { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "24" },
     { "op": "ldr_u64", "dst": "x2", "base": "sp", "offset": "32" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "48" },
     { "op": "ret" },
     { "op": "label", "name": "runtime_call_ok_0" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "48" },
     { "op": "ret" }
     ],
@@ -259,7 +259,7 @@
     "name": "runtime.arena_alloc",
     "symbol": "_mfb_arena_alloc",
     "returns": "Pointer",
-    "frame": { "stackSize": 384, "calleeSaved": ["x20", "x30"] },
+    "frame": { "stackSize": 384, "calleeSaved": ["x20", "lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -291,7 +291,7 @@
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "384" },
     { "op": "str_u64", "src": "x20", "base": "sp", "offset": "0" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "8" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "8" },
     { "op": "cmp_imm", "lhs": "x1", "rhs": "0" },
     { "op": "b.eq", "target": "arena_alloc_invalid" },
     { "op": "sub_imm", "dst": "x8", "src": "x1", "imm": "1" },
@@ -423,7 +423,7 @@
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_insert_free" },
     { "op": "label", "name": "arena_alloc_dv_cleared" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "1136" },
+    { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "1136" },
     { "op": "label", "name": "arena_alloc_dv_scan" },
     { "op": "add_imm", "dst": "x8", "src": "x19", "imm": "96" },
     { "op": "ldr_u64", "dst": "x9", "base": "sp", "offset": "16" },
@@ -686,7 +686,7 @@
     { "op": "ldr_u64", "dst": "x9", "base": "x8", "offset": "104" },
     { "op": "str_u64", "src": "x9", "base": "sp", "offset": "320" },
     { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "304" },
-    { "op": "str_u64", "src": "x31", "base": "x8", "offset": "104" },
+    { "op": "str_u64", "src": "xzr", "base": "x8", "offset": "104" },
     { "op": "label", "name": "arena_alloc_flush_chain" },
     { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "320" },
     { "op": "cmp_imm", "lhs": "x8", "rhs": "0" },
@@ -814,7 +814,7 @@
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "352" },
     { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "352" },
     { "op": "str_u64", "src": "x8", "base": "x0", "offset": "16" },
-    { "op": "str_u64", "src": "x31", "base": "x0", "offset": "24" },
+    { "op": "str_u64", "src": "xzr", "base": "x0", "offset": "24" },
     { "op": "str_u64", "src": "x0", "base": "x19", "offset": "0" },
     { "op": "add_imm", "dst": "x8", "src": "x0", "imm": "32" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "368" },
@@ -873,7 +873,7 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "77010001" },
     { "op": "mov_imm", "dst": "x1", "type": "Integer", "value": "0" },
     { "op": "label", "name": "arena_alloc_ret" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "384" },
     { "op": "ret" }
@@ -886,7 +886,7 @@
     "name": "runtime.build_error_loc",
     "symbol": "_mfb_build_error_loc",
     "returns": "Pointer",
-    "frame": { "stackSize": 80, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 80, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -898,7 +898,7 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "80" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "mov", "dst": "x8", "src": "x0" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
     { "op": "mov", "dst": "x8", "src": "x1" },
@@ -949,7 +949,7 @@
     { "op": "label", "name": "build_error_loc_copy_done" },
     { "op": "mov", "dst": "x0", "src": "x1" },
     { "op": "label", "name": "build_error_loc_ret" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "80" },
     { "op": "ret" }
     ],
@@ -961,7 +961,7 @@
     "name": "runtime.make_error_result",
     "symbol": "_mfb_make_error_result",
     "returns": "Pointer",
-    "frame": { "stackSize": 48, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 48, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -971,7 +971,7 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "48" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "mov", "dst": "x8", "src": "x3" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
     { "op": "mov", "dst": "x8", "src": "x4" },
@@ -983,7 +983,7 @@
     { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "32" },
     { "op": "mov", "dst": "x2", "src": "x8" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "48" },
     { "op": "ret" }
     ],
@@ -995,7 +995,7 @@
     "name": "runtime.simd_alloc_list",
     "symbol": "_mfb_simd_alloc_list",
     "returns": "Pointer",
-    "frame": { "stackSize": 48, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 48, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -1005,7 +1005,7 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "48" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "mov", "dst": "x8", "src": "x0" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
     { "op": "mov", "dst": "x8", "src": "x1" },
@@ -1058,7 +1058,7 @@
     { "op": "mov", "dst": "x0", "src": "x8" },
     { "op": "mov_imm", "dst": "x1", "type": "Integer", "value": "0" },
     { "op": "label", "name": "simd_alloc_ret" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "48" },
     { "op": "ret" }
     ],
@@ -1133,7 +1133,7 @@
     { "op": "label", "name": "insert_finish_no_next" },
     { "op": "cmp_imm", "lhs": "x10", "rhs": "0" },
     { "op": "b.ne", "target": "insert_done" },
-    { "op": "str_u64", "src": "x31", "base": "x0", "offset": "0" },
+    { "op": "str_u64", "src": "xzr", "base": "x0", "offset": "0" },
     { "op": "str_u64", "src": "x1", "base": "x0", "offset": "8" },
     { "op": "b", "target": "insert_link_prev" },
     { "op": "label", "name": "insert_link_prev" },
@@ -1155,7 +1155,7 @@
     "name": "runtime.arena_free",
     "symbol": "_mfb_arena_free",
     "returns": "Nothing",
-    "frame": { "stackSize": 16, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 16, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -1163,7 +1163,7 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "16" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "mov", "dst": "x8", "src": "x0" },
     { "op": "cmp_imm", "lhs": "x1", "rhs": "0" },
     { "op": "b.ne", "target": "arena_free_size_nonzero" },
@@ -1199,7 +1199,7 @@
     { "op": "sub_imm", "dst": "x1", "src": "x10", "imm": "16" },
     { "op": "bl", "target": "_mfb_arena_fill_random" },
     { "op": "label", "name": "arena_free_done" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" }
     ],
@@ -1364,12 +1364,12 @@
     { "op": "mov", "dst": "x20", "src": "x21" },
     { "op": "b", "target": "arena_destroy_loop" },
     { "op": "label", "name": "arena_destroy_done" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "0" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "48" },
+    { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "0" },
+    { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "48" },
     { "op": "add_imm", "dst": "x8", "src": "x19", "imm": "104" },
     { "op": "add_imm", "dst": "x9", "src": "x19", "imm": "1680" },
     { "op": "label", "name": "arena_destroy_bins" },
-    { "op": "str_u64", "src": "x31", "base": "x8", "offset": "0" },
+    { "op": "str_u64", "src": "xzr", "base": "x8", "offset": "0" },
     { "op": "add_imm", "dst": "x8", "src": "x8", "imm": "8" },
     { "op": "cmp", "lhs": "x8", "rhs": "x9" },
     { "op": "b.lo", "target": "arena_destroy_bins" },
@@ -1385,7 +1385,7 @@
     "name": "runtime.io.stdout_drain",
     "symbol": "_mfb_rt_io_stdout_drain",
     "returns": "Integer",
-    "frame": { "stackSize": 32, "calleeSaved": ["x20", "x21", "x30"] },
+    "frame": { "stackSize": 32, "calleeSaved": ["x20", "x21", "lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -1395,7 +1395,7 @@
     { "op": "sub_sp", "imm": "32" },
     { "op": "str_u64", "src": "x20", "base": "sp", "offset": "0" },
     { "op": "str_u64", "src": "x21", "base": "sp", "offset": "8" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "16" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x8", "base": "x19", "offset": "1160" },
     { "op": "cmp_imm", "lhs": "x8", "rhs": "0" },
     { "op": "b.eq", "target": "_mfb_rt_io_stdout_drain_ok" },
@@ -1418,17 +1418,17 @@
     { "op": "sub", "dst": "x20", "lhs": "x20", "rhs": "x8" },
     { "op": "cmp_imm", "lhs": "x20", "rhs": "0" },
     { "op": "b.ne", "target": "_mfb_rt_io_stdout_drain_loop" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "1152" },
+    { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "1152" },
     { "op": "label", "name": "_mfb_rt_io_stdout_drain_ok" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "16" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x21", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" },
     { "op": "label", "name": "_mfb_rt_io_stdout_drain_err" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "16" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x21", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
@@ -1442,7 +1442,7 @@
     "name": "runtime.shutdown",
     "symbol": "_mfb_shutdown",
     "returns": "Nothing",
-    "frame": { "stackSize": 32, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 32, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -1451,13 +1451,13 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "32" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "mov", "dst": "x8", "src": "x19" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
     { "op": "adrp", "dst": "x8", "symbol": "_mfb_rt_main_arena" },
     { "op": "add_pageoff", "dst": "x8", "src": "x8", "symbol": "_mfb_rt_main_arena" },
     { "op": "ldr_u64", "dst": "x9", "base": "x8", "offset": "0" },
-    { "op": "str_u64", "src": "x31", "base": "x8", "offset": "0" },
+    { "op": "str_u64", "src": "xzr", "base": "x8", "offset": "0" },
     { "op": "cmp_imm", "lhs": "x9", "rhs": "0" },
     { "op": "b.eq", "target": "shutdown_done" },
     { "op": "mov", "dst": "x19", "src": "x9" },
@@ -1466,7 +1466,7 @@
     { "op": "label", "name": "shutdown_done" },
     { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "16" },
     { "op": "mov", "dst": "x19", "src": "x8" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" }
     ],
@@ -1481,7 +1481,7 @@
     "name": "runtime.signal_handler",
     "symbol": "_mfb_rt_signal_handler",
     "returns": "Nothing",
-    "frame": { "stackSize": 32, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 32, "calleeSaved": ["lr"] },
     "params": [
     ],
     "stackSlots": [
@@ -1490,7 +1490,7 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "32" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "mov", "dst": "x8", "src": "x0" },
     { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
     { "op": "bl", "target": "_mfb_shutdown" },
@@ -1498,7 +1498,7 @@
     { "op": "add_imm", "dst": "x0", "src": "x8", "imm": "128" },
     { "op": "bl", "target": "_exit" },
     { "op": "branch_self" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" }
     ],
@@ -1511,7 +1511,7 @@
     "name": "runtime.io.print",
     "symbol": "_mfb_rt_io_io_print",
     "returns": "Nothing",
-    "frame": { "stackSize": 256, "calleeSaved": ["x20", "x21", "x30"] },
+    "frame": { "stackSize": 256, "calleeSaved": ["x20", "x21", "lr"] },
     "params": [
     { "name": "value", "type": "String", "location": "x0" }
     ],
@@ -1535,7 +1535,7 @@
     { "op": "sub_sp", "imm": "256" },
     { "op": "str_u64", "src": "x20", "base": "sp", "offset": "0" },
     { "op": "str_u64", "src": "x21", "base": "sp", "offset": "8" },
-    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "16" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x8", "base": "x19", "offset": "1160" },
     { "op": "cmp_imm", "lhs": "x8", "rhs": "0" },
     { "op": "b.eq", "target": "_mfb_rt_io_io_print_direct" },
@@ -1910,7 +1910,7 @@
     { "op": "adrp", "dst": "x2", "symbol": "_mfb_str_error_output" },
     { "op": "add_pageoff", "dst": "x2", "src": "x2", "symbol": "_mfb_str_error_output" },
     { "op": "label", "name": "_mfb_rt_io_io_print_done" },
-    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "16" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x21", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "256" },

@@ -362,7 +362,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64("x0", out_data, 0));
                 self.emit(abi::branch(&stored));
                 self.emit(abi::label(&negate));
-                self.emit(abi::subtract_registers("x0", "xzr", "x0"));
+                self.emit(abi::subtract_registers("x0", abi::ZERO, "x0"));
                 self.emit(abi::store_u64("x0", out_data, 0));
                 self.emit(abi::label(&stored));
             }

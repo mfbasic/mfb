@@ -303,8 +303,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&vx, "0"));
         self.emit(abi::branch_gt(&x_positive));
         // x < 0: reflect through the origin and add +/- pi.
-        self.emit(abi::subtract_registers(&vx, "xzr", &vx));
-        self.emit(abi::subtract_registers(&vy, "xzr", &vy));
+        self.emit(abi::subtract_registers(&vx, abi::ZERO, &vx));
+        self.emit(abi::subtract_registers(&vy, abi::ZERO, &vy));
         self.emit(abi::compare_immediate(&vy, "0"));
         // vy here is already negated; the offset sign depends on the original y.
         // original y >= 0  <=>  negated vy <= 0.
@@ -417,16 +417,16 @@ impl CodeBuilder<'_> {
         // q1: sin = cosr, cos = -sinr.
         self.emit(abi::label(&q1));
         self.emit(abi::move_register(&sin_out, &cosr));
-        self.emit(abi::subtract_registers(&cos_out, "xzr", &sinr));
+        self.emit(abi::subtract_registers(&cos_out, abi::ZERO, &sinr));
         self.emit(abi::branch(&done));
         // q2: sin = -sinr, cos = -cosr.
         self.emit(abi::label(&q2));
-        self.emit(abi::subtract_registers(&sin_out, "xzr", &sinr));
-        self.emit(abi::subtract_registers(&cos_out, "xzr", &cosr));
+        self.emit(abi::subtract_registers(&sin_out, abi::ZERO, &sinr));
+        self.emit(abi::subtract_registers(&cos_out, abi::ZERO, &cosr));
         self.emit(abi::branch(&done));
         // q3: sin = -cosr, cos = sinr.
         self.emit(abi::label(&q3));
-        self.emit(abi::subtract_registers(&sin_out, "xzr", &cosr));
+        self.emit(abi::subtract_registers(&sin_out, abi::ZERO, &cosr));
         self.emit(abi::move_register(&cos_out, &sinr));
         self.emit(abi::label(&done));
         Ok((sin_out, cos_out))
@@ -483,7 +483,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&domain_error));
         self.emit(abi::label(&in_domain_upper));
         let neg_one = self.allocate_register()?;
-        self.emit(abi::subtract_registers(&neg_one, "xzr", &one));
+        self.emit(abi::subtract_registers(&neg_one, abi::ZERO, &one));
         self.emit(abi::compare_registers(&x, &neg_one));
         self.emit(abi::branch_ge(&checked));
         self.emit(abi::label(&domain_error));
@@ -597,7 +597,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&finish));
         // n < 0: halve `-n` times (arithmetic shift; value is non-negative).
         self.emit(abi::label(&negative));
-        self.emit(abi::subtract_registers(&count, "xzr", n));
+        self.emit(abi::subtract_registers(&count, abi::ZERO, n));
         self.emit(abi::label(&down_loop));
         self.emit(abi::compare_immediate(&count, "0"));
         self.emit(abi::branch_eq(&down_done));

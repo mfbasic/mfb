@@ -140,7 +140,7 @@ pub(super) fn lower_fs_create_temp_file_helper(
         ]);
     }
     instructions.extend([
-        abi::store_u8("x31", &cursor, 0),
+        abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &path),
         abi::move_immediate("x1", "Integer", temp_file_open_flags(platform.target())),
         abi::move_immediate("x2", "Integer", "384"),
@@ -188,18 +188,18 @@ pub(super) fn lower_fs_create_temp_file_helper(
         abi::branch(&alloc_error),
         abi::label(&file_alloc_ok),
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
-        abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_AT_EOF),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -463,7 +463,7 @@ pub(super) fn lower_fs_atomic_write_helper(
         ]);
     }
     instructions.extend([
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::add_immediate(abi::return_register(), &temp_path, 8),
         abi::move_immediate("x1", "Integer", &MKTEMPS_SUFFIX_LEN.to_string()),
     ]);
@@ -582,7 +582,7 @@ pub(super) fn lower_fs_atomic_write_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&c_temp_loop),
         abi::label(&c_temp_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64(&plen, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_final),
@@ -597,7 +597,7 @@ pub(super) fn lower_fs_atomic_write_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&c_final_loop),
         abi::label(&c_final_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_temp),
         abi::move_register("x1", &c_final),
     ]);
@@ -820,7 +820,7 @@ pub(super) fn lower_fs_write_text_path_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate("x1", "Integer", mode_flags),
         abi::move_immediate("x2", "Integer", "438"),
@@ -1037,7 +1037,7 @@ pub(super) fn lower_fs_read_text_path_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate("x1", "Integer", flags.read),
         abi::move_immediate("x2", "Integer", "0"),
@@ -1127,7 +1127,7 @@ pub(super) fn lower_fs_read_text_path_helper(
         abi::subtract_registers(&remaining, &remaining, abi::return_register()),
         abi::branch(&read_loop),
         abi::label(&read_done),
-        abi::store_u8("x31", &cursor, 0),
+        abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &fd),
     ]);
     platform.emit_close_file(
@@ -1302,7 +1302,7 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate("x1", "Integer", mode_flags),
         abi::move_immediate("x2", "Integer", "438"),
@@ -1517,7 +1517,7 @@ pub(super) fn lower_fs_read_bytes_path_helper(
         abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", &dst, 0),
+        abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate("x1", "Integer", flags.read),
         abi::move_immediate("x2", "Integer", "0"),
@@ -1563,18 +1563,18 @@ pub(super) fn lower_fs_read_bytes_path_helper(
         abi::branch(&alloc_error),
         abi::label(&file_alloc_ok),
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
-        abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
-        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL),
-        abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, "x1", FILE_OFFSET_READ_AT_EOF),
         abi::move_register(abi::return_register(), "x1"),
         abi::branch_link("_mfb_rt_fs_fs_readAllBytes"),
     ]);

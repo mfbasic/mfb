@@ -461,7 +461,7 @@ fn zero_guarded(
         abi::label(&loop_l),
         abi::compare_registers("%v11", "%v10"),
         abi::branch_eq(&end_l),
-        abi::store_u8("x31", "%v9", 0),
+        abi::store_u8(abi::ZERO, "%v9", 0),
         abi::add_immediate("%v9", "%v9", 1),
         abi::add_immediate("%v11", "%v11", 1),
         abi::branch(&loop_l),
@@ -536,9 +536,9 @@ fn generate(
     // Zero the pkey/eckey/scratch slots so the error-exit cleanup can null-guard
     // each free/wipe (the frame is not zero-initialised) — bug-55.
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), PKEY),
-        abi::store_u64("x31", abi::stack_pointer(), ECKEY),
-        abi::store_u64("x31", abi::stack_pointer(), SEC1PTR),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PKEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), ECKEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SEC1PTR),
     ]);
 
     dlopen_libcrypto(
@@ -652,7 +652,7 @@ fn generate(
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&gen_fail),
-        abi::store_u64("x31", abi::stack_pointer(), ECKEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), ECKEY),
     ]);
 
     ins.push(abi::label(&have_pkey));
@@ -935,10 +935,10 @@ fn sign(
     // Zero the pkey/md-ctx and key-scratch slots so the error-exit cleanup can
     // null-guard each free/wipe (the frame is not zero-initialised) — bug-55.
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), PKEY),
-        abi::store_u64("x31", abi::stack_pointer(), MDCTX),
-        abi::store_u64("x31", abi::stack_pointer(), PRIVBUF),
-        abi::store_u64("x31", abi::stack_pointer(), DERBUF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PKEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), MDCTX),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PRIVBUF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DERBUF),
     ]);
     emit_read_byte_list(
         symbol,
@@ -1342,8 +1342,8 @@ fn verify(
     // Zero the pkey/md-ctx slots so the error-exit cleanup can null-guard each
     // free (the frame is not zero-initialised) — bug-55.
     ins.extend([
-        abi::store_u64("x31", abi::stack_pointer(), PKEY),
-        abi::store_u64("x31", abi::stack_pointer(), MDCTX),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PKEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), MDCTX),
     ]);
     emit_read_byte_list(
         symbol,

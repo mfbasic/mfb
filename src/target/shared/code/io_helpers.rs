@@ -72,7 +72,7 @@ pub(super) fn lower_stdout_drain(
         abi::subtract_registers("%v1", "%v1", "%v3"),
         abi::compare_immediate("%v1", "0"),
         abi::branch_ne(&drain_loop),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
+        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::label(&ok),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::return_(),
@@ -577,7 +577,7 @@ pub(super) fn lower_io_set_buffered_helper(
         ]);
         relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
         instructions.extend([
-            abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
             abi::branch(&done),
             abi::label(&enable),
             abi::move_immediate("%v0", "Integer", "1"),
@@ -710,7 +710,7 @@ fn emit_configure_stdin_terminal(
 ) -> Result<(), String> {
     let skip = format!("{symbol}_terminal_mode_skip");
     instructions.extend([
-        abi::store_u64("x31", abi::stack_pointer(), slots.active),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.active),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
     ]);
     platform.emit_libc_call(
@@ -783,7 +783,7 @@ fn emit_configure_stdin_terminal(
                 cc_offset + platform.termios_vmin_index(),
             ),
             abi::store_u8(
-                "x31",
+                abi::ZERO,
                 abi::stack_pointer(),
                 cc_offset + platform.termios_vtime_index(),
             ),
@@ -1337,7 +1337,7 @@ pub(super) fn lower_io_read_char_helper(
         abi::subtract_immediate("%v10", "%v10", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "%v11", 0),
+        abi::store_u8(abi::ZERO, "%v11", 0),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1539,7 +1539,7 @@ pub(super) fn lower_io_read_line_helper(
         abi::store_u64("x1", abi::stack_pointer(), BUFFER_OFFSET),
         abi::move_immediate("%v10", "Integer", "32"),
         abi::store_u64("%v10", abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::store_u64("x31", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH_OFFSET),
         abi::label(&read_loop),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET),
@@ -1867,7 +1867,7 @@ pub(super) fn lower_io_read_line_helper(
         abi::subtract_immediate("%v10", "%v10", 1),
         abi::branch(&result_copy_loop),
         abi::label(&result_copy_done),
-        abi::store_u8("x31", "%v11", 0),
+        abi::store_u8(abi::ZERO, "%v11", 0),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
