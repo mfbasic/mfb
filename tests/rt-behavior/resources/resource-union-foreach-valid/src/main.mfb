@@ -1,0 +1,23 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+FUNC main AS Integer
+  LET ns AS List OF Integer = [1]
+  FOR EACH n IN ns
+    RES s AS Stream = fs::createTempFile()
+    MATCH s
+      CASE File(f)
+        fs::writeAll(f, "union-data")
+        io::print("file")
+      CASE Socket(sock)
+        io::print("socket")
+    END MATCH
+  NEXT
+  RETURN 0
+END FUNC

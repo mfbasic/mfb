@@ -1,0 +1,72 @@
+{
+  "project": "resource_union_foreach_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Stream",
+      "line": 5,
+      "includes": [],
+      "variants": [
+      { "name": "File", "line": 6 },
+      { "name": "Socket", "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "ns", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, "line": 11 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "identifier", "value": "ns" },
+        "line": 12,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 13 },
+        {
+          "kind": "match",
+          "expression": { "kind": "identifier", "value": "s" },
+          "line": 14,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "File", "binding": "f" },
+            "guard": null,
+            "line": 15,
+            "body": [
+            { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "union-data" }] }, "line": 16 },
+            { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "file" }] }, "line": 17 }
+            ]
+          },
+          {
+            "pattern": { "kind": "union", "type": "Socket", "binding": "sock" },
+            "guard": null,
+            "line": 18,
+            "body": [
+            { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "socket" }] }, "line": 19 }
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

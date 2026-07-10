@@ -247,6 +247,7 @@ fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
             NirOp::While { body, .. }
             | NirOp::For { body, .. }
             | NirOp::DoUntil { body, .. }
+            | NirOp::ForEach { body, .. }
             | NirOp::Trap { body, .. } => {
                 collect_bind_types(body, types);
             }
@@ -1555,7 +1556,7 @@ struct LocalBinding {
 mod tests {
     use super::*;
     use crate::target::shared::nir::{
-        NirEntryPoint, NirFunction, NirModule, NirOp, NirSourceLoc, NirValue,
+        NirEntryPoint, NirFunction, NirModule, NirOp, NirSourceLoc, NirType, NirValue, NirVariant,
     };
 
     fn module(runtime_helpers: Vec<RuntimeHelper>) -> NirModule {
@@ -1606,5 +1607,97 @@ mod tests {
     fn rejects_undeclared_runtime_helper() {
         let err = validate_nir(&module(Vec::new())).expect_err("missing helper");
         assert_eq!(err, "NIR runtime call requires undeclared helper 'io'");
+    }
+
+    /// A resource-union bind nested inside a `FOR EACH` body drops by dispatching
+    /// to each variant's close op, so those close helpers must be counted as used.
+    /// bug-45: `collect_bind_types` skipped `NirOp::ForEach` bodies, so the union
+    /// bind went unseen and `validate_nir` wrongly rejected the declared `net`
+    /// helper as unused. Build the module directly so the collector is exercised
+    /// in isolation from the front end.
+    fn module_with_union_bind(body: Vec<NirOp>) -> NirModule {
+        NirModule {
+            target: "test-target".to_string(),
+            build_mode: crate::target::NativeBuildMode::Console,
+            project: "hello".to_string(),
+            entry: Some(NirEntryPoint {
+                name: "main".to_string(),
+                returns: "Integer".to_string(),
+                accepts_args: false,
+            }),
+            types: vec![NirType {
+                kind: "union".to_string(),
+                visibility: "public".to_string(),
+                name: "Stream".to_string(),
+                fields: Vec::new(),
+                includes: Vec::new(),
+                variants: vec![
+                    NirVariant {
+                        name: "File".to_string(),
+                        fields: Vec::new(),
+                    },
+                    NirVariant {
+                        name: "Socket".to_string(),
+                        fields: Vec::new(),
+                    },
+                ],
+                members: Vec::new(),
+            }],
+            globals: Vec::new(),
+            imports: Vec::new(),
+            // `File` closes via `fs`, `Socket` via `net`; both are declared so the
+            // cross-check must find both in `used_helpers`.
+            runtime_helpers: vec![RuntimeHelper::Fs, RuntimeHelper::Net],
+            functions: vec![NirFunction {
+                name: "main".to_string(),
+                visibility: "private".to_string(),
+                kind: "func".to_string(),
+                isolated: false,
+                params: Vec::new(),
+                returns: "Integer".to_string(),
+                body,
+                file: "src/main.mfb".to_string(),
+                resource_owners: std::collections::HashMap::new(),
+            }],
+            link_functions: Vec::new(),
+        }
+    }
+
+    fn union_bind() -> NirOp {
+        NirOp::Bind {
+            mutable: false,
+            name: "s".to_string(),
+            type_: "Stream".to_string(),
+            value: None,
+        }
+    }
+
+    fn integer_list() -> NirValue {
+        NirValue::ListLiteral {
+            type_: "List OF Integer".to_string(),
+            values: vec![NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "1".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn collects_resource_union_bind_inside_for_each() {
+        let module = module_with_union_bind(vec![NirOp::ForEach {
+            name: "n".to_string(),
+            type_: "Integer".to_string(),
+            iterable: integer_list(),
+            body: vec![union_bind()],
+        }]);
+        validate_nir(&module).expect("resource-union bind inside FOR EACH must validate");
+    }
+
+    #[test]
+    fn collects_resource_union_bind_at_top_level() {
+        // The contrast case the bug doc names: the same bind at function scope has
+        // always been collected. Guards that the ForEach fix did not change it.
+        let module = module_with_union_bind(vec![union_bind()]);
+        validate_nir(&module).expect("resource-union bind at top level must validate");
     }
 }
