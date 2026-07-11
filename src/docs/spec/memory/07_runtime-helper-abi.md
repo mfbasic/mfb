@@ -57,12 +57,11 @@ RuntimeAbiParam
   location : &str                 ; the register the argument arrives in
 ```
 
-Each `RuntimeAbiParam.location` names the exact general-purpose register the
-argument is passed in, drawn from the standard argument registers `x0..x7`
-strictly by position (the native calling convention — see
-`./mfb spec memory native-calling-convention`). Single-argument helpers commonly
-record `location = RETURN_REGISTER` (i.e. `x0`); multi-argument helpers spell out
-`x0`, `x1`, … explicitly. There are no stack arguments. [[src/target/shared/runtime/mod.rs:RuntimeAbiParam]] [[src/arch/aarch64/abi.rs:RETURN_REGISTER]]
+Each `RuntimeAbiParam.location` names the argument-bank role token the argument
+is passed in — `%arg0..%arg7`, strictly by position. Each target realizes the
+token onto its physical argument register (AArch64 `x0..x7`; the native calling
+convention — see `./mfb spec memory native-calling-convention`). There are no
+stack arguments. [[src/target/shared/runtime/mod.rs:RuntimeAbiParam]] [[src/target/shared/abi.rs:ARG]]
 
 ### Worked example: `io.print`
 
@@ -70,12 +69,12 @@ record `location = RETURN_REGISTER` (i.e. `x0`); multi-argument helpers spell ou
 
 ```text
 symbol   _mfb_rt_io_io_print
-param    value : String  in x0     ; (RETURN_REGISTER)
+param    value : String  in %arg0  ; realized to x0 on AArch64
 returns  Nothing
 clobbers x0, x1, x2, x9, x16
 ```
 
-The clobber set is the shared constant `IO_PRINT_CLOBBERS`: [[src/arch/aarch64/abi.rs:IO_PRINT_CLOBBERS]]
+The clobber set is the shared constant `IO_PRINT_CLOBBERS`: [[src/target/shared/abi.rs:IO_PRINT_CLOBBERS]]
 
 ```text
 IO_PRINT_CLOBBERS = [ x0, x1, x2, x9, x16 ]
@@ -91,22 +90,22 @@ widen its clobber set without changing the dispatch path. [[src/target/shared/ru
 ## Return Convention
 
 Every gated runtime helper returns through the **four-register fallible result
-form** — tag in `x0`, value in `x1`, error message in `x2`, error source in `x3`
-— regardless of whether the helper can actually fail. That ABI (the three tags
-and the four register roles) is owned by `./mfb spec memory fallible-call-abi`.
-The dispatch site (`emit_runtime_helper_call`) always compares `x0` against
-`RESULT_OK_TAG` and, on a non-OK tag, stamps the call-site origin and propagates;
-on the OK tag it reads the result value from `x1` (`RESULT_VALUE_REGISTER`). [[src/target/shared/code/builder_emit_helpers.rs:emit_runtime_helper_call]]
+form** — tag in `%ret0`, value in `%ret1`, error message in `%ret2`, error
+source in `%ret3` (AArch64 `x0..x3`) — regardless of whether the helper can
+actually fail. That ABI (the three tags and the four register roles) is owned
+by `./mfb spec memory fallible-call-abi`. The dispatch site always compares the
+tag in `%ret0` against the OK tag and, on a non-OK tag, stamps the call-site
+origin and propagates; on the OK tag it reads the result value from `%ret1`. [[src/target/shared/code/builder_emit_helpers.rs:emit_runtime_helper_call]] [[src/target/shared/code/error_constants.rs:RESULT_VALUE_REGISTER]]
 
-A helper that **cannot fail** therefore does not return its value bare in `x0` in
-the way an ordinary infallible callable does (see
+A helper that **cannot fail** therefore does not return its value bare in
+`%ret0` in the way an ordinary infallible callable does (see
 `./mfb spec memory native-calling-convention`); instead it sets the OK tag in
-`x0` and places its value in `x1`. `datetime.nowNanos` and
+`%ret0` and places its value in `%ret1`. `datetime.nowNanos` and
 `datetime.monotonicNanos` are the canonical infallible-but-result-form helpers:
 each returns an `Integer` with the OK tag set. [[src/target/shared/runtime/datetime_specs.rs:DATETIME_NOW_NANOS_SPEC]] `datetime.localOffset` uses the same
 result form but *can* fail: it raises `ErrInvalidArgument` (setting the ERR tag)
 when `localtime_r` cannot break the instant down into calendar fields, so it must
-never be read as a bare `x0` result either. A helper whose `returns` is `Nothing`
+never be read as a bare `%ret0` result either. A helper whose `returns` is `Nothing`
 yields no value register; only the tag (and, on error, the message/source) is
 meaningful.
 

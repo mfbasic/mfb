@@ -329,8 +329,8 @@ core:
   scratch registers, and the per-class spill/reload emitters. FP spills are
   128-bit `str q`/`ldr q` into 16-byte slots — an FP virtual register can carry a
   SIMD vector (the `math::` kernels' working file), and a 64-bit `str d` would
-  drop its high lane. AArch64 implements it now; an x86_64 sibling implements
-  the same trait later.[[src/arch/aarch64/regmodel.rs:RegisterModel]]
+  drop its high lane. All three ISAs — AArch64, x86-64, and RISC-V 64 —
+  implement the trait.[[src/target/shared/regmodel.rs:RegisterModel]] [[src/arch/aarch64/regmodel.rs:Aarch64RegisterModel]]
 
 The allocation method is a swappable `AllocationStrategy`, selected by the
 `-regalloc <name>` build flag. The default, `linear-scan`, computes liveness over

@@ -53,7 +53,7 @@ The cross term `MULT_HI * hi` is dropped because it contributes only to bits
 ≥128 and the state is truncated to 128 bits. The step reads `(lo, hi)` at entry
 and rewrites them in place; `x11`–`x16` are scratch (caller-saved). The aarch64
 encoders are `mul`, `umulh`, `adds`, `adc`.
-[[src/arch/aarch64/abi.rs:unsigned_multiply_high_registers]]
+[[src/target/shared/abi.rs:unsigned_multiply_high_registers]]
 
 ## Output function (XSL-RR 128/64)
 
@@ -70,7 +70,7 @@ out := rorv(xsl, rot)           ; rotate-right by rot (low 6 bits of rot used)
 `rorv` rotates by the low 6 bits of its count operand, which exactly matches the
 6-bit `rot` value. The advance-then-output order means the value returned for a
 call reflects the *post-step* state; the pre-seed/initial state is never
-emitted. [[src/arch/aarch64/abi.rs:rotate_right_registers]]
+emitted. [[src/target/shared/abi.rs:rotate_right_registers]]
 
 `_mfb_rng_next` loads the state from the calling thread's arena (`x19`, offsets
 88/96), runs `emit_pcg_step`, stores the advanced state back, and returns the

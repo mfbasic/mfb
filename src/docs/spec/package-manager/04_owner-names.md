@@ -109,7 +109,7 @@ a request is sent and again on the server before it touches the store.
 | `store::register_owner` | server-side insert of the owner + auth key |
 | `store::create_challenge` | server-side challenge issuance |
 
-[[repository/src/client.rs:register]] [[repository/src/client.rs:auth]] [[repository/src/client.rs:signing_info]] [[repository/src/client.rs:validate_package]] [[repository/src/client.rs:publish_package]] [[repository/src/store.rs:register_owner]] [[repository/src/store.rs:create_challenge]]
+[[repository/src/client.rs:register]] [[repository/src/client.rs:auth]] [[repository/src/client.rs:request_attestation]] [[repository/src/client.rs:validate_package]] [[repository/src/client.rs:publish_package]] [[repository/src/store.rs:register_owner]] [[repository/src/store.rs:create_challenge]]
 
 The owner name is also baked into the proof-of-possession message signed at
 registration, so the name a client validated is cryptographically bound to the

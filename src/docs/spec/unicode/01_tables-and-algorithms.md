@@ -130,15 +130,13 @@ canonical ordering / composition and by grapheme segmentation.
 
 `sequences` is a `Vec<u16>` of UTF-16-style packed decomposition/composition
 data, addressed via a `seqindex` from a property record. The table's bytes are
-still embedded (`UNICODE_SEQUENCES_SYMBOL`), but **no codegen path decodes it**:
-case mapping and NFD use the flattened u32 mapping tables (below), and NFC
-recomposition uses the `combinations_*` tables. The former
-`emit_utf8proc_sequence_init` / `emit_utf8proc_sequence_decode_next` seqindex
-decoders had no callers and were removed (bug-70); the raw `seqindex` encoding
-(low 14 bits = u16 offset; top 2 bits = length, `>= 3` meaning the real length
-is the in-band first u16; UTF-16 surrogate pairs recombine into a scalar
-`>= 0x10000`) is documented here for reference only.
-[[src/target/shared/code/data_objects.rs:UNICODE_SEQUENCES_SYMBOL]]
+embedded in every executable, but **no codegen path decodes it**: case mapping
+and NFD use the flattened u32 mapping tables (below), and NFC recomposition
+uses the `combinations_*` tables. The raw `seqindex` encoding (low 14 bits =
+u16 offset; top 2 bits = length, `>= 3` meaning the real length is the in-band
+first u16; UTF-16 surrogate pairs recombine into a scalar `>= 0x10000`) is
+documented here for reference only.
+[[src/target/shared/code/error_constants.rs:UNICODE_SEQUENCES_SYMBOL]] [[src/target/shared/code/data_objects.rs:unicode_runtime_data_objects]]
 
 ## Composition (combinations) tables
 

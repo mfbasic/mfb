@@ -3,9 +3,9 @@
 The `datetime::` package is a built-in source package: all calendar math,
 formatting, and parsing are written in MFBASIC as internal `__datetime_*`
 functions, and only the OS clock and the local-zone table are platform state.
-The Rust seam (`src/builtins/datetime.rs`) owns registration, syntaxcheck
-metadata, and the rewrite from each public `datetime::` call onto its internal
-implementation; the `.mfb` source owns the algorithm. This topic specifies the
+A compiler seam owns registration, syntaxcheck metadata, and the rewrite from
+each public `datetime::` call onto its internal implementation; the MFBASIC
+source owns the algorithm. [[src/builtins/datetime.rs:implementation_name]] This topic specifies the
 **model** — the record shapes, the civil-calendar math, the clock/zone seam, and
 the parse/format grammar. The per-function API surface is owned by
 `./mfb man datetime`.
@@ -35,9 +35,11 @@ The `Zone.kind` field stores the `ZoneKind` ordinal as a raw `Integer`.
 ### Canonical form and normalization
 
 An `Instant`/`Duration` is **canonical** when `nanos` is in
-`[0, 1_000_000_000)`. Every constructor and every arithmetic result is funnelled
-through `__datetime_normInstant` / `__datetime_normDuration`, which carry a raw
-`(seconds, nanos)` pair into canonical form. Because `/` truncates toward zero
+`[0, 1_000_000_000)`. Every constructor that can receive a non-canonical
+`nanos` (the two-argument and component forms) and every arithmetic result is
+funnelled through `__datetime_normInstant` / `__datetime_normDuration`, which
+carry a raw `(seconds, nanos)` pair into canonical form; the seconds-only
+constructors build the trivially canonical `[seconds, 0]` directly. Because `/` truncates toward zero
 and `MOD` takes the sign of the dividend, a negative `nanos` borrows one second:
 
 ```
@@ -55,9 +57,10 @@ each multiplying by `60 / 3600 / 86400` as appropriate. Arithmetic
 raw field pairs and re-normalizes; comparison (`compare`, `isBefore`, `isAfter`,
 `equals`) orders on `seconds` then `nanos`. [[src/builtins/datetime_package.mfb:__datetime_normInstant]]
 
-`fromMillis` / `toMillis` / `toNanos` convert against the epoch with the same
-borrow logic; `toMillis`/`toNanos` use checked `Integer` arithmetic, so a value
-outside the `Integer` range surfaces `ErrOverflow` (`77050010`).
+`fromMillis` converts against the epoch with the same borrow logic;
+`toMillis`/`toNanos` are a straight multiply-add on the already-canonical pair.
+Both use checked `Integer` arithmetic, so a value outside the `Integer` range
+surfaces `ErrOverflow` (`77050010`).
 [[src/builtins/datetime_package.mfb:__datetime_toMillis]]
 
 ## Monotonic vs wall clock
@@ -73,9 +76,9 @@ The model keeps the two clock kinds in distinct types so they cannot be mixed:
   adjustments, but its zero point is meaningless across processes. Use
   *differences* of two `monotonic` readings to measure elapsed time.
 
-Both intrinsics return non-negative nanoseconds on any sane host, so the split
-into `(seconds, nanos)` is a plain truncating divide rather than the full
-borrowing normalization. [[src/builtins/datetime_package.mfb:__datetime_monotonic]]
+Both intrinsics return non-negative nanoseconds on any sane host, so the
+truncating-divide split into `(seconds, nanos)` still passes through the
+normalizers but their borrow branch is a no-op for non-negative input. [[src/builtins/datetime_package.mfb:__datetime_monotonic]]
 
 ## Portable civil-calendar math
 
@@ -132,8 +135,8 @@ portable.
 | `datetime::monotonicNanos()` | `() → Integer` | `clock_gettime(CLOCK_MONOTONIC)` → nanoseconds |
 | `datetime::localOffset(epochSeconds)` | `(Integer) → Integer` | `localtime_r(&t, &tm)` → `tm.tm_gmtoff` |
 
-These three are excluded from the public-call rewrite (`implementation_name`
-returns `None`); they lower to runtime helpers
+These three are excluded from the public-call rewrite; they lower to runtime
+helpers
 (`_mfb_rt_datetime_datetime_*`) rather than to `__datetime_*` MFBASIC code.
 `nowNanos` and `monotonicNanos` take no failure path — each returns an `Integer`
 with the OK tag set. `localOffset` uses the same result form but can fail (see
@@ -250,16 +253,16 @@ Field-read rules:
   fields are resolved through the supplied `zone` (default UTC) via `civil`.
 
 `parseIso(value)` is a dedicated, hand-rolled scanner for
-`YYYY-MM-DD(T| )HH:MM:SS[.frac][offset]`: a `.`-fractional part of any length is
-read then scaled (extra digits beyond 9 are skipped), and a trailing offset
-(`Z`/`±HH:MM`/`±HHMM`) is required. It always yields a fixed-offset `DateTime`.
+`YYYY-MM-DD(T|t| )HH:MM:SS[.frac][offset]`: a `.`-fractional part of any length
+is read then scaled (extra digits beyond 9 are skipped), and a trailing offset
+(`Z`/`z`/`±HH:MM`/`±HHMM`) is required. It always yields a fixed-offset `DateTime`.
 [[src/builtins/datetime_package.mfb:__datetime_parseIso]]
 
 ## Validation
 
 `date(y, m, d)` rejects `month` outside `1..12` and `day` outside
-`1..daysInMonth`; `time(h, mi, s, ns)` rejects `hour` > 23, `minute`/`second`
-> 59, `nanos` > 999_999_999. All raise `ErrInvalidArgument` (`77050002`). Note
+`1..daysInMonth`; `time(h, mi, s, ns)` rejects `hour` outside `0..23`,
+`minute`/`second` outside `0..59`, `nanos` outside `0..999_999_999`. All raise `ErrInvalidArgument` (`77050002`). Note
 that the bare `Instant`/`Time`/`Date` *record literals* used internally by the
 projection helpers do **not** re-validate — validation lives in the named
 constructors. [[src/builtins/datetime_package.mfb:__datetime_date]]

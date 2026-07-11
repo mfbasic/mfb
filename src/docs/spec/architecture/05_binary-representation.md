@@ -94,12 +94,12 @@ MFP container format and the inner MFPC binary-representation format version
 separately. The exact container header byte fields are documented in
 `./mfb spec package container-format`.
 
-Signing is selectable. Without `--sign`, `write_package` calls
-`build_package_bytes`, which emits an unsigned container; with `--sign owner`,
-it calls `build_signed_package_bytes`, which signs the payload and emits an
-ed25519 header. The reader's `validate_signature_header` accepts both forms; the
-on-disk signature-header byte encoding is owned by
-`./mfb spec package container-format`.[[src/target/package_mfp/mod.rs:validate_signature_header]]
+Signing is selectable. Without `--sign`, the package writer emits an unsigned
+container (signature type 0, zero-length signature); with `--sign <owner>`, the
+same writer emits the ed25519-signed form, whose signature covers every header
+byte directly and the payload through the embedded payload hash. The reader
+accepts both forms; the on-disk signature-header byte encoding is owned by
+`./mfb spec package container-format`.[[src/target/package_mfp/mod.rs:build_package_bytes]] [[src/manifest/package.rs:read_mfp_header]]
 
 ## Error Source Locations
 

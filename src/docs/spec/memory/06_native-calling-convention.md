@@ -16,7 +16,7 @@ Arguments are assigned to positional slots strictly by position, regardless of
 type. The first eight (`REGISTER_ARGUMENT_COUNT`) go in `x0`, `x1`, … `x7`; every
 argument at index ≥ 8 goes on the **stack tail** — one 8-byte slot per argument,
 in ascending index order, laid out at `[sp+0..]` at the moment of the call
-(bug-08). [[src/arch/aarch64/abi.rs:argument_register]] The tail keeps the same one-slot-per-value model as the register
+(bug-08). [[src/target/shared/abi.rs:argument_register]] The tail keeps the same one-slot-per-value model as the register
 window: a `Float`/`Fixed` stack argument is its raw 8-byte bit pattern, exactly
 like an integer or pointer. There is no separate floating-point argument area and
 no struct-by-value classification — this is **not** AAPCS64/SysV stack passing.
@@ -49,7 +49,7 @@ The floating-point register file (`d0`, `d1`, …) holds `Float` values at
 FP-arithmetic sites. An operand's bits move out of its `x` register with `fmov d,
 x` (`fmov_d_from_x`), the `fadd`/`fmul`/etc. runs, and the result moves back into
 an `x` register with `fmov x, d` (`fmov_x_from_d`) for the finiteness check and
-the value model. [[src/arch/aarch64/abi.rs:float_move_d_from_x]] Under the linear-scan allocator, **chained float arithmetic
+the value model. [[src/target/shared/abi.rs:float_move_d_from_x]] Under the linear-scan allocator, **chained float arithmetic
 stays resident in `d`-registers** across operations (the FP register class,
 plan-03 Stage C): a parent float op reads its operand straight from the
 `d`-register the child op produced, skipping the GPR round-trip. At every memory
@@ -59,7 +59,7 @@ representation and the call ABI are unchanged.
 
 ## Result Passing
 
-An **infallible** callable returns its single value in `x0` (`RETURN_REGISTER`). [[src/arch/aarch64/abi.rs:return_register]]
+An **infallible** callable returns its single value in `x0` (`RETURN_REGISTER`). [[src/target/shared/abi.rs:return_register]]
 
 A **fallible** callable returns the four-register `{tag, value, message, source}`
 outcome in `x0..x3`. That ABI — tags, register roles, the absolute-pointer vs.
@@ -133,7 +133,7 @@ The reference strategy, **`bump`**, replays the legacy fixed numbering — the
 physical register (`8..17` → `x8..x17`; `18..26` → the callee-saved `x20..x28`,
 skipping the reserved `x18`/`x19`); allocation past `26` is a hard error. It is
 byte-identical to the pre-allocator backend and kept as the differential oracle
-(`-regalloc bump`). [[src/arch/aarch64/abi.rs:temporary_register]] [[src/target/shared/code/regalloc/mod.rs:BumpAndReset]]
+(`-regalloc bump`). [[src/target/shared/abi.rs:temporary_register]] [[src/target/shared/code/regalloc/mod.rs:BumpAndReset]]
 
 When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
 the frame finalizer saves and restores it. [[src/target/shared/code/builder_codegen_primitives.rs:mark_register_used]]
@@ -177,7 +177,7 @@ There is **no `x29` frame-pointer chain**. `finalize_frame` builds the frame onc
 the body is lowered: [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
 
 1. If the body contains **any** `bl`/`blr` and `x30` (the link register) is not
-   already in the callee-saved set, `x30` is added to it automatically. [[src/arch/aarch64/abi.rs:link_register]]
+   already in the callee-saved set, `x30` is added to it automatically. [[src/target/shared/abi.rs:link_register]]
 2. `save_size = callee_saved.len() * 8`; the frame reserves an **outgoing
    stack-argument tail** of `outgoing_bytes` at its very bottom (the widest call
    that passes more than eight arguments, 16-aligned; zero when no such call
@@ -213,7 +213,7 @@ return-address slot (8 on x86-64, 0 on AArch64). [[src/target/shared/code/codege
 
 The callee-saved set the convention preserves is **`x19..x28`**
 (`is_callee_saved`); `x0..x17` and `x30` are caller-saved (`x30` only auto-added
-to a function's save set when it makes calls, per step 1). [[src/arch/aarch64/abi.rs:is_callee_saved]]
+to a function's save set when it makes calls, per step 1). [[src/target/shared/abi.rs:is_callee_saved]]
 
 ## See Also
 
