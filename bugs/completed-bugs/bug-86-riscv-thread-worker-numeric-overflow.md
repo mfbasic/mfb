@@ -3,7 +3,32 @@
 **Status:** OPEN (pre-existing). Filed 2026-07-10. **Re-diagnosed 2026-07-11 — the
 original "riscv64-specific arithmetic miscompile" framing below is WRONG.**
 
-## Corrected root cause (2026-07-11)
+## RESOLUTION (2026-07-11): NOT A BUG — a test-environment artifact
+Definitively traced: the worker-error propagation path is **correct on every
+target**. A proper reproducer — `waitFor(failWithError) TRAP(e) { IF e.code =
+77050099 THEN RETURN 0 ELSE RETURN 1 }` — returns exit 0 (the TRAP catches the
+worker's *real* code 77050099), on host aarch64 and after reverting all
+speculative register-spill attempts.
+
+The apparent "spurious 77050010" is the **entry stub's exit-code range check**
+(`entry_exit_range_error` → `_mfb_str_error_overflow`, ERR_OVERFLOW 77050010):
+when a program's `main` returns a value > 255, the entry converts it to a range
+error. Both the original `func_thread_result_valid` symptom and the "re-diagnosis"
+below were misled by this: that test reads a file via the RELATIVE path
+`tests/rt-behavior/threads/func_thread_result_valid/data/input.txt`; run from
+`/tmp` (not the repo root) the file is missing, the worker errors, and the test's
+`RETURN err.code` returns the large file-error code as the process exit code,
+which the entry legitimately range-checks to 77050010. Run from the repo root the
+file exists and the test passes (exit 0, verified).
+
+There is no register clobber and no codegen defect. Closing as not-a-bug. (The
+speculative `emit_finalize_worker_error_source` register-spill fix was reverted —
+`emit_finalize` was already register-safe; it spills message/source to stack slots
+before the copies.)
+
+---
+
+## Corrected root cause (2026-07-11) — SUPERSEDED, was itself a misdiagnosis
 The bug is **cross-target**, not riscv-specific, and reproduces on the aarch64
 host too. The original report only saw a target difference because it ran the
 rv64 binary from `/tmp` (where the fixture's relative `data/input.txt` is missing)

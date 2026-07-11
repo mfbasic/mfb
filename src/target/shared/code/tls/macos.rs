@@ -79,12 +79,14 @@ const BLK_INVOKE: usize = 16;
 const BLK_DESC: usize = 24;
 pub(crate) const BLK_CAP: usize = 32;
 
-// The SNI-config block captures three plain pointers after the 32-byte
-// header: the server-name C string and the two resolved framework functions
-// its invoke calls. Total size 56 (see CFG_DESC_SYMBOL).
+// The SNI-config block captures four plain pointers after the 32-byte
+// header: the server-name C string, the two resolved framework functions its
+// invoke calls, and `nw_release` used to balance the `sec_protocol_options`
+// the copy fn returns (+1). Total size 64 (see CFG_DESC_SYMBOL).
 pub(crate) const CFG_CAP_SNAME: usize = 32;
 pub(crate) const CFG_CAP_COPYFN: usize = 40;
 pub(crate) const CFG_CAP_SETFN: usize = 48;
+pub(crate) const CFG_CAP_RELEASEFN: usize = 56;
 
 const SYMBOLS: &[&str] = &[
     "nw_endpoint_create_host",
@@ -162,11 +164,11 @@ pub(super) fn data_objects(server: bool) -> Vec<CodeDataObject> {
         CodeDataObject {
             symbol: CFG_DESC_SYMBOL.to_string(),
             kind: "raw".to_string(),
-            layout: "Block_descriptor { u64 reserved=0; u64 size=56 }".to_string(),
+            layout: "Block_descriptor { u64 reserved=0; u64 size=64 }".to_string(),
             align: 8,
             size: 16,
-            // reserved = 0, size = 56 (0x38), little-endian u64s
-            value: "00000000000000003800000000000000".to_string(),
+            // reserved = 0, size = 64 (0x40), little-endian u64s
+            value: "00000000000000004000000000000000".to_string(),
         },
     ];
     for name in SYMBOLS {
@@ -407,9 +409,9 @@ pub(super) fn lower_tls_connect_macos(
     const SNAME: usize = 176; // serverName String ptr (arg x3)
     const SNICSTR: usize = 184; // serverName as a C string
     const TLSCFG: usize = 192; // chosen configure-TLS block pointer
-    const CFGBLOCK: usize = 200; // 200..256: the SNI-config block literal
-    const TIMEOUT: usize = 256; // timeoutMs (arg x2)
-    const DEADLINE: usize = 264; // dispatch_time deadline for the wait
+    const CFGBLOCK: usize = 200; // 200..264: the SNI-config block literal
+    const TIMEOUT: usize = 264; // timeoutMs (arg x2)
+    const DEADLINE: usize = 272; // dispatch_time deadline for the wait
 
     let wait_loop = format!("{symbol}_wait");
     let ready = format!("{symbol}_ready");
@@ -602,6 +604,23 @@ pub(super) fn lower_tls_connect_macos(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETFN),
+    ]);
+    // nw_release: the invoke releases the +1 sec_protocol_options the copy fn
+    // returns, so each configured connection stops leaking one (bug-116).
+    dlsym(
+        symbol,
+        HANDLE,
+        "nw_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_RELEASEFN),
         // tlscfg = &block
         abi::add_immediate("%v9", abi::stack_pointer(), CFGBLOCK),
         abi::store_u64("%v9", abi::stack_pointer(), TLSCFG),
@@ -2035,10 +2054,10 @@ pub(super) fn lower_tls_listen_macos(
     const LISTENER: usize = 240;
     const QUEUE: usize = 248;
     const LCTX: usize = 256;
-    const CFGBLOCK: usize = 264; // 264..320: the identity-config block literal
-    const SBLOCK: usize = 320; // 320..360: state-changed block literal
-    const CBLOCK: usize = 360; // 360..400: new-connection block literal
-    const WAITFN: usize = 400;
+    const CFGBLOCK: usize = 264; // 264..328: the identity-config block literal
+    const SBLOCK: usize = 328; // 328..368: state-changed block literal
+    const CBLOCK: usize = 368; // 368..408: new-connection block literal
+    const WAITFN: usize = 408;
 
     let cert_fail = format!("{symbol}_cert_fail");
     let read_fail_fd = format!("{symbol}_read_fail_fd");
@@ -2272,6 +2291,23 @@ pub(super) fn lower_tls_listen_macos(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETFN),
+    ]);
+    // nw_release: the invoke releases the +1 sec_protocol_options the copy fn
+    // returns, so each listener stops leaking one (bug-116).
+    dlsym(
+        symbol,
+        NWH,
+        "nw_release",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_RELEASEFN),
     ]);
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(

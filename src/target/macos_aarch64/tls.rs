@@ -12,9 +12,9 @@
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::tls::macos::{
-    BLK_CAP, CFG_CAP_COPYFN, CFG_CAP_SETFN, CFG_CAP_SNAME, CFG_INVOKE, CTX_CONTENT, CTX_ERROR,
-    CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP,
-    LCTX_TAIL, RECV_INVOKE, SEND_INVOKE, STATE_INVOKE,
+    BLK_CAP, CFG_CAP_COPYFN, CFG_CAP_RELEASEFN, CFG_CAP_SETFN, CFG_CAP_SNAME, CFG_INVOKE,
+    CTX_CONTENT, CTX_ERROR, CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE, LCONN_INVOKE, LCTX_HEAD,
+    LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_INVOKE, SEND_INVOKE, STATE_INVOKE,
 };
 use crate::target::shared::code::{CodeFrame, CodeFunction};
 
@@ -110,23 +110,32 @@ fn recv_invoke_function() -> CodeFunction {
 fn cfg_invoke_function() -> CodeFunction {
     let instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(32),
+        abi::subtract_stack(48),
         abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
         abi::store_u64("x19", abi::stack_pointer(), 8),
         abi::store_u64("x20", abi::stack_pointer(), 16),
         // x0 = block, x1 = tls_options. Preserve server name + setter across
-        // the copy call (x0/x1 are clobbered by it).
+        // the copy call (x0/x1 are clobbered by it). The release fn is stashed
+        // to a stack slot now because the block pointer (x0) is clobbered too.
         abi::load_u64("x19", "x0", CFG_CAP_SNAME), // server name (cstr)
         abi::load_u64("x20", "x0", CFG_CAP_SETFN), // sec_protocol_options_set_tls_server_name
+        abi::load_u64("x9", "x0", CFG_CAP_RELEASEFN), // nw_release
+        abi::store_u64("x9", abi::stack_pointer(), 32),
         abi::load_u64("x9", "x0", CFG_CAP_COPYFN), // nw_tls_copy_sec_protocol_options
         abi::move_register("x0", "x1"),
-        abi::branch_link_register("x9"), // x0 = sec_options
+        abi::branch_link_register("x9"), // x0 = sec_options (+1)
+        abi::store_u64("x0", abi::stack_pointer(), 24), // survive the setter call
         abi::move_register("x1", "x19"),
         abi::branch_link_register("x20"), // set_tls_server_name(sec_options, name)
+        // Balance the copy fn's +1 retain: nw_release(sec_options). The setter
+        // is getter-style config and does not consume the ref (bug-116).
+        abi::load_u64("x0", abi::stack_pointer(), 24), // sec_options
+        abi::load_u64("x9", abi::stack_pointer(), 32),  // nw_release
+        abi::branch_link_register("x9"),
         abi::load_u64("x20", abi::stack_pointer(), 16),
         abi::load_u64("x19", abi::stack_pointer(), 8),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(32),
+        abi::add_stack(48),
         abi::return_(),
     ];
     CodeFunction {
@@ -134,7 +143,7 @@ fn cfg_invoke_function() -> CodeFunction {
         symbol: CFG_INVOKE.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
-        frame: frame(32),
+        frame: frame(48),
         stack_slots: Vec::new(),
         instructions,
         relocations: Vec::new(),

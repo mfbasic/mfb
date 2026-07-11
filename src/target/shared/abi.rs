@@ -1,6 +1,25 @@
 use crate::target::shared::code::CodeInstruction;
 
+/// The registers the io::print inline sequence itself writes. This is NOT the
+/// clobber set of a `bl _mfb_rt_*` runtime helper call — every such call destroys
+/// the entire caller-saved integer file `x0`–`x17` (and `v0`–`v7`) per this repo's
+/// register-lifetime rule (`.ai/compiler.md`). The runtime-spec `abi.clobbers`
+/// fields reuse this constant, but the only thing read off them today is
+/// `!is_empty()` (a "this helper clobbers something" gate in
+/// `runtime/validate.rs`); no code reads the individual register names. A future
+/// per-call clobber reader MUST use `RUNTIME_HELPER_CLOBBERS`, not this list,
+/// which understates the real set (bug-120).
 pub(crate) const IO_PRINT_CLOBBERS: &[&str] = &["x0", "x1", "x2", "x9", "x16"];
+
+/// The full caller-saved integer clobber set of any internal `bl _mfb_*` runtime
+/// helper (`x0`–`x17`). Provided for a correct per-call clobber reader; the
+/// register allocator already models this via its call-clobber masks
+/// (`regalloc/analysis.rs`), so nothing consumes this constant yet (bug-120).
+#[allow(dead_code)]
+pub(crate) const RUNTIME_HELPER_CLOBBERS: &[&str] = &[
+    "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+    "x15", "x16", "x17",
+];
 
 pub(crate) fn argument_register(index: usize) -> Result<String, String> {
     if index < ARG.len() {
