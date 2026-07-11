@@ -12,9 +12,9 @@ a fallible operation fails (see *See Also*) — both the native codegen/runtime
 helpers [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] and the
 embedded MFBASIC standard packages (`regex`, `datetime`, `csv`, `json`, `http`,
 `net`, …) fail with registry values, and user code may `FAIL` with them too. They
-are program-visible data, not host-tool diagnostics; the compiler-facing rule set
-(`src/rules/`, see `./mfb spec diagnostics rule-codes`) is a separate registry
-and is not surfaced here.
+are program-visible data, not host-tool diagnostics; the compiler-facing rule
+set (see `./mfb spec diagnostics rule-codes`) is a separate registry and is not
+surfaced here.
 
 ## Encoding Rule
 
@@ -87,7 +87,7 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 | `7-703-0008` | `77030008` | `ErrNativeBindingCallFailed`  | Native `LINK` binding call failed its `SUCCESS_ON` gate. |
 | `7-707-0008` | `77070008` | `ErrTlsFailed`                | TLS handshake, certificate validation, SNI validation, or protocol operation failed. |
 | `7-705-0011` | `77050011` | `ErrUnderflow`                | Arithmetic underflow below the destination range. |
-| `7-705-0012` | `77050012` | `ErrFloatDomain`              | Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). Divide-by-zero is no longer reported here — `x / 0` produces `±Inf`/`NaN` caught at the observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`. |
+| `7-705-0012` | `77050012` | `ErrFloatDomain`              | Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). Divide-by-zero is not reported here — `x / 0` produces `±Inf`/`NaN` caught at the observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`. |
 | `7-705-0013` | `77050013` | `ErrFloatNaN`                 | Floating-point operation produced a NaN result. |
 | `7-705-0014` | `77050014` | `ErrFloatInf`                 | Floating-point operation produced an infinity result. |
 | `7-705-0015` | `77050015` | `ErrFloatOverflow`            | Floating-point arithmetic overflowed to infinity. |
@@ -96,22 +96,22 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 
 ## Resolution API
 
-`is_errorcode_constant` and `constant_type_name` report whether a
-package-qualified name is a known constant and that its type is `Integer`;
-`constant_value` returns the folded integer literal as a string. All three strip
-the `errorCode.` prefix and reject unqualified or unknown names. [[src/builtins/errorcode.rs:constant_value]]
+Constant resolution answers three questions about a package-qualified name —
+whether it is a known constant, that its type is `Integer`, and the folded
+integer literal it becomes. Resolution strips the `errorCode.` prefix and
+rejects unqualified or unknown names. [[src/builtins/errorcode.rs:constant_value]]
 
 ## Drift Guard
 
-The `errorCode` constants are generated at build time by `build.rs` directly from
-the **Constant Registry** table above — this topic is the single source of truth
-for the runtime registry. [[build.rs:generate_errorcode_table]] A `#[cfg(test)]`
-test (`table_matches_registry`) re-parses the same table and asserts the generated
-table reproduces every row with the integer equal to the hyphen-stripped code, so
-`errorcode.rs` cannot drift from this registry. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
+The `errorCode` constants are generated at build time directly from the
+**Constant Registry** table above — this topic is the single source of truth
+for the runtime registry. [[build.rs:generate_errorcode_table]] A drift-guard
+test re-parses the same table and asserts the generated table reproduces every
+row with the integer equal to the hyphen-stripped code, so the generated
+constants cannot drift from this registry. [[src/builtins/errorcode.rs:table_matches_registry]]
 
 ## See Also
 
-* ./mfb spec memory fallible-call-abi — the `Error` value and the `x1` code register these integers populate
+* ./mfb spec memory fallible-call-abi — the `Error` value and the result-value register these integers populate
 * ./mfb spec language error-model — the source-level error/TRAP/FAIL model that produces `Error.code`
 * ./mfb spec language types — `Integer` and `Error` types

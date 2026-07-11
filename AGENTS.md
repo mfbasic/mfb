@@ -10,7 +10,7 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   not verification). When unsure, **no** — then one short line on what's left, no
   status report unless asked.
 - **Finish the task — do not stop mid-task.** When asked to finish a plan or to complete
-  a plan or to work until done... "Done", "finish", "complete" is the whole task complete
+  a plan or to work until done... "Done", "finish", "complete", "in full" is the whole task complete
   and verified, not a phase boundary, a plausible stopping point, or a place to hand
   back for confirmation. Stopping early to report progress, ask whether to continue,
   or wait for approval on the next obvious step wastes hours and tokens — keep going

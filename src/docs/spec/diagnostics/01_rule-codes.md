@@ -19,15 +19,15 @@ A `Rule` is four `&'static str`/enum fields; the registry `RULES` is a flat
 | `severity` | `Severity` | `Error`, `Warn`, or `Info` |
 | `message` | `&'static str` | the fixed, parameter-free message template |
 
-The **symbolic name is the real primary key.** A call site passes only a
-`rule_name`; `rule_for` linear-scans `RULES` for the entry whose `name` matches
-and returns it, falling back to a synthetic `0-000-0000 UNKNOWN_RULE` error rule
+The **symbolic name is the real primary key.** A call site passes only a rule
+name; lookup linear-scans the registry for the entry whose `name` matches and
+returns it, falling back to a synthetic `0-000-0000 UNKNOWN_RULE` error rule
 when no name matches (a missing rule never panics — it degrades to a generic
 error). [[src/rules/mod.rs:rule_for]] The `code` is therefore a stable display label,
 not the lookup key, which is why two rules may legitimately carry the same code
 as long as their names differ (see *Code Collisions*). Registration is likewise
-independent of emission: `rule_for` performs a pure name lookup, nothing requires
-a registered rule to have a live call site, and the registry may carry rules
+independent of emission: lookup is a pure name scan, nothing requires a
+registered rule to have a live call site, and the registry may carry rules
 ahead of (or after) the code that emits them. [[src/rules/mod.rs:rule_for]]
 
 ## Severity
@@ -61,14 +61,15 @@ not an aspirational allocation. [[src/rules/table.rs:RULES]]
 | --- | --- | --- |
 | `0` | fallback (synthetic, not in `RULES`) | `000` |
 | `1` | front-end: source intake, lex, parse, DOC syntax | `100`, `101`, `102`, `103` |
-| `2` | semantics: project/import/symbol/type/DOC-semantics/package | `200`, `201`, `203`, `205` |
+| `2` | semantics: project/import/symbol/type/DOC-semantics/package/testing | `200`, `201`, `203`, `205`, `208` |
 | `3` | backend: verification & target/codegen | `302`, `304` |
 | `5` | linking | `500` |
 | `6` | package container, lockfile, signing | `603`, `605` |
 
 Groups `4` and `7+` are unused in the current registry; `SSS` slots within a
-group are likewise sparse (group 2 jumps `200, 201, 203, 205` — `202`/`204` are
-unallocated). The scheme leaves room; it does not densely fill it.
+group are likewise sparse (group 2 jumps `200, 201, 203, 205, 208` —
+`202`/`204`/`206`/`207` are unallocated). The scheme leaves room; it does not
+densely fill it.
 [[src/rules/table.rs:RULES]]
 
 ### Subsystems (`SSS`) and their populations
@@ -80,10 +81,10 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | `1-102` | parser | 12 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 13 |
-| `2-201` | imports & symbol resolution | 16 |
-| `2-203` | semantic checking (typing, ownership, native ABI) | 100 |
+| `2-201` | imports & symbol resolution | 18 |
+| `2-203` | semantic checking (typing, ownership, native ABI) | 101 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
-| `2-208` | test framework (assertion builtins) | 8 |
+| `2-208` | test framework (assertion builtins) | 7 |
 | `3-302` | verification | 1 |
 | `3-304` | target/codegen support | 2 |
 | `5-500` | linking | 1 |
@@ -94,15 +95,15 @@ unallocated). The scheme leaves room; it does not densely fill it.
 `EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
 guaranteed dense or monotonic**: subsystem `2-203` allocates a high block at
 `0100`-`0101` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`) after
-`0056`/`0058` (`0057` is unallocated), plus a later `0104`
-(`TYPE_INLINE_TRAP_DEAD_HANDLER`; `0102` is retired and not reused), and `2-200`
+`0056`/`0058` (`0057` is unallocated), plus later `0103`/`0104`
+(`0102` is unallocated), and `2-200`
 mixes a low validation block (`0001`-`0011`) with a high orchestration block
 (`0100`/`0101`). Treat `EEEE` as an opaque ordinal, never as a count.
 [[src/rules/table.rs:RULES]]
 
 ### Code Collisions
 
-Because `rule_for` keys on `name`, the registry tolerates duplicate `code`
+Because lookup keys on `name`, the registry tolerates duplicate `code`
 values. Two subsystem-`2-205` codes are reused across the metadata block and the
 DOC-semantics block: **`2-205-0001`** is both `PACKAGE_VERSION_UNSUPPORTED` and
 `DOC_UNRESOLVED`; **`2-205-0002`** is both `NATIVE_MANIFEST_INVALID` and
@@ -112,56 +113,41 @@ only. [[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
 
 ## Diagnostic Rendering
 
-Two rendering entry points exist, both writing to **stderr** via `eprintln!`.
-[[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_diagnostic]]
+Two rendering forms exist, both written to **stderr**: a *located* form with a
+source-context window, and an *unlocated* form for diagnostics with no source
+span. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_diagnostic]]
 
-### Located diagnostics — `show_diagnostic`
+### Located diagnostics
 
-`show_diagnostic(rule_name, detailed_message, filename, line, start_pos,
-end_pos)` renders a source-context window, a caret underline, the header line,
-and a detail line. [[src/rules/mod.rs:show_diagnostic]]
+A located diagnostic (a rule name, a detail message, a file, a line, and
+1-based start/end columns) renders a source-context window, a caret underline,
+the header line, and a detail line. [[src/rules/mod.rs:show_diagnostic]]
 
-**Source-context window.** It re-reads the file and prints up to three lines of
-context ending at the offending line. The displayed line is clamped into range
-(`line.min(lines.len()).max(1)`); the window starts two lines earlier
-(`display_line.saturating_sub(2).max(1)`). Each context line is printed with a
-right-aligned 4-column line number and a ` | ` gutter:
-
-```text
-eprintln!("{:>4} | {}", context_line, source_line);
-```
-
-**Caret underline.** When `start_pos > 0` and the clamped display line equals the
-requested `line`, an underline row is printed under the gutter. The caret column
-is `start_pos - 1` spaces of padding; the underline width is
-`end_pos - start_pos`, floored at 1 caret:
+**Source-context window.** The file is re-read and up to three lines of context
+are printed, ending at the offending line. The displayed line is clamped into
+the file's line range; the window starts two lines earlier (clamped at line 1).
+Each context line is printed with a right-aligned 4-column line number and a
+` | ` gutter:
 
 ```text
-eprintln!(
-    "     | {}{}",
-    " ".repeat(start_pos.saturating_sub(1)),
-    "^".repeat(underline_width)   // = end_pos.saturating_sub(start_pos).max(1)
-);
+NNNN | source line text
 ```
 
-`start_pos`/`end_pos` are 1-based columns. If the file cannot be read, or
-`lines` is empty, the context block and caret are skipped and only the header +
-detail are emitted. [[src/rules/mod.rs:show_diagnostic]]
+**Caret underline.** When the start column is positive and the clamped display
+line equals the requested line, an underline row is printed under the gutter:
+`start - 1` spaces of padding, then `end - start` carets, floored at one caret:
+
+```text
+     | ^^^^
+```
+
+Start/end are 1-based columns. If the file cannot be read, or it has no lines,
+the context block and caret are skipped and only the header + detail are
+emitted. [[src/rules/mod.rs:show_diagnostic]]
 
 **Header + detail.** The header packs location, severity, code, name, and
-message; the detail is the call-site-supplied `detailed_message` indented 15
-spaces:
-
-```text
-eprintln!(
-    "{}:{} {}[{} {}]: {}",
-    filename.display(), line.max(1),
-    rule.severity, rule.code, rule.name, rule.message
-);
-eprintln!("               {}", detailed_message);
-```
-
-so the on-screen header layout is:
+message; the detail is the call-site-supplied detail message indented 15
+spaces, so the on-screen header layout is:
 
 ```text
 path/to/file.mfb:LINE severity[CODE NAME]: message-template
@@ -179,18 +165,12 @@ src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the
                foo expects 2 arguments but 3 were supplied
 ```
 
-### Unlocated diagnostics — `show_general_diagnostic`
+### Unlocated diagnostics
 
-`show_general_diagnostic(rule_name, detailed_message)` is for diagnostics with no
-source span (orchestration, project/package, link failures). It drops the file
-context, caret, and location prefix, printing just the header and detail:
-
-```text
-eprintln!("{}[{} {}]: {}", rule.severity, rule.code, rule.name, rule.message);
-eprintln!("               {}", detailed_message);
-```
-
-rendering as:
+An unlocated diagnostic (a rule name and a detail message only) is for
+diagnostics with no source span (orchestration, project/package, link
+failures). It drops the file context, caret, and location prefix, printing just
+the header and detail:
 
 ```text
 severity[CODE NAME]: message-template
@@ -199,13 +179,13 @@ severity[CODE NAME]: message-template
 
 [[src/rules/mod.rs:show_general_diagnostic]]
 
-In both forms the `message` is the rule's fixed template (no interpolation); the
-case-specific facts live entirely in the `detailed_message` detail line supplied
-by the caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_diagnostic]]
+In both forms the `message` is the rule's fixed template (no interpolation);
+the case-specific facts live entirely in the detail line supplied by the
+caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_diagnostic]]
 
 ## The Rule Registry
 
-The complete registry follows, grouped by subsystem. All 179 `RULES` entries are
+The complete registry follows, grouped by subsystem. All 202 `RULES` entries are
 listed; none are omitted, and the synthetic `0-000-0000` fallback (not a `RULES`
 member) is appended at the end. Each row is `code | NAME | severity | message`,
 transcribed verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted,
@@ -260,9 +240,11 @@ severity is `error`.
 ### `2-200` — `project.json` validation & build orchestration
 
 The low block (`0001`-`0011`) validates `project.json`; the high block
-(`0100`/`0101`) reports orchestration failures. Note `2-200-0009` is the only
-`warn` and `2-200-0010` the only `info` — not just in this subsystem but in the
-entire registry; every other rule is `error`. [[src/rules/table.rs:RULES]]
+(`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
+registry's only `info`, and `2-200-0009` one of exactly three `warn` rules
+(with `2-201-0017 PRIVATE_SHADOWS_PUBLIC` and
+`2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`); every other rule is `error`.
+[[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
@@ -310,7 +292,7 @@ The largest subsystem. It covers operator/condition/literal typing
 records/unions/enums/funcs (`0023`-`0046`), control-flow and `EXIT`/`CONTINUE`
 (`0073`-`0081`), the ownership/move/resource model (`0055`, `0056`, `0082`-`0091`,
 plus high-block `0100`), the inline-TRAP / `Result` model (`0066`-`0072`, plus
-high-block `0102`), and native LINK ABI validation (`0092`-`0099`). `EEEE` skips
+high-block `0104`), and native LINK ABI validation (`0092`-`0099`). `EEEE` skips
 `0054` and `0057`, and `0100`-`0102` sit out of sequence after `0099` (see *Code
 Scheme*).
 
@@ -372,7 +354,7 @@ Scheme*).
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | binding is used after move |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | ordinary collections cannot store resource or thread ownership |
 | `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | a borrowed collection element of resource type is not an owner |
-| `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | an overload set cannot be narrowed to one candidate: a return-type overload with no expected type, or an argument matching several imported overloads |
+| `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | return-type overload cannot be resolved without an expected type |
 | `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | call argument is supplied more than once |
 | `2-203-0059` | `TYPE_UNKNOWN_ARGUMENT_NAME` | error | call argument name does not match any parameter |
 | `2-203-0060` | `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` | error | uninitialized mutable binding requires a defaultable type |
@@ -384,8 +366,8 @@ Scheme*).
 | `2-203-0066` | `TYPE_INLINE_TRAP_FALLS_THROUGH` | error | inline TRAP handler path neither recovers nor diverges |
 | `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | RECOVER value does not match the trapped expression's success type |
 | `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | RECOVER is valid only inside an inline TRAP handler |
-| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a call to trap (a non-call or a package constant is not a call); an infallible built-in is allowed but warns (`TYPE_INLINE_TRAP_DEAD_HANDLER`) |
-| `2-203-0104` | `TYPE_INLINE_TRAP_DEAD_HANDLER` | warn | inline TRAP handler is unreachable — the guarded call cannot fail (an infallible inline-lowered built-in) |
+| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call |
+| `2-203-0104` | `TYPE_INLINE_TRAP_DEAD_HANDLER` | warn | inline TRAP handler is unreachable — the guarded call cannot fail |
 | `2-203-0103` | `EXPORT_IN_EXECUTABLE` | error | EXPORT is only valid in a package project; use PUBLIC (the default) in an executable |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
@@ -496,10 +478,10 @@ DOC block semantics (resolver):
 
 ### `6-605` — Package container / signing
 
-Codes `0003`–`0007` are the plan-23 §3.5 client verification chain refusals:
-each broken link of pinned-server-key → attestation → pinned-ident → proof →
-one-off-key → bytes gets its own code, emitted by the build gate
-(`verify_and_report_packages`) after the `uses <name> - [Tampered]` line.
+Codes `0003`–`0007` are the client verification-chain refusals: each broken
+link of pinned-server-key → attestation → pinned-ident → proof → one-off-key →
+bytes gets its own code, emitted by the build gate after the
+`uses <name> - [Tampered]` line.
 [[src/cli/build.rs:classify_installed_package]]
 
 | code | NAME | severity | message |
@@ -516,8 +498,8 @@ one-off-key → bytes gets its own code, emitted by the build gate
 
 ### `0-000` — Fallback (synthetic)
 
-Not a member of `RULES`; constructed inline by `rule_for` when a call site names
-a rule that is not in the registry. [[src/rules/mod.rs:rule_for]]
+Not a member of `RULES`; constructed inline by the lookup when a call site
+names a rule that is not in the registry. [[src/rules/mod.rs:rule_for]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
