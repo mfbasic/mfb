@@ -92,18 +92,19 @@ pub(crate) trait RegisterModel {
     /// physical register for the kernel's lifetime; `None` means the base must be
     /// an allocator-placed virtual register.
     ///
-    /// AArch64 pins `x2`: caller-saved scratch below the allocatable file
-    /// (`x8`+), so the allocator never assigns it and it stably holds the base
-    /// across the quadrant branches (byte-identical to the pre-plan-00-H
-    /// backend). x86_64 returns `None`: all 16 GPRs are either SysV ABI-role,
-    /// reserved (`rsp`/`rbp`/`r14`/`r15`), or in the five-register allocatable
-    /// pool — there is no spare physical to pin, and `x2` itself is an ABI
-    /// register that `remap_x86_abi` would rewrite per control-flow context
-    /// (rdx as a call-arg, rcx as a result), splitting the base across the
-    /// quadrant branch. A vreg lets the allocator place it consistently (its
-    /// busy-physical check keeps it off the residual `map_scratch_register`
-    /// homes the kernels also use).
+    /// The default is `None` — the base is an allocator-placed virtual
+    /// register. A backend with a spare physical below its allocatable file
+    /// overrides this with a *token* (never a physical spelling — plan-34-D);
+    /// AArch64 pins [`crate::target::shared::abi::MATH_POOL`], realized `x2` at
+    /// the Phase-3b seam. x86-64 stays `None`: all 16 GPRs are either SysV
+    /// ABI-role, reserved (`rsp`/`rbp`/`r14`/`r15`), or in the five-register
+    /// allocatable pool — there is no spare physical to pin, and the realized
+    /// `x2` is an ABI register `remap_x86_abi` would rewrite per control-flow
+    /// context (rdx as a call-arg, rcx as a result), splitting the base across
+    /// the quadrant branch. A vreg lets the allocator place it consistently
+    /// (its busy-physical check keeps it off the residual
+    /// `map_scratch_register` homes the kernels also use).
     fn math_pool_base(&self) -> Option<&'static str> {
-        Some("x2")
+        None
     }
 }

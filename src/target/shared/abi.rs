@@ -201,6 +201,15 @@ pub(crate) const FP_SCRATCH: [&str; 8] = [
     "%fscratch6", "%fscratch7",
 ];
 
+/// The SIMD math-kernel constant-pool base — the register
+/// `builder_simd_float_math` pins for a kernel's lifetime on backends whose
+/// `RegisterModel::math_pool_base` names one (plan-34-D). One role, one
+/// realization today: AArch64 `x2`, caller-saved scratch below the allocatable
+/// file, so the pin never collides with a colored vreg. Backends without a
+/// spare physical (x86-64) return `None` from `math_pool_base` and take the
+/// vreg path instead.
+pub(crate) const MATH_POOL: &str = "%mathpool";
+
 /// The Nth C-call floating-point argument register — the AAPCS64 `d0`–`d7` bank,
 /// which [`FP_SCRATCH`] realizes to (the aliasing is deliberate; see its doc).
 /// Errors past the register bank, mirroring [`argument_register`].
@@ -261,6 +270,8 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         "%fscratch5" => "d5",
         "%fscratch6" => "d6",
         "%fscratch7" => "d7",
+        // The SIMD math-kernel constant-pool base (plan-34-D).
+        "%mathpool" => "x2",
         _ => return None,
     })
 }

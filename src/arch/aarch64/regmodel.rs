@@ -84,6 +84,15 @@ impl RegisterModel for Aarch64RegisterModel {
         }
     }
 
+    fn math_pool_base(&self) -> Option<&'static str> {
+        // The SIMD math kernels pin their constant-pool base for the kernel's
+        // lifetime: `%mathpool`, realized `x2` — caller-saved scratch below the
+        // allocatable file (`x8`+), so the allocator never assigns it and it
+        // stably holds the base across the quadrant branches (byte-identical to
+        // the pre-plan-00-H backend).
+        Some(abi::MATH_POOL)
+    }
+
     fn class_of(&self, reg: &str) -> Option<RegClass> {
         if let Some(rest) = reg.strip_prefix('x') {
             if rest.parse::<u8>().is_ok() {
@@ -210,9 +219,11 @@ mod tests {
         assert!(!m.is_callee_saved("x0"));
         assert!(!m.is_callee_saved("d0"));
         assert_eq!(m.spill_slot_bytes(), 16);
-        // AArch64 pins arena_base in x19 and the math-pool base in x2.
+        // AArch64 pins arena_base in x19 and the math-pool base as the
+        // `%mathpool` token, realized `x2` at the Phase-3b seam (plan-34-D).
         assert_eq!(m.arena_base(), ARENA_BASE_REGISTER);
-        assert_eq!(m.math_pool_base(), Some("x2"));
+        assert_eq!(m.math_pool_base(), Some(abi::MATH_POOL));
+        assert_eq!(abi::realize_abi_token(abi::MATH_POOL), Some("x2"));
         // The standalone FP callee-saved predicate.
         assert!(is_fp_callee_saved("d15"));
         assert!(!is_fp_callee_saved("d16"));
