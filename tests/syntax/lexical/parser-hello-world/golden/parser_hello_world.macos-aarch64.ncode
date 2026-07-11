@@ -801,7 +801,7 @@
     { "op": "mov_imm", "dst": "x16", "type": "Integer", "value": "33554629" },
     { "op": "svc" },
     { "op": "b.lo", "target": "arena_map_succeeded" },
-    { "op": "mvn", "dst": "x0", "src": "x31" },
+    { "op": "mvn", "dst": "x0", "src": "xzr" },
     { "op": "label", "name": "arena_map_succeeded" },
     { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
     { "op": "b.ge", "target": "arena_alloc_mapped" },

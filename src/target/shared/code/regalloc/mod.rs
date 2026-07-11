@@ -174,6 +174,46 @@ pub(crate) struct AllocOutcome {
     pub(crate) extra_callee_saved: Vec<String>,
 }
 
+/// plan-34-D stream invariant: a shared-lowering-emitted stream — a function
+/// body before selection/allocation, or a machine-floor stream (entry stub,
+/// thread trampoline) — names **no physical register**. Scratch is a virtual
+/// register or a neutral `abi` token pool, the call boundary is role tokens,
+/// pinned registers are tokens, and the stack pointer is the neutral `sp`.
+/// Physical names enter a stream only downstream: token realization in
+/// `Backend::select` and coloring in [`allocate`].
+///
+/// Returns a description of the first offending operand, or `None`. `%`-headed
+/// values are tokens/vregs by construction (the sentinel prefix cannot collide
+/// with a physical name) and are skipped — the occupancy parsers deliberately
+/// map the FP scratch tokens to physical indices, so they must not be
+/// misreported here.
+pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<String> {
+    for (index, instruction) in instructions.iter().enumerate() {
+        for (name, value) in &instruction.fields {
+            if value.starts_with('%') || value == "sp" {
+                continue;
+            }
+            // The occupancy parsers cover every spelling a stream can carry
+            // (x/d/v, x86, riscv); the `w`/`s`/`q` views never appear in
+            // streams today, but a conservative guard rejects them too.
+            let extra_view = value
+                .strip_prefix(['w', 's', 'q'])
+                .and_then(|rest| rest.parse::<u32>().ok())
+                .is_some_and(|n| n <= 31);
+            if extra_view
+                || analysis::int_physical_index(value).is_some()
+                || analysis::fp_physical_index(value).is_some()
+            {
+                return Some(format!(
+                    "instruction {index} `{}` field `{name}` names physical register `{value}`",
+                    instruction.op.mnemonic()
+                ));
+            }
+        }
+    }
+    None
+}
+
 /// Color a fully-lowered function and rewrite its virtual registers in place.
 ///
 /// `eager` holds the bump allocator's per-virtual-register physical (index ==

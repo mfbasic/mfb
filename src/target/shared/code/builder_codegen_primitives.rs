@@ -107,6 +107,17 @@ impl CodeBuilder<'_> {
         // (`temporary_vreg`/`temporary_fp_vreg`), so the stream arriving here
         // carries only vregs, ABI-role registers, and pinned registers. There is
         // no rename/patch pass.
+        // plan-34-D: the pre-selection stream is the shared MIR — it must name
+        // no physical register. Tokens realize in `backend.select` below and
+        // colors are assigned by `regalloc::allocate`; a physical name arriving
+        // here is a shared-lowering regression.
+        if let Some(offense) = regalloc::find_physical_operand(&self.instructions) {
+            return Err(format!(
+                "shared lowering for '{}' violated the zero-physical-register \
+                 invariant (plan-34-D): {offense}",
+                self.current_symbol
+            ));
+        }
         // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
         // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
         // `mir.md §2`/§3). A `-mir` dump captures this function's MIR here (with

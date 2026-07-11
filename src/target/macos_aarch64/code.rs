@@ -312,7 +312,7 @@ impl code::CodegenPlatform for Platform {
             .ok_or_else(|| "fs.exists runtime helper requires _access import".to_string())?
             .clone();
         instructions.extend([
-            abi::move_immediate("x1", "Integer", "0"),
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
             abi::branch_link("_access"),
         ]);
         relocations.push(CodeRelocation {
@@ -415,7 +415,7 @@ impl code::CodegenPlatform for Platform {
             .ok_or_else(|| format!("filesystem runtime helper requires {symbol} import"))?
             .clone();
         if matches!(operation, code::FsPathOperation::Mkdir) {
-            instructions.push(abi::move_immediate("x1", "Integer", "493"));
+            instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "493"));
         }
         instructions.push(abi::branch_link(symbol));
         relocations.push(CodeRelocation {
@@ -481,7 +481,7 @@ impl code::CodegenPlatform for Platform {
         // stack, so spill the trailing variadic argument from `x2` to the stack
         // top across the call (16-byte aligned).
         instructions.push(abi::subtract_stack(16));
-        instructions.push(abi::store_u64("x2", abi::stack_pointer(), 0));
+        instructions.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0));
         emit_libsystem_call(
             from,
             &format!("_{base}"),
@@ -599,8 +599,8 @@ impl code::CodegenPlatform for Platform {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         instructions.extend([
-            abi::move_register("x2", "x1"),
-            abi::move_register("x1", abi::return_register()),
+            abi::move_register(abi::ARG[2], abi::ARG[1]),
+            abi::move_register(abi::ARG[1], abi::return_register()),
             abi::move_immediate(abi::return_register(), "Integer", DARWIN_CS_USER_TEMP_DIR),
         ]);
         emit_libsystem_call(
@@ -697,12 +697,12 @@ impl code::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
-            abi::move_register("x1", size_reg),
-            abi::move_immediate("x2", "Integer", DARWIN_PROT_READ_WRITE),
-            abi::move_immediate("x3", "Integer", DARWIN_MAP_PRIVATE_ANON),
-            abi::move_immediate("x4", "Integer", &u64::MAX.to_string()),
-            abi::move_immediate("x5", "Integer", "0"),
-            abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_MMAP),
+            abi::move_register(abi::SYSARG[1], size_reg),
+            abi::move_immediate(abi::SYSARG[2], "Integer", DARWIN_PROT_READ_WRITE),
+            abi::move_immediate(abi::SYSARG[3], "Integer", DARWIN_MAP_PRIVATE_ANON),
+            abi::move_immediate(abi::SYSARG[4], "Integer", &u64::MAX.to_string()),
+            abi::move_immediate(abi::SYSARG[5], "Integer", "0"),
+            abi::move_immediate(abi::SYSNR_DARWIN, "Integer", DARWIN_SYSCALL_MMAP),
             abi::syscall(),
             // Darwin signals syscall failure via the carry flag and returns the
             // positive errno in x0 (e.g. ENOMEM = 12). The shared arena caller
@@ -713,7 +713,7 @@ impl code::CodegenPlatform for Platform {
             // path, matching the negative-errno convention the Linux backend
             // already returns.
             abi::branch_lo("arena_map_succeeded"),
-            abi::bitwise_not(abi::return_register(), "x31"),
+            abi::bitwise_not(abi::return_register(), abi::ZERO),
             abi::label("arena_map_succeeded"),
         ]);
         Ok(())
@@ -721,7 +721,7 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
         instructions.extend([
-            abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_MUNMAP),
+            abi::move_immediate(abi::SYSNR_DARWIN, "Integer", DARWIN_SYSCALL_MUNMAP),
             abi::syscall(),
         ]);
         Ok(())

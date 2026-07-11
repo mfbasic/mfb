@@ -355,3 +355,47 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
     assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));
     assert_eq!(analysis::fp_physical_index("%fscratch8"), None);
 }
+
+/// plan-34-D: `find_physical_operand` — the stream-level zero-physical guard.
+/// Physical names of every class/ISA are caught; vregs, tokens, the neutral
+/// `sp`, sentinels, labels, symbols, types, and immediates pass.
+#[test]
+fn find_physical_operand_catches_every_class_and_passes_tokens() {
+    use crate::target::shared::abi;
+    let physical = ["x9", "w3", "d3", "v0", "q7", "s2", "rsi", "r10", "xmm4", "a0", "t3", "fa1", "zero", "ra"];
+    for reg in physical {
+        let stream = [CodeInstruction::new("mov").field("dst", reg).field("src", "sp")];
+        let hit = find_physical_operand(&stream);
+        assert!(
+            hit.as_deref().is_some_and(|h| h.contains(reg)),
+            "`{reg}` must be caught, got {hit:?}"
+        );
+    }
+    let clean = [
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov")
+            .field("dst", &vreg_name(4))
+            .field("src", &fp_vreg_name(2)),
+        CodeInstruction::new("str_u64")
+            .field("src", abi::FP_SCRATCH[0])
+            .field("base", "sp")
+            .field("offset", "16"),
+        CodeInstruction::new("mov")
+            .field("dst", abi::VEC_SCRATCH[3])
+            .field("src", abi::ARG[0]),
+        CodeInstruction::new("mov")
+            .field("dst", abi::MATH_POOL)
+            .field("src", abi::CURRENT_THREAD),
+        CodeInstruction::new("ldr_u64")
+            .field("dst", abi::RET[0])
+            .field("base", "incoming_args")
+            .field("offset", "0"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", crate::target::shared::code::mir::ARENA_BASE)
+            .field("type", "Integer")
+            .field("value", "7"),
+        CodeInstruction::new("str_u64").field("src", abi::ZERO).field("base", "sp"),
+        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+    ];
+    assert_eq!(find_physical_operand(&clean), None);
+}

@@ -143,6 +143,12 @@ pub(crate) const SYSARG: [&str; 6] = [
 /// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
 pub(crate) const SYSRET: &str = "%sysret";
 
+/// The Darwin syscall-number register — macOS/AArch64 delivers the number in
+/// `x16` (IP1), not Linux's `x8`, and the Phase-3b seam is ISA-wide (one
+/// realization per token), so Darwin staging cannot spell [`SYSNR`]. Only the
+/// macOS platform emitters name this token (plan-34-D).
+pub(crate) const SYSNR_DARWIN: &str = "%sysnr_darwin";
+
 /// The closure environment pointer — an implicit argument register, live from its
 /// definition to the immediately following indirect call
 /// (`spec: memory/09_closures.md`); the callee reads it. Not `arena_base`-style
@@ -253,6 +259,7 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         "%arg6" => "x6",
         "%arg7" => "x7",
         "%sysnr" => "x8",
+        "%sysnr_darwin" => "x16",
         "%closure_env" => "x28",
         "%thread" => "x20",
         // Machine-floor scratch pool (`SCRATCH`), AArch64 scratch-bank order.

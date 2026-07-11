@@ -865,6 +865,15 @@ pub(crate) fn lower_thread_trampoline(
         abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
+    // plan-34-D: the trampoline is machine-floor shared lowering that bypasses
+    // the allocator — its stream must still name no physical register (pinned
+    // registers and scratch are `abi` tokens, realized during selection).
+    if let Some(offense) = regalloc::find_physical_operand(&instructions) {
+        return Err(format!(
+            "thread-trampoline lowering violated the zero-physical-register \
+             invariant (plan-34-D): {offense}"
+        ));
+    }
     Ok(CodeFunction {
         name: "runtime.thread.trampoline".to_string(),
         symbol: THREAD_TRAMPOLINE_SYMBOL.to_string(),

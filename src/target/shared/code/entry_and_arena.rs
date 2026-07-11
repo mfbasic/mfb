@@ -444,6 +444,15 @@ pub(crate) fn lower_program_entry(
         32,
     ));
     platform.emit_program_exit(entry_symbol, &mut instructions, &mut relocations)?;
+    // plan-34-D: the entry stub is machine-floor shared lowering that bypasses
+    // the allocator — its stream must still name no physical register (scratch
+    // is the neutral `abi::SCRATCH` pool, realized during selection).
+    if let Some(offense) = regalloc::find_physical_operand(&instructions) {
+        return Err(format!(
+            "entry-stub lowering violated the zero-physical-register invariant \
+             (plan-34-D): {offense}"
+        ));
+    }
     Ok(CodeFunction {
         name: if entry_symbol == "_main" {
             "program.entry".to_string()

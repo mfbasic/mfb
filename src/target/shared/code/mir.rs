@@ -1639,37 +1639,76 @@ mod tests {
         }
     }
 
-    /// plan-34-C Phase 5 — the invariant that makes the hand-picked-scratch bug
-    /// (`bug-56`) *unrepresentable*: no shared lowering source may name a physical
-    /// AArch64 scratch register (`x9`–`x18`, `x20`–`x28`). Allocator-reachable
-    /// scratch is a virtual register (`%vN`); machine-floor scratch (entry stub,
-    /// thread trampoline) is the neutral `abi::SCRATCH` token pool; the call
-    /// boundary is role tokens (plan-34-B); the invariant/pinned registers are
-    /// neutral tokens (plan-34-A, `%thread`/`%closure_env`, guarded above). A
-    /// `format!("x{base}")` or a stray `"x13"` cannot pass this test — there is no
-    /// allowlist. `#[cfg(test)]` fixtures (register-literal test inputs) are skipped
-    /// by scanning only the code above each file's test module.
+    /// plan-34-D (superseding plan-34-C Phase 5) — the invariant that makes the
+    /// hand-picked-register bug class (`bug-56`) *unrepresentable*: no shared
+    /// source under `src/target/shared/` may spell a physical register of ANY
+    /// class or ISA. Allocator-reachable scratch is a virtual register
+    /// (`%vN`/`%fN`); machine-floor and kernel scratch is a neutral token pool
+    /// (`abi::SCRATCH`/`FP_SCRATCH`/`VEC_SCRATCH`); the call boundary is role
+    /// tokens (plan-34-B); pinned/invariant registers are tokens (plan-34-A,
+    /// `%thread`/`%closure_env`/`%mathpool`, guarded above). Both quoted
+    /// literals (`"x13"`, `"d3"`, `"v0"`, `"rsi"`, `"a0"`, …) and
+    /// `format!`-constructed names (`format!("x{n}")`) are forbidden — there is
+    /// no allowlist. The only files exempt are the two that DEFINE the physical
+    /// namespace: `abi.rs` (the token realization tables) and
+    /// `regalloc/analysis.rs` (the occupancy parsers' per-ISA name tables).
+    /// `#[cfg(test)]` fixtures and full-line comments are skipped (tests pin
+    /// realization behavior; prose may cite spellings). The companion runtime
+    /// guard is `regalloc::find_physical_operand`, asserted on every stream
+    /// entering selection/allocation and on the machine-floor builders.
     #[test]
-    fn shared_lowering_names_no_physical_scratch_register() {
+    fn shared_lowering_names_no_physical_register() {
         use std::path::Path;
-        // No allowlist: shared lowering names ZERO physical scratch registers. Even
-        // the machine-floor routines the allocator cannot reach — the process entry
-        // stub (reads argc/argv off raw `sp` before any frame is carved) and the
-        // thread trampoline (hand-manages the pinned arena/current-thread/closure
-        // registers across the worker + `pthread_*` calls) — spell their scratch
-        // through the neutral `abi::SCRATCH` token pool, realized to AArch64 in
-        // `abi.rs` (not scanned here). Pinned/role registers are tokens too:
-        // `abi::ARENA`, `%thread`, `%closure_env`, `%sysnr`, the `%arg`/`%ret` bank.
-        // The forbidden AArch64 scratch registers: x9–x18 and x20–x28. (x0–x8 are
-        // the call/syscall boundary → role tokens; x19 is the arena base and x30/x31
-        // are lr/zero → invariant tokens, all guarded separately.)
-        let forbidden: Vec<String> = (9..=18).chain(20..=28).map(|n| format!("\"x{n}\"")).collect();
+        // Every physical spelling the three backends know, per class:
+        // AArch64 GPR (x/w), scalar-and-vector FP (d/s/v/q), x86-64 GPR + xmm,
+        // riscv64 int + fp ABI names. `sp`, `lr`, and `xzr` are the neutral
+        // spellings (plan-34-A) and are NOT forbidden.
+        let mut forbidden: Vec<String> = Vec::new();
+        for n in 0..=30 {
+            forbidden.push(format!("\"x{n}\""));
+            forbidden.push(format!("\"w{n}\""));
+        }
+        for prefix in ["d", "s", "v", "q"] {
+            for n in 0..=31 {
+                forbidden.push(format!("\"{prefix}{n}\""));
+            }
+        }
+        for gpr in ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp"] {
+            forbidden.push(format!("\"{gpr}\""));
+        }
+        for n in 8..=15 {
+            forbidden.push(format!("\"r{n}\""));
+        }
+        for n in 0..=15 {
+            forbidden.push(format!("\"xmm{n}\""));
+        }
+        for reg in ["zero", "ra", "gp", "tp"] {
+            forbidden.push(format!("\"{reg}\""));
+        }
+        for n in 0..=6 {
+            forbidden.push(format!("\"t{n}\""));
+        }
+        for n in 0..=7 {
+            forbidden.push(format!("\"a{n}\""));
+            forbidden.push(format!("\"fa{n}\""));
+        }
+        for n in 0..=11 {
+            forbidden.push(format!("\"ft{n}\""));
+            forbidden.push(format!("\"fs{n}\""));
+        }
+        // A constructed register name evades a literal scan; forbid the
+        // constructors outright. (`format!("%v{…` — the vreg minter — is legal:
+        // the `%` sentinel cannot collide with a physical name.)
+        let constructed: Vec<String> = ["x", "w", "d", "s", "v", "q", "r", "xmm"]
+            .iter()
+            .map(|p| format!("format!(\"{p}{{"))
+            .collect();
 
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/target/shared/code");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/target/shared");
         let mut offenders: Vec<String> = Vec::new();
         let mut stack = vec![root.clone()];
         while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).expect("read shared/code dir") {
+            for entry in std::fs::read_dir(&dir).expect("read shared dir") {
                 let path = entry.expect("dir entry").path();
                 if path.is_dir() {
                     stack.push(path);
@@ -1680,8 +1719,14 @@ mod tests {
                 }
                 let name = path.file_name().unwrap().to_str().unwrap().to_string();
                 // Pure test-module files (`tests.rs`, `test_support.rs`) carry
-                // register-literal fixtures, not lowering.
-                if name.contains("test") {
+                // register-literal fixtures, not lowering. `abi.rs` and
+                // `regalloc/analysis.rs` define the physical namespace.
+                if name.contains("test") || name == "abi.rs" {
+                    continue;
+                }
+                if name == "analysis.rs"
+                    && path.parent().is_some_and(|p| p.ends_with("regalloc"))
+                {
                     continue;
                 }
                 let src = std::fs::read_to_string(&path).expect("read source");
@@ -1691,10 +1736,13 @@ mod tests {
                     None => &src,
                 };
                 for (line_no, line) in code.lines().enumerate() {
-                    for reg in &forbidden {
-                        if line.contains(reg.as_str()) {
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    for needle in forbidden.iter().chain(constructed.iter()) {
+                        if line.contains(needle.as_str()) {
                             offenders.push(format!(
-                                "{}:{} names {reg}",
+                                "{}:{} names {needle}",
                                 path.strip_prefix(&root).unwrap().display(),
                                 line_no + 1
                             ));
@@ -1705,8 +1753,8 @@ mod tests {
         }
         assert!(
             offenders.is_empty(),
-            "shared lowering must name no physical scratch register (plan-34-C Phase 5); \
-             offenders (vreg them, or spell them through the neutral abi::SCRATCH pool):\n{}",
+            "shared lowering must name no physical register (plan-34-D); offenders \
+             (vreg them, or spell them through a neutral abi token pool):\n{}",
             offenders.join("\n")
         );
     }

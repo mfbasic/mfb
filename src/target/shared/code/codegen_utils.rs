@@ -499,6 +499,16 @@ pub(super) fn finalize_vreg_body_with_locals(
     local_size: usize,
 ) -> (CodeFrame, Vec<CodeStackSlot>) {
     let local_size = align(local_size, 16);
+    // plan-34-D: hand-built helper bodies (runtime helpers, link thunks) are
+    // shared lowering too — their pre-allocation stream must name no physical
+    // register. A hit is a compiler-source regression, never input-dependent,
+    // so it is an ICE rather than a threaded build error.
+    if let Some(offense) = regalloc::find_physical_operand(instructions) {
+        panic!(
+            "shared helper lowering violated the zero-physical-register \
+             invariant (plan-34-D): {offense}"
+        );
+    }
     let outcome = regalloc::allocate(
         regalloc::active_kind(),
         instructions,

@@ -154,6 +154,29 @@ pub(super) fn call_clobber_mask(
 /// function is single-ISA, so the two name spaces never collide. Excludes
 /// `x31`/`xzr`, `sp`/`rsp`, and FP registers.
 pub(super) fn int_physical_index(name: &str) -> Option<u32> {
+    // Int tokens whose realizations sit INSIDE the allocatable file occupy the
+    // same index the literal they replaced did (plan-34-D), so coloring is
+    // byte-identical: `%scratch0`–`%scratch9` realize `x9`–`x18`,
+    // `%scratch10`–`%scratch18` realize `x20`–`x28`, `%sysnr` realizes `x8`,
+    // and `%sysnr_darwin` realizes `x16`. The role banks (`%arg`/`%ret`/
+    // `%sysarg`/`%sysret`, realizations `x0`–`x7`) are deliberately unparsed —
+    // their realizations are below every allocatable file, so their occupancy
+    // is moot, exactly as it was for the literals.
+    if let Some(rest) = name.strip_prefix("%scratch") {
+        if let Ok(n) = rest.parse::<u32>() {
+            return match n {
+                0..=9 => Some(9 + n),
+                10..=18 => Some(10 + n),
+                _ => None,
+            };
+        }
+    }
+    if name == "%sysnr" {
+        return Some(8);
+    }
+    if name == "%sysnr_darwin" {
+        return Some(16);
+    }
     if let Some(rest) = name.strip_prefix('x') {
         if let Ok(n) = rest.parse::<u32>() {
             return (n <= 30).then_some(n);
@@ -188,12 +211,13 @@ pub(super) fn riscv_int_index(name: &str) -> Option<u32> {
 /// vector `v0`–`v31` (aliased) map to `0..=31`; x86-64 `xmm0`–`xmm15`
 /// (plan-00-H) to `0..=15`.
 pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
-    // An `abi::FP_SCRATCH` token occupies the physical index its realization
-    // (`d{i}`) maps to (plan-34-D). Unlike the int role tokens — whose
-    // realizations sit outside `INT_ALLOCATABLE`, so their occupancy is moot —
-    // `d0`–`d7` lead `FP_ALLOCATABLE`, so the token must be visible to
-    // `phys_busy_at` or the allocator would color a live `%fN` onto a busy
-    // scratch realization.
+    // An `abi::FP_SCRATCH`/`VEC_SCRATCH` token occupies the physical index its
+    // realization (`d{i}`/`v{i}`) maps to (plan-34-D). Builder-lowered bodies
+    // realize tokens in `Backend::select` before [`allocate`] runs, but the
+    // hand-built helper bodies (`finalize_vreg_body_with_locals`: runtime
+    // helpers, link thunks) reach the allocator token-bearing — and `d0`–`d7`
+    // lead `FP_ALLOCATABLE`, so the token must be visible to `phys_busy_at` or
+    // the allocator would color a live `%fN` onto a busy scratch realization.
     if let Some(rest) = name
         .strip_prefix("%fscratch")
         .or_else(|| name.strip_prefix("%vscratch"))

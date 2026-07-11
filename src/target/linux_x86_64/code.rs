@@ -8,8 +8,9 @@
 //! program that runs only integer language code.
 //!
 //! CodeInstructions are built with the neutral `abi::*` builders (the same ones
-//! the AArch64 backend uses), but with **x86-64 register names** ("rax", "rdi",
-//! ...). The x86-64 encoder (`crate::arch::x86_64::encode`) realizes the neutral
+//! the AArch64 backend uses) and the neutral role tokens (`%sysarg*`/`%sysnr`,
+//! plan-34-D); `remap_x86_abi` realizes them to their SysV homes (rdi, rsi,
+//! rdx, r10, ...). The x86-64 encoder (`crate::arch::x86_64::encode`) realizes the neutral
 //! ops (`mov_imm`, `sub_sp`, `str_u64`, `bl`, `svc`, `branch_self`, ...) as the
 //! concrete x86 instruction bytes. `svc` encodes to the x86 `syscall` opcode.
 
@@ -168,7 +169,7 @@ impl code::CodegenPlatform for Platform {
         // instruction. So the code is already in rdi — only the syscall number is
         // needed (`x8`→rax). A prior `mov rdi,rax` here wrongly overwrote the code
         // with the leaked variadic `al`=8 (rax) left by the pre-shutdown call.
-        instructions.push(abi::move_immediate("x8", "Integer", SYS_EXIT_GROUP));
+        instructions.push(abi::move_immediate(abi::syscall_register(), "Integer", SYS_EXIT_GROUP));
         instructions.push(abi::syscall());
         instructions.push(abi::branch_self());
         // Unreachable, but every function the validator sees needs a return op
@@ -262,14 +263,14 @@ impl code::CodegenPlatform for Platform {
         // mmap(0, size, PROT_RW, MAP_PRIVATE|ANON, -1, 0) — nr 9.
         // x86-64 syscall ABI: nr=rax, args rdi,rsi,rdx,r10,r8,r9, ret=rax.
         instructions.extend([
-            abi::move_immediate("rdi", "Integer", "0"),
-            abi::move_register("rsi", size_reg),
-            abi::move_immediate("rdx", "Integer", PROT_READ_WRITE),
-            abi::move_immediate("r10", "Integer", MAP_PRIVATE_ANON),
+            abi::move_immediate(abi::SYSARG[0], "Integer", "0"),
+            abi::move_register(abi::SYSARG[1], size_reg),
+            abi::move_immediate(abi::SYSARG[2], "Integer", PROT_READ_WRITE),
+            abi::move_immediate(abi::SYSARG[3], "Integer", MAP_PRIVATE_ANON),
             // r8 = -1 (no fd) — immediates parse as u64, so use the bit pattern.
-            abi::move_immediate("r8", "Integer", &u64::MAX.to_string()),
-            abi::move_immediate("r9", "Integer", "0"),
-            abi::move_immediate("rax", "Integer", SYS_MMAP),
+            abi::move_immediate(abi::SYSARG[4], "Integer", &u64::MAX.to_string()),
+            abi::move_immediate(abi::SYSARG[5], "Integer", "0"),
+            abi::move_immediate(abi::syscall_register(), "Integer", SYS_MMAP),
             abi::syscall(),
         ]);
         Ok(())
@@ -280,7 +281,7 @@ impl code::CodegenPlatform for Platform {
         // the AArch64 x0/x1 slots, which the x86-64 selection maps to rdi/rsi, so
         // they are already in place; only the syscall number is set here.
         instructions.extend([
-            abi::move_immediate("rax", "Integer", SYS_MUNMAP),
+            abi::move_immediate(abi::syscall_register(), "Integer", SYS_MUNMAP),
             abi::syscall(),
         ]);
         Ok(())
@@ -297,8 +298,8 @@ impl code::CodegenPlatform for Platform {
         // in the return register (→ rdi) and the length in x1 (→ rsi); set flags
         // and the syscall number.
         instructions.extend([
-            abi::move_immediate("rdx", "Integer", "0"),
-            abi::move_immediate("rax", "Integer", SYS_GETRANDOM),
+            abi::move_immediate(abi::SYSARG[2], "Integer", "0"),
+            abi::move_immediate(abi::syscall_register(), "Integer", SYS_GETRANDOM),
             abi::syscall(),
         ]);
         Ok(())
@@ -314,7 +315,7 @@ impl code::CodegenPlatform for Platform {
         // write(fd, buf, len) — nr 1. The shared callers set fd/buf/len in the
         // AArch64 x0/x1/x2 slots → rdi/rsi/rdx; set the syscall number.
         instructions.extend([
-            abi::move_immediate("rax", "Integer", SYS_WRITE),
+            abi::move_immediate(abi::syscall_register(), "Integer", SYS_WRITE),
             abi::syscall(),
         ]);
         Ok(())
@@ -400,7 +401,7 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        instructions.extend([abi::move_immediate("x1", "Integer", "0")]);
+        instructions.extend([abi::move_immediate(abi::ARG[1], "Integer", "0")]);
         self.emit_libc_call("access", from, platform_imports, instructions, relocations)?;
         Ok(())
     }
@@ -477,7 +478,7 @@ impl code::CodegenPlatform for Platform {
             code::FsPathOperation::Rmdir => "rmdir",
         };
         if matches!(operation, code::FsPathOperation::Mkdir) {
-            instructions.push(abi::move_immediate("x1", "Integer", "493"));
+            instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "493"));
         }
         self.emit_libc_call(symbol, from, platform_imports, instructions, relocations)?;
         Ok(())
@@ -630,13 +631,13 @@ impl code::CodegenPlatform for Platform {
 
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), BUFFER_SLOT),
-            abi::store_u64("x1", abi::stack_pointer(), CAPACITY_SLOT),
-            abi::move_register("x10", abi::return_register()),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), CAPACITY_SLOT),
+            abi::move_register(abi::SCRATCH[1], abi::return_register()),
         ]);
         for (offset, byte) in b"TMPDIR\0".iter().enumerate() {
             instructions.extend([
-                abi::move_immediate("x9", "Byte", &byte.to_string()),
-                abi::store_u8("x9", "x10", offset),
+                abi::move_immediate(abi::SCRATCH[0], "Byte", &byte.to_string()),
+                abi::store_u8(abi::SCRATCH[0], abi::SCRATCH[1], offset),
             ]);
         }
         self.emit_libc_call("getenv", from, platform_imports, instructions, relocations)?;
@@ -645,44 +646,44 @@ impl code::CodegenPlatform for Platform {
             abi::branch_ne(&env_ok),
             abi::branch(&fallback),
             abi::label(&env_ok),
-            abi::load_u64("x11", abi::stack_pointer(), BUFFER_SLOT),
-            abi::load_u64("x16", abi::stack_pointer(), CAPACITY_SLOT),
-            abi::move_register("x12", abi::return_register()),
-            abi::move_register("x13", "x12"),
-            abi::move_immediate("x14", "Integer", "0"),
+            abi::load_u64(abi::SCRATCH[2], abi::stack_pointer(), BUFFER_SLOT),
+            abi::load_u64(abi::SCRATCH[7], abi::stack_pointer(), CAPACITY_SLOT),
+            abi::move_register(abi::SCRATCH[3], abi::return_register()),
+            abi::move_register(abi::SCRATCH[4], abi::SCRATCH[3]),
+            abi::move_immediate(abi::SCRATCH[5], "Integer", "0"),
             abi::label(&env_len_loop),
-            abi::load_u8("x9", "x13", 0),
-            abi::compare_immediate("x9", "0"),
+            abi::load_u8(abi::SCRATCH[0], abi::SCRATCH[4], 0),
+            abi::compare_immediate(abi::SCRATCH[0], "0"),
             abi::branch_eq(&env_len_done),
-            abi::add_immediate("x13", "x13", 1),
-            abi::add_immediate("x14", "x14", 1),
-            abi::compare_registers("x14", "x16"),
+            abi::add_immediate(abi::SCRATCH[4], abi::SCRATCH[4], 1),
+            abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[5], 1),
+            abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[7]),
             abi::branch_ge(&fallback),
             abi::branch(&env_len_loop),
             abi::label(&env_len_done),
-            abi::compare_immediate("x14", "0"),
+            abi::compare_immediate(abi::SCRATCH[5], "0"),
             abi::branch_eq(&fallback),
-            abi::move_immediate("x15", "Integer", "0"),
+            abi::move_immediate(abi::SCRATCH[6], "Integer", "0"),
             abi::label(&copy_loop),
-            abi::compare_registers("x15", "x14"),
+            abi::compare_registers(abi::SCRATCH[6], abi::SCRATCH[5]),
             abi::branch_eq(&copy_done),
-            abi::load_u8("x9", "x12", 0),
-            abi::store_u8("x9", "x11", 0),
-            abi::add_immediate("x12", "x12", 1),
-            abi::add_immediate("x11", "x11", 1),
-            abi::add_immediate("x15", "x15", 1),
+            abi::load_u8(abi::SCRATCH[0], abi::SCRATCH[3], 0),
+            abi::store_u8(abi::SCRATCH[0], abi::SCRATCH[2], 0),
+            abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 1),
+            abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 1),
+            abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 1),
             abi::branch(&copy_loop),
             abi::label(&copy_done),
-            abi::store_u8("x31", "x11", 0),
-            abi::move_register(abi::return_register(), "x14"),
+            abi::store_u8(abi::ZERO, abi::SCRATCH[2], 0),
+            abi::move_register(abi::return_register(), abi::SCRATCH[5]),
             abi::branch(&done),
             abi::label(&fallback),
-            abi::load_u64("x11", abi::stack_pointer(), BUFFER_SLOT),
+            abi::load_u64(abi::SCRATCH[2], abi::stack_pointer(), BUFFER_SLOT),
         ]);
         for (offset, byte) in b"/tmp\0".iter().enumerate() {
             instructions.extend([
-                abi::move_immediate("x9", "Byte", &byte.to_string()),
-                abi::store_u8("x9", "x11", offset),
+                abi::move_immediate(abi::SCRATCH[0], "Byte", &byte.to_string()),
+                abi::store_u8(abi::SCRATCH[0], abi::SCRATCH[2], offset),
             ]);
         }
         instructions.extend([
