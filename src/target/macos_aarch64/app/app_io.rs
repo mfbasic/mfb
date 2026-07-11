@@ -254,12 +254,17 @@ pub(crate) fn emit_set_raw_input_mode(
 }
 
 fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
+    // C-call argument staging is spelled with role tokens, not physical
+    // registers: this sequence is also injected into shared helper bodies
+    // (`io_helpers::lower_io_read_char_helper` via `emit_set_raw_input_mode`),
+    // which the plan-34-D stream guard requires to be token-pure. The tokens
+    // realize to the same x0–x3 at the selection seam.
     asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.external_data("x0", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.external_data(abi::ARG[0], CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.local_address("x1", INPUT_MODE_KEY);
-    asm.push(abi::move_immediate("x2", "Integer", mode));
-    asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+    asm.local_address(abi::ARG[1], INPUT_MODE_KEY);
+    asm.push(abi::move_immediate(abi::ARG[2], "Integer", mode));
+    asm.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 }
 

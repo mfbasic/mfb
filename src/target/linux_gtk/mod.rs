@@ -301,10 +301,13 @@ impl Asm {
         self.push(abi::load_u64(dst, "x9", offset));
     }
 
-    /// Store `src` into runtime-state field `offset` (clobbers `x9`).
+    /// Store `src` into runtime-state field `offset` (clobbers the first
+    /// scratch-pool register, realized `x9`). Spelled with the neutral token
+    /// because some callers' sequences are injected into shared helper bodies,
+    /// which the plan-34-D stream guard requires to be token-pure.
     fn store_state(&mut self, src: &str, offset: usize) {
-        self.local_address("x9", STATE_SYMBOL);
-        self.push(abi::store_u64(src, "x9", offset));
+        self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
+        self.push(abi::store_u64(src, abi::SCRATCH[0], offset));
     }
 
     fn finish(self, symbol: &str, returns: &str) -> CodeFunction {

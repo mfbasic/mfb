@@ -504,12 +504,15 @@ impl Asm {
         self.ins.push(abi::load_u64(dst, dst, 0));
     }
 
-    /// Resolve `selector_symbol`'s SEL via `sel_registerName`, leaving it in `x1`.
-    /// Clobbers `x0`.
+    /// Resolve `selector_symbol`'s SEL via `sel_registerName`, leaving it in the
+    /// second argument register (`x1`). Clobbers the first (`x0`). Spelled with
+    /// role tokens (realized x0/x1 at the selection seam) because some callers'
+    /// sequences are injected into shared helper bodies, which the plan-34-D
+    /// stream guard requires to be token-pure.
     fn load_selector(&mut self, selector_symbol: &str) {
-        self.local_address("x0", selector_symbol);
+        self.local_address(abi::ARG[0], selector_symbol);
         self.call_external("_sel_registerName", LIB_OBJC);
-        self.push(abi::move_register("x1", "x0"));
+        self.push(abi::move_register(abi::ARG[1], abi::RET[0]));
     }
 }
 

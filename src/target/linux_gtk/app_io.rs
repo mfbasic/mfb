@@ -534,9 +534,12 @@ pub(crate) fn emit_set_raw_input_mode(
     relocations: &mut Vec<CodeRelocation>,
     from: &str,
 ) {
+    // Injected into shared helper bodies (`io_helpers::lower_io_read_char_helper`),
+    // so the scratch is spelled through the neutral token pool (plan-34-D);
+    // realized to the same x10 at the selection seam.
     let mut asm = Asm::new(from);
-    asm.push(abi::move_immediate("x10", "Integer", MODE_RAW));
-    asm.store_state("x10", ST_INPUT_MODE);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", MODE_RAW));
+    asm.store_state(abi::SCRATCH[1], ST_INPUT_MODE);
     instructions.extend(asm.ins);
     relocations.extend(asm.rel);
 }
