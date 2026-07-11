@@ -6,5 +6,11 @@ FUNC main AS Integer
   io::print(fs::pathNormalize("/tmp///a/../b/"))
   io::print(fs::pathNormalize("./a/b/.."))
   io::print(fs::pathNormalize(""))
+  ' bug-79: a fully-cancelling relative path collapses to "." (not the popped
+  ' component), while an absolute root keeps its leading slash.
+  io::print(fs::pathNormalize("a/.."))
+  io::print(fs::pathNormalize("a/b/../.."))
+  io::print(fs::pathNormalize("a/../.."))
+  io::print(fs::pathNormalize("/a/.."))
   RETURN 0
 END FUNC

@@ -435,62 +435,12 @@ impl<'a> SyntaxChecker<'a> {
         &mut self,
         _file: &AstFile,
         _line: usize,
-        matched_type: &Type,
-        covered_cases: &HashSet<String>,
+        _matched_type: &Type,
+        _covered_cases: &HashSet<String>,
     ) {
-        let _detail = match matched_type {
-            Type::User(type_name) => {
-                let Some(info) = self.type_infos.get(type_name) else {
-                    return;
-                };
-                match info.kind {
-                    TypeDeclKind::Enum => {
-                        let mut missing = info
-                            .members
-                            .iter()
-                            .filter_map(|member| {
-                                let case_name = format!("{type_name}::{member}");
-                                if covered_cases.contains(&case_name) {
-                                    None
-                                } else {
-                                    Some(format!("{type_name}.{member}"))
-                                }
-                            })
-                            .collect::<Vec<_>>();
-                        missing.sort();
-                        format!(
-                            "MATCH on enum `{type_name}` does not cover {}; add unguarded CASE arms or CASE ELSE.",
-                            missing.join(", ")
-                        )
-                    }
-                    TypeDeclKind::Union => {
-                        let missing = info
-                            .variants
-                            .iter()
-                            .filter_map(|variant| {
-                                if covered_cases.contains(&variant.name) {
-                                    None
-                                } else {
-                                    Some(variant.name.clone())
-                                }
-                            })
-                            .collect::<Vec<_>>();
-                        format!(
-                            "MATCH on UNION `{type_name}` does not cover {}; add unguarded CASE arms or CASE ELSE.",
-                            missing.join(", ")
-                        )
-                    }
-                    TypeDeclKind::Type => format!(
-                        "MATCH on open type {} requires an unguarded CASE ELSE.",
-                        self.type_name(matched_type)
-                    ),
-                }
-            }
-            _ => format!(
-                "MATCH on open type {} requires an unguarded CASE ELSE.",
-                self.type_name(matched_type)
-            ),
-        };
+        // MATCH exhaustiveness is now enforced by `ir::verify` (the sole rejecter
+        // for both the source and package paths, plan-20). This relocated
+        // syntaxcheck rule emits no diagnostic; the body is intentionally empty.
     }
 
     pub(super) fn infer_list_literal(

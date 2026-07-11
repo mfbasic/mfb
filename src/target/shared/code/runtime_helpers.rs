@@ -389,7 +389,8 @@ fn lower_thread_start_helper(
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_INBOUND_QUEUE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_OS_HANDLE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_PARENT_ARENA_STATE),
+        // PARENT_ARENA_STATE is written with the real value a few lines below;
+        // the zero-init store here was dead (bug-102).
         abi::load_u64("%v10", abi::stack_pointer(), ENTRY_OFFSET),
         abi::store_u64("%v10", "%v9", THREAD_OFFSET_ENTRY),
         abi::load_u64("%v10", abi::stack_pointer(), DATA_OFFSET),

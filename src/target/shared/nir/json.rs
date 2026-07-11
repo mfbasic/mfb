@@ -7,6 +7,18 @@ impl NirModule {
         } else {
             format!("  \"globals\": [{}\n  ],\n", join_json(&self.globals, 2))
         };
+        let link_functions = if self.link_functions.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "  \"linkFunctions\": [{}\n  ],\n",
+                self.link_functions
+                    .iter()
+                    .map(|function| link_function_json(function, 2))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
         format!(
             concat!(
                 "{{\n",
@@ -19,6 +31,7 @@ impl NirModule {
                 "{}",
                 "  \"types\": [{}\n  ],\n",
                 "  \"imports\": [{}\n  ],\n",
+                "{}",
                 "  \"runtimeHelpers\": [{}],\n",
                 "  \"functions\": [{}\n  ]\n",
                 "}}\n"
@@ -33,6 +46,7 @@ impl NirModule {
             globals,
             join_json(&self.types, 2),
             join_json(&self.imports, 2),
+            link_functions,
             self.runtime_helpers
                 .iter()
                 .map(|helper| json_string(helper.name()))
@@ -279,6 +293,28 @@ impl ToNirJson for NirImportParam {
 impl ToNirJson for NirFunction {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        let file = if self.file.is_empty() {
+            String::new()
+        } else {
+            format!("{pad}  \"file\": {},\n", json_string(&self.file))
+        };
+        let resource_owners = if self.resource_owners.is_empty() {
+            String::new()
+        } else {
+            // Sort by binding name so the dump is deterministic (the source is a
+            // HashMap).
+            let mut owners: Vec<(&String, &crate::escape::ResOwner)> =
+                self.resource_owners.iter().collect();
+            owners.sort_by(|a, b| a.0.cmp(b.0));
+            let entries = owners
+                .iter()
+                .map(|(name, owner)| {
+                    format!("{{ \"name\": {}, \"owner\": {} }}", json_string(name), res_owner_json(owner))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{pad}  \"resourceOwners\": [{entries}],\n")
+        };
         format!(
             concat!(
                 "\n{}{{\n",
@@ -286,6 +322,8 @@ impl ToNirJson for NirFunction {
                 "{}  \"visibility\": {},\n",
                 "{}  \"kind\": {},\n",
                 "{}  \"isolated\": {},\n",
+                "{}",
+                "{}",
                 "{}  \"params\": [{}\n{}  ],\n",
                 "{}  \"returns\": {},\n",
                 "{}  \"body\": [{}\n{}  ]\n",
@@ -300,6 +338,8 @@ impl ToNirJson for NirFunction {
             json_string(&self.kind),
             pad,
             self.isolated,
+            file,
+            resource_owners,
             pad,
             join_json(&self.params, indent + 2),
             pad,
@@ -310,6 +350,122 @@ impl ToNirJson for NirFunction {
             pad,
             pad
         )
+    }
+}
+
+/// Render a resource-ownership decision for the `-nir` dump (bug-139.4). Dump-only;
+/// no parser reads it back.
+fn res_owner_json(owner: &crate::escape::ResOwner) -> String {
+    match owner {
+        crate::escape::ResOwner::Local => "{ \"kind\": \"local\" }".to_string(),
+        crate::escape::ResOwner::Float(scope) => {
+            format!("{{ \"kind\": \"float\", \"scope\": {} }}", json_string(scope))
+        }
+    }
+}
+
+/// Render a native `LINK` function for the `-nir` dump (bug-139.4). Dump-only; no
+/// parser reads it back.
+fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> String {
+    let pad = " ".repeat(indent);
+    let params = function
+        .params
+        .iter()
+        .map(|(name, type_)| {
+            format!("{{ \"name\": {}, \"type\": {} }}", json_string(name), json_string(type_))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let abi_slots = function
+        .abi_slots
+        .iter()
+        .map(|slot| {
+            format!(
+                "{{ \"name\": {}, \"ctype\": {}, \"out\": {} }}",
+                json_string(&slot.name),
+                json_string(&slot.ctype),
+                slot.is_out
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let consts = function
+        .consts
+        .iter()
+        .map(|(slot, value)| format!("{{ \"slot\": {}, \"value\": {} }}", json_string(slot), value))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let success_on = function
+        .success_on
+        .as_ref()
+        .map(link_expr_json)
+        .unwrap_or_else(|| "null".to_string());
+    let result = function
+        .result
+        .as_ref()
+        .map(link_expr_json)
+        .unwrap_or_else(|| "null".to_string());
+    let free = function
+        .free
+        .as_ref()
+        .map(|free| {
+            format!(
+                "{{ \"slot\": {}, \"symbol\": {} }}",
+                json_string(&free.slot),
+                json_string(&free.symbol)
+            )
+        })
+        .unwrap_or_else(|| "null".to_string());
+    format!(
+        concat!(
+            "\n{}{{ \"alias\": {}, \"name\": {}, \"library\": {}, \"symbol\": {}, ",
+            "\"params\": [{}], \"returnType\": {}, \"returnResource\": {}, ",
+            "\"abiSlots\": [{}], \"abiReturnName\": {}, \"abiReturnCtype\": {}, ",
+            "\"consts\": [{}], \"successOn\": {}, \"result\": {}, \"free\": {} }}"
+        ),
+        pad,
+        json_string(&function.alias),
+        json_string(&function.name),
+        json_string(&function.library),
+        json_string(&function.symbol),
+        params,
+        json_string(&function.return_type),
+        function.return_resource,
+        abi_slots,
+        json_string(&function.abi_return_name),
+        json_string(&function.abi_return_ctype),
+        consts,
+        success_on,
+        result,
+        free
+    )
+}
+
+fn link_expr_json(expr: &crate::ir::IrLinkExpr) -> String {
+    match expr {
+        crate::ir::IrLinkExpr::Var => "{ \"kind\": \"var\" }".to_string(),
+        crate::ir::IrLinkExpr::Int(value) => {
+            format!("{{ \"kind\": \"int\", \"value\": {value} }}")
+        }
+        crate::ir::IrLinkExpr::Compare { op, lhs, rhs } => format!(
+            "{{ \"kind\": \"compare\", \"op\": {}, \"lhs\": {}, \"rhs\": {} }}",
+            json_string(op),
+            link_expr_json(lhs),
+            link_expr_json(rhs)
+        ),
+        crate::ir::IrLinkExpr::And(lhs, rhs) => format!(
+            "{{ \"kind\": \"and\", \"lhs\": {}, \"rhs\": {} }}",
+            link_expr_json(lhs),
+            link_expr_json(rhs)
+        ),
+        crate::ir::IrLinkExpr::Or(lhs, rhs) => format!(
+            "{{ \"kind\": \"or\", \"lhs\": {}, \"rhs\": {} }}",
+            link_expr_json(lhs),
+            link_expr_json(rhs)
+        ),
+        crate::ir::IrLinkExpr::Not(operand) => {
+            format!("{{ \"kind\": \"not\", \"operand\": {} }}", link_expr_json(operand))
+        }
     }
 }
 

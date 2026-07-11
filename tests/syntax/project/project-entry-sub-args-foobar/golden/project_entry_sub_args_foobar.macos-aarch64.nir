@@ -20,6 +20,7 @@
     "visibility": "public",
     "kind": "sub",
     "isolated": false,
+    "file": "src/main.mfb",
     "params": [
     { "name": "args", "type": "List OF String", "default": null }
     ],

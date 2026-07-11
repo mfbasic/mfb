@@ -1,0 +1,26 @@
+{
+  "project": "bug137_fixed_pow_underflow_overflow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "0.5F" }, { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0F" }, "right": { "kind": "number", "value": "80.0F" } }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }
+      ]
+    }
+    ]
+  }
+  ]
+}

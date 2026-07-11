@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug137_fixed_pow_underflow_overflow_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Fixed", "target": "math.pow", "args": [{ "kind": "const", "type": "Fixed", "value": "0.5" }, { "kind": "binary", "type": "Fixed", "op": "-", "left": { "kind": "const", "type": "Fixed", "value": "0.0" }, "right": { "kind": "const", "type": "Fixed", "value": "80.0" } }] } },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

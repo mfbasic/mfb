@@ -459,6 +459,10 @@ impl CodeBuilder<'_> {
         let newlen_slot = self.allocate_stack_object("concat_self_newlen", 8);
         let newcap_slot = self.allocate_stack_object("concat_self_newcap", 8);
         let newbuf_slot = self.allocate_stack_object("concat_self_newbuf", 8);
+        // bug-77: the old arena-owned buffer must be freed on regrow; capture
+        // its true alloc size (payload capacity + 9) before the alloc clobbers
+        // the registers holding it.
+        let oldsize_slot = self.allocate_stack_object("concat_self_oldsize", 8);
 
         let ptr = self.temporary_vreg();
         let len = self.temporary_vreg();
@@ -470,6 +474,7 @@ impl CodeBuilder<'_> {
         let step_scratch = self.temporary_vreg();
         let zero = self.temporary_vreg();
         let dst = self.temporary_vreg();
+        let oldsize = self.temporary_vreg();
 
         let regrow = self.label("concat_self_regrow");
         let write = self.label("concat_self_write");
@@ -495,6 +500,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&len, &ptr, 0)); // len
         self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot)); // spare
         self.emit(abi::add_registers(&right_ptr, &len, &spare)); // current payload capacity
+        // bug-77: oldsize = payload_capacity + 9 ([len:8][bytes][NUL]). The
+        // headroom is tracked only in the shadow slot, so a tight len+9 free
+        // would under-free; capture the real size now before it is clobbered.
+        self.emit(abi::add_immediate(&oldsize, &right_ptr, 9));
+        self.emit(abi::store_u64(&oldsize, abi::stack_pointer(), oldsize_slot));
         self.emit_geometric_step(
             &right_ptr,
             &newcap,
@@ -547,6 +557,25 @@ impl CodeBuilder<'_> {
         // NUL terminator at newbuf+8+newlen.
         self.emit(abi::move_immediate(&zero, "Integer", "0"));
         self.emit(abi::store_u8(&zero, &dst, 0));
+        // bug-77: free the old buffer before installing the new pointer. The
+        // old buffer pointer is still live at name_slot (overwritten just
+        // below) and its size is in oldsize_slot; the new buffer is already
+        // spilled in newbuf_slot, so it survives this call. arena_free clobbers
+        // all caller-saved registers. This free runs exactly once per regrow.
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            name_slot,
+        ));
+        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), oldsize_slot));
+        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_FREE_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
         // Install new buffer; spare = newcap_payload - newlen.
         self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), newbuf_slot));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), name_slot));

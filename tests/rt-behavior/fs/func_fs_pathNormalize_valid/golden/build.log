@@ -10,4 +10,8 @@ target/a/b.txt
 /tmp/b
 a
 .
+.
+.
+..
+/
 [exit 0]

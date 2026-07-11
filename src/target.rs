@@ -145,8 +145,9 @@ pub(crate) trait NativeBackend: Sync {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String>;
-    /// Whether this backend supports app mode (`mfb build -app`). Only macOS
-    /// backends advertise this; the CLI rejects `-app` for any other target.
+    /// Whether this backend supports app mode (`mfb build -app`). macOS backends
+    /// advertise the AppKit runtime and Linux backends the GTK4 one; the CLI
+    /// rejects `-app` for any backend returning false.
     fn supports_app_mode(&self) -> bool {
         false
     }

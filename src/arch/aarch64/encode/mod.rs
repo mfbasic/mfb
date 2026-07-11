@@ -116,9 +116,15 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
         let function_start = encoder.text.len();
         for instruction in &function.instructions {
             if instruction.op == CodeOp::Label {
-                encoder
-                    .labels
-                    .insert(field(instruction, "name")?, encoder.text.len());
+                let name = field(instruction, "name")?;
+                // A duplicate name would be last-writer-wins, silently resolving
+                // every reference to the final definition (bug-127; cf. x86 bug-15).
+                if let Some(first) = encoder.labels.insert(name.clone(), encoder.text.len()) {
+                    return Err(format!(
+                        "AArch64: duplicate label '{name}' in function '{}' (first at byte {first})",
+                        function.name
+                    ));
+                }
             } else {
                 encoder
                     .text

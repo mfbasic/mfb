@@ -81,6 +81,10 @@ mod fs_specs;
 mod io_specs;
 mod net_specs;
 mod os_specs;
+// strings:: ops are native-direct, so these specs are no longer catalogued
+// (bug-120.1); the module is retained to avoid a wide `RuntimeHelper::Strings`
+// enum-variant churn.
+#[allow(dead_code)]
 mod strings_specs;
 mod term_specs;
 mod thread_specs;
@@ -95,6 +99,7 @@ use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
 use os_specs::*;
+#[allow(unused_imports)]
 use strings_specs::*;
 use term_specs::*;
 use thread_specs::*;
@@ -115,8 +120,6 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Io)
     } else if builtins::math::is_math_call(name) {
         Some(RuntimeHelper::Math)
-    } else if builtins::strings::is_strings_call(name) {
-        Some(RuntimeHelper::Strings)
     } else if builtins::term::is_term_call(name) {
         Some(RuntimeHelper::Term)
     } else if builtins::thread::is_thread_call(name) {

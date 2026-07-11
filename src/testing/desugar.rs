@@ -484,7 +484,34 @@ fn instrument_nested(statement: &mut Statement, file: &str, slots: &mut Vec<CovS
                 instrument_block(&mut case.body, file, slots);
             }
         }
+        // An inline `TRAP` handler rides on a statement's value expression
+        // (`Expression::Trapped`). Its `handler` block is executed on failure but
+        // was previously never instrumented, so those lines rendered Neutral even
+        // when they ran (bug-93.2). Instrument the handler with the same
+        // block/slot mechanism used for a `TRAP` statement body.
+        Statement::Let {
+            value: Some(expression),
+            ..
+        }
+        | Statement::Return {
+            value: Some(expression),
+            ..
+        } => instrument_trapped_handler(expression, file, slots),
+        Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
+            instrument_trapped_handler(value, file, slots)
+        }
+        Statement::Expression { expression, .. } => {
+            instrument_trapped_handler(expression, file, slots)
+        }
         _ => {}
+    }
+}
+
+/// If `expression` is an inline-`TRAP` value, instrument its handler block so the
+/// handler's executed lines are counted (bug-93.2).
+fn instrument_trapped_handler(expression: &mut Expression, file: &str, slots: &mut Vec<CovSlot>) {
+    if let Expression::Trapped { handler, .. } = expression {
+        instrument_block(handler, file, slots);
     }
 }
 
@@ -1105,5 +1132,36 @@ fn global_mut(name: &str, type_name: &str, value: Expression) -> TopLevelBinding
         type_name: Some(type_name.to_string()),
         value: Some(value),
         line: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instruments_inline_trap_handler_lines() {
+        // A bare-expression statement carrying an inline `TRAP` whose handler runs
+        // one statement at line 42. Instrumenting the block must emit a CovSlot for
+        // the handler line so it is not rendered Neutral (bug-93.2).
+        let handler = vec![Statement::Expression {
+            expression: call("io.print", vec![ident("boom")]),
+            line: 42,
+        }];
+        let mut block = vec![Statement::Expression {
+            expression: Expression::Trapped {
+                expression: Box::new(call("fs.readText", vec![ident("path")])),
+                binding: "err".to_string(),
+                handler,
+                line: 7,
+            },
+            line: 7,
+        }];
+        let mut slots: Vec<CovSlot> = Vec::new();
+        instrument_block(&mut block, "app.mfb", &mut slots);
+        assert!(
+            slots.iter().any(|slot| slot.line == 42 && slot.file == "app.mfb"),
+            "expected a CovSlot for the inline-TRAP handler line, got {slots:?}"
+        );
     }
 }

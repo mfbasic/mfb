@@ -1153,20 +1153,12 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn report_expanded_union_member_conflicts(
         &mut self,
         _file: &AstFile,
-        type_decl: &TypeDecl,
+        _type_decl: &TypeDecl,
     ) {
-        let mut included_members: HashMap<String, String> = HashMap::new();
-        for include in &type_decl.includes {
-            for variant in self.expanded_union_variants(include, &mut HashSet::new()) {
-                if let Some(_previous_include) =
-                    included_members.insert(variant.name.clone(), include.clone())
-                {}
-            }
-        }
-
-        for variant in &type_decl.variants {
-            if let Some(_include) = included_members.get(&variant.name) {}
-        }
+        // Expanded-union member-conflict detection is now enforced by `ir::verify`
+        // (the sole rejecter for both the source and package paths, plan-20). This
+        // relocated syntaxcheck rule emits no diagnostic; the body is intentionally
+        // empty.
     }
 
     pub(super) fn direct_record_successors(&self, name: &str) -> Vec<String> {

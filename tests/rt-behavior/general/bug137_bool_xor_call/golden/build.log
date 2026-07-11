@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/general/bug137_bool_xor_call
+Wrote AST to tests/rt-behavior/general/bug137_bool_xor_call/bug137_bool_xor_call.ast
+Wrote IR to tests/rt-behavior/general/bug137_bool_xor_call/bug137_bool_xor_call.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/bug137_bool_xor_call
+Wrote executable to tests/rt-behavior/general/bug137_bool_xor_call/bug137_bool_xor_call.out
+[exit 0]
+$ tests/rt-behavior/general/bug137_bool_xor_call/bug137_bool_xor_call.out
+FALSE
+TRUE
+TRUE
+[exit 0]

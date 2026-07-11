@@ -105,10 +105,10 @@ impl plan::NativePlanPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
-            "io.flush" => vec![
-                self.libc_import("fsync", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
-            ],
+            // io.flush lowers to a drain-only helper that neither fsyncs nor reads
+            // errno, so it needs no imports — matching the other three backends
+            // (bug-71 dropped these everywhere except here) (bug-117).
+            "io.flush" => Vec::new(),
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
                 let mut imports = vec![self.libc_import("read", spec.symbol)];
                 if spec.call == "io.input" {

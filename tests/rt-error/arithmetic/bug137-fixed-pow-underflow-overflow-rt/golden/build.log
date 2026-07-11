@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt
+Wrote AST to tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt/bug137_fixed_pow_underflow_overflow_rt.ast
+Wrote IR to tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt/bug137_fixed_pow_underflow_overflow_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt
+Wrote executable to tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt/bug137_fixed_pow_underflow_overflow_rt.out
+[exit 0]
+$ tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt/bug137_fixed_pow_underflow_overflow_rt.out
+Code: 77050010 Message: numeric overflow
+[exit 255]

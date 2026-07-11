@@ -1,6 +1,43 @@
-# bug-86 — riscv64 thread worker returns spurious `numeric overflow`
+# bug-86 — thread `waitFor` worker-error finalization corrupts the error result
 
-**Status:** OPEN (pre-existing, NOT plan-34-C). Filed 2026-07-10.
+**Status:** OPEN (pre-existing). Filed 2026-07-10. **Re-diagnosed 2026-07-11 — the
+original "riscv64-specific arithmetic miscompile" framing below is WRONG.**
+
+## Corrected root cause (2026-07-11)
+The bug is **cross-target**, not riscv-specific, and reproduces on the aarch64
+host too. The original report only saw a target difference because it ran the
+rv64 binary from `/tmp` (where the fixture's relative `data/input.txt` is missing)
+while the aarch64/x86 acceptance run happens from the repo root where the file
+exists. The real trigger is **a worker that returns an error result** (a missing
+`fs::readText`, or an explicit `FAIL error(code, msg)`): the worker's real error
+is replaced by a spurious `77050010` ("numeric overflow") that escapes the
+enclosing `waitFor(...) TRAP`. It is **layout-sensitive** — adding an `io::print`
+to the handler shifts register allocation and masks it (which is why
+`thread-error-source-rt`, whose handler prints, passes).
+
+Mechanism: the `thread::waitFor` worker-error finalization path
+(`emit_finalize_worker_error_source`, `builder_codegen_primitives.rs`) reads a
+corrupt error-message pointer/length because a caller-saved register holding it is
+clobbered across an intervening `_mfb_arena_alloc` in one of the size/copy
+sub-helpers it calls; the bogus String length trips the checked size add and
+raises `ERR_OVERFLOW`. This is the caller-saved register-lifetime class
+`.ai/compiler.md` warns about. `copy_flat_block` itself was audited and is
+register-safe (every operand routes through a stack slot), so the clobber is in
+the message pointer/length handoff around it, not inside it.
+
+## Fix direction (deferred — needs a layout-sensitive audit)
+Spill `RESULT_ERROR_MESSAGE`/`RESULT_ERROR_SOURCE` (and any length derived while
+sizing the message block) to stack slots before every helper `bl` in the
+`emit_finalize_worker_error_source` seam and reload after. Because it is
+layout-sensitive, a passing acceptance run does NOT prove the fix (per
+compiler.md) — validate with a **no-`io::print`** reproducer: `thread::start` a
+worker that `FAIL`s a known code, `waitFor(...) TRAP(err) RETURN err.code`, and
+assert the process exits `knownCode & 0xFF` with no `Code:` on stderr. Reproduces
+on host (aarch64) and the rv64 box (`ssh -p 2229`), so it is host-testable.
+
+---
+
+## Original report (framing superseded above)
 
 ## Symptom
 `tests/rt-behavior/threads/func_thread_result_valid`, cross-built

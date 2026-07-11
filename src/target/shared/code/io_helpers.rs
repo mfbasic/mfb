@@ -4,8 +4,9 @@ use super::*;
 /// buffer to fd 1. A no-op when buffering is off (`OUT_ENABLED == 0`) or nothing
 /// is pending; otherwise a `write(1, OUT_PTR, OUT_FILLED)` loop that empties the
 /// buffer and resets `OUT_FILLED = 0`. Returns `x0 = 0` on success (including the
-/// no-op cases) and `x0 = 1` on a write failure — on failure the buffer is left
-/// intact (`OUT_PTR`/`OUT_FILLED` unchanged) so a later flush can retry. Reads the
+/// no-op cases) and `x0 = 1` on a write failure — on failure the advanced window
+/// is written back (`OUT_PTR`/`OUT_FILLED` point past the bytes already sent) so a
+/// later flush resumes without re-sending the prefix (bug-97). Reads the
 /// arena state through the pinned arena register (`x19`); shared by `io::flush`,
 /// the buffered-write overflow path, `io::setBuffered(FALSE)`, every stdin read,
 /// and `_mfb_shutdown`.
@@ -77,6 +78,14 @@ pub(super) fn lower_stdout_drain(
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::return_(),
         abi::label(&err),
+        // bug-97: persist the advanced window before erroring out. Partial
+        // writes advance the cursor (`%v2`) and remaining count (`%v1`); if we
+        // returned without writing them back, a retried flush would re-read the
+        // original OUT_PTR/OUT_FILLED and re-send the already-written prefix.
+        // The drain reads these two fields as its live window, so a retry
+        // correctly resumes from here.
+        abi::store_u64("%v2", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
+        abi::store_u64("%v1", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::return_(),
     ]);

@@ -113,6 +113,10 @@ pub(crate) struct PlanCall {
 
 pub(crate) enum CallKind {
     Local,
+    /// Never produced: `import_symbols` is always empty (bug-139.2), so no call is
+    /// ever classified as an import. The variant is retained only because `src/os/`
+    /// object emitters still enumerate it in an exhaustive match.
+    #[allow(dead_code)]
     Import,
     Runtime,
     Indirect,
@@ -213,6 +217,14 @@ impl NativePlan {
     }
 
     pub(crate) fn to_json(&self) -> String {
+        let link_symbols = if self.link_symbols.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "  \"linkSymbols\": [{}],\n",
+                json_string_list(&self.link_symbols)
+            )
+        };
         format!(
             concat!(
                 "{{\n",
@@ -224,6 +236,7 @@ impl NativePlan {
                 "  \"entrySymbol\": {},\n",
                 "  \"runtimeSymbols\": [{}],\n",
                 "  \"externalSymbols\": [{}],\n",
+                "{}",
                 "  \"platformImports\": [{}\n  ],\n",
                 "  \"functions\": [{}\n  ]\n",
                 "}}\n"
@@ -237,6 +250,7 @@ impl NativePlan {
                 .unwrap_or_else(|| "null".to_string()),
             json_string_list(&self.runtime_symbols),
             json_string_list(&self.external_symbols),
+            link_symbols,
             join_json(&self.platform_imports, 2),
             join_json(&self.functions, 2)
         )

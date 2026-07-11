@@ -20,6 +20,7 @@
     "visibility": "public",
     "kind": "func",
     "isolated": false,
+    "file": "src/main.mfb",
     "params": [
     ],
     "returns": "Integer",

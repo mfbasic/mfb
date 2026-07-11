@@ -358,12 +358,15 @@ pub(crate) fn resolve_mid_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCa
 }
 
 pub(crate) fn resolve_replace_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    // Arity first: `arg_types[0]`/`list_element` must not be indexed before the
+    // length is known, or an empty/short slice panics (bug-98).
+    if arg_types.len() != 3 {
+        return None;
+    }
     let element = list_element(&arg_types[0])?;
-    (arg_types.len() == 3 && arg_types[1] == element && arg_types[2] == element).then_some(
-        ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
+    (arg_types[1] == element && arg_types[2] == element).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
 }
 
 pub(crate) fn resolve_get<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
@@ -637,6 +640,22 @@ mod tests {
         }
         assert!(!is_general_call("nope"));
         assert!(!is_general_call("collections.get"));
+    }
+
+    #[test]
+    fn resolve_replace_list_arity_checks_before_indexing() {
+        // bug-98: an empty or short arg slice must not panic (index OOB) before
+        // the arity is verified.
+        let empty: Vec<String> = Vec::new();
+        assert!(resolve_replace_list(&empty).is_none());
+        let one = strings(&["List OF Integer"]);
+        assert!(resolve_replace_list(&one).is_none());
+        let two = strings(&["List OF Integer", "Integer"]);
+        assert!(resolve_replace_list(&two).is_none());
+        // The valid 3-arg form still resolves.
+        let three = strings(&["List OF Integer", "Integer", "Integer"]);
+        let ok = resolve_replace_list(&three).map(|r| r.return_type.into_owned());
+        assert_eq!(ok, Some("List OF Integer".to_string()));
     }
 
     #[test]

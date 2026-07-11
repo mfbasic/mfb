@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug147_float_eq_nesting",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 7, "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "3.0" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Float", "value": "2.0" }] }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Float", "value": "4.0" }] }] }] } },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

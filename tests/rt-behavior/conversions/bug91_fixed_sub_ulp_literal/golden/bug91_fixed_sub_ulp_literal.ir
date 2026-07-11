@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug91_fixed_sub_ulp_literal",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "a", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1e-39" } },
+    {
+      "op": "if",
+      "line": 9,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Fixed", "value": "0.0" } },
+      "then": [
+      { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "sub-ulp-is-zero" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "sub-ulp-nonzero" }] } }
+      ]
+    },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Fixed", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Fixed", "value": "1.0" } }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

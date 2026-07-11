@@ -796,6 +796,9 @@ fn generate(
     call_fn(FN, &mut ins);
     // Wipe the SEC1 private-key DER scratch (holds the raw scalar).
     zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, "sec1S", &mut ins);
+    // bug-136: RAWBUF holds the raw private scalar (04||X||Y||K); wipe it once
+    // the output list copy has completed so the secret is not left in scratch.
+    zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, "rawS", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -836,6 +839,9 @@ fn generate(
             rel,
         )?;
         zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, &format!("{tag}sec1"), ins);
+        // bug-136: scrub RAWBUF (raw private scalar) on the post-populate
+        // alloc_fail path too.
+        zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, &format!("{tag}raw"), ins);
         Ok(())
     };
     ins.push(abi::label(&load_fail));
@@ -1471,6 +1477,14 @@ fn verify(
         abi::stack_pointer(),
         MD,
     ));
+    // bug-136: EVP_MD_CTX_new returns NULL on OOM; without this check the NULL
+    // ctx is dereferenced by EVP_DigestVerifyInit. Route to the generic error
+    // exit (ERR_UNKNOWN, mirroring sign's init handling).
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&load_fail),
+    ]);
 
     dlsym_into(
         symbol,
@@ -1491,6 +1505,12 @@ fn verify(
         abi::load_u64(abi::ARG[4], abi::stack_pointer(), PKEY),
     ]);
     call_fn(FN, &mut ins);
+    // bug-136: check EVP_DigestVerifyInit (returns 1 on success). An init
+    // failure must be a real error, not a silent "signature invalid" boolean.
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&load_fail),
+    ]);
 
     // rc = EVP_DigestVerify(ctx, sig, siglen, msg, msglen); valid iff rc == 1.
     dlsym_into(

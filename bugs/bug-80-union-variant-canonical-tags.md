@@ -1,8 +1,20 @@
 # bug-80: a variant included at divergent positions in two unions is now rejected — support it with canonical tag assignment
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 Effort: large (3h–1d)
 Severity: MEDIUM (a legal-looking program is rejected)
+
+**Status (2026-07-11):** DEFERRED — needs a dedicated plan, not a session patch.
+Confirmed still present: `check_union_variant_tag` (validation.rs) rejects any
+cross-union positional divergence; tags are per-union positional, keyed by variant
+name. A correct fix is a global deterministic tag-per-variant-type pass (stable
+sort of fully-qualified variant name) threaded through match/dispatch lowering and
+the resource-union drop dispatch, plus carrying the canonical tag in the `.mfp`
+package format (a binary-repr version bump) — then delete `check_union_variant_tag`.
+This is a cross-cutting format+codegen change with wide golden churn; it also
+resolves the `variants_for_union` resource-union-drop nondeterminism (do both
+together). Current behavior is a *rejection with a diagnostic* (not a silent
+miscompile), so it is safe to leave pending the plan.
 
 `union_variant_tags` is keyed by variant **name** alone. The resolver permits the
 same variant to appear at different positions in two different unions:

@@ -304,11 +304,11 @@ impl<'a> SyntaxChecker<'a> {
         _file: &AstFile,
         _line: usize,
         _context: &str,
-        type_: &Type,
+        _type_: &Type,
     ) {
-        if self.is_comparable(type_) {
-            return;
-        }
+        // Comparability is now enforced by `ir::verify` (the sole rejecter for both
+        // the source and package paths, plan-20). This relocated syntaxcheck rule
+        // emits no diagnostic; the body is intentionally empty.
     }
 
     /// The argument mode for argument `index` of a call to `callee`. A call to a

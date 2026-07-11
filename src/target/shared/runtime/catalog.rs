@@ -95,20 +95,10 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         OS_HOST_NAME_SPEC,
         OS_USER_NAME_SPEC,
         OS_CPU_COUNT_SPEC,
-        STRINGS_TRIM_SPEC,
-        STRINGS_TRIM_START_SPEC,
-        STRINGS_TRIM_END_SPEC,
-        STRINGS_UPPER_SPEC,
-        STRINGS_LOWER_SPEC,
-        STRINGS_CASE_FOLD_SPEC,
-        STRINGS_NORMALIZE_NFC_SPEC,
-        STRINGS_GRAPHEMES_SPEC,
-        STRINGS_STARTS_WITH_SPEC,
-        STRINGS_ENDS_WITH_SPEC,
-        STRINGS_CONTAINS_SPEC,
-        STRINGS_SPLIT_SPEC,
-        STRINGS_JOIN_SPEC,
-        STRINGS_BYTE_LEN_SPEC,
+        // strings:: ops are all native-direct (lowered inline, no `_mfb_rt_strings_*`
+        // helper is ever emitted), so their catalog entries were dead (bug-120.1).
+        // The `STRINGS_*_SPEC` constants and `strings_specs.rs` remain in place to
+        // avoid a wide enum-variant churn.
         THREAD_START_SPEC,
         THREAD_IS_RUNNING_SPEC,
         THREAD_WAIT_FOR_SPEC,

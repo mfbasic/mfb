@@ -1,0 +1,16 @@
+IMPORT io
+
+' bug-91: a Fixed literal with more fractional digits than the 32.32 layout can
+' resolve must round (to 0 here), not be rejected as "too many digits". The value
+' is checked arithmetically (toString of the raw literal constant renders its
+' decimal text, which is a separate compile-time formatting concern).
+FUNC main() AS Integer
+  LET a AS Fixed = 1e-39F
+  IF a = 0.0F THEN
+    io::print("sub-ulp-is-zero")
+  ELSE
+    io::print("sub-ulp-nonzero")
+  END IF
+  io::print(toString(a + 1.0F))
+  RETURN 0
+END FUNC

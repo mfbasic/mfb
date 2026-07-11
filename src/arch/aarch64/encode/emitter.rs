@@ -1152,6 +1152,21 @@ impl Encoder {
                     patch.target
                 ));
             };
+            // Reject an out-of-range displacement instead of masking it to a
+            // wrong target (bug-124): unconditional `b` reaches ±128 MiB (imm26
+            // words), conditional `b.*` only ±1 MiB (imm19 words).
+            let delta = target as isize - patch.offset as isize;
+            let (limit, span) = if patch.kind == "b" {
+                (1_isize << 27, "±128 MiB")
+            } else {
+                (1_isize << 20, "±1 MiB")
+            };
+            if delta < -limit || delta >= limit {
+                return Err(format!(
+                    "AArch64 branch '{}' displacement {delta} to '{}' exceeds {span}",
+                    patch.kind, patch.target
+                ));
+            }
             let word = match patch.kind.as_str() {
                 "b" => 0x1400_0000 | branch_imm26(patch.offset, target),
                 "b.eq" => 0x5400_0000 | (branch_imm19(patch.offset, target) << 5),

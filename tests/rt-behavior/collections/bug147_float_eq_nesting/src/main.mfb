@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT collections
+
+' bug-147: Float equality must agree whether the Float is a bare list element or
+' a record field (both bitwise now: 0.0 and -0.0 differ, NaN equals NaN).
+FUNC main() AS Integer
+  LET xs AS List OF Float = [1.0, 2.0, 3.0]
+  io::print(toString(collections::contains(xs, 2.0)))
+  io::print(toString(collections::contains(xs, 4.0)))
+  RETURN 0
+END FUNC

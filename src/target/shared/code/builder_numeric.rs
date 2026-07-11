@@ -70,18 +70,33 @@ impl CodeBuilder<'_> {
         left: &NirValue,
         right: &NirValue,
     ) -> Result<ValueResult, String> {
+        // Spill `left` across `lower_value(right)` (bug-137): `right` may be a call
+        // that re-hands `left`'s caller-saved register and clobbers x0–x17, so
+        // reading `left.location` afterwards would see `right`'s value. Mirror the
+        // arithmetic-binary sibling: spill left, lower right, reload both.
         let left = self.lower_value(left)?;
+        let left_slot = self.allocate_stack_object("xor_left", 8);
+        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        let left_text = left.text.clone();
         let right = self.lower_value(right)?;
+        let right_slot = self.allocate_stack_object("xor_right", 8);
+        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        let right_text = right.text.clone();
+        self.reset_temporary_registers();
+        let left_register = self.allocate_register()?;
+        let right_register = self.allocate_register()?;
+        self.emit(abi::load_u64(&left_register, abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64(&right_register, abi::stack_pointer(), right_slot));
         let result = self.allocate_register()?;
         self.emit(abi::exclusive_or_registers(
             &result,
-            &left.location,
-            &right.location,
+            &left_register,
+            &right_register,
         ));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
             location: result,
-            text: format!("({} XOR {})", left.text, right.text),
+            text: format!("({left_text} XOR {right_text})"),
         })
     }
 
@@ -1180,8 +1195,11 @@ impl CodeBuilder<'_> {
         let high = self.allocate_register()?;
         let sign = self.allocate_register()?;
         let ok_label = self.label("mul_ok");
-        self.emit(abi::multiply_registers(dst, left, right));
+        // Compute the signed high half from the original operands *before* the low
+        // multiply writes `dst` — the pow loops call this with `dst == left`, so
+        // reading `left` after `multiply_registers` would see the low product.
         self.emit(abi::signed_multiply_high_registers(&high, left, right));
+        self.emit(abi::multiply_registers(dst, left, right));
         self.emit(abi::arithmetic_shift_right_immediate(&sign, dst, 63));
         self.emit(abi::compare_registers(&high, &sign));
         self.emit(abi::branch_eq(&ok_label));
@@ -1312,8 +1330,12 @@ impl CodeBuilder<'_> {
         let min_high = self.allocate_register()?;
         let overflow = self.label("fixed_mul_overflow");
         let ok = self.label("fixed_mul_ok");
-        self.emit(abi::multiply_registers(dst, left, right));
+        // Compute the signed high half from the original operands *before* the low
+        // multiply overwrites `dst` — the Fixed `^` loop calls this with
+        // `dst == left`, so reading `left` afterwards would see the low product
+        // and recombine garbage (bug-74).
         self.emit(abi::signed_multiply_high_registers(&high, left, right));
+        self.emit(abi::multiply_registers(dst, left, right));
         self.emit(abi::move_immediate(&max_high, "Integer", "2147483647"));
         self.emit(abi::compare_registers(&high, &max_high));
         self.emit(abi::branch_gt(&overflow));
@@ -1473,10 +1495,15 @@ impl CodeBuilder<'_> {
         // Bounded-base fast path (bug-61): |base| == 1.0 has bounded powers, so the
         // loop's only exit (the multiply overflow trap) never fires and it would
         // iterate the full exponent. Resolve ±1.0 in closed form.
+        // Compare against ±1.0 through registers, not `compare_immediate`: the raw
+        // Fixed constants are `±2^32`, which exceed the x86 CMP imm32 field and
+        // fail to encode (bug-74). `dst` already holds `one_raw`.
         let neg_one_raw = -(one_raw as i64) as u64;
-        self.emit(abi::compare_immediate(base, &one_raw.to_string()));
+        let neg_one_reg = self.allocate_register()?;
+        self.emit(abi::move_immediate(&neg_one_reg, "Fixed", &neg_one_raw.to_string()));
+        self.emit(abi::compare_registers(base, dst));
         self.emit(abi::branch_eq(&done_label)); // 1.0^n == 1.0 (dst already 1.0).
-        self.emit(abi::compare_immediate(base, &neg_one_raw.to_string()));
+        self.emit(abi::compare_registers(base, &neg_one_reg));
         self.emit(abi::branch_ne(&loop_label)); // |base| != 1.0: enter the loop.
         // base == -1.0: 1.0 for an even exponent, -1.0 for an odd exponent.
         let parity = self.allocate_register()?;

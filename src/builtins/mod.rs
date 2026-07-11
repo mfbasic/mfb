@@ -86,14 +86,24 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     let (package, member) = qualified.split_once('.')?;
-    if !is_builtin_import(package) {
-        return None;
-    }
-    if is_builtin_type(member) {
-        Some(member.to_string())
-    } else {
-        None
-    }
+    // The member type must belong to the *named* package — an independent
+    // `is_builtin_type(member)` check would accept any cross pairing (`io.Url`,
+    // `csv.Thread`) because that predicate ORs every package together (bug-98).
+    let belongs = match package {
+        "crypto" => crypto::is_builtin_type(member),
+        "datetime" => datetime::is_builtin_type(member),
+        "fs" => fs::is_builtin_type(member),
+        "http" => http::is_builtin_type(member),
+        "json" => json::is_builtin_type(member),
+        "net" => net::is_builtin_type(member),
+        "term" => term::is_builtin_type(member),
+        "thread" => thread::is_builtin_type(member),
+        "tls" => tls::is_builtin_type(member),
+        "vector" => vector::is_builtin_type(member),
+        // io + the non-type packages expose no qualified value types.
+        _ => false,
+    };
+    belongs.then(|| member.to_string())
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -489,6 +499,21 @@ mod tests {
         }
         assert!(names.len() > 100, "expected the full builtin man corpus");
         names
+    }
+
+    #[test]
+    fn qualified_builtin_type_requires_matching_package() {
+        // bug-98: the member type must belong to the named package. A valid
+        // pairing resolves to the bare type; a cross pairing (right type, wrong
+        // package) must not.
+        assert_eq!(qualified_builtin_type("net.Url"), Some(net::URL_TYPE.to_string()));
+        // `Url` is a net type, not an io/csv type — these must be rejected.
+        assert_eq!(qualified_builtin_type("io.Url"), None);
+        assert_eq!(qualified_builtin_type("crypto.Url"), None);
+        // A non-builtin package is rejected outright.
+        assert_eq!(qualified_builtin_type("csv.Thread"), None);
+        // A bare (unqualified) name is not a qualified type.
+        assert_eq!(qualified_builtin_type("Url"), None);
     }
 
     #[test]

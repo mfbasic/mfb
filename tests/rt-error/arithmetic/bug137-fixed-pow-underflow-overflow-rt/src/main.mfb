@@ -1,0 +1,9 @@
+IMPORT math
+
+' bug-137: a Fixed base with |base| < 1 raised to a large-magnitude negative
+' exponent underflows the forward product to 0, so the reciprocal 1.0/0.0 is a
+' genuine range overflow. It must trap ErrOverflow, not ErrInvalidArgument.
+FUNC main() AS Integer
+  math::pow(0.5F, 0.0F - 80.0F)
+  RETURN 0
+END FUNC

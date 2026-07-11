@@ -313,8 +313,7 @@ impl CodeBuilder<'_> {
             // length: math::sqrt(v.f0*v.f0 + v.f1*v.f1 + ...) — a single expression
             // (matching the FUNC body exactly, so the sum is finiteness-observed as
             // the sqrt argument and the sqrt result is finite by the boundary
-            // invariant). `distance` binds intermediates to LETs in its body, so it
-            // is left to the FUNC to keep its observation points identical.
+            // invariant).
             ("length", 1) => {
                 let v = &args[0];
                 let square = |f: &str| bin("*", Self::vector_field(v, f), Self::vector_field(v, f));

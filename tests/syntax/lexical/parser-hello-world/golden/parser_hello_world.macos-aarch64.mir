@@ -1238,6 +1238,8 @@
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" },
     { "op": "label", "name": "_mfb_rt_io_stdout_drain_err" },
+    { "op": "str_u64", "src": "x22", "base": "arena_base", "offset": "1144" },
+    { "op": "str_u64", "src": "x21", "base": "arena_base", "offset": "1152" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
     { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x22", "base": "sp", "offset": "8" },

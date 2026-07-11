@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/math/bug74_pow_operator_base_clobber
+Wrote AST to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.ast
+Wrote IR to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/bug74_pow_operator_base_clobber
+Wrote executable to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.out
+[exit 0]
+$ tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.out
+8.00
+8.00
+100.00
+-8
+16
+81
+[exit 0]

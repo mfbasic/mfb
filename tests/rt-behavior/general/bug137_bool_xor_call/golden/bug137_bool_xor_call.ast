@@ -1,0 +1,43 @@
+{
+  "project": "bug137_bool_xor_call",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "flip",
+      "line": 3,
+      "params": [
+      { "name": "x", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "unary", "operator": "NOT", "operand": { "kind": "identifier", "value": "x" } }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "XOR", "left": { "kind": "identifier", "value": "t" }, "right": { "kind": "call", "callee": "flip", "arguments": [{ "kind": "identifier", "value": "f" }] } }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "XOR", "left": { "kind": "identifier", "value": "f" }, "right": { "kind": "call", "callee": "flip", "arguments": [{ "kind": "identifier", "value": "f" }] } }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "XOR", "left": { "kind": "identifier", "value": "t" }, "right": { "kind": "call", "callee": "flip", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

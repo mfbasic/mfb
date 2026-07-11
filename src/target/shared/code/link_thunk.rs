@@ -519,9 +519,15 @@ fn lower_link_thunk(
     }
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), STATUS_OFF));
 
+    // One label counter shared across the SUCCESS_ON gate and the RESULT
+    // expression: a per-block counter restarted at 0 in each, so a thunk whose
+    // SUCCESS_ON and RESULT both emit a comparison/NOT produced two identically
+    // named labels (`{symbol}_cmp0_end`) — a duplicate the encoder now rejects
+    // outright (bug-79).
+    let mut counter = 0usize;
+
     // SUCCESS_ON gate: a failing status produces an Error result.
     if let Some(success) = &function.success_on {
-        let mut counter = 0usize;
         let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
             success,
@@ -561,7 +567,6 @@ fn lower_link_thunk(
             &mut relocations,
         );
     } else if let Some(result) = &function.result {
-        let mut counter = 0usize;
         let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
             result,

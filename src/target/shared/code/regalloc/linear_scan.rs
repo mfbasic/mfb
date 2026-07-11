@@ -100,13 +100,17 @@ pub(super) fn run(
         })
         .collect();
 
-    // Virtual registers sorted by interval start for the linear scan.
+    // Virtual registers sorted by interval start for the linear scan. Tie-break
+    // by vreg id so vregs sharing a start are colored in a deterministic order:
+    // `vreg_interval` is a HashMap, so a start-only key left tied vregs in
+    // per-process-random iteration order, making register/spill selection — and
+    // thus the emitted bytes — nondeterministic across builds (bug-87).
     let mut vregs: Vec<(u32, usize, usize)> = live
         .vreg_interval
         .iter()
         .map(|(&v, &(s, e))| (v, s, e))
         .collect();
-    vregs.sort_by_key(|&(_, s, _)| s);
+    vregs.sort_by_key(|&(v, s, _)| (s, v));
 
     // Active intervals: (end, vreg, phys_index), and the mask of physicals they
     // hold. Expired by start order.

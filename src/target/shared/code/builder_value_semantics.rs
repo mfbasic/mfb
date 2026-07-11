@@ -179,19 +179,23 @@ impl CodeBuilder<'_> {
                 };
                 (index, field_type.clone(), 8, false)
             } else if self.type_model.union_names.contains(&target_value.type_) {
-                let matches = self
+                // bug-147: a field name shared by two variants must resolve to a
+                // deterministic offset. Walk the variants in the stable
+                // canonical order (`variants_for_union`) rather than iterating
+                // `union_variant_fields` in HashMap order, which produced a
+                // build-nondeterministic offset for ambiguous field names.
+                let Some((index, field_type)) = self
                     .type_model
-                    .union_variant_fields
-                    .values()
-                    .filter_map(|fields| {
+                    .variants_for_union(&target_value.type_)
+                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
+                    .find_map(|fields| {
                         fields
                             .iter()
                             .enumerate()
                             .find(|(_, (name, _))| name == member)
                             .map(|(index, (_, field_type))| (index, field_type.clone()))
                     })
-                    .collect::<Vec<_>>();
-                let Some((index, field_type)) = matches.first().cloned() else {
+                else {
                     return Err(format!(
                         "native code union '{}' has no payload field '{}'",
                         target_value.type_, member

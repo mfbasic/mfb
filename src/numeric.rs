@@ -155,22 +155,27 @@ pub(crate) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
     };
     let mut fractional_value = 0_i128;
     if !fractional.is_empty() {
+        // The 32.32 layout resolves only 2^-32 (~2.3e-10), so fractional digits
+        // past ~28 places sit far below one ULP and cannot change the
+        // round-half-up result. Cap accumulation to keep `fractional_value * SCALE`
+        // inside i128 (10^28 * 2^32 ≈ 4.3e37 < i128::MAX) instead of rejecting a
+        // long literal outright (bug-91: `1e-39F` must round to 0, not error).
+        const MAX_FRACTIONAL_DIGITS: usize = 28;
         let mut denominator = 1_i128;
-        for digit in fractional.bytes() {
+        for digit in fractional.bytes().take(MAX_FRACTIONAL_DIGITS) {
             if !digit.is_ascii_digit() {
                 return Err(format!("invalid Fixed constant `{value}`"));
             }
-            fractional_value = fractional_value
-                .checked_mul(10)
-                .and_then(|current| current.checked_add((digit - b'0') as i128))
-                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
-            denominator = denominator
-                .checked_mul(10)
-                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+            fractional_value = fractional_value * 10 + (digit - b'0') as i128;
+            denominator *= 10;
         }
-        let scaled = fractional_value
-            .checked_mul(SCALE)
-            .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        // The remaining digits are below ULP but must still be well-formed.
+        for digit in fractional.bytes().skip(MAX_FRACTIONAL_DIGITS) {
+            if !digit.is_ascii_digit() {
+                return Err(format!("invalid Fixed constant `{value}`"));
+            }
+        }
+        let scaled = fractional_value * SCALE;
         fractional_value = scaled / denominator;
         if (scaled % denominator) * 2 >= denominator {
             fractional_value += 1;
@@ -253,6 +258,26 @@ mod tests {
         // In-range scientific literals are unaffected.
         assert_eq!(fixed_raw_from_decimal("2.5e2").unwrap(), 250 << 32);
         assert_eq!(fixed_raw_from_decimal("-1e1").unwrap(), -(10 << 32));
+    }
+
+    #[test]
+    fn fixed_raw_from_decimal_rounds_sub_ulp_literals_to_zero() {
+        // bug-91: a literal with more fractional digits than the 32.32 layout can
+        // resolve must round (here, to 0), not be rejected as "too many digits".
+        assert_eq!(fixed_raw_from_decimal("1e-39").unwrap(), 0);
+        assert_eq!(
+            fixed_raw_from_decimal("0.0000000000000000000000000000000000001").unwrap(),
+            0
+        );
+        // A value just above 0.5 ULP still rounds up to 1 raw, and long trailing
+        // digits below the cap do not change that.
+        assert_eq!(
+            fixed_raw_from_decimal("0.500000000000000000000000000000001").unwrap(),
+            1_i64 << 31
+        );
+        // Ordinary short fractional literals are byte-identical to before.
+        assert_eq!(fixed_raw_from_decimal("0.5").unwrap(), 1_i64 << 31);
+        assert_eq!(fixed_raw_from_decimal("0.25").unwrap(), 1_i64 << 30);
     }
 
     #[test]

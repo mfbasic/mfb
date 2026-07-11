@@ -1,0 +1,16 @@
+IMPORT io
+
+FUNC flip(x AS Boolean) AS Boolean
+  RETURN NOT x
+END FUNC
+
+' bug-137: `left XOR call()` kept `left` in a caller-saved register across the
+' call's lowering, so both operands read the call's result under -regalloc bump.
+FUNC main() AS Integer
+  LET t AS Boolean = True
+  LET f AS Boolean = False
+  io::print(toString(t XOR flip(f)))
+  io::print(toString(f XOR flip(f)))
+  io::print(toString(t XOR flip(t)))
+  RETURN 0
+END FUNC

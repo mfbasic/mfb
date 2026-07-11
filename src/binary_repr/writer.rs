@@ -173,21 +173,19 @@ pub(super) fn lower_project_with_external_functions(
 
     let mut constants = ConstPool::new();
     let mut function_ids = HashMap::new();
-    let mut function_return_types = HashMap::new();
-    let mut function_return_type_names = HashMap::new();
     for (index, function) in ir.functions.iter().enumerate() {
         function_ids.insert(function.name.clone(), index as u32);
-        let return_type = types.type_id(&mut strings, &function.returns);
-        function_return_types.insert(function.name.clone(), return_type);
-        function_return_type_names.insert(function.name.clone(), function.returns.clone());
+        // The return type is interned even though the map that once held it was
+        // never read (bug-100): the interning still fixes the string/type table
+        // order, so the emitted bytes stay byte-identical.
+        let _ = types.type_id(&mut strings, &function.returns);
     }
     for (name, id) in external_function_ids {
         function_ids.insert(name.clone(), *id);
     }
-    for (name, return_type_name) in external_function_returns {
-        let return_type = types.type_id(&mut strings, return_type_name);
-        function_return_types.insert(name.clone(), return_type);
-        function_return_type_names.insert(name.clone(), return_type_name.clone());
+    for (_name, return_type_name) in external_function_returns {
+        // Interning kept for table-order stability; the result is unused (bug-100).
+        let _ = types.type_id(&mut strings, return_type_name);
     }
 
     let mut functions = Vec::new();
@@ -878,22 +876,26 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
     };
     let mut fractional_value = 0_i128;
     if !fractional.is_empty() {
+        // Cap fractional accumulation at 28 digits — the 32.32 layout resolves
+        // only 2^-32, so digits past that sit below one ULP and cannot change the
+        // round-half-up result. This keeps `fractional_value * SCALE` inside i128
+        // instead of rejecting a long literal (bug-91). Mirrors
+        // `numeric::fixed_raw_from_decimal`.
+        const MAX_FRACTIONAL_DIGITS: usize = 28;
         let mut denominator = 1_i128;
-        for digit in fractional.bytes() {
+        for digit in fractional.bytes().take(MAX_FRACTIONAL_DIGITS) {
             if !digit.is_ascii_digit() {
                 return Err(format!("invalid Fixed constant `{value}`"));
             }
-            fractional_value = fractional_value
-                .checked_mul(10)
-                .and_then(|current| current.checked_add((digit - b'0') as i128))
-                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
-            denominator = denominator
-                .checked_mul(10)
-                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+            fractional_value = fractional_value * 10 + (digit - b'0') as i128;
+            denominator *= 10;
         }
-        let scaled = fractional_value
-            .checked_mul(SCALE)
-            .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        for digit in fractional.bytes().skip(MAX_FRACTIONAL_DIGITS) {
+            if !digit.is_ascii_digit() {
+                return Err(format!("invalid Fixed constant `{value}`"));
+            }
+        }
+        let scaled = fractional_value * SCALE;
         fractional_value = scaled / denominator;
         if (scaled % denominator) * 2 >= denominator {
             fractional_value += 1;

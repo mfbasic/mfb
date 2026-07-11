@@ -495,20 +495,28 @@ pub(super) fn code_signature(unsigned: &[u8], name: &str) -> Vec<u8> {
     let code_directory_len = hash_offset + page_count * 32;
     let superblob_len = 20 + code_directory_len;
     let mut bytes = Vec::new();
+    // The Code Signature superblob is a 32-bit format: superblob/directory
+    // lengths, nCodeSlots (page_count) and codeLimit (image length) are all u32
+    // fields. Narrowing a ≥4 GiB image with `as u32` would silently emit an
+    // under-covering, invalid ad-hoc signature, so reject it explicitly (bug-88).
+    let u32_field = |what: &str, value: usize| -> u32 {
+        u32::try_from(value)
+            .unwrap_or_else(|_| panic!("mach-o code signature: {what} {value} exceeds u32"))
+    };
     put_be_u32(&mut bytes, 0xfade_0cc0);
-    put_be_u32(&mut bytes, superblob_len as u32);
+    put_be_u32(&mut bytes, u32_field("superblob length", superblob_len));
     put_be_u32(&mut bytes, 1);
     put_be_u32(&mut bytes, 0);
     put_be_u32(&mut bytes, 20);
     put_be_u32(&mut bytes, 0xfade_0c02);
-    put_be_u32(&mut bytes, code_directory_len as u32);
+    put_be_u32(&mut bytes, u32_field("code directory length", code_directory_len));
     put_be_u32(&mut bytes, 0x20400);
     put_be_u32(&mut bytes, 0x20002);
     put_be_u32(&mut bytes, hash_offset as u32);
     put_be_u32(&mut bytes, ident_offset as u32);
     put_be_u32(&mut bytes, 0);
-    put_be_u32(&mut bytes, page_count as u32);
-    put_be_u32(&mut bytes, unsigned.len() as u32);
+    put_be_u32(&mut bytes, u32_field("code slot count", page_count));
+    put_be_u32(&mut bytes, u32_field("code limit", unsigned.len()));
     bytes.extend_from_slice(&[32, 2, 0, 12]);
     put_be_u32(&mut bytes, 0);
     put_be_u32(&mut bytes, 0);

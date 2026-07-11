@@ -1,8 +1,19 @@
 # bug-78: every evaluation of a function value arena-allocs a descriptor that is never freed
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 Effort: medium (1h–2h) to bound; large to make no-capture function values allocation-free
 Severity: MEDIUM (unbounded arena growth in a loop)
+
+**Status (2026-07-11):** DEFERRED — no safe minimal patch. Confirmed still present:
+`NirValue::FunctionRef` (builder_values.rs) unconditionally `arena_alloc`s a
+`CLOSURE_OBJECT_SIZE` descriptor per evaluation with a hardcoded zero env, so a
+lambda in a loop grows the arena without bound. The allocation-free route (a bare
+code pointer) needs the indirect-call lowering to distinguish a bare pointer from
+a closure block, and the descriptor-reuse route needs a new data→code relocation
+kind the linker model lacks — both are cross-backend design changes affecting all
+5 targets and must not regress bug-73's shared-closure semantics. Needs a plan.
+The arena is freed at process exit, so this is a growth/perf issue, not a leak
+that outlives the process.
 
 Evaluating a `FunctionRef` or a `Closure` allocates a 16-byte descriptor from the
 arena on **every evaluation**. Closure objects are arena-lifetime by design — freed

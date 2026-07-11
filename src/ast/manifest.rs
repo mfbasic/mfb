@@ -315,17 +315,19 @@ pub(super) fn collect_selected_source_files(
                 &mut visited_dirs,
                 &mut source_files,
             )
-            .map_err(|err| {
-                if err.kind() != std::io::ErrorKind::PermissionDenied {
-                    rules::show_diagnostic(
-                        "MFB_SOURCE_READ_FAILED",
-                        &format!("Could not read source root `{}`: {err}", root.display()),
-                        &root,
-                        1,
-                        1,
-                        1,
-                    );
-                }
+            .map_err(|err| match err {
+                // The outside-project path already showed its own diagnostic.
+                CollectError::Reported => {}
+                // A genuine filesystem error (e.g. EACCES) must be surfaced, not
+                // silently swallowed as an already-reported sentinel (bug-92).
+                CollectError::Io(err) => rules::show_diagnostic(
+                    "MFB_SOURCE_READ_FAILED",
+                    &format!("Could not read source root `{}`: {err}", root.display()),
+                    &root,
+                    1,
+                    1,
+                    1,
+                ),
             })?;
         }
 
@@ -372,6 +374,21 @@ pub(super) fn collect_selected_source_files(
     Ok(selected)
 }
 
+/// Failure of the source-tree walk. `Reported` means a diagnostic was already
+/// shown (an outside-project path); `Io` is a genuine filesystem error the caller
+/// must surface. These were previously conflated into `ErrorKind::PermissionDenied`,
+/// so a real EACCES was silently swallowed as an already-reported sentinel (bug-92).
+enum CollectError {
+    Reported,
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for CollectError {
+    fn from(err: std::io::Error) -> Self {
+        CollectError::Io(err)
+    }
+}
+
 fn collect_mfb_files(
     project_dir: &Path,
     logical_root: &Path,
@@ -380,7 +397,7 @@ fn collect_mfb_files(
     source_entry: &SourceEntry,
     visited_dirs: &mut HashSet<PathBuf>,
     files: &mut Vec<SelectedSource>,
-) -> Result<(), std::io::Error> {
+) -> Result<(), CollectError> {
     let canonical_current = fs::canonicalize(current)?;
     // coverage:off — unreachable defensive re-check. Every directory entry is
     // validated against the project boundary at the call site below before being
@@ -399,10 +416,7 @@ fn collect_mfb_files(
             1,
             1,
         );
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "source path resolves outside project",
-        ));
+        return Err(CollectError::Reported);
     }
     // coverage:on
     if !visited_dirs.insert(canonical_current) {
@@ -426,10 +440,7 @@ fn collect_mfb_files(
                 1,
                 1,
             );
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "source path resolves outside project",
-            ));
+            return Err(CollectError::Reported);
         }
 
         if path.is_dir() {

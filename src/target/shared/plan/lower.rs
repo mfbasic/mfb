@@ -23,7 +23,6 @@ pub(crate) fn lower_module_for_platform(
     for import in &module.imports {
         function_symbols.insert(import.name.clone(), import.symbol.clone());
     }
-    let import_symbols = HashMap::new();
     let entry_symbol = module
         .entry
         .as_ref()
@@ -50,7 +49,6 @@ pub(crate) fn lower_module_for_platform(
         functions.push(lower_function(
             function,
             &function_symbols,
-            &import_symbols,
             &type_storage,
         )?);
     }
@@ -71,7 +69,6 @@ pub(crate) fn lower_module_for_platform(
 pub(super) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
-    import_symbols: &HashMap<String, String>,
     type_storage: &HashMap<String, StorageType>,
 ) -> Result<PlannedFunction, String> {
     let params = function
@@ -88,7 +85,6 @@ pub(super) fn lower_function(
 
     let mut builder = FunctionPlanBuilder {
         function_symbols,
-        import_symbols,
         type_storage,
         local_slots: Vec::new(),
         labels: Vec::new(),

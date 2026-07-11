@@ -805,10 +805,15 @@ impl CodeBuilder<'_> {
         // loop's only exit (the multiply overflow trap) never fires and it would
         // iterate the full |exponent|. Resolve ±1.0 in closed form, then fall
         // through to the shared negative-exponent reciprocal handling below.
+        // Compare against ±1.0 through registers, not `compare_immediate`: the raw
+        // Fixed constants are `±2^32`, which exceed the x86 CMP imm32 field and
+        // fail to encode (bug-74). `result` already holds `FIXED_ONE`.
         let fixed_neg_one = -(FIXED_ONE as i64) as u64;
-        self.emit(abi::compare_immediate(&base_reg, &FIXED_ONE.to_string()));
+        let neg_one_reg = self.allocate_register()?;
+        self.emit(abi::move_immediate(&neg_one_reg, "Fixed", &fixed_neg_one.to_string()));
+        self.emit(abi::compare_registers(&base_reg, &result));
         self.emit(abi::branch_eq(&mul_done)); // 1.0^n == 1.0 (result already 1.0).
-        self.emit(abi::compare_immediate(&base_reg, &fixed_neg_one.to_string()));
+        self.emit(abi::compare_registers(&base_reg, &neg_one_reg));
         self.emit(abi::branch_ne(&mul_loop)); // |base| != 1.0: run the loop.
         // base == -1.0: 1.0 for an even |exponent|, -1.0 for an odd one.
         let parity = self.allocate_register()?;
@@ -850,6 +855,15 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             integer_result_slot,
         ));
+        // A forward product that underflowed to 0 (|base| < 1 raised to a large
+        // magnitude) makes the reciprocal 1.0/0.0. That is a genuine Fixed-range
+        // overflow, so trap ErrOverflow rather than letting emit_fixed_divide
+        // report ErrInvalidArgument for the zero divisor (bug-137).
+        let recip_ok = self.label("fixed_pow_recip_ok");
+        self.emit(abi::compare_immediate(&denom, "0"));
+        self.emit(abi::branch_ne(&recip_ok));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&recip_ok));
         self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
         self.emit_fixed_divide(&recip, &one, &denom)?;
         self.emit(abi::store_u64(

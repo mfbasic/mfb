@@ -540,7 +540,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&scratch13, &scratch8));
         self.emit(abi::label(&pop_scan));
         self.emit(abi::compare_immediate(&scratch13, "0"));
-        self.emit(abi::branch_eq(&component_loop));
+        // No preceding '/': the popped component was the whole (relative) output,
+        // so truncate it to length 0 and let `finish` emit the `"."` fallback.
+        // Routing to `component_loop` here left the cancelled component in place —
+        // `"a/.."` stayed `"a"` instead of collapsing to `"."` (bug-79). Absolute
+        // paths find their root '/' at index 0 before this guard fires, so they
+        // still keep the leading slash via the bug-132 path below.
+        self.emit(abi::branch_eq(&pop_store));
         self.emit(abi::subtract_immediate(&scratch13, &scratch13, 1));
         self.emit(abi::add_registers(&scratch14, &scratch12, &scratch13));
         self.emit(abi::load_u8(&scratch15, &scratch14, 0));

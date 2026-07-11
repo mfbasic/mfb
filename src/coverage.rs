@@ -166,6 +166,17 @@ pub(crate) fn generate_html(
     let total_covered: usize = reports.iter().map(|report| report.covered).sum();
     let total_lines: usize = reports.iter().map(|report| report.total).sum();
 
+    // Assign each report a unique HTML anchor up front, using one shared `used`
+    // set, so the index link and the section id agree and distinct paths that
+    // slugify to the same base (e.g. `a/b.mfb` vs `a.b.mfb`) get distinct ids
+    // (bug-93.1).
+    let mut used_anchors: HashSet<String> = HashSet::new();
+    let mut anchors: BTreeMap<String, String> = BTreeMap::new();
+    for report in &reports {
+        let id = anchor(&report.path, &mut used_anchors);
+        anchors.insert(report.path.clone(), id);
+    }
+
     let mut out = String::new();
     out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     out.push_str("<title>MFB coverage</title>\n<style>\n");
@@ -184,7 +195,7 @@ pub(crate) fn generate_html(
     for report in &reports {
         out.push_str(&format!(
             "<tr><td><a href=\"#{anchor}\">{path}</a></td><td>{covered} / {total}</td><td>{pct}</td></tr>\n",
-            anchor = anchor(&report.path),
+            anchor = anchors[&report.path],
             path = escape(&report.path),
             covered = report.covered,
             total = report.total,
@@ -197,7 +208,7 @@ pub(crate) fn generate_html(
     for report in &reports {
         out.push_str(&format!(
             "<section class=\"file\" id=\"{anchor}\">\n<h2>{path} <span class=\"stat\">{covered} / {total} ({pct})</span></h2>\n<pre>\n",
-            anchor = anchor(&report.path),
+            anchor = anchors[&report.path],
             path = escape(&report.path),
             covered = report.covered,
             total = report.total,
@@ -236,10 +247,22 @@ fn percent(covered: usize, total: usize) -> String {
     }
 }
 
-fn anchor(path: &str) -> String {
-    path.chars()
+/// Slugify a source path into a unique HTML anchor id. De-duplicates with a `-N`
+/// suffix (mirrors `doc::anchor`) so distinct paths that slugify to the same base
+/// (e.g. `a/b.mfb` and `a.b.mfb`) never collide into the same id (bug-93.1).
+fn anchor(path: &str, used: &mut HashSet<String>) -> String {
+    let base: String = path
+        .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-        .collect()
+        .collect();
+    let mut candidate = base.clone();
+    let mut n = 2;
+    while used.contains(&candidate) {
+        candidate = format!("{base}-{n}");
+        n += 1;
+    }
+    used.insert(candidate.clone());
+    candidate
 }
 
 fn escape(text: &str) -> String {
@@ -272,3 +295,21 @@ pre { background: #fafafa; border: 1px solid #eee; padding: 0; overflow-x: auto;
 .line.neu { background: transparent; }
 .line.fail { background: #ffd1a3; }
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distinct_paths_that_slugify_alike_get_distinct_anchors() {
+        // `a/b.mfb` and `a.b.mfb` both slugify to `a-b-mfb`; the shared `used` set
+        // must disambiguate them so the two reports never share an HTML id
+        // (bug-93.1).
+        let mut used = HashSet::new();
+        let first = anchor("a/b.mfb", &mut used);
+        let second = anchor("a.b.mfb", &mut used);
+        assert_ne!(first, second);
+        assert_eq!(first, "a-b-mfb");
+        assert_eq!(second, "a-b-mfb-2");
+    }
+}

@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT math
+
+' bug-74: `Fixed ^ Fixed` returned 0.00 for |base| >= 2 (operand aliasing in
+' emit_fixed_multiply). bug-75: integer `^` with a negative base of magnitude
+' >= 2 wrongly trapped ErrOverflow (same aliasing in emit_checked_integer_multiply).
+FUNC main() AS Integer
+  io::print(toString(2.0F ^ 3.0F))
+  io::print(toString(math::pow(2.0F, 3.0F)))
+  io::print(toString(10.0F ^ 2.0F))
+  LET n AS Integer = 0 - 2
+  io::print(toString(n ^ 3))
+  io::print(toString(n ^ 4))
+  io::print(toString(3 ^ 4))
+  RETURN 0
+END FUNC

@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 pub(super) struct FunctionPlanBuilder<'a> {
     pub(super) function_symbols: &'a HashMap<String, String>,
-    pub(super) import_symbols: &'a HashMap<String, String>,
     pub(super) type_storage: &'a HashMap<String, StorageType>,
     pub(super) local_slots: Vec<StackSlot>,
     pub(super) labels: Vec<PlanLabel>,
@@ -378,8 +377,6 @@ impl FunctionPlanBuilder<'_> {
     fn add_call(&mut self, target: &str) {
         let (kind, symbol) = if let Some(symbol) = self.function_symbols.get(target) {
             (CallKind::Local, symbol.clone())
-        } else if let Some(symbol) = self.import_symbols.get(target) {
-            (CallKind::Import, symbol.clone())
         } else if let Some(helper) = runtime::helper_for_call(target) {
             (CallKind::Runtime, runtime::symbol_for_call(helper, target))
         } else {
