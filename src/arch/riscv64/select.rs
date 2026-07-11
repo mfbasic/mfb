@@ -25,7 +25,7 @@
 //!    number register `a7`, `x30` → `ra`, `x31`/`xzr` → the hardware zero `zero`,
 //!    the scratch pool for `x9`–`x29`, and the FP `dN` → the FP ABI role).
 
-use crate::arch::aarch64::ops::CodeOp;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
     fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
     FUSED_SHARE_FIELD,

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::arch::aarch64::ops::CodeOp;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::abi;
 use crate::binary_repr::{self};
 use crate::builtins;

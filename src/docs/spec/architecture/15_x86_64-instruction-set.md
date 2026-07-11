@@ -15,7 +15,7 @@ from AArch64. The register set and ABI are canonical in
 ## The op vocabulary is shared, not separate
 
 x86-64 reuses the **same closed `CodeOp` enum** defined in `src/arch/aarch64/ops.rs`
-(imported as `crate::arch::aarch64::ops::CodeOp` throughout the x86 backend). There
+(imported as `crate::arch::ops::CodeOp` throughout the x86 backend). There
 is one neutral op set for both ISAs; the x86 encoder dispatches on
 `instruction.op.mnemonic()`. The only x86-specific additions to the shared enum
 are the branch variants `X86Jae`, `X86Jp`, `X86Jnp`, `X86Ja`, `X86Jb`, `X86Jbe`,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::arch::aarch64::ops::CodeOp;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
 
 mod data;

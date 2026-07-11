@@ -1245,7 +1245,7 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::ops::CodeOp;
+    use crate::arch::ops::CodeOp;
 
     /// Index of the first `label` instruction with the given name.
     fn label_index(ins: &[CodeInstruction], name: &str) -> usize {

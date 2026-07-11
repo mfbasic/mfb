@@ -446,7 +446,7 @@ const X86_WRAP_BYTES: usize = 56;
 /// pinned arena register, callee-saved either way, and the bodies that use it
 /// as plain scratch save/restore it through their own frame slots.
 pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>) {
-    use crate::arch::aarch64::ops::CodeOp;
+    use crate::arch::ops::CodeOp;
     use crate::target::shared::code::{mir, regalloc};
 
     stage_result_reuse_x86(instructions);
@@ -578,7 +578,7 @@ pub(crate) fn wrap_x86_helper(
 /// labels (unknown provenance across merges — the hand-built bodies stage
 /// explicitly across branches).
 fn stage_result_reuse_x86(instructions: &mut Vec<CodeInstruction>) {
-    use crate::arch::aarch64::ops::CodeOp;
+    use crate::arch::ops::CodeOp;
     let mut result_live = false;
     let mut index = 0;
     while index < instructions.len() {

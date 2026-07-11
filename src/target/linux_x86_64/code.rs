@@ -335,7 +335,7 @@ impl code::CodegenPlatform for Platform {
             function
                 .instructions
                 .first()
-                .is_some_and(|inst| inst.op == crate::arch::aarch64::ops::CodeOp::Label),
+                .is_some_and(|inst| inst.op == crate::arch::ops::CodeOp::Label),
         );
         // Re-bias the stack for SysV alignment. pthread enters the trampoline
         // like any C callee (rsp ≡ 8 mod 16); the shared trampoline's 80-byte
@@ -349,7 +349,7 @@ impl code::CodegenPlatform for Platform {
         function.instructions.insert(at + 1, abi::subtract_stack(8));
         let mut i = at + 2;
         while i < function.instructions.len() {
-            if function.instructions[i].op == crate::arch::aarch64::ops::CodeOp::Ret {
+            if function.instructions[i].op == crate::arch::ops::CodeOp::Ret {
                 function.instructions.insert(i, abi::add_stack(8));
                 i += 2;
             } else {

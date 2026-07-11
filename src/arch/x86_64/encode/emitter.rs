@@ -451,7 +451,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let dst = reg(field(instruction, "dst")?)?;
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
-            let ext = if instruction.op == crate::arch::aarch64::ops::CodeOp::SMulH {
+            let ext = if instruction.op == crate::arch::ops::CodeOp::SMulH {
                 5
             } else {
                 4

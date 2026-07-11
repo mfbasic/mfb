@@ -1083,7 +1083,7 @@ pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstru
 
 /// Build one of the four scalar fused-multiply-add ops (one round). All share the
 /// `dst`,`addend`,`lhs`,`rhs` field shape; the mnemonic fixes the sign combination
-/// (see [`crate::arch::aarch64::ops::CodeOp`] docs / plan-02 §5):
+/// (see [`crate::arch::ops::CodeOp`] docs / plan-02 §5):
 ///   `fmadd_d`  = `addend + lhs*rhs`
 ///   `fmsub_d`  = `lhs*rhs - addend`
 ///   `fnmsub_d` = `addend - lhs*rhs`

@@ -6,7 +6,7 @@
 //! (`fused_setter_codeop`, `rename_field_values`, …) — so all the ISA-specific
 //! selection lives here, not in shared `mir.rs`.
 
-use crate::arch::aarch64::ops::CodeOp;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
     fused_setter_codeop, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };

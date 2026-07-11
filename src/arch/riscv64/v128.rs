@@ -28,7 +28,7 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::arch::aarch64::ops::CodeOp;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::MirInstruction;
 use crate::target::shared::code::CodeInstruction;
 

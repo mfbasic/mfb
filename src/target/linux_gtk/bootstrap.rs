@@ -667,7 +667,7 @@ pub(super) fn emit_append_idle_helper() -> CodeFunction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::ops::CodeOp;
+    use crate::arch::ops::CodeOp;
 
     /// bug-50: the printable-key branch of `emit_key_pressed_handler` must bound
     /// the fixed line buffer before storing the UTF-8 encoding. Assert that after

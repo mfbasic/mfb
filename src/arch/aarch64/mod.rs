@@ -4,7 +4,6 @@
 pub(crate) use crate::target::shared::abi;
 pub(crate) mod backend;
 pub(crate) mod encode;
-pub(crate) mod ops;
 pub(crate) mod regmodel;
 pub(crate) mod reloc;
 pub(crate) mod select;
