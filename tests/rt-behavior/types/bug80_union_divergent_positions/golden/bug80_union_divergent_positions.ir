@@ -1,0 +1,173 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug80_union_divergent_positions",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 3,
+    "visibility": "public",
+    "name": "Circle",
+    "fields": [
+    { "visibility": null, "line": 4, "name": "radius", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 6,
+    "visibility": "public",
+    "name": "Rect",
+    "fields": [
+    { "visibility": null, "line": 7, "name": "w", "type": "Integer" },
+    { "visibility": null, "line": 8, "name": "h", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 12,
+    "visibility": "public",
+    "name": "A",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Circle",
+      "line": 13,
+      "fields": [
+      { "visibility": null, "line": 4, "name": "radius", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Rect",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "line": 7, "name": "w", "type": "Integer" },
+      { "visibility": null, "line": 8, "name": "h", "type": "Integer" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 16,
+    "visibility": "public",
+    "name": "B",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Rect",
+      "line": 17,
+      "fields": [
+      { "visibility": null, "line": 7, "name": "w", "type": "Integer" },
+      { "visibility": null, "line": 8, "name": "h", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Circle",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "line": 4, "name": "radius", "type": "Integer" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "scoreA",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 21, "type": "A", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 22, "mutable": false, "name": "$match0", "type": "A", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "line": 22,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 23,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 23, "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 24, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "c" }, "member": "radius" } }
+        ]
+      },
+      {
+        "line": 25,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rect" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 25, "mutable": false, "name": "r", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 26, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "w" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "h" } } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "scoreB",
+    "line": 30,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 30, "type": "B", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 31, "mutable": false, "name": "$match1", "type": "B", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "line": 31,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 32,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 32, "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 33, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "100" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "c" }, "member": "radius" } } }
+        ]
+      },
+      {
+        "line": 34,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rect" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 34, "mutable": false, "name": "r", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 35, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "200" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "w" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "h" } } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 39,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 40, "mutable": false, "name": "a", "type": "A", "value": { "kind": "unionWrap", "union": "A", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "b", "type": "B", "value": { "kind": "unionWrap", "union": "B", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "scoreA=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "scoreA", "args": [{ "kind": "local", "name": "a" }] }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "scoreB=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "scoreB", "args": [{ "kind": "local", "name": "b" }] }] } }] } },
+    { "op": "return", "line": 44, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

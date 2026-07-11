@@ -186,46 +186,16 @@ impl CodeFunction {
     }
 }
 
-/// Record a variant's construction/dispatch tag, enforcing that a variant name
-/// resolves to a **single, stable tag** across every union that includes it.
-///
 /// The native layout gives each union variant one context-free discriminant word
-/// (`union_variant_tags`, keyed by variant name), so a union value carries the
-/// same tag no matter which union it is viewed through — that is what lets a
-/// narrower union value flow into a wider including union without re-tagging, and
-/// lets `MATCH` compare the stored tag against a per-variant constant.
-///
-/// `expanded_nir_union_variants` numbers a union's variants by position, and the
-/// map takes the last union processed to touch a name. If one variant sat at
-/// *divergent positions* in two unions (e.g. an included union placed after a
-/// differing count of preceding variants), the two positions would fight over the
-/// single map slot, and two distinct variants could collapse onto the same tag
-/// within one union — silently mis-dispatching a `MATCH` (bug-69: a value built as
-/// one variant matched as another). The resolver permits this shape today
-/// (`UNION A INCLUDES Base` and `UNION C INCLUDES Other, Base` place `Base`'s
-/// variants at different offsets), so this guard rejects it loudly at the native
-/// boundary — in every build, not just debug — instead of miscompiling. Programs
-/// whose variants already have stable tags (the norm, including all `INCLUDES`
-/// prefixes) insert each tag once per value and are unaffected: byte-identical.
-fn check_union_variant_tag(
-    tags: &mut HashMap<String, usize>,
-    variant: &str,
-    index: usize,
-) -> Result<(), String> {
-    if let Some(previous) = tags.insert(variant.to_string(), index) {
-        if previous != index {
-            return Err(format!(
-                "native code plan: union variant '{variant}' resolves to conflicting \
-                 tags ({previous} and {index}); every variant must have one stable \
-                 tag across all unions that include it. This happens when a variant \
-                 sits at divergent positions in two unions, which can collide two \
-                 variants onto the same tag and mis-dispatch a MATCH."
-            ));
-        }
-    }
-    Ok(())
-}
-
+/// (`union_variant_tags`, keyed by variant name), so a union value carries the same
+/// tag no matter which union it is viewed through — that is what lets a narrower
+/// union value flow into a wider including union without re-tagging, and lets
+/// `MATCH` compare the stored tag against a per-variant constant. The tag is
+/// assigned **globally-canonically** (sorted variant name) by
+/// `recompute_canonical_variant_tags`, independent of a variant's position within
+/// any including union, so a variant included at divergent positions in two unions
+/// dispatches consistently (bug-80; replaced the earlier positional scheme + its
+/// `check_union_variant_tag` rejection).
 impl TypeModel {
     pub(super) fn empty() -> Self {
         Self {
@@ -245,7 +215,13 @@ impl TypeModel {
         let mut union_names = HashSet::new();
         let mut union_variants = HashMap::new();
         let mut union_variant_unions = HashMap::<String, HashSet<String>>::new();
-        let mut union_variant_tags = HashMap::new();
+        // bug-80: variant tags are assigned globally-canonically (keyed by variant
+        // name, independent of position within any including union) by
+        // recompute_canonical_variant_tags at the end, so a variant included at
+        // divergent positions in two unions dispatches consistently. MATCH lowers to
+        // `cmp tag, <value>` compares (not a dense jump table), so a sparse/reordered
+        // tag space is fine.
+        let union_variant_tags = HashMap::new();
         let mut union_variant_fields = HashMap::new();
         for type_ in &module.types {
             match type_.kind.as_str() {
@@ -266,10 +242,7 @@ impl TypeModel {
                 }
                 "union" => {
                     union_names.insert(type_.name.clone());
-                    for (index, variant) in expanded_nir_union_variants(module, &type_.name)
-                        .iter()
-                        .enumerate()
-                    {
+                    for variant in expanded_nir_union_variants(module, &type_.name).iter() {
                         union_variants
                             .entry(variant.name.clone())
                             .or_insert_with(|| type_.name.clone());
@@ -277,11 +250,6 @@ impl TypeModel {
                             .entry(variant.name.clone())
                             .or_default()
                             .insert(type_.name.clone());
-                        check_union_variant_tag(
-                            &mut union_variant_tags,
-                            &variant.name,
-                            index,
-                        )?;
                         union_variant_fields.insert(
                             variant.name.clone(),
                             variant
@@ -341,7 +309,7 @@ impl TypeModel {
                 ("char".to_string(), "Integer".to_string()),
             ],
         );
-        Ok(Self {
+        let mut model = Self {
             enum_members,
             record_fields,
             union_names,
@@ -349,7 +317,12 @@ impl TypeModel {
             union_variant_unions,
             union_variant_tags,
             union_variant_fields,
-        })
+        };
+        // Assign canonical variant tags over this module's unions (bug-80). When
+        // packages are also present, from_module_and_packages re-derives them over
+        // the combined set.
+        model.recompute_canonical_variant_tags();
+        Ok(model)
     }
 
     pub(super) fn from_module_and_packages(
@@ -376,7 +349,25 @@ impl TypeModel {
                 model.add_package_type_export(type_export)?;
             }
         }
+        // Re-derive canonical variant tags over the FULL set (module + every
+        // imported package union), so a variant shared across the boundary gets one
+        // globally-consistent tag regardless of registration order (bug-80).
+        model.recompute_canonical_variant_tags();
         Ok(model)
+    }
+
+    /// Assign each union variant a globally-canonical tag keyed by the variant
+    /// name (sorted for determinism), independent of its position within any
+    /// including union. `union_variant_fields` holds one entry per registered
+    /// variant, so its keys are the complete variant set (bug-80).
+    fn recompute_canonical_variant_tags(&mut self) {
+        let names: std::collections::BTreeSet<String> =
+            self.union_variant_fields.keys().cloned().collect();
+        self.union_variant_tags = names
+            .into_iter()
+            .enumerate()
+            .map(|(tag, name)| (name, tag))
+            .collect();
     }
 
     fn add_package_type_export(
@@ -402,7 +393,7 @@ impl TypeModel {
             }
             binary_repr::BinaryReprExportKind::Union => {
                 self.union_names.insert(type_export.name.clone());
-                for (index, variant) in type_export.variants.into_iter().enumerate() {
+                for variant in type_export.variants.into_iter() {
                     self.union_variants
                         .entry(variant.name.clone())
                         .or_insert_with(|| type_export.name.clone());
@@ -410,11 +401,9 @@ impl TypeModel {
                         .entry(variant.name.clone())
                         .or_default()
                         .insert(type_export.name.clone());
-                    check_union_variant_tag(
-                        &mut self.union_variant_tags,
-                        &variant.name,
-                        index,
-                    )?;
+                    // Tags are assigned globally by recompute_canonical_variant_tags
+                    // in from_module_and_packages once every module + package variant
+                    // is registered (bug-80).
                     self.union_variant_fields.insert(
                         variant.name,
                         variant
@@ -517,40 +506,37 @@ mod union_tag_tests {
         }
     }
 
-    /// A variant reached through a chain of `INCLUDES` at a *stable* position
-    /// (`V1` is always tag 0, `Sq` always tag 1) builds a consistent tag map.
+    /// Tags are globally-canonical: keyed by the (sorted) variant name, not by a
+    /// variant's position within any including union (bug-80). Variants Sq, Tri,
+    /// V1 sort to tags 0, 1, 2.
     #[test]
-    fn stable_include_positions_resolve() {
+    fn canonical_tags_are_name_sorted() {
         let types = vec![
             union("UV", &[], &["V1"]),
             union("Shape", &["UV"], &["Sq"]),
             union("Wide", &["Shape"], &["Tri"]),
         ];
-        let model = TypeModel::from_module(&module(types)).expect("stable positions must resolve");
-        assert_eq!(model.union_variant_tags.get("V1"), Some(&0));
-        assert_eq!(model.union_variant_tags.get("Sq"), Some(&1));
-        assert_eq!(model.union_variant_tags.get("Tri"), Some(&2));
+        let model = TypeModel::from_module(&module(types)).expect("must resolve");
+        assert_eq!(model.union_variant_tags.get("Sq"), Some(&0));
+        assert_eq!(model.union_variant_tags.get("Tri"), Some(&1));
+        assert_eq!(model.union_variant_tags.get("V1"), Some(&2));
     }
 
-    /// A variant at *divergent* positions across two unions (`W1` is tag 0 in
-    /// `UW`/`L2` but tag 1 in `A`, because `UV`'s variant precedes it there) is
-    /// rejected — it would otherwise collapse two variants onto one tag and
-    /// mis-dispatch a `MATCH` (bug-69).
+    /// A variant at *divergent* positions across two unions (`W1` follows `V1` in
+    /// `A` but is first in `L2`) is no longer rejected — the canonical scheme gives
+    /// it ONE stable tag everywhere (sorted: V1=0, W1=1), so a MATCH dispatches
+    /// consistently regardless of which union viewed it (bug-80).
     #[test]
-    fn divergent_positions_are_rejected() {
+    fn divergent_positions_resolve_to_one_canonical_tag() {
         let types = vec![
             union("UV", &[], &["V1"]),
             union("UW", &[], &["W1"]),
             union("A", &["UV", "UW"], &[]),
             union("L2", &["UW"], &[]),
         ];
-        let error = match TypeModel::from_module(&module(types)) {
-            Ok(_) => panic!("divergent variant positions must be rejected"),
-            Err(error) => error,
-        };
-        assert!(
-            error.contains("conflicting tags") && error.contains("W1"),
-            "unexpected error message: {error}"
-        );
+        let model =
+            TypeModel::from_module(&module(types)).expect("divergent positions must now resolve");
+        assert_eq!(model.union_variant_tags.get("V1"), Some(&0));
+        assert_eq!(model.union_variant_tags.get("W1"), Some(&1));
     }
 }

@@ -1,0 +1,45 @@
+IMPORT io
+
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+
+' Circle sits at divergent positions: index 0 in A, index 1 in B.
+UNION A
+  Circle
+  Rect
+END UNION
+UNION B
+  Rect
+  Circle
+END UNION
+
+FUNC scoreA(s AS A) AS Integer
+  MATCH s
+    CASE Circle(c)
+      RETURN c.radius
+    CASE Rect(r)
+      RETURN r.w + r.h
+  END MATCH
+END FUNC
+
+FUNC scoreB(s AS B) AS Integer
+  MATCH s
+    CASE Circle(c)
+      RETURN 100 + c.radius
+    CASE Rect(r)
+      RETURN 200 + r.w + r.h
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET a AS A = Circle[7]
+  LET b AS B = Circle[9]
+  io::print("scoreA=" & toString(scoreA(a)))
+  io::print("scoreB=" & toString(scoreB(b)))
+  RETURN 0
+END FUNC

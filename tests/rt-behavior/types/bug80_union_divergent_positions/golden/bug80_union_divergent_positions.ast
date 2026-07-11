@@ -1,0 +1,140 @@
+{
+  "project": "bug80_union_divergent_positions",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Circle",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Integer", "line": 4 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Rect",
+      "line": 6,
+      "fields": [
+      { "visibility": null, "name": "w", "type": "Integer", "line": 7 },
+      { "visibility": null, "name": "h", "type": "Integer", "line": 8 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "A",
+      "line": 12,
+      "includes": [],
+      "variants": [
+      { "name": "Circle", "line": 13 },
+      { "name": "Rect", "line": 14 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "B",
+      "line": 16,
+      "includes": [],
+      "variants": [
+      { "name": "Rect", "line": 17 },
+      { "name": "Circle", "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "scoreA",
+      "line": 21,
+      "params": [
+      { "name": "s", "type": "A", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 22,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Circle", "binding": "c" },
+          "guard": null,
+          "line": 23,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "radius" }, "line": 24 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Rect", "binding": "r" },
+          "guard": null,
+          "line": 25,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "h" } }, "line": 26 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "scoreB",
+      "line": 30,
+      "params": [
+      { "name": "s", "type": "B", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 31,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Circle", "binding": "c" },
+          "guard": null,
+          "line": 32,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "radius" } }, "line": 33 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Rect", "binding": "r" },
+          "guard": null,
+          "line": 34,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "200" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "w" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "h" } }, "line": 35 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 39,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "A", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "B", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "9" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "scoreA=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "scoreA", "arguments": [{ "kind": "identifier", "value": "a" }] }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "scoreB=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "scoreB", "arguments": [{ "kind": "identifier", "value": "b" }] }] } }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 44 }
+      ]
+    }
+    ]
+  }
+  ]
+}
