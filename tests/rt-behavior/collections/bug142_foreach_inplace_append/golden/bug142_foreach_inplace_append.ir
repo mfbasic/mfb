@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug142_foreach_inplace_append",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": true, "name": "xs", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "aa" }, { "kind": "const", "type": "String", "value": "bb" }, { "kind": "const", "type": "String", "value": "cc" }, { "kind": "const", "type": "String", "value": "dd" }] } },
+    {
+      "op": "forEach",
+      "line": 9,
+      "name": "x",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 10, "name": "xs", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "String", "value": "!" } }] } }
+      ]
+    },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }] }] } },
+    {
+      "op": "forEach",
+      "line": 13,
+      "name": "y",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "y" }] } }
+      ]
+    },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

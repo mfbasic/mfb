@@ -1,0 +1,29 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+' bug-141: RETURNing a resource union truncated it to 8 bytes (dropping the
+' resource pointer at +8) and left the callee's tag-dispatched drop active, so
+' the resource was double-closed -> SIGSEGV. The union must survive the return
+' and be usable by the caller.
+UNION Stream
+  File
+  Socket
+END UNION
+
+FUNC openIt() AS Stream
+  RES s AS Stream = fs::createTempFile()
+  RETURN s
+END FUNC
+
+FUNC main AS Integer
+  RES st AS Stream = openIt()
+  MATCH st
+    CASE File(f)
+      fs::writeAll(f, "union-data")
+      io::print("file-ok")
+    CASE Socket(sock)
+      io::print("socket")
+  END MATCH
+  RETURN 0
+END FUNC

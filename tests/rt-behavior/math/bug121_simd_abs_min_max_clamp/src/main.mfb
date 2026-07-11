@@ -1,0 +1,26 @@
+IMPORT io
+IMPORT math
+
+' bug-121: riscv64 scalarize_v128 had no arms for FMinV/FMaxV/AbsV, so
+' math::abs(List OF Integer/Fixed) and math::min/max/clamp(List OF Float) ICE'd
+' the compiler on the riscv target (unreachable panic). A negative Float clamp
+' bound (-1.0) also spilled FP-native into an integer store on riscv. These must
+' compile on every target and produce correct results.
+FUNC main() AS Integer
+  LET xs AS List OF Integer = [-3, 4, -5, 6, -7]
+  FOR EACH v IN math::abs(xs)
+    io::print(toString(v))
+  NEXT
+  LET fs AS List OF Float = [1.5, -2.5, 3.5, -4.5, 8.0]
+  LET gs AS List OF Float = [2.0, 2.0, 2.0, 2.0, 2.0]
+  FOR EACH v IN math::min(fs, gs)
+    io::print(toString(v))
+  NEXT
+  FOR EACH v IN math::max(fs, gs)
+    io::print(toString(v))
+  NEXT
+  FOR EACH v IN math::clamp(fs, -1.0, 1.0)
+    io::print(toString(v))
+  NEXT
+  RETURN 0
+END FUNC

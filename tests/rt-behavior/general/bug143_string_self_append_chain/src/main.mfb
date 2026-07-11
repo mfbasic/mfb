@@ -1,0 +1,14 @@
+IMPORT io
+
+' bug-143: the in-place string self-append lowered chain operands one at a time
+' after earlier ones had already mutated the buffer, so a target that reappears
+' later in the chain (s = s & x & s) re-read the already-extended value. Built
+' at runtime (no constant fold) so the fast path fires.
+FUNC main() AS Integer
+  MUT u AS String = "AB"
+  u = u & "AB"           ' u = "ABAB" (runtime-built)
+  u = u & "x" & u        ' expect "ABABxABAB", not "ABABxABABx"
+  io::print(u)
+  io::print(toString(len(u)))
+  RETURN 0
+END FUNC

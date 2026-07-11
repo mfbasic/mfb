@@ -9,11 +9,26 @@ impl CodeBuilder<'_> {
             return self.inline_collection_payload_size(union_name);
         }
         if self.type_model.union_names.contains(type_) {
+            // A resource variant carries no record fields (validation.rs registers
+            // none for `"resource"` variants) but its payload is a single resource
+            // handle stored one word after the tag. Count it as one payload word so
+            // an all-resource union sizes to its real `{tag@0, ptr@8}` 16-byte
+            // layout instead of the tag-only 8 bytes that truncated the handle and
+            // read out of block on `RETURN` (bug-141).
             let max_fields = self
                 .type_model
                 .variants_for_union(type_)
-                .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
-                .map(Vec::len)
+                .map(|variant| {
+                    if crate::builtins::is_resource_type(variant) {
+                        1
+                    } else {
+                        self.type_model
+                            .union_variant_fields
+                            .get(variant)
+                            .map(Vec::len)
+                            .unwrap_or(0)
+                    }
+                })
                 .max()
                 .unwrap_or(0);
             return Some(8 * (1 + max_fields));

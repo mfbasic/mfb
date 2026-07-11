@@ -1,0 +1,73 @@
+{
+  "project": "bug140_string_match_content",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "classify",
+      "line": 6,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 7,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "string", "value": "abc" } },
+          "guard": null,
+          "line": 8,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "abc" }, "line": 9 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "string", "value": "xy" } },
+          "guard": null,
+          "line": 10,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "xy" }, "line": 11 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 12,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "else" }, "line": 13 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "built", "type": "String", "value": { "kind": "string", "value": "a" }, "line": 18 },
+      { "kind": "assignment", "name": "built", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "built" }, "right": { "kind": "string", "value": "bc" } }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "identifier", "value": "built" }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "string", "value": "xy" }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "string", "value": "zzz" }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

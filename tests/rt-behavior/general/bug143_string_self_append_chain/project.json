@@ -1,0 +1,15 @@
+{
+  "name": "bug143_string_self_append_chain",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT collections
+
+' bug-142: appending in place to the list being iterated freed the FOR EACH
+' snapshot buffer once the append outgrew capacity -> use-after-free / poison
+' read (allocation-failure abort). The append must take the copying path.
+FUNC main() AS Integer
+  MUT xs AS List OF String = ["aa","bb","cc","dd"]
+  FOR EACH x IN xs
+    xs = collections::append(xs, x & "!")
+  NEXT
+  io::print(toString(len(xs)))
+  FOR EACH y IN xs
+    io::print(y)
+  NEXT
+  RETURN 0
+END FUNC

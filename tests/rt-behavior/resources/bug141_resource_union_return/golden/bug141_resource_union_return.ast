@@ -1,0 +1,76 @@
+{
+  "project": "bug141_resource_union_return",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Stream",
+      "line": 9,
+      "includes": [],
+      "variants": [
+      { "name": "File", "line": 10 },
+      { "name": "Socket", "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "openIt",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Stream",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "st", "type": "Stream", "value": { "kind": "call", "callee": "openIt", "arguments": [] }, "line": 20 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "st" },
+        "line": 21,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "File", "binding": "f" },
+          "guard": null,
+          "line": 22,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "union-data" }] }, "line": 23 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "file-ok" }] }, "line": 24 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Socket", "binding": "sock" },
+          "guard": null,
+          "line": 25,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "socket" }] }, "line": 26 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

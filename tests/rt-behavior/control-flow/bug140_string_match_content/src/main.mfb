@@ -1,0 +1,24 @@
+IMPORT io
+
+' bug-140: a MATCH on a String compared block pointers, not bytes, so every
+' string CASE was dead (control always fell to CASE ELSE). Prove both a
+' runtime-built and a literal scrutinee select the right arm.
+FUNC classify(s AS String) AS String
+  MATCH s
+    CASE "abc"
+      RETURN "abc"
+    CASE "xy"
+      RETURN "xy"
+    CASE ELSE
+      RETURN "else"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  MUT built AS String = "a"
+  built = built & "bc"
+  io::print(classify(built))   ' concatenation-built "abc" -> abc
+  io::print(classify("xy"))    ' literal -> xy
+  io::print(classify("zzz"))   ' no arm -> else
+  RETURN 0
+END FUNC

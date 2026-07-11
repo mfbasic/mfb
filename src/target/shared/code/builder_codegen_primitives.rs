@@ -1916,6 +1916,17 @@ impl CodeBuilder<'_> {
                 }) {
                     self.deactivate_resource_cleanup(name);
                 }
+                // A returned resource union transfers ownership to the caller;
+                // deactivate its tag-dispatched drop so the callee does not close
+                // the resource the caller now owns (bug-141). `resource_close_function`
+                // is `None` for a union type, so the plain-resource branch above
+                // misses it — key off the union cleanup shape instead.
+                if result
+                    .as_ref()
+                    .is_some_and(|result| self.resource_union_cleanup(&result.type_).is_some())
+                {
+                    self.deactivate_resource_cleanup(name);
+                }
                 // Returning a `List OF RES File` transfers its owned-list to the
                 // caller: drop this scope's drain so the resources are not closed
                 // here (§15.6).

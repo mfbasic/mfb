@@ -62,6 +62,11 @@ struct FunctionContext {
     function_returns: HashMap<String, String>,
     function_types: HashMap<String, String>,
     record_fields: HashMap<String, Vec<TypeField>>,
+    /// Declared type of each top-level `LET`/`MUT` binding, keyed by name. Lets
+    /// `expression_type` resolve an identifier that names a global so a generic /
+    /// overloaded call taking that global infers its type instead of being falsely
+    /// rejected (bug-103).
+    globals: HashMap<String, String>,
     /// Declared return type of the function whose body is being lowered. Supplies
     /// the expected (contextual) type for a `RETURN` operand so a return-type
     /// overload set resolves there (plan-01-overload.md §F.2).
@@ -75,6 +80,7 @@ impl Clone for FunctionContext {
             function_returns: self.function_returns.clone(),
             function_types: self.function_types.clone(),
             record_fields: self.record_fields.clone(),
+            globals: self.globals.clone(),
             enclosing_return: self.enclosing_return.clone(),
         }
     }

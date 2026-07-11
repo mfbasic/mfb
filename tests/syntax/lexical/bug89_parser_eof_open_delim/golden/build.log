@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/syntax/lexical/bug89_parser_eof_open_delim
+   1 | FUNC main() AS Integer
+   2 | LET a = (
+     |          ^
+tests/syntax/lexical/bug89_parser_eof_open_delim/src/main.mfb:2 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   1 | FUNC main() AS Integer
+   2 | LET a = (
+     |          ^
+tests/syntax/lexical/bug89_parser_eof_open_delim/src/main.mfb:2 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected `)` after expression.
+   1 | FUNC main() AS Integer
+     | ^^^^
+tests/syntax/lexical/bug89_parser_eof_open_delim/src/main.mfb:1 error[1-102-0006 MFB_PARSE_UNTERMINATED_BLOCK]: parser reached end-of-file inside a block
+               Function block reached end-of-file before its END statement.
+[exit 1]

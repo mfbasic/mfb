@@ -392,6 +392,20 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_primary(&mut self) -> Option<Expression> {
+        // At end-of-input `advance()` does not move the cursor and re-yields the
+        // token *before* Eof (an already-consumed `(`/`[`), which would re-enter
+        // the grouped-expression / list-literal arms with zero progress and
+        // recurse until the native stack overflows (bug-89). Treat Eof as a hard
+        // parse error here instead of re-reading `previous()`.
+        if self.is_at_end() {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_EXPECTED_EXPRESSION",
+                "Expected an expression.",
+                &token,
+            );
+            return None;
+        }
         let token = self.advance().clone();
         match token.kind {
             TokenKind::String(value) => Some(Expression::String(value)),

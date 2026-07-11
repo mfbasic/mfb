@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT math
+
+' bug-129: the fdlibm pow port used a logical shift for the signed exponent test
+' and built the subnormal scalbn factor as (1023+n)<<52, so results across the
+' whole subnormal band were garbage (huge negative) or flushed to +0.0. Verify
+' by reconstructing 1.0 from a subnormal via two finite half-scalings (2^n alone
+' would overflow) and by checking the sign.
+FUNC main() AS Integer
+  io::print(toString(math::pow(2.0, -1030.0) * math::pow(2.0, 515.0) * math::pow(2.0, 515.0)))
+  io::print(toString(math::pow(2.0, -1023.0) * math::pow(2.0, 512.0) * math::pow(2.0, 511.0)))
+  io::print(toString(math::pow(2.0, -1040.0) * math::pow(2.0, 520.0) * math::pow(2.0, 520.0)))
+  IF math::pow(2.0, -1030.0) > 0.0 THEN
+    io::print("positive")
+  ELSE
+    io::print("negative")
+  END IF
+  RETURN 0
+END FUNC

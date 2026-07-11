@@ -1,0 +1,65 @@
+{
+  "project": "bug121_simd_abs_min_max_clamp",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3" } }, { "kind": "number", "value": "4" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "5" } }, { "kind": "number", "value": "6" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "7" } }] }, "line": 10 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "identifier", "value": "xs" }] },
+        "line": 11,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 12 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "fs", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.5" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.5" } }, { "kind": "number", "value": "3.5" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "4.5" } }, { "kind": "number", "value": "8.0" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "gs", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "2.0" }] }, "line": 15 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "call", "callee": "math.min", "arguments": [{ "kind": "identifier", "value": "fs" }, { "kind": "identifier", "value": "gs" }] },
+        "line": 16,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 17 }
+        ]
+      },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "call", "callee": "math.max", "arguments": [{ "kind": "identifier", "value": "fs" }, { "kind": "identifier", "value": "gs" }] },
+        "line": 19,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 20 }
+        ]
+      },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "identifier", "value": "fs" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.0" } }, { "kind": "number", "value": "1.0" }] },
+        "line": 22,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 23 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}

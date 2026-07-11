@@ -136,6 +136,7 @@ impl CodeBuilder<'_> {
 
         let locate_start = self.label("find_locate_start");
         let locate_continue = self.label("find_locate_continue");
+        let locate_advanced = self.label("find_locate_advanced");
         let start_ready = self.label("find_start_ready");
         let search_loop = self.label("find_search_loop");
         let compare_loop = self.label("find_compare_loop");
@@ -165,19 +166,32 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(remaining, haystack_len));
         self.emit(abi::move_immediate(mask, "Integer", "192"));
 
+        // Walk `start` characters forward. Each character is one lead/ASCII byte
+        // followed by its continuation bytes; consume the whole character before
+        // re-checking `scalar_index == start` so the cursor always lands on a
+        // character boundary. The earlier form re-checked equality after seeing a
+        // lead byte but before skipping its continuations, so when character
+        // `start-1` was multibyte the cursor stopped on a continuation byte and
+        // every returned index was inflated by one (bug-133). Mirrors `lower_mid`.
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start));
         self.emit(abi::branch_eq(&start_ready));
         self.emit(abi::compare_immediate(remaining, "0"));
         self.emit(abi::branch_eq(&invalid_start));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::label(&locate_continue));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&locate_advanced));
         self.emit(abi::load_u8(byte, cursor, 0));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::compare_immediate(byte, "128"));
-        self.emit(abi::branch_eq(&locate_continue));
-        self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
-        self.emit(abi::label(&locate_continue));
+        self.emit(abi::branch_ne(&locate_advanced));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&locate_continue));
+        self.emit(abi::label(&locate_advanced));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
         self.emit(abi::branch(&locate_start));
 
         self.emit(abi::label(&start_ready));

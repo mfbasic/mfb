@@ -1,0 +1,75 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug140_string_match_content",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "classify",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 6, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 7, "mutable": false, "name": "$match0", "type": "String", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "line": 7,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 8,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "String", "value": "abc" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 9, "value": { "kind": "const", "type": "String", "value": "abc" } }
+        ]
+      },
+      {
+        "line": 10,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "String", "value": "xy" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 11, "value": { "kind": "const", "type": "String", "value": "xy" } }
+        ]
+      },
+      {
+        "line": 12,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "else" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": true, "name": "built", "type": "String", "value": { "kind": "const", "type": "String", "value": "a" } },
+    { "op": "assign", "line": 19, "name": "built", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "built" }, "right": { "kind": "const", "type": "String", "value": "bc" } } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "local", "name": "built" }] }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "const", "type": "String", "value": "xy" }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "const", "type": "String", "value": "zzz" }] }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

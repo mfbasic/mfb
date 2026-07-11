@@ -1,0 +1,40 @@
+{
+  "project": "bug129_pow_subnormal",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1030.0" } }] }, "right": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "515.0" }] } }, "right": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "515.0" }] } }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1023.0" } }] }, "right": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "512.0" }] } }, "right": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "511.0" }] } }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1040.0" } }] }, "right": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "520.0" }] } }, "right": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "number", "value": "520.0" }] } }] }] }, "line": 12 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2.0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1030.0" } }] }, "right": { "kind": "number", "value": "0.0" } },
+        "line": 13,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "positive" }] }, "line": 14 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "negative" }] }, "line": 16 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
+      ]
+    }
+    ]
+  }
+  ]
+}

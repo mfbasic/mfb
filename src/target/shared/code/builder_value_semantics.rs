@@ -767,8 +767,27 @@ impl CodeBuilder<'_> {
             }
             _ => {
                 let pattern = self.lower_value(pattern)?;
-                self.emit(abi::compare_registers(&matched.location, &pattern.location));
-                self.emit(abi::branch_eq(label));
+                // String (and other block-typed) scrutinees are block pointers, so
+                // `compare_registers` would test pointer identity — never true for a
+                // literal pattern whose block is distinct from the scrutinee's, so
+                // every such CASE was dead (bug-140). Route content-typed scrutinees
+                // through the byte-comparison helper; scalars keep the register test.
+                if matched.type_ == "String"
+                    || self.type_model.record_fields.contains_key(&matched.type_)
+                {
+                    let not_equal = self.label("match_compare_not_equal");
+                    self.emit_comparable_values_match_branch(
+                        &matched.type_,
+                        &matched.location,
+                        &pattern.location,
+                        label,
+                        &not_equal,
+                    )?;
+                    self.emit(abi::label(&not_equal));
+                } else {
+                    self.emit(abi::compare_registers(&matched.location, &pattern.location));
+                    self.emit(abi::branch_eq(label));
+                }
             }
         }
         Ok(())

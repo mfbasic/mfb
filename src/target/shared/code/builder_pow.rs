@@ -55,6 +55,7 @@ const TINY: f64 = 1.0e-300;
 const HIGH32_MASK: &str = "18446744069414584320"; // 0xFFFFFFFF00000000
 const ABS_MASK: &str = "9223372036854775807"; // 0x7FFFFFFFFFFFFFFF
 const SIGN_BIT: &str = "9223372036854775808"; // 0x8000000000000000
+const TWOM54_BITS: &str = "4363988038922010624"; // 2**-54 = 0x3C90000000000000
 
 /// Register homes for the scalar pow kernel — one home per live f64. The five
 /// low homes (`x`/`y` inputs and `ax`/`sh`/`sl`) are the physical caller-saved
@@ -738,10 +739,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(xt, xt, xm)); // j
         let subnormal = self.label("pow_exp_subnormal");
         let scaled = self.label("pow_exp_scaled");
-        // (j>>20) <= 0 (signed) -> subnormal scalbn path
-        self.emit(abi::shift_right_immediate(xm, xt, 20)); // arithmetic? shift_right_immediate is LSR
-                                                           // Need signed compare of (j as i32)>>20. Reconstruct sign: treat xt low32 as i32.
-                                                           // Simpler: compare j (as built) — j>>20<=0 means exponent field <=0 -> tiny.
+        // (j>>20) <= 0 (signed) -> subnormal scalbn path. `j` mirrors fdlibm's
+        // signed 32-bit int, so the exponent-field test must be an *arithmetic*
+        // shift: for n <= -1023 `j` is negative and a logical LSR would read a
+        // huge positive value and wrongly take the normal (set_hi) branch,
+        // constructing a sign-bit-set / huge-exponent double (bug-129).
+        self.emit(abi::arithmetic_shift_right_immediate(xm, xt, 20)); // ASR: signed j>>20
         self.emit(abi::compare_immediate(xm, "0"));
         self.emit(abi::branch_le(&subnormal));
         // normal: set_hi(z, j)
@@ -774,18 +777,70 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_d_from_x(home, xs));
     }
 
-    /// `home *= 2**n` for an integer `n` in [-1074, 1023] (fdlibm scalbn, simple
-    /// path: build the 2**n factor; for the subnormal output path n is small).
-    fn emit_pow_scalbn(&mut self, home: &str, n: &str, _xs: &str, xm: &str, _xt: &str, _xu: &str) {
-        // factor = (1023 + n) << 52, as a double; z *= factor. For very negative n
-        // this can be subnormal, but the pow underflow/overflow gate already
-        // excludes the extreme range, so (1023+n) stays a valid exponent here.
-        self.emit(abi::move_immediate(xm, "Integer", "1023"));
-        self.emit(abi::add_registers(xm, xm, n));
-        self.emit(abi::shift_left_immediate(xm, xm, 52));
-        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], xm)); // 2^n
+    /// `home = scalbn(z, n)` — a faithful port of fdlibm `scalbn` for the pow
+    /// subnormal output path. `home` (z) is always a *normal, positive* double
+    /// near 1.0 (the exp2 mantissa `1-(r-z)`), so the zero/subnormal/Inf/NaN
+    /// *input* cases of the library routine are elided. A subnormal *result* is
+    /// produced with the two-step 2**54 compensation (bias the exponent up by 54
+    /// so it stays a valid normal field, then multiply by 2**-54 for a correctly
+    /// rounded subnormal) instead of the old `(1023+n)<<52` factor, which is the
+    /// bit pattern 0 (= +0.0) at n == -1023 and a malformed sign/exponent below
+    /// it (bug-129).
+    fn emit_pow_scalbn(&mut self, home: &str, n: &str, xs: &str, xm: &str, xt: &str, xu: &str) {
+        self.emit(abi::float_move_x_from_d(xs, home)); // xs = bits(z)
+        self.emit(abi::shift_right_immediate(xt, xs, 32)); // hx = hi32(z)
+        // k = ((hx & 0x7ff00000) >> 20) + n   (biased exponent of z)
+        self.emit(abi::move_immediate(xm, "Integer", "2146435072")); // 0x7ff00000
+        self.emit(abi::and_registers(xu, xt, xm));
+        self.emit(abi::shift_right_immediate(xu, xu, 20));
+        self.emit(abi::add_registers(xu, xu, n)); // k (signed)
+        // keep = hx & 0x800fffff  (sign bit + high 20 mantissa bits)
+        self.emit(abi::move_immediate(xm, "Integer", "2148532223")); // 0x800fffff
+        self.emit(abi::and_registers(xt, xt, xm)); // keep
+
+        let sub = self.label("pow_scalbn_sub");
+        let underflow = self.label("pow_scalbn_uf");
+        let done = self.label("pow_scalbn_done");
+
+        // k <= 0 -> subnormal / underflow region; else a normal result.
+        self.emit(abi::compare_immediate(xu, "0"));
+        self.emit(abi::branch_le(&sub));
+        // normal: set_hi(z, keep | (k<<20))
+        self.emit(abi::shift_left_immediate(xm, xu, 20));
+        self.emit(abi::or_registers(xm, xt, xm)); // new hi word
+        self.emit(abi::move_immediate(xu, "Integer", "4294967295"));
+        self.emit(abi::and_registers(xs, xs, xu)); // low32(z)
+        self.emit(abi::shift_left_immediate(xm, xm, 32));
+        self.emit(abi::or_registers(xs, xs, xm));
+        self.emit(abi::float_move_d_from_x(home, xs));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&sub));
+        // k += 54; if still <= 0 the result is a genuine underflow -> flush to 0.
+        self.emit(abi::move_immediate(xm, "Integer", "54"));
+        self.emit(abi::add_registers(xu, xu, xm)); // k += 54
+        self.emit(abi::compare_immediate(xu, "0"));
+        self.emit(abi::branch_le(&underflow));
+        // subnormal: set_hi(z, keep | (k<<20)); z *= 2**-54
+        self.emit(abi::shift_left_immediate(xm, xu, 20));
+        self.emit(abi::or_registers(xm, xt, xm));
+        self.emit(abi::move_immediate(xu, "Integer", "4294967295"));
+        self.emit(abi::and_registers(xs, xs, xu));
+        self.emit(abi::shift_left_immediate(xm, xm, 32));
+        self.emit(abi::or_registers(xs, xs, xm));
+        self.emit(abi::float_move_d_from_x(home, xs));
         self.pld(abi::FP_SCRATCH[0], home);
+        self.emit(abi::move_immediate(xt, "Integer", TWOM54_BITS)); // 2**-54
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], xt));
         self.emit(abi::float_multiply_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
         self.pst(abi::FP_SCRATCH[0], home);
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&underflow));
+        // underflow to 0 (the result sign is applied by the caller's sign mask).
+        self.emit(abi::move_immediate(xs, "Integer", "0"));
+        self.emit(abi::float_move_d_from_x(home, xs));
+
+        self.emit(abi::label(&done));
     }
 }

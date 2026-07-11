@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug143_string_self_append_chain",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": true, "name": "u", "type": "String", "value": { "kind": "const", "type": "String", "value": "AB" } },
+    { "op": "assign", "line": 9, "name": "u", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "u" }, "right": { "kind": "const", "type": "String", "value": "AB" } } },
+    { "op": "assign", "line": 10, "name": "u", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "u" }, "right": { "kind": "const", "type": "String", "value": "x" } }, "right": { "kind": "local", "name": "u" } } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "u" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "u" }] }] }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

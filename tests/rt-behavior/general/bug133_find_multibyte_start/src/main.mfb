@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT strings
+
+' bug-133: find(String, needle, start) landed the search cursor on a
+' continuation byte when the character at scalar index start-1 was multibyte,
+' inflating every returned index by one. "é" is 2 bytes.
+FUNC main() AS Integer
+  io::print(toString(strings::find("éb", "b", 1)))       ' expect 1
+  io::print(toString(strings::find("ébébxb", "b", 2)))   ' expect 3
+  io::print(toString(strings::find("ébébxb", "b", 4)))   ' expect 5
+  io::print(toString(strings::find("abc", "c", 1)))       ' ASCII unchanged: 2
+  RETURN 0
+END FUNC

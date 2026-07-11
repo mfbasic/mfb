@@ -1,0 +1,46 @@
+{
+  "project": "bug142_foreach_inplace_append",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "aa" }, { "kind": "string", "value": "bb" }, { "kind": "string", "value": "cc" }, { "kind": "string", "value": "dd" }] }, "line": 8 },
+      {
+        "kind": "forEach",
+        "name": "x",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 9,
+        "body": [
+        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "string", "value": "!" } }] }, "line": 10 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] }] }] }, "line": 12 },
+      {
+        "kind": "forEach",
+        "name": "y",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 13,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "y" }] }, "line": 14 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

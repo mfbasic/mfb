@@ -1341,6 +1341,55 @@ pub(super) fn string_self_append_operands<'v>(
     }
 }
 
+/// True when `name` is read anywhere within `value`. Used to reject the in-place
+/// string self-append fast path when the target reappears as (or inside) a later
+/// operand of the concat chain (`s = s & x & s`): the operands are lowered one at
+/// a time *after* earlier ones have mutated the buffer, so a later read of `name`
+/// would see the already-extended value (bug-143). A `LocalRef` borrow of the
+/// same slot is equally hazardous.
+pub(super) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
+    match value {
+        NirValue::Local(local) | NirValue::LocalRef { name: local, .. } => local == name,
+        NirValue::Const { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => false,
+        NirValue::Closure { captures, .. } => {
+            captures.iter().any(|v| nir_value_reads_local(v, name))
+        }
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => {
+            args.iter().any(|v| nir_value_reads_local(v, name))
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value }
+        | NirValue::Unary { operand: value, .. } => nir_value_reads_local(value, name),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            nir_value_reads_local(target, name)
+                || updates
+                    .iter()
+                    .any(|u| nir_value_reads_local(&u.value, name))
+        }
+        NirValue::ListLiteral { values, .. } => {
+            values.iter().any(|v| nir_value_reads_local(v, name))
+        }
+        NirValue::MapLiteral { entries, .. } => entries
+            .iter()
+            .any(|(k, v)| nir_value_reads_local(k, name) || nir_value_reads_local(v, name)),
+        NirValue::MemberAccess { target, .. } => nir_value_reads_local(target, name),
+        NirValue::Binary { left, right, .. } => {
+            nir_value_reads_local(left, name) || nir_value_reads_local(right, name)
+        }
+    }
+}
+
 fn nir_op_context(op: &NirOp) -> String {
     match op {
         NirOp::Bind { name, type_, .. } => format!("bind {name} AS {type_}"),

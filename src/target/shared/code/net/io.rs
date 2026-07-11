@@ -575,17 +575,38 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         abi::branch(&done),
         abi::label(&write_fail),
     ]);
-    platform.emit_errno(
-        symbol,
-        "%v9",
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::compare_immediate("%v9", platform.eagain()),
-        abi::branch_eq(&timeout),
-    ]);
+    if write_uses_raw_syscall(platform) {
+        // linux-x86_64's `emit_write` is a raw `syscall` that returns `-errno` in
+        // the return register and never sets the libc `errno` cell, so reading
+        // `__errno_location` here yields a stale value and misreports a write
+        // timeout as a closed connection (bug-109). The failing return value is
+        // still live (the advance path was branched over): EAGAIN iff
+        // `ret == -EAGAIN`, i.e. `ret + EAGAIN == 0` — mirroring the fs/io raw
+        // branch (bug-62).
+        let eagain = platform
+            .eagain()
+            .parse::<usize>()
+            .expect("eagain is numeric");
+        instructions.extend([
+            abi::add_immediate("%v9", abi::return_register(), eagain),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&timeout),
+        ]);
+    } else {
+        // Every other backend routes `write` through libc: a `-1` return with the
+        // real code behind the `errno` accessor.
+        platform.emit_errno(
+            symbol,
+            "%v9",
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate("%v9", platform.eagain()),
+            abi::branch_eq(&timeout),
+        ]);
+    }
     emit_fail(
         symbol,
         ERR_CONNECTION_CLOSED_CODE,

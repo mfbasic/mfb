@@ -1,0 +1,30 @@
+{
+  "project": "bug143_string_self_append_chain",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "u", "type": "String", "value": { "kind": "string", "value": "AB" }, "line": 8 },
+      { "kind": "assignment", "name": "u", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "u" }, "right": { "kind": "string", "value": "AB" } }, "line": 9 },
+      { "kind": "assignment", "name": "u", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "u" }, "right": { "kind": "string", "value": "x" } }, "right": { "kind": "identifier", "value": "u" } }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "u" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "u" }] }] }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

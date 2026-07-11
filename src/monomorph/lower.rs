@@ -1428,6 +1428,17 @@ impl<'a> Monomorphizer<'a> {
                     .insert(name.clone(), type_decl.fields.clone());
             }
         }
+        // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call or
+        // overload whose argument names a global can be typed (bug-103).
+        for item in self.source.files.iter().flat_map(|file| &file.items) {
+            if let Item::Binding(binding) = item {
+                if let Some(type_name) = &binding.type_name {
+                    context
+                        .globals
+                        .insert(binding.name.clone(), type_name.clone());
+                }
+            }
+        }
         context
     }
 
@@ -1465,6 +1476,57 @@ impl<'a> Monomorphizer<'a> {
         );
     }
 
+    /// The return type of a builtin/package call, using the same per-package
+    /// `resolve_call` resolvers that syntaxcheck dispatches through
+    /// (`SyntaxChecker::check_builtin_call`). Argument types are resolved
+    /// positionally, falling back to `Unknown` so a resolver that keys on arity
+    /// still sees the right shape. Without this, `expression_type` returned `None`
+    /// for every builtin call, so a builtin-call argument was silently dropped
+    /// from a generic/overloaded call's argument list (bug-103).
+    fn builtin_call_return_type(
+        &self,
+        callee: &str,
+        arguments: &[CallArg],
+        context: &FunctionContext,
+    ) -> Option<String> {
+        use crate::builtins;
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                self.expression_type(call_arg_value(argument), context)
+                    .unwrap_or_else(|| "Unknown".to_string())
+            })
+            .collect::<Vec<_>>();
+        macro_rules! try_pkg {
+            ($resolve:expr) => {
+                if let Some(resolved) = $resolve {
+                    return Some(resolved.return_type.into_owned());
+                }
+            };
+        }
+        try_pkg!(builtins::general::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::collections::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::strings::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::math::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::bits::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::crypto::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::encoding::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::fs::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::io::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::json::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::csv::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::regex::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::datetime::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::net::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::os::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::http::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::term::resolve_call(callee)); // no arg_types param
+        try_pkg!(builtins::tls::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::vector::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::thread::resolve_call(callee, &arg_types));
+        None
+    }
+
     fn expression_type(
         &self,
         expression: &Expression,
@@ -1486,7 +1548,8 @@ impl<'a> Monomorphizer<'a> {
                 .locals
                 .get(value)
                 .cloned()
-                .or_else(|| context.function_types.get(value).cloned()),
+                .or_else(|| context.function_types.get(value).cloned())
+                .or_else(|| context.globals.get(value).cloned()),
             Expression::Constructor { type_name, .. } => {
                 if type_name == "Error" {
                     Some("Error".to_string())
@@ -1518,7 +1581,13 @@ impl<'a> Monomorphizer<'a> {
                     .find(|field| field.name == *member)
                     .map(|field| field.type_name.clone())
             }
-            Expression::Call { callee, .. } => context.function_returns.get(callee).cloned(),
+            Expression::Call {
+                callee, arguments, ..
+            } => context
+                .function_returns
+                .get(callee)
+                .cloned()
+                .or_else(|| self.builtin_call_return_type(callee, arguments, context)),
             Expression::Lambda {
                 params,
                 body,

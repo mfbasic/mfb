@@ -1,0 +1,29 @@
+$ mfb build -ast -ir tests/rt-behavior/math/bug121_simd_abs_min_max_clamp
+Wrote AST to tests/rt-behavior/math/bug121_simd_abs_min_max_clamp/bug121_simd_abs_min_max_clamp.ast
+Wrote IR to tests/rt-behavior/math/bug121_simd_abs_min_max_clamp/bug121_simd_abs_min_max_clamp.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/bug121_simd_abs_min_max_clamp
+Wrote executable to tests/rt-behavior/math/bug121_simd_abs_min_max_clamp/bug121_simd_abs_min_max_clamp.out
+[exit 0]
+$ tests/rt-behavior/math/bug121_simd_abs_min_max_clamp/bug121_simd_abs_min_max_clamp.out
+3
+4
+5
+6
+7
+1.50
+-2.50
+2.00
+-4.50
+2.00
+2.00
+2.00
+3.50
+2.00
+8.00
+1.00
+-1.00
+1.00
+-1.00
+1.00
+[exit 0]

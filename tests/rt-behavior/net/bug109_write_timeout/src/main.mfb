@@ -1,0 +1,40 @@
+IMPORT net
+IMPORT io
+IMPORT errorCode
+
+' bug-109: on linux-x86_64 net::write used a raw SYS_WRITE syscall (return
+' -errno in rax, libc errno untouched), but the failure path read errno via
+' __errno_location. So an EAGAIN write timeout was misclassified as a closed
+' connection (ErrConnectionClosed) on x86-64 only. Fill a TCP socket whose peer
+' never reads, with a short write timeout: the write must fail with
+' ErrWriteTimeout on every target. (Reproduces the divergence only on x86 at
+' runtime; on other targets it already returned ErrWriteTimeout.)
+FUNC pump() AS Integer
+  RES server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+  RES client = net::connectTcp("127.0.0.1", bound.port)
+  RES accepted = net::accept(server)
+  net::setWriteTimeout(client, 100)
+  ' Build a ~1 MiB payload so a single write overruns the kernel buffers.
+  MUT big AS String = "x"
+  MUT i AS Integer = 0
+  WHILE i < 20
+    big = big & big
+    i = i + 1
+  WEND
+  MUT n AS Integer = 0
+  WHILE n < 1000
+    net::writeText(client, big)
+    n = n + 1
+  WEND
+  RETURN 0
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET code AS Integer = pump()
+  io::print("writeTimeout=" & toString(code = errorCode::ErrWriteTimeout))
+  RETURN 0
+END FUNC

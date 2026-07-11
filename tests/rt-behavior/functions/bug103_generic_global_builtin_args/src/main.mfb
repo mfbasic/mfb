@@ -1,0 +1,33 @@
+IMPORT io
+IMPORT math
+
+' bug-103: monomorph could not type (a) an identifier naming a top-level
+' LET/MUT global, nor (b) a builtin/package call. Both were silently dropped
+' from a generic/overloaded call's argument list, left-shifting the survivors
+' and producing a bogus "not a top-level function" / "cannot infer template
+' arguments" rejection. All four uses below are valid and must build + run.
+LET G AS Integer = 7
+LET NAME AS String = "Ada"
+
+SUB show OF T(value AS T)
+  io::print("show:" & toString(value))
+END SUB
+
+SUB showLabeled OF T(label AS String, value AS T)
+  io::print(label & "=" & toString(value))
+END SUB
+
+FUNC pick(n AS Integer) AS String
+  RETURN "int"
+END FUNC
+FUNC pick(s AS String) AS String
+  RETURN "str"
+END FUNC
+
+FUNC main() AS Integer
+  show(G)                 ' global Integer as the sole template arg
+  showLabeled(NAME, 42)   ' global String + Integer (no left-shift)
+  show(math::abs(-7))     ' builtin-call argument types
+  io::print(pick(NAME))   ' overload resolved from a global's type
+  RETURN 0
+END FUNC

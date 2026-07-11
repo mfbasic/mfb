@@ -295,6 +295,21 @@ pub(crate) fn scalarize_v128(
                 fsd(&mut out, FT0, &d, h);
             }
         }
+        // Lane min/max with IEEE number semantics (a finite operand wins over a
+        // NaN). `fminnm_d`/`fmaxnm_d` match both the aarch64 vector body (`fmin_v`/
+        // `fmax_v`, equal on the finite inputs guaranteed here) and the scalar
+        // `math::min/max(Float)` tail (`float_min_d`/`float_max_d`). Without these
+        // arms `math::min/max/clamp(List OF Float)` ICE'd on riscv (bug-121).
+        FMinV | FMaxV => {
+            let mn = if op == FMinV { "fminnm_d" } else { "fmaxnm_d" };
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            for h in 0..2 {
+                fld(&mut out, FT0, &a, h);
+                fld(&mut out, FT1, &b, h);
+                out.push(ci(mn, &[("dst", FT0), ("lhs", FT0), ("rhs", FT1)]));
+                fsd(&mut out, FT0, &d, h);
+            }
+        }
         // Fused multiply-add: dst += lhs*rhs (single rounding).
         FMlaV => {
             let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
@@ -444,6 +459,20 @@ pub(crate) fn scalarize_v128(
             for h in 0..2 {
                 ild(&mut out, T0, &s, h);
                 out.push(ci("sub", &[("dst", T0), ("lhs", ZERO), ("rhs", T0)]));
+                isd(&mut out, T0, &d, h);
+            }
+        }
+        // Integer lane absolute value: abs(x) = (x ^ (x>>a63)) - (x>>a63), where
+        // `x>>a63` (arithmetic) is 0 for non-negative x and all-ones for negative.
+        // Emitted for `math::abs(List OF Integer/Fixed)`; without this arm those
+        // ICE'd on riscv (bug-121).
+        AbsV => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            for h in 0..2 {
+                ild(&mut out, T0, &s, h);
+                out.push(ci("asr_imm", &[("dst", T1), ("src", T0), ("shift", "63")]));
+                out.push(ci("eor", &[("dst", T0), ("lhs", T0), ("rhs", T1)]));
+                out.push(ci("sub", &[("dst", T0), ("lhs", T0), ("rhs", T1)]));
                 isd(&mut out, T0, &d, h);
             }
         }

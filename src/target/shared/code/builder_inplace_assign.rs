@@ -1,6 +1,6 @@
 use super::*;
 
-use super::builder_control::string_self_append_operands;
+use super::builder_control::{nir_value_reads_local, string_self_append_operands};
 
 impl CodeBuilder<'_> {
     /// Recognize `name = collections::append(name, item)` for a single element
@@ -36,6 +36,14 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         if arg0 != name {
+            return Ok(false);
+        }
+        // A live `FOR EACH` iterable snapshots the buffer pointer/count at loop
+        // entry; the grow path frees the old buffer once the append outgrows
+        // capacity, so an in-place append to the list being iterated is a
+        // use-after-free (bug-142). Force the out-of-place (copying) path, matching
+        // the set/prepend guards.
+        if self.for_each_iterable_locals.iter().any(|n| n == name) {
             return Ok(false);
         }
         let Some(local) = self.locals.get(name) else {
@@ -117,6 +125,11 @@ impl CodeBuilder<'_> {
             if arg1 == name {
                 return Ok(false);
             }
+        }
+        // Same live `FOR EACH` iterable hazard as the single-element append: the
+        // grow path frees the snapshot buffer out from under the loop (bug-142).
+        if self.for_each_iterable_locals.iter().any(|n| n == name) {
+            return Ok(false);
         }
         let Some(local) = self.locals.get(name) else {
             return Ok(false);
@@ -400,6 +413,16 @@ impl CodeBuilder<'_> {
         let Some(operands) = string_self_append_operands(value, name) else {
             return Ok(false);
         };
+        // If the target reappears in a later operand (`s = s & x & s`), lowering
+        // operands in sequence would re-read the already-mutated buffer and append
+        // the extended value (bug-143). Fall back to the out-of-place concat path,
+        // which reads every operand from the original value.
+        if operands
+            .iter()
+            .any(|operand| nir_value_reads_local(operand, name))
+        {
+            return Ok(false);
+        }
         for operand in operands {
             self.lower_string_self_append_one(stack_offset, shadow_slot, operand)?;
         }

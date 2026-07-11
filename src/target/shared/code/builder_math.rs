@@ -599,20 +599,20 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             in_slot,
         ));
+        // Spill the bound's *bits* in a GPR. A `Float` bound may be `d`-native
+        // (e.g. the negative literal `-1.0`, produced by `fneg` into an FP
+        // register); storing that FP register with the integer `store_u64` leaks
+        // it into a GP-context op — an encode failure on riscv (str_u64 cannot
+        // take an FP register). `float_value_as_gpr` is the identity for a
+        // GP-native value (Integer/Fixed bounds), so only Float bounds change.
         let low = self.lower_value(&args[1])?;
+        let low_bits = self.float_value_as_gpr(&low)?;
         let low_slot = self.allocate_stack_object("simd_clamp_low", 8);
-        self.emit(abi::store_u64(
-            &low.location,
-            abi::stack_pointer(),
-            low_slot,
-        ));
+        self.emit(abi::store_u64(&low_bits, abi::stack_pointer(), low_slot));
         let high = self.lower_value(&args[2])?;
+        let high_bits = self.float_value_as_gpr(&high)?;
         let high_slot = self.allocate_stack_object("simd_clamp_high", 8);
-        self.emit(abi::store_u64(
-            &high.location,
-            abi::stack_pointer(),
-            high_slot,
-        ));
+        self.emit(abi::store_u64(&high_bits, abi::stack_pointer(), high_slot));
         let element = result_type
             .strip_prefix("List OF ")
             .ok_or_else(|| "math.clamp array overload requires a list".to_string())?
