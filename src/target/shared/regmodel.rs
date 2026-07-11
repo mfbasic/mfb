@@ -76,6 +76,16 @@ pub(crate) trait RegisterModel {
     /// (plan-34-C §2.5). AArch64 `x28`, x86-64 `r13`, riscv64 `s10`.
     fn closure_env(&self) -> &'static str;
 
+    /// The register this ISA realizes the `%thread` token as — the worker
+    /// current-thread control-block pointer the thread trampoline pins across the
+    /// worker call so the worker's own `thread::` ops (`is_cancelled` reads it
+    /// directly) can find it. Like [`Self::arena_base`], it is a program-wide
+    /// pinned register **absent from [`Self::allocatable`]**: shared code names it
+    /// only through the `%thread` token, and every function (including the worker
+    /// body) must preserve it, so the allocator must never color a body vreg onto
+    /// it. AArch64 `x20`, x86-64 `rbx`, riscv64 `s2`.
+    fn current_thread(&self) -> &'static str;
+
     /// The register the SIMD float-math kernels (`builder_simd_float_math`) use
     /// as the constant-pool base: `adrp`/`add` to `_mfb_math_const_pool` once,
     /// then every coefficient `ldr q [base, #offset]`. `Some(reg)` pins a

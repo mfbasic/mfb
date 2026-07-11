@@ -37,7 +37,10 @@ const GPRS: &[&str] = &[
 // never color a body vreg onto it. `r14` (the former zero register) IS allocatable
 // now: `store xzr` encodes an immediate zero on x86, so r14 no longer needs to be
 // pinned at 0 (plan-34-C — the extra GPR the machine-floor scratch needs).
-const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12", "r14"];
+// `rbx` is deliberately absent: it realizes the `%thread` token
+// ([`X86_64RegisterModel::current_thread`]), the program-wide worker
+// current-thread register every function must preserve.
+const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "r12", "r14"];
 
 /// The register the legacy `"x31"` zero spelling realizes as. The neutral zero
 /// token (`abi::ZERO` = `xzr`) no longer needs it — `store xzr` encodes an
@@ -138,6 +141,13 @@ impl RegisterModel for X86_64RegisterModel {
         // from `INT_ALLOCATABLE` so no body vreg collides with the closure call's
         // hardcoded env write (plan-34-C §2.5).
         "r13"
+    }
+
+    fn current_thread(&self) -> &'static str {
+        // The `%thread` token realizes to `rbx` (map_scratch_register(20));
+        // excluded from `INT_ALLOCATABLE` so every function preserves the worker
+        // current-thread control-block pointer the trampoline pins.
+        "rbx"
     }
 
     fn math_pool_base(&self) -> Option<&'static str> {

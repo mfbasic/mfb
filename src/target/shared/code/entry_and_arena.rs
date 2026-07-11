@@ -22,7 +22,8 @@ pub(crate) fn lower_program_entry(
     // Capture argc/argv into the `os::args` globals before the frame is carved
     // (plan-31-B), while the OS-supplied values are still at their entry
     // positions: macOS delivers them in x0/x1; a raw Linux ELF entry has argc at
-    // `[sp,0]` and argv (the `char**`) at `sp+8`. Uses x9/x10 scratch only, so
+    // `[sp,0]` and argv (the `char**`) at `sp+8`. Uses `SCRATCH[0]`/`SCRATCH[1]`
+    // (AArch64 `x9`/`x10`) scratch only, so
     // x0/x1 stay live for the arg-materialization path below. Gated on os.args
     // usage, so a program that never calls it keeps a byte-identical entry.
     if capture_args {
@@ -30,38 +31,38 @@ pub(crate) fn lower_program_entry(
             push_symbol_address(
                 entry_symbol,
                 super::os::OS_ARGC_GLOBAL_SYMBOL,
-                "x9",
+                abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.push(abi::store_u64(abi::ARG[0], "x9", 0));
+            instructions.push(abi::store_u64(abi::ARG[0], abi::SCRATCH[0], 0));
             push_symbol_address(
                 entry_symbol,
                 super::os::OS_ARGV_GLOBAL_SYMBOL,
-                "x9",
+                abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.push(abi::store_u64(abi::ARG[1], "x9", 0));
+            instructions.push(abi::store_u64(abi::ARG[1], abi::SCRATCH[0], 0));
         } else {
-            instructions.push(abi::load_u64("x10", abi::stack_pointer(), 0));
+            instructions.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 0));
             push_symbol_address(
                 entry_symbol,
                 super::os::OS_ARGC_GLOBAL_SYMBOL,
-                "x9",
+                abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.push(abi::store_u64("x10", "x9", 0));
-            instructions.push(abi::add_immediate("x10", abi::stack_pointer(), 8));
+            instructions.push(abi::store_u64(abi::SCRATCH[1], abi::SCRATCH[0], 0));
+            instructions.push(abi::add_immediate(abi::SCRATCH[1], abi::stack_pointer(), 8));
             push_symbol_address(
                 entry_symbol,
                 super::os::OS_ARGV_GLOBAL_SYMBOL,
-                "x9",
+                abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.push(abi::store_u64("x10", "x9", 0));
+            instructions.push(abi::store_u64(abi::SCRATCH[1], abi::SCRATCH[0], 0));
         }
     }
     // A raw Linux ELF entry is jumped to with `argc` at `[sp]` / `argv` at
@@ -85,12 +86,12 @@ pub(crate) fn lower_program_entry(
         // exactly `ARENA_STATE_SIZE`, so growing the state (e.g. quick bins)
         // can never leave a field as garbage in one path but not the other.
         // `x9`/`x10` are free scratch here; `x0`/`x1` (argc/argv) are live.
-        abi::move_register("x9", ARENA_STATE_REGISTER),
-        abi::add_immediate("x10", ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
+        abi::move_register(abi::SCRATCH[0], ARENA_STATE_REGISTER),
+        abi::add_immediate(abi::SCRATCH[1], ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
         abi::label("entry_arena_state_zero"),
-        abi::store_u64(abi::ZERO, "x9", 0),
-        abi::add_immediate("x9", "x9", 8),
-        abi::compare_registers("x9", "x10"),
+        abi::store_u64(abi::ZERO, abi::SCRATCH[0], 0),
+        abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 8),
+        abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]),
         abi::branch_lo("entry_arena_state_zero"),
     ]);
     for index in 0..global_slot_count {
@@ -108,11 +109,11 @@ pub(crate) fn lower_program_entry(
     push_symbol_address(
         entry_symbol,
         MAIN_ARENA_GLOBAL_SYMBOL,
-        "x9",
+        abi::SCRATCH[0],
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::store_u64(ARENA_STATE_REGISTER, "x9", 0));
+    instructions.push(abi::store_u64(ARENA_STATE_REGISTER, abi::SCRATCH[0], 0));
     // Install SIGINT/SIGTERM handlers (console programs). `signal()` clobbers
     // `x0`/`x1`, so argc/argv are parked below the frame across the calls; `x19`
     // pins the entry frame, so temporarily lowering `sp` is safe.
@@ -162,8 +163,8 @@ pub(crate) fn lower_program_entry(
     // so their entry code stays byte-identical.
     if language_entry_accepts_args {
         instructions.extend([
-            abi::move_register("x27", abi::ARG[0]),
-            abi::move_register("x28", abi::ARG[1]),
+            abi::move_register(abi::SCRATCH[17], abi::ARG[0]),
+            abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
     if seed_rng {
@@ -210,8 +211,8 @@ pub(crate) fn lower_program_entry(
     // the seed_rng block clobbered x0/x1), so it must NOT re-park garbage here.
     if !language_entry_accepts_args {
         instructions.extend([
-            abi::move_register("x27", abi::ARG[0]),
-            abi::move_register("x28", abi::ARG[1]),
+            abi::move_register(abi::SCRATCH[17], abi::ARG[0]),
+            abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
     instructions.extend([
@@ -227,12 +228,12 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), 0),  // tv_sec
-        abi::load_u64("x10", abi::stack_pointer(), 8), // tv_nsec
-        abi::move_immediate("x11", "Integer", "1000000000"),
-        abi::multiply_registers("x9", "x9", "x11"),
-        abi::add_registers("x9", "x9", "x10"), // ns = sec*1e9 + nsec
-        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 0),  // tv_sec
+        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 8), // tv_nsec
+        abi::move_immediate(abi::SCRATCH[2], "Integer", "1000000000"),
+        abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
+        abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]), // ns = sec*1e9 + nsec
+        abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
         abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
@@ -247,14 +248,14 @@ pub(crate) fn lower_program_entry(
     instructions.extend([
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0), // entropy (or arena addr)
         abi::add_stack(16),
-        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
-        abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], "x9"), // mix start time
+        abi::load_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], abi::SCRATCH[0]), // mix start time
         abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], ARENA_STATE_REGISTER), // mix arena address
         abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
         abi::branch_link(ARENA_FILL_SEED_SYMBOL),
         // Restore argc/argv for the arg-materialization path below.
-        abi::move_register(abi::ARG[0], "x27"),
-        abi::move_register(abi::ARG[1], "x28"),
+        abi::move_register(abi::ARG[0], abi::SCRATCH[17]),
+        abi::move_register(abi::ARG[1], abi::SCRATCH[18]),
     ]);
     relocations.push(internal_branch(entry_symbol, ARENA_FILL_SEED_SYMBOL));
     // Resolve native `LINK` bindings (dlopen/dlsym) before anything runs; a load
@@ -305,8 +306,8 @@ pub(crate) fn lower_program_entry(
         // the top-of-entry parking, and those `bl`s clobber x0/x1 (but preserve
         // x27/x28).
         instructions.extend([
-            abi::store_u64("x27", abi::stack_pointer(), args_base),
-            abi::store_u64("x28", abi::stack_pointer(), args_base + 8),
+            abi::store_u64(abi::SCRATCH[17], abi::stack_pointer(), args_base),
+            abi::store_u64(abi::SCRATCH[18], abi::stack_pointer(), args_base + 8),
         ]);
         emit_entry_args_list_materialization(
             error_label,
@@ -365,7 +366,7 @@ pub(crate) fn lower_program_entry(
     instructions.extend([
         abi::label(error_label),
         abi::store_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 32),
-        abi::move_register("x20", RESULT_ERROR_MESSAGE_REGISTER),
+        abi::move_register(abi::SCRATCH[10], RESULT_ERROR_MESSAGE_REGISTER),
     ]);
     emit_write_string_object(
         ENTRY_ERROR_PREFIX_SYMBOL,
@@ -391,8 +392,8 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64(abi::string_length_register(), "x20", 0),
-        abi::add_immediate(abi::string_data_register(), "x20", 8),
+        abi::load_u64(abi::string_length_register(), abi::SCRATCH[10], 0),
+        abi::add_immediate(abi::string_data_register(), abi::SCRATCH[10], 8),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(
@@ -469,35 +470,35 @@ fn emit_entry_args_list_materialization(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.extend([
-        abi::load_u64("x20", abi::stack_pointer(), args_base),
-        abi::load_u64("x21", abi::stack_pointer(), args_base + 8),
-        abi::move_immediate("x22", "Integer", "0"),
-        abi::move_immediate("x23", "Integer", "0"),
+        abi::load_u64(abi::SCRATCH[10], abi::stack_pointer(), args_base),
+        abi::load_u64(abi::SCRATCH[11], abi::stack_pointer(), args_base + 8),
+        abi::move_immediate(abi::SCRATCH[12], "Integer", "0"),
+        abi::move_immediate(abi::SCRATCH[13], "Integer", "0"),
         abi::label("entry_args_count_loop"),
-        abi::compare_registers("x23", "x20"),
+        abi::compare_registers(abi::SCRATCH[13], abi::SCRATCH[10]),
         abi::branch_eq("entry_args_count_done"),
-        abi::load_u64("x24", "x21", 0),
-        abi::move_register("x25", "x24"),
-        abi::move_immediate("x26", "Integer", "0"),
+        abi::load_u64(abi::SCRATCH[14], abi::SCRATCH[11], 0),
+        abi::move_register(abi::SCRATCH[15], abi::SCRATCH[14]),
+        abi::move_immediate(abi::SCRATCH[16], "Integer", "0"),
         abi::label("entry_args_count_len_loop"),
-        abi::load_u8("x27", "x25", 0),
-        abi::compare_immediate("x27", "0"),
+        abi::load_u8(abi::SCRATCH[17], abi::SCRATCH[15], 0),
+        abi::compare_immediate(abi::SCRATCH[17], "0"),
         abi::branch_eq("entry_args_count_len_done"),
-        abi::add_immediate("x26", "x26", 1),
-        abi::add_immediate("x25", "x25", 1),
+        abi::add_immediate(abi::SCRATCH[16], abi::SCRATCH[16], 1),
+        abi::add_immediate(abi::SCRATCH[15], abi::SCRATCH[15], 1),
         abi::branch("entry_args_count_len_loop"),
         abi::label("entry_args_count_len_done"),
-        abi::add_registers("x22", "x22", "x26"),
-        abi::add_immediate("x21", "x21", 8),
-        abi::add_immediate("x23", "x23", 1),
+        abi::add_registers(abi::SCRATCH[12], abi::SCRATCH[12], abi::SCRATCH[16]),
+        abi::add_immediate(abi::SCRATCH[11], abi::SCRATCH[11], 8),
+        abi::add_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
         abi::branch("entry_args_count_loop"),
         abi::label("entry_args_count_done"),
-        abi::move_immediate("x24", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("x25", "x20", "x24"),
-        abi::add_registers("x25", "x25", "x22"),
-        abi::store_u64("x22", abi::stack_pointer(), args_base + 24),
-        abi::store_u64("x20", abi::stack_pointer(), args_base + 32),
-        abi::add_immediate(abi::return_register(), "x25", COLLECTION_HEADER_SIZE),
+        abi::move_immediate(abi::SCRATCH[14], "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(abi::SCRATCH[15], abi::SCRATCH[10], abi::SCRATCH[14]),
+        abi::add_registers(abi::SCRATCH[15], abi::SCRATCH[15], abi::SCRATCH[12]),
+        abi::store_u64(abi::SCRATCH[12], abi::stack_pointer(), args_base + 24),
+        abi::store_u64(abi::SCRATCH[10], abi::stack_pointer(), args_base + 32),
+        abi::add_immediate(abi::return_register(), abi::SCRATCH[15], COLLECTION_HEADER_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -527,56 +528,56 @@ fn emit_entry_args_list_materialization(
         abi::branch(error_label),
         abi::label("entry_args_alloc_ok"),
         abi::store_u64(abi::RET[1], abi::stack_pointer(), args_base + 16),
-        abi::load_u64("x16", abi::stack_pointer(), args_base + 24),
-        abi::load_u64("x9", abi::stack_pointer(), args_base + 32),
-        abi::move_immediate("x17", "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8("x17", abi::RET[1], COLLECTION_OFFSET_KIND),
-        abi::move_immediate("x17", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("x17", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate("x17", "Byte", &COLLECTION_TYPE_STRING.to_string()),
-        abi::store_u8("x17", abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("x17", "Byte", "1"),
-        abi::store_u8("x17", abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::store_u64("x9", abi::RET[1], COLLECTION_OFFSET_COUNT),
-        abi::store_u64("x9", abi::RET[1], COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64("x16", abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("x16", abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::load_u64(abi::SCRATCH[7], abi::stack_pointer(), args_base + 24),
+        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), args_base + 32),
+        abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8(abi::SCRATCH[8], abi::RET[1], COLLECTION_OFFSET_KIND),
+        abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(abi::SCRATCH[8], abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_TYPE_STRING.to_string()),
+        abi::store_u8(abi::SCRATCH[8], abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(abi::SCRATCH[8], "Byte", "1"),
+        abi::store_u8(abi::SCRATCH[8], abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u64(abi::SCRATCH[0], abi::RET[1], COLLECTION_OFFSET_COUNT),
+        abi::store_u64(abi::SCRATCH[0], abi::RET[1], COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(abi::SCRATCH[7], abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(abi::SCRATCH[7], abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
         // x11 = entry cursor, x12 = data write cursor (= entries end).
-        abi::add_immediate("x11", abi::RET[1], COLLECTION_HEADER_SIZE),
-        abi::move_immediate("x17", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("x12", "x9", "x17"),
-        abi::add_registers("x12", "x11", "x12"),
+        abi::add_immediate(abi::SCRATCH[2], abi::RET[1], COLLECTION_HEADER_SIZE),
+        abi::move_immediate(abi::SCRATCH[8], "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[8]),
+        abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[2], abi::SCRATCH[3]),
         // x13 = value-offset accumulator, x14 = index, x10 = argv cursor.
-        abi::move_immediate("x13", "Integer", "0"),
-        abi::load_u64("x10", abi::stack_pointer(), args_base + 8),
-        abi::move_immediate("x14", "Integer", "0"),
+        abi::move_immediate(abi::SCRATCH[4], "Integer", "0"),
+        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), args_base + 8),
+        abi::move_immediate(abi::SCRATCH[5], "Integer", "0"),
         abi::label("entry_args_fill_loop"),
-        abi::compare_registers("x14", "x9"),
+        abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[0]),
         abi::branch_eq("entry_args_fill_done"),
-        abi::load_u64("x15", "x10", 0), // x15 = argv[i] (NUL-terminated source)
-        abi::move_immediate("x17", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("x17", "x11", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, "x11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, "x11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64("x13", "x11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::load_u64(abi::SCRATCH[6], abi::SCRATCH[1], 0), // x15 = argv[i] (NUL-terminated source)
+        abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8(abi::SCRATCH[8], abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64(abi::ZERO, abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(abi::SCRATCH[4], abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
         // Copy bytes until the NUL, counting the length in x16 as we go (one
         // pass replaces the original separate strlen + copy loops).
-        abi::move_immediate("x16", "Integer", "0"),
+        abi::move_immediate(abi::SCRATCH[7], "Integer", "0"),
         abi::label("entry_args_copy_loop"),
-        abi::load_u8("x17", "x15", 0),
-        abi::compare_immediate("x17", "0"),
+        abi::load_u8(abi::SCRATCH[8], abi::SCRATCH[6], 0),
+        abi::compare_immediate(abi::SCRATCH[8], "0"),
         abi::branch_eq("entry_args_copy_done"),
-        abi::store_u8("x17", "x12", 0),
-        abi::add_immediate("x15", "x15", 1),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x16", "x16", 1),
+        abi::store_u8(abi::SCRATCH[8], abi::SCRATCH[3], 0),
+        abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 1),
+        abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 1),
+        abi::add_immediate(abi::SCRATCH[7], abi::SCRATCH[7], 1),
         abi::branch("entry_args_copy_loop"),
         abi::label("entry_args_copy_done"),
-        abi::store_u64("x16", "x11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_registers("x13", "x13", "x16"),
-        abi::add_immediate("x11", "x11", COLLECTION_ENTRY_SIZE),
-        abi::add_immediate("x10", "x10", 8),
-        abi::add_immediate("x14", "x14", 1),
+        abi::store_u64(abi::SCRATCH[7], abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_registers(abi::SCRATCH[4], abi::SCRATCH[4], abi::SCRATCH[7]),
+        abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], COLLECTION_ENTRY_SIZE),
+        abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 8),
+        abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[5], 1),
         abi::branch("entry_args_fill_loop"),
         abi::label("entry_args_fill_done"),
     ]);
@@ -592,11 +593,11 @@ fn emit_cleanup_failure_audit_report(
     let done = "entry_cleanup_failure_audit_done";
     instructions.extend([
         abi::load_u64(
-            "x9",
+            abi::SCRATCH[0],
             ARENA_STATE_REGISTER,
             ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
         ),
-        abi::compare_immediate("x9", "0"),
+        abi::compare_immediate(abi::SCRATCH[0], "0"),
         abi::branch_eq(done),
     ]);
     emit_write_string_object(
@@ -608,11 +609,11 @@ fn emit_cleanup_failure_audit_report(
         relocations,
     )?;
     instructions.push(abi::load_u64(
-        "x9",
+        abi::SCRATCH[0],
         ARENA_STATE_REGISTER,
         ARENA_CLEANUP_FAILURE_CODE_OFFSET,
     ));
-    instructions.push(abi::store_u64("x9", ARENA_STATE_REGISTER, 32));
+    instructions.push(abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, 32));
     emit_write_integer_to_stderr_with_labels(
         from,
         platform_imports,
@@ -631,12 +632,12 @@ fn emit_cleanup_failure_audit_report(
     )?;
     instructions.extend([
         abi::load_u64(
-            "x20",
+            abi::SCRATCH[10],
             ARENA_STATE_REGISTER,
             ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
         ),
-        abi::load_u64(abi::string_length_register(), "x20", 0),
-        abi::add_immediate(abi::string_data_register(), "x20", 8),
+        abi::load_u64(abi::string_length_register(), abi::SCRATCH[10], 0),
+        abi::add_immediate(abi::string_data_register(), abi::SCRATCH[10], 8),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(from, platform_imports, instructions, relocations)?;
@@ -2029,10 +2030,10 @@ fn emit_write_string_object(
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     instructions.extend([
-        abi::load_page_address("x21", symbol),
-        abi::add_page_offset("x21", "x21", symbol),
-        abi::load_u64(abi::string_length_register(), "x21", 0),
-        abi::add_immediate(abi::string_data_register(), "x21", 8),
+        abi::load_page_address(abi::SCRATCH[11], symbol),
+        abi::add_page_offset(abi::SCRATCH[11], abi::SCRATCH[11], symbol),
+        abi::load_u64(abi::string_length_register(), abi::SCRATCH[11], 0),
+        abi::add_immediate(abi::string_data_register(), abi::SCRATCH[11], 8),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     relocations.extend([
@@ -2085,46 +2086,46 @@ fn emit_write_integer_to_stderr_with_labels(
     let write_label = format!("{label_prefix}_write");
     instructions.extend([
         abi::subtract_stack(64),
-        abi::load_u64("x21", ARENA_STATE_REGISTER, 32),
+        abi::load_u64(abi::SCRATCH[11], ARENA_STATE_REGISTER, 32),
         // Record the value's original sign in x28 *before* negating: x21 is
         // overwritten (absolute value, then consumed by the digit loop), so the
         // minus test below must read this saved flag, not the value register
         // (bug-70: the test read x19/arena_base — always non-negative — so the
         // minus branch was dead). x28 is untouched by the digit loop.
-        abi::move_immediate("x28", "Integer", "0"),
-        abi::compare_immediate("x21", "0"),
+        abi::move_immediate(abi::SCRATCH[18], "Integer", "0"),
+        abi::compare_immediate(abi::SCRATCH[11], "0"),
         abi::branch_ge(&absolute_ready_label),
-        abi::move_immediate("x22", "Integer", "0"),
-        abi::subtract_registers("x21", "x22", "x21"),
-        abi::move_immediate("x28", "Integer", "1"),
+        abi::move_immediate(abi::SCRATCH[12], "Integer", "0"),
+        abi::subtract_registers(abi::SCRATCH[11], abi::SCRATCH[12], abi::SCRATCH[11]),
+        abi::move_immediate(abi::SCRATCH[18], "Integer", "1"),
         abi::label(&absolute_ready_label),
-        abi::add_immediate("x23", abi::stack_pointer(), 64),
-        abi::move_immediate("x24", "Integer", "10"),
-        abi::compare_immediate("x21", "0"),
+        abi::add_immediate(abi::SCRATCH[13], abi::stack_pointer(), 64),
+        abi::move_immediate(abi::SCRATCH[14], "Integer", "10"),
+        abi::compare_immediate(abi::SCRATCH[11], "0"),
         abi::branch_ne(&digit_loop_label),
-        abi::subtract_immediate("x23", "x23", 1),
-        abi::move_immediate("x22", "Integer", "48"),
-        abi::store_u8("x22", "x23", 0),
+        abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
+        abi::move_immediate(abi::SCRATCH[12], "Integer", "48"),
+        abi::store_u8(abi::SCRATCH[12], abi::SCRATCH[13], 0),
         abi::branch(&digits_done_label),
         abi::label(&digit_loop_label),
-        abi::unsigned_divide_registers("x25", "x21", "x24"),
-        abi::multiply_subtract_registers("x26", "x25", "x24", "x21"),
-        abi::add_immediate("x26", "x26", 48),
-        abi::subtract_immediate("x23", "x23", 1),
-        abi::store_u8("x26", "x23", 0),
-        abi::move_register("x21", "x25"),
-        abi::compare_immediate("x21", "0"),
+        abi::unsigned_divide_registers(abi::SCRATCH[15], abi::SCRATCH[11], abi::SCRATCH[14]),
+        abi::multiply_subtract_registers(abi::SCRATCH[16], abi::SCRATCH[15], abi::SCRATCH[14], abi::SCRATCH[11]),
+        abi::add_immediate(abi::SCRATCH[16], abi::SCRATCH[16], 48),
+        abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
+        abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
+        abi::move_register(abi::SCRATCH[11], abi::SCRATCH[15]),
+        abi::compare_immediate(abi::SCRATCH[11], "0"),
         abi::branch_ne(&digit_loop_label),
         abi::label(&digits_done_label),
-        abi::compare_immediate("x28", "0"),
+        abi::compare_immediate(abi::SCRATCH[18], "0"),
         abi::branch_eq(&write_label),
-        abi::subtract_immediate("x23", "x23", 1),
-        abi::move_immediate("x22", "Integer", "45"),
-        abi::store_u8("x22", "x23", 0),
+        abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
+        abi::move_immediate(abi::SCRATCH[12], "Integer", "45"),
+        abi::store_u8(abi::SCRATCH[12], abi::SCRATCH[13], 0),
         abi::label(&write_label),
-        abi::add_immediate("x27", abi::stack_pointer(), 64),
-        abi::subtract_registers(abi::string_length_register(), "x27", "x23"),
-        abi::move_register(abi::string_data_register(), "x23"),
+        abi::add_immediate(abi::SCRATCH[17], abi::stack_pointer(), 64),
+        abi::subtract_registers(abi::string_length_register(), abi::SCRATCH[17], abi::SCRATCH[13]),
+        abi::move_register(abi::string_data_register(), abi::SCRATCH[13]),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(from, platform_imports, instructions, relocations)?;

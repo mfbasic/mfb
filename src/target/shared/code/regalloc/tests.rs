@@ -168,7 +168,8 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
         );
     }
     // Reload point: uses spilled v0 while v1..v10 are all live -> reload scratch
-    // must come from the callee-saved bank (x20).
+    // must come from the callee-saved bank (x21, the first allocatable callee-saved
+    // now that x20 realizes the pinned `%thread` token and is out of the pool).
     instructions.push(
         CodeInstruction::new("str_u64")
             .field("src", &vreg_name(0))
@@ -201,8 +202,8 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
     // as its reload scratch is in the frame's save set.
     assert!(!outcome.spill_slots.is_empty(), "v0 must spill across the call");
     assert!(
-        outcome.extra_callee_saved.contains(&"x20".to_string()),
-        "callee-saved reload scratch x20 must be saved by the frame, got {:?}",
+        outcome.extra_callee_saved.contains(&"x21".to_string()),
+        "callee-saved reload scratch x21 must be saved by the frame, got {:?}",
         outcome.extra_callee_saved
     );
 }

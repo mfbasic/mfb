@@ -772,7 +772,7 @@ pub(super) fn thread_queue_write_helper(
         // Re-establish the current-thread register `x20` from the worker's own
         // control block (`x0`) rather than asserting equality; see the matching
         // note in `thread_queue_read_helper`.
-        instructions.push(abi::move_register("x20", abi::ARG[0]));
+        instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]));
     }
     emit_thread_deadline(
         symbol,
@@ -956,7 +956,7 @@ pub(super) fn thread_queue_write_helper(
     ]);
     instructions.push(abi::return_());
     let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &["x20"], FRAME_SIZE);
+        finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -1044,7 +1044,7 @@ pub(super) fn thread_queue_read_helper(
         // register `x20` from it rather than asserting equality: arbitrary
         // generated code between worker ops (e.g. arena allocation) may clobber
         // `x20`, so we restore the invariant here instead of failing on it.
-        instructions.push(abi::move_register("x20", abi::ARG[0]));
+        instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]));
     }
     if allow_indefinite {
         // A `timeoutMs` of -1 means wait indefinitely; any other negative value
@@ -1271,7 +1271,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     instructions.push(abi::return_());
     let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &["x20"], FRAME_SIZE);
+        finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -1287,7 +1287,7 @@ pub(super) fn thread_is_cancelled_helper() -> (
     let done = "_mfb_rt_thread_is_cancelled_done";
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v9", "x20", THREAD_OFFSET_CANCELLED),
+        abi::load_u64("%v9", abi::CURRENT_THREAD, THREAD_OFFSET_CANCELLED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(cancelled),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
@@ -1299,6 +1299,6 @@ pub(super) fn thread_is_cancelled_helper() -> (
         abi::label(done),
         abi::return_(),
     ];
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &["x20"], 0);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
     (frame, instructions, Vec::new(), stack_slots)
 }

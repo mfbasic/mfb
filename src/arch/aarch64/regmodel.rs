@@ -37,9 +37,12 @@ pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
 // `x28` is deliberately absent: it realizes the `%closure_env` role token
 // ([`Aarch64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
 // never color a body vreg onto it — the mirror of `x19`'s (arena-base) exclusion.
+// `x20` is deliberately absent: it realizes the `%thread` token
+// ([`Aarch64RegisterModel::current_thread`]), the program-wide worker
+// current-thread register every function must preserve.
 const INT_ALLOCATABLE: &[&str] = &[
-    "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x20", "x21", "x22", "x23",
-    "x24", "x25", "x26", "x27",
+    "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x21", "x22", "x23", "x24",
+    "x25", "x26", "x27",
 ];
 
 /// Caller-saved integer registers (clobbered by any `bl`). `x16`/`x17` are the
@@ -158,6 +161,13 @@ impl RegisterModel for Aarch64RegisterModel {
         // `INT_ALLOCATABLE` so no body vreg collides with a closure call's
         // hardcoded env write (plan-34-C §2.5).
         "x28"
+    }
+
+    fn current_thread(&self) -> &'static str {
+        // The `%thread` token realizes to `x20`; excluded from
+        // `INT_ALLOCATABLE` so every function preserves the worker
+        // current-thread control-block pointer the trampoline pins.
+        "x20"
     }
 }
 

@@ -1641,31 +1641,25 @@ mod tests {
 
     /// plan-34-C Phase 5 — the invariant that makes the hand-picked-scratch bug
     /// (`bug-56`) *unrepresentable*: no shared lowering source may name a physical
-    /// AArch64 scratch register (`x9`–`x18`, `x20`–`x28`). Every scratch value is a
-    /// virtual register (`%vN`); the call boundary is role tokens (plan-34-B); the
-    /// invariant registers are neutral tokens (plan-34-A, guarded above). A
-    /// `format!("x{base}")` or a stray `"x13"` cannot pass this test.
-    ///
-    /// The allowlist is the machine-floor code the plan's §2.6 / Open Decisions
-    /// sanction as documented physical-by-design (each entry carries its reason);
-    /// `#[cfg(test)]` fixtures (register-literal test inputs) are skipped by
-    /// scanning only the code above each file's test module.
+    /// AArch64 scratch register (`x9`–`x18`, `x20`–`x28`). Allocator-reachable
+    /// scratch is a virtual register (`%vN`); machine-floor scratch (entry stub,
+    /// thread trampoline) is the neutral `abi::SCRATCH` token pool; the call
+    /// boundary is role tokens (plan-34-B); the invariant/pinned registers are
+    /// neutral tokens (plan-34-A, `%thread`/`%closure_env`, guarded above). A
+    /// `format!("x{base}")` or a stray `"x13"` cannot pass this test — there is no
+    /// allowlist. `#[cfg(test)]` fixtures (register-literal test inputs) are skipped
+    /// by scanning only the code above each file's test module.
     #[test]
     fn shared_lowering_names_no_physical_scratch_register() {
         use std::path::Path;
-        // Documented physical-by-design (NOT vreg-able) — plan-34-C:
-        //   entry_and_arena.rs — the process entry stub + panic-path integer
-        //     formatter run before/around the arena with no allocator frame (§2.6);
-        //   runtime_helpers.rs / runtime_helpers_thread.rs — the thread trampoline
-        //     and thread ops pin `x20` as the current-thread control-block register
-        //     (like `arena_base`) that a worker's `is_cancelled` reads directly, and
-        //     the trampoline is machine-floor (its own frame, program-invariant
-        //     register save/restore).
-        const ALLOWLIST: &[&str] = &[
-            "entry_and_arena.rs",
-            "runtime_helpers.rs",
-            "runtime_helpers_thread.rs",
-        ];
+        // No allowlist: shared lowering names ZERO physical scratch registers. Even
+        // the machine-floor routines the allocator cannot reach — the process entry
+        // stub (reads argc/argv off raw `sp` before any frame is carved) and the
+        // thread trampoline (hand-manages the pinned arena/current-thread/closure
+        // registers across the worker + `pthread_*` calls) — spell their scratch
+        // through the neutral `abi::SCRATCH` token pool, realized to AArch64 in
+        // `abi.rs` (not scanned here). Pinned/role registers are tokens too:
+        // `abi::ARENA`, `%thread`, `%closure_env`, `%sysnr`, the `%arg`/`%ret` bank.
         // The forbidden AArch64 scratch registers: x9–x18 and x20–x28. (x0–x8 are
         // the call/syscall boundary → role tokens; x19 is the arena base and x30/x31
         // are lr/zero → invariant tokens, all guarded separately.)
@@ -1685,9 +1679,6 @@ mod tests {
                     continue;
                 }
                 let name = path.file_name().unwrap().to_str().unwrap().to_string();
-                if ALLOWLIST.contains(&name.as_str()) {
-                    continue;
-                }
                 // Pure test-module files (`tests.rs`, `test_support.rs`) carry
                 // register-literal fixtures, not lowering.
                 if name.contains("test") {
@@ -1715,7 +1706,7 @@ mod tests {
         assert!(
             offenders.is_empty(),
             "shared lowering must name no physical scratch register (plan-34-C Phase 5); \
-             offenders (vreg them, or add a justified allowlist entry):\n{}",
+             offenders (vreg them, or spell them through the neutral abi::SCRATCH pool):\n{}",
             offenders.join("\n")
         );
     }

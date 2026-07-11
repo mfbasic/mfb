@@ -36,9 +36,11 @@ const GPRS: &[&str] = &[
 /// versus x86's 5, so the allocator spills far less.
 // `s10` is deliberately absent: it realizes the `%closure_env` role token
 // ([`Riscv64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
-// never color a body vreg onto it (`x28` → `s10` at selection).
+// never color a body vreg onto it (`x28` → `s10` at selection). `s2` is likewise
+// absent: it realizes the `%thread` token ([`Riscv64RegisterModel::current_thread`],
+// `x20` → `s2`), the program-wide worker current-thread register.
 const INT_ALLOCATABLE: &[&str] = &[
-    "t3", "t4", "t5", "t6", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9",
+    "t3", "t4", "t5", "t6", "s1", "s3", "s4", "s5", "s6", "s7", "s8", "s9",
 ];
 
 /// Caller-saved (volatile) integer registers — clobbered across a `call`.
@@ -168,6 +170,13 @@ impl RegisterModel for Riscv64RegisterModel {
         // from `INT_ALLOCATABLE` so no body vreg collides with the closure call's
         // hardcoded env write (plan-34-C §2.5).
         "s10"
+    }
+
+    fn current_thread(&self) -> &'static str {
+        // The `%thread` token realizes to `s2` (`x20` → `s2` at selection);
+        // excluded from `INT_ALLOCATABLE` so every function preserves the worker
+        // current-thread control-block pointer the trampoline pins.
+        "s2"
     }
 
     fn math_pool_base(&self) -> Option<&'static str> {

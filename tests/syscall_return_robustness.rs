@@ -139,11 +139,15 @@ fn is_errno_accessor_call(op: &Value) -> bool {
         && matches!(target_field(op), "___error" | "__errno_location")
 }
 
-/// A literal `4` (`EINTR`) materialized either as a compare RHS (aarch64/x86 libc)
-/// or a loaded immediate (riscv fusion, and the x86 raw `-errno` add-check).
+/// A literal `4` (`EINTR`) materialized as a compare RHS (aarch64/x86 libc), a
+/// loaded immediate (riscv fusion), or a folded `add_imm` immediate (the x86 raw
+/// `-errno` add-check — `add rax, 4; cmp rax, 0; b.eq retry`; whether the `4` is a
+/// separate `mov_imm value=4` or folded into `add_imm imm=4` depends on register
+/// pressure, so accept either).
 fn is_eintr_literal(op: &Value) -> bool {
     op.get("rhs").and_then(Value::as_str) == Some("4")
         || op.get("value").and_then(Value::as_str) == Some("4")
+        || op.get("imm").and_then(Value::as_str) == Some("4")
 }
 
 /// A raw kernel syscall (`linux-x86_64` `write` is a bare `svc`).

@@ -162,18 +162,25 @@ SIGINT/SIGTERM handler racing the normal exit path cannot double-free.
 * ./mfb spec architecture native — app-mode entry divergence and native codegen
 * ./mfb spec threading thread-runtime-helpers — per-worker arena seeding and reclamation
 
-## The entry stub uses physical scratch registers by design
+## The entry stub scratch is machine-floor, but still architecture-neutral
 
-Unlike the rest of shared lowering — where every scratch value is a virtual
-register the allocator places (plan-34-C) — the process **entry stub**
-(`lower_program_entry`, `emit_entry_args_list_materialization`) and the
-panic-path integer formatter (`emit_write_integer_to_stderr`) name physical
-scratch registers (`x9`–`x17`, and the callee-saved `x20`–`x28` for values held
-across the argc/argv-parking libc calls) directly. This is deliberate: the entry
-runs **before the arena and a normal frame exist**, manipulates `sp` and `x19`
-(the arena base) with pre-`finalize_frame` offsets, and manages its own stack, so
-the register allocator cannot run over it. These functions are the documented
-allowlist of the plan-34-C Phase-5 guard test (`shared lowering names no physical
-scratch register`); the thread trampoline is allowlisted for the same
-machine-floor reason plus its pinned current-thread register. Every other shared
-lowering path names no physical scratch register.
+The process **entry stub** (`lower_program_entry`,
+`emit_entry_args_list_materialization`) and the panic-path integer formatter
+(`emit_write_integer_to_stderr`) are *machine-floor*: they run **before the arena
+and a normal frame exist**, manipulate `sp` and `x19` (the arena base) with
+pre-`finalize_frame` offsets, and manage their own stack, so the register
+allocator cannot run over them and their scratch cannot be a `%vN` virtual
+register the allocator colors. The same is true of the thread trampoline
+(`lower_thread_trampoline`), which additionally pins the arena / current-thread /
+closure registers across the worker and `pthread_*` calls.
+
+Even so, shared lowering names **no physical register** here: this hand-assigned
+scratch is spelled through the neutral `abi::SCRATCH` token pool (`%scratch0`…),
+which `abi::realize_abi_token` maps to the AArch64 scratch bank (`x9`–`x18`,
+`x20`–`x28`) — the same registers the code has always used, so the emitted code
+is byte-identical — and each backend then remaps to its own file. The pinned
+registers are neutral tokens too: `abi::ARENA`, `%thread` (current-thread),
+`%closure_env`, `%sysnr`, and the `%arg`/`%ret` call-boundary bank. The
+plan-34-C Phase-5 guard test (`shared lowering names no physical scratch
+register`) enforces this with **no allowlist** — every shared lowering source,
+machine-floor or not, is architecture-neutral.

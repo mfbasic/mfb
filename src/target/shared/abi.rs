@@ -151,6 +151,37 @@ pub(crate) const SYSRET: &str = "%sysret";
 /// color.
 pub(crate) const CLOSURE_ENV: &str = "%closure_env";
 
+/// The worker current-thread pointer — the thread control block a running worker's
+/// `thread::` ops (`is_cancelled`, `transfer`, `accept`) read directly, pinned by
+/// the trampoline across the worker call (`spec: memory/08_program-startup.md`,
+/// threading). A program-wide pinned register like [`ARENA`]: reserved from
+/// allocation on every ISA, realized AArch64 `x20` / x86-64 `rbx` / riscv64 `s2`.
+/// Never spelled by an AArch64 register number in shared lowering.
+pub(crate) const CURRENT_THREAD: &str = "%thread";
+
+/// Machine-floor scratch register tokens. A handful of lowering routines run
+/// where the register allocator *cannot*: the program entry stub reads argc/argv
+/// off the raw `sp` before any frame is carved (`finalize_frame` never runs on
+/// it — `spec: memory/08_program-startup.md`), and the thread trampoline
+/// hand-saves the pinned arena/current-thread/closure registers across the worker
+/// call and several `pthread_*` calls. Their scratch is hand-assigned with
+/// hand-tracked liveness, so it cannot be a `%vN` the allocator colors. These
+/// tokens give that hand-assigned scratch an architecture-neutral spelling:
+/// shared lowering names `SCRATCH[i]`, [`realize_abi_token`] maps it to the
+/// AArch64 register the code has always used (so the output is byte-identical),
+/// and each backend then remaps that to its own file. Index order is the AArch64
+/// scratch bank: `x9`–`x18`, then `x20`–`x28`. The high indices' realizations
+/// overlap the pinned [`CURRENT_THREAD`] (`x20`, index 10) and [`CLOSURE_ENV`]
+/// (`x28`, index 18) registers, which is sound: only the single-threaded entry
+/// stub — where no worker thread or closure environment is live — ever uses those
+/// indices as scratch; the trampoline confines its scratch to the low indices,
+/// distinct from the current-thread register it pins.
+pub(crate) const SCRATCH: [&str; 19] = [
+    "%scratch0", "%scratch1", "%scratch2", "%scratch3", "%scratch4", "%scratch5", "%scratch6",
+    "%scratch7", "%scratch8", "%scratch9", "%scratch10", "%scratch11", "%scratch12", "%scratch13",
+    "%scratch14", "%scratch15", "%scratch16", "%scratch17", "%scratch18",
+];
+
 /// Translate a call-boundary role token to its AArch64 register spelling — the
 /// seam **all three** backends apply during selection before their per-ISA remap
 /// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64
@@ -171,6 +202,27 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         "%arg7" => "x7",
         "%sysnr" => "x8",
         "%closure_env" => "x28",
+        "%thread" => "x20",
+        // Machine-floor scratch pool (`SCRATCH`), AArch64 scratch-bank order.
+        "%scratch0" => "x9",
+        "%scratch1" => "x10",
+        "%scratch2" => "x11",
+        "%scratch3" => "x12",
+        "%scratch4" => "x13",
+        "%scratch5" => "x14",
+        "%scratch6" => "x15",
+        "%scratch7" => "x16",
+        "%scratch8" => "x17",
+        "%scratch9" => "x18",
+        "%scratch10" => "x20",
+        "%scratch11" => "x21",
+        "%scratch12" => "x22",
+        "%scratch13" => "x23",
+        "%scratch14" => "x24",
+        "%scratch15" => "x25",
+        "%scratch16" => "x26",
+        "%scratch17" => "x27",
+        "%scratch18" => "x28",
         _ => return None,
     })
 }

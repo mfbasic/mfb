@@ -304,13 +304,13 @@ pub(crate) fn lower_tls_connect_helper(
     // Bound the blocking TLS handshake by timeoutMs (SO_RCVTIMEO/SO_SNDTIMEO),
     // cleared again after the handshake so read/write stay unbounded.
     instructions.extend([
-        abi::load_u64("x1", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("x1", "0"),
+        abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v14", "0"),
         abi::branch_le(&hs_timeout_set),
         // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
         abi::move_immediate("%v10", "Integer", "1000"),
-        abi::unsigned_divide_registers("%v11", "x1", "%v10"),
-        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "x1"),
+        abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
         abi::move_immediate("%v13", "Integer", "1000"),
         abi::multiply_registers("%v12", "%v12", "%v13"),
         abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
