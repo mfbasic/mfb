@@ -380,31 +380,31 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&elem, out_data, 0));
             }
             SimdUnaryKernel::SqrtFloat => {
-                self.emit(abi::float_move_d_from_x("d0", &elem));
-                self.emit(abi::float_compare_zero_d("d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &elem));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[0]));
                 let no_err = self.label("simd_tail_sqrt_ok");
                 // ge 0 is fine; lt 0 (or unordered/NaN) fails the domain.
                 self.emit(abi::branch_ge(&no_err));
                 self.emit(abi::move_immediate(err, "Integer", "1"));
                 self.emit(abi::label(&no_err));
-                self.emit(abi::float_sqrt_d("d0", "d0"));
-                self.emit(abi::float_move_x_from_d(&elem, "d0"));
+                self.emit(abi::float_sqrt_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(&elem, abi::FP_SCRATCH[0]));
                 self.emit(abi::store_u64(&elem, out_data, 0));
             }
             SimdUnaryKernel::FloorFloat
             | SimdUnaryKernel::CeilFloat
             | SimdUnaryKernel::RoundFloat => {
                 self.emit_float_to_int_overflow_to_err(&elem, err)?;
-                self.emit(abi::float_move_d_from_x("d0", &elem));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &elem));
                 match kernel {
                     SimdUnaryKernel::FloorFloat => {
-                        self.emit(abi::float_floor_to_signed_x(&tmp, "d0"))
+                        self.emit(abi::float_floor_to_signed_x(&tmp, abi::FP_SCRATCH[0]))
                     }
                     SimdUnaryKernel::CeilFloat => {
-                        self.emit(abi::float_ceil_to_signed_x(&tmp, "d0"))
+                        self.emit(abi::float_ceil_to_signed_x(&tmp, abi::FP_SCRATCH[0]))
                     }
                     SimdUnaryKernel::RoundFloat => {
-                        self.emit(abi::float_round_to_signed_x(&tmp, "d0"))
+                        self.emit(abi::float_round_to_signed_x(&tmp, abi::FP_SCRATCH[0]))
                     }
                     _ => unreachable!(),
                 }
@@ -623,14 +623,14 @@ impl CodeBuilder<'_> {
                 // finite values a `List OF Float` can hold (NaN/Inf are rejected at
                 // the finiteness boundary) `fminnm`/`fmaxnm` equals the body's
                 // `fmin`/`fmax` exactly.
-                self.emit(abi::float_move_d_from_x("d0", left));
-                self.emit(abi::float_move_d_from_x("d1", right));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], left));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], right));
                 if matches!(kernel, SimdBinaryKernel::MinFloat) {
-                    self.emit(abi::float_min_d("d0", "d0", "d1"));
+                    self.emit(abi::float_min_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
                 } else {
-                    self.emit(abi::float_max_d("d0", "d0", "d1"));
+                    self.emit(abi::float_max_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
                 }
-                self.emit(abi::float_move_x_from_d(left, "d0"));
+                self.emit(abi::float_move_x_from_d(left, abi::FP_SCRATCH[0]));
             }
         }
         self.emit(abi::label(&done));
@@ -662,9 +662,9 @@ impl CodeBuilder<'_> {
         let bounds_ok = self.label("simd_clamp_bounds_ok");
         match kernel {
             SimdClampKernel::Float => {
-                self.emit(abi::float_move_d_from_x("d0", &low));
-                self.emit(abi::float_move_d_from_x("d1", &high));
-                self.emit(abi::float_compare_d("d0", "d1"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &low));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &high));
+                self.emit(abi::float_compare_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
                 self.emit(abi::branch_le(&bounds_ok)); // low <= high
             }
             SimdClampKernel::Signed => {
@@ -816,12 +816,12 @@ impl CodeBuilder<'_> {
                 // bit-identical to a body lane on signed zeros. The old
                 // `fsub`+`fcmp #0` lost the sign of a `±0.0` tie (bug-68).
                 // lane = max(min(lane, high), low)
-                self.emit(abi::float_move_d_from_x("d0", lane));
-                self.emit(abi::float_move_d_from_x("d1", high));
-                self.emit(abi::float_min_d("d0", "d0", "d1")); // min(lane, high)
-                self.emit(abi::float_move_d_from_x("d1", low));
-                self.emit(abi::float_max_d("d0", "d0", "d1")); // max(.., low)
-                self.emit(abi::float_move_x_from_d(lane, "d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], lane));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], high));
+                self.emit(abi::float_min_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])); // min(lane, high)
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], low));
+                self.emit(abi::float_max_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])); // max(.., low)
+                self.emit(abi::float_move_x_from_d(lane, abi::FP_SCRATCH[0]));
             }
         }
     }

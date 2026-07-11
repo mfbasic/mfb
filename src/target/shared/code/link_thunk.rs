@@ -480,7 +480,7 @@ fn lower_link_thunk(
         if slot.ctype == "CDouble" {
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), cslot_off),
-                abi::float_move_d_from_x(&format!("d{flt_idx}"), "%v9"),
+                abi::float_move_d_from_x(abi::fp_argument_register(flt_idx)?, "%v9"),
             ]);
             flt_idx += 1;
         } else {
@@ -504,7 +504,7 @@ fn lower_link_thunk(
     if needs_float {
         // A `double` return arrives in `d0`, not `x0`; stash its bits.
         instructions.extend([
-            abi::float_move_x_from_d("%v9", "d0"),
+            abi::float_move_x_from_d("%v9", abi::FP_SCRATCH[0]),
             abi::store_u64("%v9", abi::stack_pointer(), cretd_off),
         ]);
     }
@@ -686,12 +686,17 @@ fn lower_link_thunk(
             .params
             .iter()
             .enumerate()
-            .map(|(idx, (name, type_))| CodeParam {
-                name: name.clone(),
-                type_: type_.clone(),
-                location: format!("x{idx}"),
+            .map(|(idx, (name, type_))| {
+                Ok(CodeParam {
+                    name: name.clone(),
+                    type_: type_.clone(),
+                    // The wrapper's incoming MFB argument register, as a role
+                    // token — the thunk body saves from the same bank
+                    // (plan-34-D; ≤8 params, enforced by `argument_register`).
+                    location: abi::argument_register(idx)?,
+                })
             })
-            .collect(),
+            .collect::<Result<Vec<_>, String>>()?,
         returns: function.return_type.clone(),
         frame: frame_obj,
         stack_slots,

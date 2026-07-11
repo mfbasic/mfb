@@ -506,9 +506,9 @@ impl CodeBuilder<'_> {
                 // Hardware `fabs` clears the sign bit in the FP domain (plan-02
                 // §4). Bit-identical to the old GPR sign-mask AND for every finite
                 // MFBASIC `Float`, but a single hardware instruction.
-                self.emit(abi::float_move_d_from_x("d0", &value.location));
-                self.emit(abi::float_abs_d("d0", "d0"));
-                self.emit(abi::float_move_x_from_d(&dst, "d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
+                self.emit(abi::float_abs_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(&dst, abi::FP_SCRATCH[0]));
             }
             other => return Err(format!("math.abs does not accept {other}")),
         }
@@ -694,14 +694,14 @@ impl CodeBuilder<'_> {
                 // place of the subtract/compare/branch. For the finite operands
                 // MFBASIC produces this is bit-identical to the old ordered
                 // compare that returned `lhs` on a tie.
-                self.emit(abi::float_move_d_from_x("d0", &lhs));
-                self.emit(abi::float_move_d_from_x("d1", &rhs));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &lhs));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &rhs));
                 if function == "min" {
-                    self.emit(abi::float_min_d("d0", "d0", "d1"));
+                    self.emit(abi::float_min_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
                 } else {
-                    self.emit(abi::float_max_d("d0", "d0", "d1"));
+                    self.emit(abi::float_max_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
                 }
-                self.emit(abi::float_move_x_from_d(&dst, "d0"));
+                self.emit(abi::float_move_x_from_d(&dst, abi::FP_SCRATCH[0]));
             }
             other => return Err(format!("math.{function} does not accept {other}")),
         }
@@ -776,21 +776,21 @@ impl CodeBuilder<'_> {
                 let take_low = self.label("math_clamp_float_take_low");
                 let take_high = self.label("math_clamp_float_take_high");
                 let done = self.label("math_clamp_float_done");
-                self.emit(abi::float_move_d_from_x("d0", &low_reg));
-                self.emit(abi::float_move_d_from_x("d1", &high_reg));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &low_reg));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &high_reg));
+                self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_le(&bounds_valid));
                 self.emit_invalid_argument_return()?;
                 self.emit(abi::label(&bounds_valid));
-                self.emit(abi::float_move_d_from_x("d0", &value_reg));
-                self.emit(abi::float_move_d_from_x("d1", &low_reg));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value_reg));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &low_reg));
+                self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_lt(&take_low));
-                self.emit(abi::float_move_d_from_x("d1", &high_reg));
-                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-                self.emit(abi::float_compare_zero_d("d2"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &high_reg));
+                self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_gt(&take_high));
                 self.emit(abi::move_register(&dst, &value_reg));
                 self.emit(abi::branch(&done));
@@ -820,12 +820,12 @@ impl CodeBuilder<'_> {
         let dst = self.allocate_register()?;
         match value.type_.as_str() {
             "Float" => {
-                self.emit(abi::float_move_d_from_x("d0", &value.location));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
                 self.emit_float_rounding_integer_range_check(&value.location)?;
                 match function {
-                    "floor" => self.emit(abi::float_floor_to_signed_x(&dst, "d0")),
-                    "ceil" => self.emit(abi::float_ceil_to_signed_x(&dst, "d0")),
-                    "round" => self.emit(abi::float_round_to_signed_x(&dst, "d0")),
+                    "floor" => self.emit(abi::float_floor_to_signed_x(&dst, abi::FP_SCRATCH[0])),
+                    "ceil" => self.emit(abi::float_ceil_to_signed_x(&dst, abi::FP_SCRATCH[0])),
+                    "round" => self.emit(abi::float_round_to_signed_x(&dst, abi::FP_SCRATCH[0])),
                     _ => unreachable!(),
                 }
             }
@@ -1007,14 +1007,14 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "Float" => {
                 let dst = self.allocate_register()?;
-                self.emit(abi::float_move_d_from_x("d0", &value.location));
-                self.emit(abi::float_compare_zero_d("d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[0]));
                 let valid = self.label("math_sqrt_valid");
                 self.emit(abi::branch_ge(&valid));
                 self.emit_float_domain_return()?;
                 self.emit(abi::label(&valid));
-                self.emit(abi::float_sqrt_d("d0", "d0"));
-                self.emit(abi::float_move_x_from_d(&dst, "d0"));
+                self.emit(abi::float_sqrt_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(&dst, abi::FP_SCRATCH[0]));
                 Ok(ValueResult {
                     type_: "Float".to_string(),
                     location: dst,

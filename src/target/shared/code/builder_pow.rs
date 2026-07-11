@@ -137,16 +137,16 @@ impl CodeBuilder<'_> {
             "Integer",
             &coeffs[coeffs.len() - 1].to_bits().to_string(),
         ));
-        self.emit(abi::float_move_d_from_x("d0", xs));
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], xs));
         for &c in coeffs.iter().rev().skip(1) {
             self.emit(abi::move_immediate(xs, "Integer", &c.to_bits().to_string()));
-            self.emit(abi::float_move_d_from_x("d1", xs));
+            self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], xs));
             // One single-rounded fused step `d0 = d1 + d0*var` in place of the
             // discrete `fmul; fadd` (plan-02 §4 kernel audit): fewer instructions
             // and, like the vector `fmla` Horner steps, one rounding instead of two.
-            self.emit(abi::float_multiply_add_d("d0", "d1", "d0", var));
+            self.emit(abi::float_multiply_add_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1], abi::FP_SCRATCH[0], var));
         }
-        self.pst("d0", out);
+        self.pst(abi::FP_SCRATCH[0], out);
     }
 
     /// Emit scalar `pow(x, y)`; returns a register with the result bit pattern.
@@ -170,11 +170,11 @@ impl CodeBuilder<'_> {
         let cs_v = self.temporary_fp_vreg();
         let zz_v = self.temporary_fp_vreg();
         let s = PowHomes {
-            x: "d3",
-            y: "d4",
-            ax: "d5",
-            sh: "d6",
-            sl: "d7",
+            x: abi::FP_SCRATCH[3],
+            y: abi::FP_SCRATCH[4],
+            ax: abi::FP_SCRATCH[5],
+            sh: abi::FP_SCRATCH[6],
+            sl: abi::FP_SCRATCH[7],
             th: &th_v,
             tl: &tl_v,
             rr: &rr_v,
@@ -460,18 +460,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_x_from_d(xs, y));
         self.emit(abi::move_immediate(xm, "Integer", ABS_MASK));
         self.emit(abi::and_registers(xs, xs, xm)); // |y| bits
-        self.emit(abi::float_move_d_from_x("d0", xs)); // |y|
-        self.emit_f64_const("d1", xt, TWO53);
-        self.emit(abi::float_subtract_d("d2", "d0", "d1"));
-        self.emit(abi::float_compare_zero_d("d2"));
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], xs)); // |y|
+        self.emit_f64_const(abi::FP_SCRATCH[1], xt, TWO53);
+        self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+        self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
         self.emit(abi::branch_ge(&done)); // |y| >= 2^53 -> even integer
 
         // y integer? trunc(y) == y.
         self.emit(abi::float_move_x_from_d(xs, y));
-        self.emit(abi::float_move_d_from_x("d0", xs)); // y
-        self.emit(abi::float_convert_to_signed_x(xt, "d0")); // trunc(y) (i64)
-        self.emit(abi::signed_convert_to_float_d("d1", xt)); // (double)trunc
-        self.emit(abi::float_move_x_from_d(xm, "d1"));
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], xs)); // y
+        self.emit(abi::float_convert_to_signed_x(xt, abi::FP_SCRATCH[0])); // trunc(y) (i64)
+        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[1], xt)); // (double)trunc
+        self.emit(abi::float_move_x_from_d(xm, abi::FP_SCRATCH[1]));
         self.emit(abi::compare_registers(xm, xs));
         self.emit(abi::branch_ne(ret_nan)); // non-integer -> NaN
                                             // odd? trunc & 1.
@@ -494,10 +494,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(xm, "Integer", "1048576")); // 0x00100000
         self.emit(abi::compare_registers(xt, xm));
         self.emit(abi::branch_ge(&not_sub));
-        self.pld("d0", s.ax);
-        self.emit_f64_const("d1", xt, TWO53);
-        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.pst("d0", s.ax);
+        self.pld(abi::FP_SCRATCH[0], s.ax);
+        self.emit_f64_const(abi::FP_SCRATCH[1], xt, TWO53);
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+        self.pst(abi::FP_SCRATCH[0], s.ax);
         self.emit(abi::move_immediate(xm, "Integer", "53"));
         self.emit(abi::subtract_registers(nexp, nexp, xm));
         self.emit(abi::label(&not_sub));
@@ -624,8 +624,8 @@ impl CodeBuilder<'_> {
         self.emit_pow_select(kk, DP_L[0], DP_L[1], s.cs, xs, xt); // dp_l[kk]
         self.pop('+', s.zl, s.tmp, s.cs); // z_l
                                           // t = (double)n_exp
-        self.emit(abi::signed_convert_to_float_d("d0", nexp));
-        self.pst("d0", s.tmp); // tmp = t
+        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], nexp));
+        self.pst(abi::FP_SCRATCH[0], s.tmp); // tmp = t
                                // t1 = lowzero(((z_h+z_l)+dp_h[kk])+t)
         self.pop('+', s.t1, s.zh, s.zl);
         self.emit_pow_select(kk, DP_H[0], DP_H[1], s.cs, xs, xt); // dp_h[kk]
@@ -783,9 +783,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(xm, "Integer", "1023"));
         self.emit(abi::add_registers(xm, xm, n));
         self.emit(abi::shift_left_immediate(xm, xm, 52));
-        self.emit(abi::float_move_d_from_x("d1", xm)); // 2^n
-        self.pld("d0", home);
-        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.pst("d0", home);
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], xm)); // 2^n
+        self.pld(abi::FP_SCRATCH[0], home);
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+        self.pst(abi::FP_SCRATCH[0], home);
     }
 }

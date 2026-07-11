@@ -733,10 +733,10 @@ impl CodeBuilder<'_> {
             }
             "Float" => {
                 self.emit(abi::load_u64(&scratch16, &scratch15, 0));
-                self.emit(abi::float_move_d_from_x("d0", &scratch14));
-                self.emit(abi::float_move_d_from_x("d1", &scratch16));
-                self.emit(abi::float_add_d("d0", "d0", "d1"));
-                self.emit(abi::float_move_x_from_d(&scratch14, "d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &scratch14));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &scratch16));
+                self.emit(abi::float_add_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_move_x_from_d(&scratch14, abi::FP_SCRATCH[0]));
             }
             "Fixed" => {
                 self.emit(abi::load_u64(&scratch16, &scratch15, 0));

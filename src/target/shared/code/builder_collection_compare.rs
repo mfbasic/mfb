@@ -88,9 +88,9 @@ impl CodeBuilder<'_> {
             "Float" => {
                 self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
-                self.emit(abi::float_move_d_from_x("d0", lval));
-                self.emit(abi::float_move_d_from_x("d1", rval));
-                self.emit(abi::float_compare_d("d0", "d1"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], lval));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], rval));
+                self.emit(abi::float_compare_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }

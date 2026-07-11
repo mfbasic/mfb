@@ -202,6 +202,15 @@ pub(crate) const FP_SCRATCH: [&str; 8] = [
     "%fscratch6", "%fscratch7",
 ];
 
+/// The Nth C-call floating-point argument register — the AAPCS64 `d0`–`d7` bank,
+/// which [`FP_SCRATCH`] realizes to (the aliasing is deliberate; see its doc).
+/// Errors past the register bank, mirroring [`argument_register`].
+pub(crate) fn fp_argument_register(index: usize) -> Result<&'static str, String> {
+    FP_SCRATCH.get(index).copied().ok_or_else(|| {
+        format!("aarch64 code plan cannot pass float argument {index}; stack arguments are not implemented")
+    })
+}
+
 /// Translate a call-boundary role token to its AArch64 register spelling — the
 /// seam **all three** backends apply during selection before their per-ISA remap
 /// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64

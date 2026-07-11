@@ -128,8 +128,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&overflow));
 
         self.emit(abi::label(&ok));
-        self.emit(abi::float_move_d_from_x("d0", bits));
-        self.emit(abi::float_convert_to_signed_x(&result, "d0"));
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], bits));
+        self.emit(abi::float_convert_to_signed_x(&result, abi::FP_SCRATCH[0]));
         let done = self.label("float_to_int_done");
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
@@ -476,8 +476,8 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         match value.type_.as_str() {
             "Integer" => {
-                self.emit(abi::signed_convert_to_float_d("d0", &source));
-                self.emit(abi::float_move_x_from_d(&result, "d0"));
+                self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], &source));
+                self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
             }
             "Fixed" => {
                 let temp = ValueResult {
@@ -485,15 +485,15 @@ impl CodeBuilder<'_> {
                     location: source,
                     text: value.text.clone(),
                 };
-                self.load_numeric_as_double("d0", &temp)?;
-                self.emit(abi::float_move_x_from_d(&result, "d0"));
+                self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
+                self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
             }
             "String" => {
                 let invalid = self.label("to_float_invalid");
                 let overflow = self.label("to_float_overflow");
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
-                self.emit_double_overflow_check("d0", &overflow);
-                self.emit(abi::float_move_x_from_d(&result, "d0"));
+                self.emit_double_overflow_check(abi::FP_SCRATCH[0], &overflow);
+                self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
                 let done = self.label("to_float_done");
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&invalid));
@@ -541,10 +541,10 @@ impl CodeBuilder<'_> {
                 let invalid = self.label("to_fixed_invalid");
                 let overflow = self.label("to_fixed_overflow");
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
-                self.emit_double_overflow_check("d0", &overflow);
+                self.emit_double_overflow_check(abi::FP_SCRATCH[0], &overflow);
                 let parsed_bits_reg = self.temporary_vreg();
                 let parsed_bits = parsed_bits_reg.as_str();
-                self.emit(abi::float_move_x_from_d(parsed_bits, "d0"));
+                self.emit(abi::float_move_x_from_d(parsed_bits, abi::FP_SCRATCH[0]));
                 self.emit_float_bits_to_fixed_value(parsed_bits, &result)?;
                 let done = self.label("to_fixed_done");
                 self.emit(abi::branch(&done));
@@ -588,7 +588,7 @@ impl CodeBuilder<'_> {
         let done = self.label("is_numeric_done");
         let result = self.allocate_register()?;
         self.emit_parse_decimal_string_to_double(&source, &invalid)?;
-        self.emit_double_overflow_check("d0", &invalid);
+        self.emit_double_overflow_check(abi::FP_SCRATCH[0], &invalid);
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
@@ -652,8 +652,8 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "Integer" | "Fixed" => self.emit(abi::compare_immediate(&value.location, "0")),
             "Float" => {
-                self.emit(abi::float_move_d_from_x("d0", &value.location));
-                self.emit(abi::float_compare_zero_d("d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[0]));
             }
             other => {
                 return Err(format!(
@@ -787,12 +787,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(&overflow));
         self.emit(abi::label(&range_ok));
-        self.emit(abi::float_move_d_from_x("d0", bits));
-        self.emit_f64_const("d1", const_bits, 4_294_967_296.0);
-        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], bits));
+        self.emit_f64_const(abi::FP_SCRATCH[1], const_bits, 4_294_967_296.0);
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
         // Round to nearest representable Fixed (ties away from zero) rather than
         // truncating toward zero, as `toFixed(Float)`/`toFixed(String)` require.
-        self.emit(abi::float_round_to_signed_x(result, "d0"));
+        self.emit(abi::float_round_to_signed_x(result, abi::FP_SCRATCH[0]));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&invalid));
         self.emit_invalid_format_return()?;
@@ -867,9 +867,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(dot_seen, "Integer", "0"));
         self.emit(abi::move_immediate(exponent_ten, "Integer", "10"));
         self.emit(abi::move_immediate(zero_src, "Integer", "0"));
-        self.emit(abi::signed_convert_to_float_d("d0", zero_src));
-        self.emit_f64_const("d1", ten_bits, 10.0);
-        self.emit_f64_const("d3", one_bits, 1.0);
+        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], zero_src));
+        self.emit_f64_const(abi::FP_SCRATCH[1], ten_bits, 10.0);
+        self.emit_f64_const(abi::FP_SCRATCH[3], one_bits, 1.0);
         self.emit(abi::load_u8(byte, cursor, 0));
         self.emit(abi::compare_immediate(byte, "45"));
         self.emit(abi::branch_ne(&not_minus));
@@ -900,18 +900,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(byte, "57"));
         self.emit(abi::branch_hi(invalid_label));
         self.emit(abi::subtract_immediate(digit, byte, 48));
-        self.emit(abi::signed_convert_to_float_d("d2", digit));
+        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], digit));
         self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
         self.emit(abi::compare_immediate(dot_seen, "0"));
         self.emit(abi::branch_ne(&frac_digit));
         self.emit(abi::label(&int_digit));
-        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.emit(abi::float_add_d("d0", "d0", "d2"));
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+        self.emit(abi::float_add_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[2]));
         self.emit(abi::branch(&next));
         self.emit(abi::label(&frac_digit));
-        self.emit(abi::float_multiply_d("d3", "d3", "d1"));
-        self.emit(abi::float_divide_d("d2", "d2", "d3"));
-        self.emit(abi::float_add_d("d0", "d0", "d2"));
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[3], abi::FP_SCRATCH[3], abi::FP_SCRATCH[1]));
+        self.emit(abi::float_divide_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], abi::FP_SCRATCH[3]));
+        self.emit(abi::float_add_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[2]));
         self.emit(abi::branch(&next));
         self.emit(abi::label(&dot));
         self.emit(abi::compare_immediate(dot_seen, "0"));
@@ -983,13 +983,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&exponent_multiply_loop));
         self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_eq(&exponent_apply_done));
-        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
         self.emit(abi::subtract_immediate(exponent, exponent, 1));
         self.emit(abi::branch(&exponent_multiply_loop));
         self.emit(abi::label(&exponent_divide_loop));
         self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_eq(&exponent_apply_done));
-        self.emit(abi::float_divide_d("d0", "d0", "d1"));
+        self.emit(abi::float_divide_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
         self.emit(abi::subtract_immediate(exponent, exponent, 1));
         self.emit(abi::branch(&exponent_divide_loop));
         self.emit(abi::label(&exponent_apply_done));
@@ -1001,7 +1001,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(invalid_label));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(&positive));
-        self.emit(abi::float_negate_d("d0", "d0"));
+        self.emit(abi::float_negate_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
         self.emit(abi::label(&positive));
         Ok(())
     }

@@ -319,9 +319,9 @@ impl CodeBuilder<'_> {
                 // hardcoded `x17` as scratch, which corrupted the result when the
                 // allocator handed out x16/x17 — e.g. two inline `-literal` call
                 // arguments.)
-                self.emit(abi::float_move_d_from_x("d0", &operand.location));
-                self.emit(abi::float_negate_d("d0", "d0"));
-                self.emit(abi::float_move_x_from_d(&register, "d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &operand.location));
+                self.emit(abi::float_negate_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(&register, abi::FP_SCRATCH[0]));
             }
             other => {
                 return Err(format!(
@@ -616,9 +616,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers(&left_fixed, &right_fixed));
             }
             "Float" => {
-                self.load_numeric_as_double("d0", &left)?;
-                self.load_numeric_as_double("d1", &right)?;
-                self.emit(abi::float_compare_d("d0", "d1"));
+                self.load_numeric_as_double(abi::FP_SCRATCH[0], &left)?;
+                self.load_numeric_as_double(abi::FP_SCRATCH[1], &right)?;
+                self.emit(abi::float_compare_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
             }
             other => {
                 return Err(format!(
@@ -1008,14 +1008,14 @@ impl CodeBuilder<'_> {
                 return Ok(dst.to_string());
             }
             "MOD" => {
-                self.load_numeric_as_double("d0", left)?;
-                self.load_numeric_as_double("d1", right)?;
+                self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
+                self.load_numeric_as_double(abi::FP_SCRATCH[1], right)?;
                 // Domain pre-check: b == 0 raises ErrFloatDomain. This stays a
                 // genuine pre-check (not a boundary finiteness check) because the
                 // in-tree exact `fmod` kernel below requires a non-zero, finite
                 // divisor — it does not itself produce the NaN that `a MOD 0`
                 // would otherwise yield (plan-17 keeps ErrFloatDomain here).
-                self.emit(abi::float_compare_zero_d("d1"));
+                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[1]));
                 let nonzero = self.label("float_mod_divisor_nonzero");
                 self.emit(abi::branch_ne(&nonzero));
                 self.emit_float_domain_return()?;
@@ -1026,21 +1026,21 @@ impl CodeBuilder<'_> {
                 // no per-op finiteness check is needed (plan-17).
                 let a_bits = self.allocate_register()?;
                 let b_bits = self.allocate_register()?;
-                self.emit(abi::float_move_x_from_d(&a_bits, "d0"));
-                self.emit(abi::float_move_x_from_d(&b_bits, "d1"));
+                self.emit(abi::float_move_x_from_d(&a_bits, abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(&b_bits, abi::FP_SCRATCH[1]));
                 let result = self.emit_float_fmod(&a_bits, &b_bits)?;
-                self.emit(abi::float_move_d_from_x("d0", &result));
-                self.emit(abi::float_move_x_from_d(dst, "d0"));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &result));
+                self.emit(abi::float_move_x_from_d(dst, abi::FP_SCRATCH[0]));
             }
             "^" => {
-                self.load_numeric_as_double("d0", left)?;
-                self.load_numeric_as_double("d1", right)?;
+                self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
+                self.load_numeric_as_double(abi::FP_SCRATCH[1], right)?;
                 // `emit_float_pow` keeps its domain guards (whole, non-negative
                 // exponent) but no longer checks the result: an overflow to `Inf`
                 // is an anonymous intermediate that traps only at the boundary
                 // (plan-17).
-                self.emit_float_pow("d0", "d1")?;
-                self.emit(abi::float_move_x_from_d(dst, "d0"));
+                self.emit_float_pow(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])?;
+                self.emit(abi::float_move_x_from_d(dst, abi::FP_SCRATCH[0]));
             }
             other => {
                 return Err(format!(
@@ -1533,8 +1533,8 @@ impl CodeBuilder<'_> {
             "Byte" | "Integer" => self.emit(abi::signed_convert_to_float_d(dst, &value.location)),
             "Fixed" => {
                 self.emit(abi::signed_convert_to_float_d(dst, &value.location));
-                self.emit_f64_const("d7", &fixed_scratch, 4_294_967_296.0);
-                self.emit(abi::float_divide_d(dst, dst, "d7"));
+                self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 4_294_967_296.0);
+                self.emit(abi::float_divide_d(dst, dst, abi::FP_SCRATCH[7]));
             }
             other => {
                 return Err(format!(
@@ -1591,23 +1591,23 @@ impl CodeBuilder<'_> {
         let exponent_bits = self.allocate_register()?;
         let scratch = self.allocate_register()?;
         self.emit(abi::float_convert_to_signed_x(&exponent_int, exponent));
-        self.emit(abi::signed_convert_to_float_d("d2", &exponent_int));
-        self.emit(abi::float_move_x_from_d(&exponent_roundtrip, "d2"));
+        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], &exponent_int));
+        self.emit(abi::float_move_x_from_d(&exponent_roundtrip, abi::FP_SCRATCH[2]));
         self.emit(abi::float_move_x_from_d(&exponent_bits, exponent));
         self.emit(abi::compare_registers(&exponent_roundtrip, &exponent_bits));
         self.emit(abi::branch_eq(&exponent_whole));
         self.emit_float_domain_return()?;
         self.emit(abi::label(&exponent_whole));
-        self.emit_f64_const("d2", &scratch, 1.0);
+        self.emit_f64_const(abi::FP_SCRATCH[2], &scratch, 1.0);
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&exponent_int, "0"));
         self.emit(abi::branch_eq(&done_label));
-        self.emit(abi::float_multiply_d("d2", "d2", dst));
+        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], dst));
         self.emit(abi::subtract_immediate(&exponent_int, &exponent_int, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
-        self.emit_f64_const("d7", &scratch, 0.0);
-        self.emit(abi::float_add_d(dst, "d2", "d7"));
+        self.emit_f64_const(abi::FP_SCRATCH[7], &scratch, 0.0);
+        self.emit(abi::float_add_d(dst, abi::FP_SCRATCH[2], abi::FP_SCRATCH[7]));
         Ok(())
     }
 
