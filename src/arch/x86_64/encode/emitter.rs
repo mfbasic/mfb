@@ -1640,18 +1640,45 @@ fn mem_load(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, S
 
 fn mem_store(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, String> {
     let src = reg(field(instruction, "src")?)?;
-    // A zero-token store source (`abi::ZERO`, spelled `xzr`) materializes the
-    // pinned zero register `r14` (`ZERO_REGISTER`, held at 0): x86 has no zero
-    // register, so what AArch64 writes as `str xzr, [..]` — zeroing arena/record
-    // fields — stores `r14`. Byte-identical to the pre-plan-34-A path, where
-    // `select` rewrote the `"x31"` spelling to `r14` before this point. (plan-34-A)
-    let src = if is_zero_token(src) {
-        reg(crate::arch::x86_64::regmodel::ZERO_REGISTER.to_string())?
-    } else {
-        src
-    };
     let base = reg(field(instruction, "base")?)?;
     let disp = checked_disp32(immediate(field(instruction, "offset")?)?)?;
+    // A zero-token store source (`abi::ZERO`, spelled `xzr`) — what AArch64 writes
+    // as `str xzr, [..]` to zero arena/record fields — stores an IMMEDIATE zero
+    // (`mov r/m, 0`) rather than a pinned zero register. x86 has no zero register,
+    // and the immediate form frees `r14` from being reserved to hold 0, so it can
+    // join the allocatable pool (plan-34-C: the extra GPR the machine-floor scratch
+    // needs to virtualize). `/0` is the ModRM.reg extension for the `C7`/`C6` group.
+    if is_zero_token(src) {
+        let mut bytes = Vec::new();
+        match width {
+            MemWidth::U64 => {
+                bytes.push(rex(true, false, false, base >= 8));
+                bytes.push(0xC7); // mov r/m64, imm32 (sign-extended)
+                bytes.extend_from_slice(&mem_disp32(0, base, disp));
+                bytes.extend_from_slice(&0i32.to_le_bytes());
+            }
+            MemWidth::U32 => {
+                if base >= 8 {
+                    bytes.push(rex(false, false, false, true));
+                }
+                bytes.push(0xC7); // mov r/m32, imm32
+                bytes.extend_from_slice(&mem_disp32(0, base, disp));
+                bytes.extend_from_slice(&0i32.to_le_bytes());
+            }
+            MemWidth::U16 => {
+                return Err("x86 encode: str_u16 unsupported".to_string());
+            }
+            MemWidth::U8 => {
+                if base >= 8 {
+                    bytes.push(rex(false, false, false, true));
+                }
+                bytes.push(0xC6); // mov r/m8, imm8
+                bytes.extend_from_slice(&mem_disp32(0, base, disp));
+                bytes.push(0);
+            }
+        }
+        return Ok(Encoded::plain(bytes));
+    }
     let mut bytes = Vec::new();
     match width {
         MemWidth::U64 => {

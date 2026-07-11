@@ -114,7 +114,7 @@ impl code::CodegenPlatform for Platform {
         // signal / RNG-seed / global-init entry works unchanged — `select_x86`
         // maps the neutral registers to their SysV homes (`x31`→r14 zero reg,
         // `arena_base`→r15, the scratch pool → the caller/callee-saved GPRs).
-        let mut function = code::lower_program_entry(
+        let function = code::lower_program_entry(
             spec.entry_symbol,
             spec.language_entry_symbol,
             spec.language_entry_returns,
@@ -130,19 +130,10 @@ impl code::CodegenPlatform for Platform {
             spec.register_signal_handlers,
             spec.capture_args,
         )?;
-        // The shared entry uses the neutral zero register `x31` for its arena/
-        // global zero-init stores, relying on it *being* zero — true for AArch64's
-        // hardware `xzr`, but on x86 `x31` realizes to `r14`, an ordinary GPR that
-        // holds garbage from `_start`. Zero it once, right after the entry label,
-        // before any `store x31` runs. `eor x31,x31,x31` selects to `xor r14,r14`.
-        let zero = abi::exclusive_or_registers("x31", "x31", "x31");
-        let at = usize::from(
-            function
-                .instructions
-                .first()
-                .is_some_and(|inst| inst.op == crate::arch::aarch64::ops::CodeOp::Label),
-        );
-        function.instructions.insert(at, zero);
+        // The shared entry's `store xzr, [..]` zero-inits now encode an immediate
+        // zero (`mov r/m, 0`) on x86, not a store of a pinned zero register, so
+        // `r14` no longer needs to be held at 0 — it is an ordinary allocatable GPR
+        // (plan-34-C freed it for the machine-floor scratch). No entry zeroing.
         Ok(function)
     }
 
@@ -337,19 +328,14 @@ impl code::CodegenPlatform for Platform {
         // the first argument register; the body is alias-free machine-floor
         // code (x13/x14/x20 scratch) that selects cleanly through the x86 remap.
         let mut function = code::lower_thread_trampoline(platform_imports, self)?;
-        // Zero the x86 zero register for THIS thread. `x31` realizes as `r14`,
-        // which the program entry zeroes once for the main thread — but a
-        // pthread worker starts with whatever musl left in r14, so every
-        // "zero" in the worker (string NUL terminators, queue/tag zero-init,
-        // zero compares) would be garbage. Mirrors `emit_program_entry`.
-        let zero = abi::exclusive_or_registers("x31", "x31", "x31");
+        // No worker r14-zeroing: `store xzr` now encodes an immediate zero on x86,
+        // so a worker no longer depends on r14 holding 0 (plan-34-C freed r14).
         let at = usize::from(
             function
                 .instructions
                 .first()
                 .is_some_and(|inst| inst.op == crate::arch::aarch64::ops::CodeOp::Label),
         );
-        function.instructions.insert(at, zero);
         // Re-bias the stack for SysV alignment. pthread enters the trampoline
         // like any C callee (rsp ≡ 8 mod 16); the shared trampoline's 80-byte
         // frame keeps that parity, so every function it calls would be entered

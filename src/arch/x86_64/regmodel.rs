@@ -34,10 +34,15 @@ const GPRS: &[&str] = &[
 /// moving arena_base to TLS).
 // `r13` is deliberately absent: it realizes the `%closure_env` role token
 // ([`X86_64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
-// never color a body vreg onto it.
-const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12"];
+// never color a body vreg onto it. `r14` (the former zero register) IS allocatable
+// now: `store xzr` encodes an immediate zero on x86, so r14 no longer needs to be
+// pinned at 0 (plan-34-C — the extra GPR the machine-floor scratch needs).
+const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12", "r14"];
 
-/// The pinned zero register `xzr`/`x31` realizes as (see [`INT_ALLOCATABLE`]).
+/// The register the legacy `"x31"` zero spelling realizes as. The neutral zero
+/// token (`abi::ZERO` = `xzr`) no longer needs it — `store xzr` encodes an
+/// immediate zero and `r14` is now allocatable — but the constant is retained for
+/// the residual-`x31` selection path (no shared producer emits `x31`).
 pub(crate) const ZERO_REGISTER: &str = "r14";
 
 /// Caller-saved (volatile) integer registers — clobbered across a `call`.

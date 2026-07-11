@@ -7,7 +7,6 @@
 //! selection lives here, not in shared `mir.rs`.
 
 use crate::arch::aarch64::ops::CodeOp;
-use crate::arch::x86_64::regmodel::ZERO_REGISTER;
 use crate::target::shared::code::mir::{
     fused_setter_codeop, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
@@ -400,7 +399,11 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 continue;
             }
             if value == "x31" {
-                *value = ZERO_REGISTER.to_string();
+                // The legacy zero spelling → the neutral zero token, which the
+                // encoder emits as an immediate zero (`store xzr` → `mov r/m, 0`).
+                // r14 is no longer pinned at 0 (plan-34-C freed it for allocation),
+                // so x31 must NOT map to r14 — that now holds an allocated value.
+                *value = crate::target::shared::abi::ZERO.to_string();
                 continue;
             }
             // Physical FP registers `dN` (the AArch64 double bank, used by the
@@ -754,7 +757,9 @@ mod tests {
         ]);
         let vals = values(&out);
         assert!(vals.contains(&"rsp".to_string()));
-        assert!(vals.contains(&ZERO_REGISTER.to_string()));
+        // The legacy `x31` zero spelling now maps to the neutral zero token (which
+        // the encoder emits as an immediate zero), not the freed r14.
+        assert!(vals.contains(&"xzr".to_string()));
         assert!(vals.contains(&"xmm0".to_string()));
         assert!(vals.contains(&"xmm3".to_string()));
         assert!(vals.contains(&"xmm1".to_string()));
