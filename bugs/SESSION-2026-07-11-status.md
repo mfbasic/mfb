@@ -1,5 +1,32 @@
 # Bug-fix session disposition — 2026-07-11
 
+## Wave 3 addendum
+**bug-137.4** (math::rand modulo bias → Lemire rejection sampling; verified
+uniform-bounded + cross-target-identical seeded sequence on all four remotes) and
+**bug-126.2** (rv64 stale-flag pending-clear guards, byte-neutral) landed.
+bug-126.3 left deferred (no byte-neutral rewrite of the shared fused-setter
+re-expansion without churn).
+
+## Remaining open docs — why deferred (not in-session-fixable safely)
+Every bug that *manifests* at runtime (wrong answer / crash / hang / leak / build
+failure a program can trigger) is fixed and verified on all four remotes. The
+still-open cluster docs retain only sub-issues that are one of:
+- **Design-scale, need a plan**: bug-78 (closure-alloc relocation vocabulary),
+  bug-80 (union canonical tags + .mfp format bump), bug-82 (mechanical CodeOp
+  relocation across 18 files — byte-identical, zero runtime value), bug-86
+  (layout-sensitive thread-error register audit).
+- **High-risk register/encoder changes for LATENT-only issues** (a hasty fix risks
+  regressions on untested paths — violates "correctness over performance"):
+  bug-124.1/.2 (aarch64 pool/frame), bug-125.1/.3 (x86 encoder scratch),
+  bug-127.2/.3, bug-126.3.
+- **Broad defensive sweeps with no current trigger**: bug-97.2 / bug-115 (EINTR),
+  bug-102.3 (TLS C-int sign-extend).
+- **macOS-only, not verifiable on the Linux remotes**: bug-114 (app pipe backpressure,
+  partly), bug-116 (macOS TLS options leak), bug-117.1/.3.
+- **Minor latent nits**: bug-120.2, bug-136.3, bug-137.1 (host-libm determinism —
+  unverifiable on one host), bug-138.2b (deliberate no-op), bug-139.5 (unreachable),
+  bug-147.4/.5/.7.
+
 ## Wave 2 addendum
 Additional fixes landed + verified on all four remotes (round/pow correct on
 aarch64/x86_64/riscv64): **bug-108.2** (depth-aware `" TO "` map-key splitting →
