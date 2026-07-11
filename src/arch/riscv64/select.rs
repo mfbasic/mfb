@@ -391,6 +391,25 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             }
             _ => {}
         }
+        // bug-126.2: a bare (non-fused) integer compare defers its operands —
+        // the lhs snapshotted into `gp`, the rhs kept by *register name* in
+        // `pending` — for a later standalone flag branch to re-read. That saved
+        // rhs is only valid until the register is redefined, and the whole
+        // pending compare only dominates a branch that no label separates from
+        // it. Neither invalidation existed (plan-99 cleared `pending` solely on
+        // the next compare), so a def of the rhs register or an intervening label
+        // could strand a stale compare. Invalidate here, before lowering the
+        // offending instruction. (Latent: current streams place the consuming
+        // branch immediately after the compare with no such interleaving, so
+        // this never fires and the selected bytes are unchanged.)
+        if instruction.op.to_code() == Some(CodeOp::Label) {
+            pending = None;
+        } else if matches!(
+            &pending,
+            Some(FlagRhs::Reg(rhs)) if field_value(&instruction.fields, "dst") == *rhs
+        ) {
+            pending = None;
+        }
         if instruction.op == MirOp::AddrOf {
             // PC-relative symbol address as the `auipc; addi` pair (the encoder
             // realizes `adrp` as `auipc rd, %pcrel_hi` and `add_pageoff` as

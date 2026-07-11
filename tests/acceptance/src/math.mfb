@@ -446,14 +446,16 @@ TESTING
 
     TGROUP "rand"
       TCASE "seeded sequence"
+        ' Sequence is Lemire rejection-sampled (bug-137, unbiased inclusive) and
+        ' deterministic + identical across all four targets for a fixed seed.
         math::seed(12345)
-        expectInteger(math::rand(1, 6), 3)
-        expectInteger(math::rand(1, 6), 1)
-        expectInteger(math::rand(1, 6), 4)
+        expectInteger(math::rand(1, 6), 5)
         expectInteger(math::rand(1, 6), 4)
         expectInteger(math::rand(1, 6), 5)
+        expectInteger(math::rand(1, 6), 5)
+        expectInteger(math::rand(1, 6), 6)
         expectInteger(math::rand(100, 100), 100)
-        expectInteger(math::rand(0 - 10, 10), 10)
+        expectInteger(math::rand(0 - 10, 10), 7)
       END TCASE
     END TGROUP
 

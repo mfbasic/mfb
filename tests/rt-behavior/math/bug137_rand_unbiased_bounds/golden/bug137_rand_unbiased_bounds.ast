@@ -1,0 +1,61 @@
+{
+  "project": "bug137_rand_unbiased_bounds",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "math.seed", "arguments": [{ "kind": "number", "value": "12345" }] }, "line": 9 },
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 10 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "4999" },
+        "step": null,
+        "line": 11,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "math.rand", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }] }, "line": 12 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "10" } },
+          "line": 13,
+          "then": [
+          { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "1" } }, "line": 13 }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "20" } },
+          "line": 14,
+          "then": [
+          { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "1" } }, "line": 14 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "outOfRange=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "single=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.rand", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "7" }] }] } }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT math
+
+' bug-137: math::rand(min,max) used a single-draw modulo (biased). Now uses
+' Lemire rejection sampling — every draw stays in the inclusive [min,max] range
+' and span==1 returns the single value. (Uniformity is not asserted here; the
+' invariant is the bound + the single-value edge, deterministic under a seed.)
+FUNC main() AS Integer
+  math::seed(12345)
+  MUT bad AS Integer = 0
+  FOR i = 0 TO 4999
+    LET r AS Integer = math::rand(10, 20)
+    IF r < 10 THEN bad = bad + 1
+    IF r > 20 THEN bad = bad + 1
+  NEXT
+  io::print("outOfRange=" & toString(bad))
+  io::print("single=" & toString(math::rand(7, 7)))
+  RETURN 0
+END FUNC
