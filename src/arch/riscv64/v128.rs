@@ -81,6 +81,16 @@ fn is_vector_operand(value: &str) -> bool {
             return n <= 31;
         }
     }
+    // The `abi::VEC_SCRATCH`/`FP_SCRATCH` token pools (plan-34-D) reach this
+    // pass unrealized — the shared SIMD kernels spell the low bank through
+    // them consistently, so the slot map keys on the token exactly as it once
+    // keyed on the literal (same mention order, same slot indices).
+    if let Some(rest) = value
+        .strip_prefix("%vscratch")
+        .or_else(|| value.strip_prefix("%fscratch"))
+    {
+        return rest.parse::<u8>().is_ok_and(|n| n <= 7);
+    }
     value
         .strip_prefix("%f")
         .is_some_and(|rest| rest.parse::<u32>().is_ok())

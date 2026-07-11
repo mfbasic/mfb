@@ -180,7 +180,36 @@ which `abi::realize_abi_token` maps to the AArch64 scratch bank (`x9`–`x18`,
 `x20`–`x28`) — the same registers the code has always used, so the emitted code
 is byte-identical — and each backend then remaps to its own file. The pinned
 registers are neutral tokens too: `abi::ARENA`, `%thread` (current-thread),
-`%closure_env`, `%sysnr`, and the `%arg`/`%ret` call-boundary bank. The
-plan-34-C Phase-5 guard test (`shared lowering names no physical scratch
-register`) enforces this with **no allowlist** — every shared lowering source,
-machine-floor or not, is architecture-neutral.
+`%closure_env`, `%sysnr`, and the `%arg`/`%ret` call-boundary bank.
+
+Since plan-34-D the same holds for **every register class and every stream**:
+the float builders' and SIMD kernels' scratch banks are the `abi::FP_SCRATCH`
+(`%fscratch0`…`%fscratch7` → `d0`–`d7`) and `abi::VEC_SCRATCH` (`%vscratch0`…
+`%vscratch7` → `v0`–`v7`, the 128-bit lane view of the same file) token pools;
+the SIMD math-kernel constant-pool pin is `%mathpool` (→ `x2`); runtime-helper
+parameter locations are `%arg` role tokens; and the per-platform emitters that
+inject libc/syscall staging into shared streams use the role banks as well
+(Darwin's syscall number is `%sysnr_darwin` → `x16`, since the seam is ISA-wide
+and Linux's `%sysnr` realizes `x8`). Because `d0`–`d7` sit *inside* the FP
+allocatable file, the register allocator's occupancy analysis parses the
+scratch tokens directly (`regalloc::analysis`), at exactly the index of their
+realization, so coloring is unchanged.
+
+Two guards enforce the invariant with **no allowlist**:
+
+* a source scan (`shared lowering names no physical register`) — no file under
+  `src/target/shared/` except the two that define the physical namespace
+  (`abi.rs`, the realization tables; `regalloc/analysis.rs`, the occupancy
+  parsers) may spell a physical register of any class or ISA, quoted or
+  `format!`-constructed;
+* an always-on stream assertion (`regalloc::find_physical_operand`) at every
+  point a shared stream is finished — the pre-selection seam
+  (`run_register_allocation`), the hand-built helper finalizer
+  (`finalize_vreg_body_with_locals`), the entry stub, and the thread
+  trampoline. A physical name in a shared stream is a build error (an ICE for
+  helper bodies), not a silent miscompile.
+
+Standalone per-target streams (the macOS app-mode views, the GTK app
+functions, the TLS block trampolines) are target-native machine floor with
+hand-built frames — realization-layer code like `arch/`, outside the shared
+MIR and outside the invariant.
