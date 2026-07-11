@@ -48,6 +48,11 @@ const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "r12", "r14"];
 /// the residual-`x31` selection path (no shared producer emits `x31`).
 pub(crate) const ZERO_REGISTER: &str = "r14";
 
+/// The x86-64 stack-pointer spelling selection rewrites the neutral `sp` to.
+/// Shared frame finalization recognizes it through this const so the shared
+/// source never spells a physical register (plan-34-D).
+pub(crate) const STACK_POINTER: &str = "rsp";
+
 /// Caller-saved (volatile) integer registers — clobbered across a `call`.
 const INT_CALLER_SAVED: &[&str] = &["rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"];
 

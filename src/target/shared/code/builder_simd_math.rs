@@ -176,7 +176,7 @@ impl CodeBuilder<'_> {
 
         // Error mask accumulator v7 = 0 (always, so the reduce is valid even when
         // the loop body never runs).
-        self.emit(abi::vector_eor("v7", "v7", "v7"));
+        self.emit(abi::vector_eor(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7]));
         self.emit_simd_unary_setup(kernel)?;
 
         // --- 2-lane chunk loop ---
@@ -185,9 +185,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
-        self.emit(abi::vector_load("v0", &in_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[0], &in_data, 0));
         self.emit_simd_unary_vector(kernel)?;
-        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::vector_store(abi::VEC_SCRATCH[0], &out_data, 0));
         self.emit(abi::add_immediate(&in_data, &in_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
         self.emit(abi::subtract_immediate(&pairs, &pairs, 1));
@@ -208,8 +208,8 @@ impl CodeBuilder<'_> {
         if kernel.error().is_some() {
             let lane0 = self.allocate_register()?;
             let lane1 = self.allocate_register()?;
-            self.emit(abi::vector_extract_to_x(&lane0, "v7", 0));
-            self.emit(abi::vector_extract_to_x(&lane1, "v7", 1));
+            self.emit(abi::vector_extract_to_x(&lane0, abi::VEC_SCRATCH[7], 0));
+            self.emit(abi::vector_extract_to_x(&lane1, abi::VEC_SCRATCH[7], 1));
             self.emit(abi::or_registers(&lane0, &lane0, &lane1));
             self.emit(abi::or_registers(&err, &err, &lane0));
             let no_err = self.label("simd_no_err");
@@ -237,25 +237,25 @@ impl CodeBuilder<'_> {
                 // v6 = broadcast(INT64_MIN) for the per-lane overflow compare.
                 let min = self.allocate_register()?;
                 self.emit(abi::move_immediate(&min, "Integer", INT64_MIN_UNSIGNED));
-                self.emit(abi::vector_dup_from_x("v6", &min));
+                self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[6], &min));
             }
             SimdUnaryKernel::AbsFloat | SimdUnaryKernel::SqrtFloat => {}
             SimdUnaryKernel::FloorFloat
             | SimdUnaryKernel::CeilFloat
             | SimdUnaryKernel::RoundFloat => {
                 // v4 = exp(Inf/NaN), v5 = +2^63, v6 = -2^63 (range bounds).
-                self.broadcast_const("v4", FLOAT_EXP_INF_NAN)?;
-                self.broadcast_const("v5", FLOAT_TWO_POW_63_BITS)?;
-                self.broadcast_const("v6", FLOAT_NEG_TWO_POW_63_BITS)?;
+                self.broadcast_const(abi::VEC_SCRATCH[4], FLOAT_EXP_INF_NAN)?;
+                self.broadcast_const(abi::VEC_SCRATCH[5], FLOAT_TWO_POW_63_BITS)?;
+                self.broadcast_const(abi::VEC_SCRATCH[6], FLOAT_NEG_TWO_POW_63_BITS)?;
             }
             SimdUnaryKernel::FloorFixed => {}
             SimdUnaryKernel::CeilFixed => {
-                self.broadcast_const("v4", FIXED_ONE_MINUS_1_STR)?;
+                self.broadcast_const(abi::VEC_SCRATCH[4], FIXED_ONE_MINUS_1_STR)?;
             }
             SimdUnaryKernel::RoundFixed => {
-                self.broadcast_const("v4", FIXED_FRACTION_MASK_STR)?;
-                self.broadcast_const("v5", FIXED_HALF_STR)?;
-                self.broadcast_const("v6", "1")?;
+                self.broadcast_const(abi::VEC_SCRATCH[4], FIXED_FRACTION_MASK_STR)?;
+                self.broadcast_const(abi::VEC_SCRATCH[5], FIXED_HALF_STR)?;
+                self.broadcast_const(abi::VEC_SCRATCH[6], "1")?;
             }
         }
         Ok(())
@@ -278,18 +278,18 @@ impl CodeBuilder<'_> {
             SimdUnaryKernel::AbsInteger => {
                 // Detect INT64_MIN lanes from the *input* (abs of INT64_MIN wraps
                 // back to INT64_MIN, so the check must precede the abs).
-                self.emit(abi::vector_cmeq("v1", "v0", "v6"));
-                self.emit(abi::vector_orr("v7", "v7", "v1"));
-                self.emit(abi::vector_abs("v0", "v0"));
+                self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_abs(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
             }
             SimdUnaryKernel::AbsFloat => {
-                self.emit(abi::vector_fabs("v0", "v0"));
+                self.emit(abi::vector_fabs(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
             }
             SimdUnaryKernel::SqrtFloat => {
                 // Negative lanes (from the input) have no real square root.
-                self.emit(abi::vector_fcmlt_zero("v1", "v0"));
-                self.emit(abi::vector_orr("v7", "v7", "v1"));
-                self.emit(abi::vector_fsqrt("v0", "v0"));
+                self.emit(abi::vector_fcmlt_zero(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
             }
             SimdUnaryKernel::FloorFloat
             | SimdUnaryKernel::CeilFloat
@@ -297,41 +297,41 @@ impl CodeBuilder<'_> {
                 let frint = kernel.float_round_mnemonic().unwrap();
                 // Inf/NaN: exp field == 2047 (caught here; range compares below
                 // miss NaN, which compares false against everything).
-                self.emit(abi::vector_ushr("v2", "v0", 52));
-                self.emit(abi::vector_and("v2", "v2", "v4"));
-                self.emit(abi::vector_cmeq("v1", "v2", "v4"));
-                self.emit(abi::vector_orr("v7", "v7", "v1"));
+                self.emit(abi::vector_ushr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], 52));
+                self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4]));
+                self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
                 // Round to integral, then bounds-check the rounded double.
                 self.emit(
                     CodeInstruction::new(frint)
-                        .field("dst", "v3")
-                        .field("src", "v0"),
+                        .field("dst", abi::VEC_SCRATCH[3])
+                        .field("src", abi::VEC_SCRATCH[0]),
                 );
-                self.emit(abi::vector_fcmge("v1", "v3", "v5")); // rounded >= 2^63
-                self.emit(abi::vector_orr("v7", "v7", "v1"));
-                self.emit(abi::vector_fcmgt("v1", "v6", "v3")); // -2^63 > rounded
-                self.emit(abi::vector_orr("v7", "v7", "v1"));
-                self.emit(abi::vector_fcvtzs("v0", "v3"));
+                self.emit(abi::vector_fcmge(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5])); // rounded >= 2^63
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_fcmgt(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[3])); // -2^63 > rounded
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3]));
             }
             SimdUnaryKernel::FloorFixed => {
                 // Arithmetic shift right by 32 rounds toward -infinity.
-                self.emit(abi::vector_sshr("v0", "v0", FIXED_SHIFT));
+                self.emit(abi::vector_sshr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], FIXED_SHIFT));
             }
             SimdUnaryKernel::CeilFixed => {
                 // ceil(x) = floor(x + (ONE-1)); arithmetic shift handles all signs.
-                self.emit(abi::vector_add("v0", "v0", "v4"));
-                self.emit(abi::vector_sshr("v0", "v0", FIXED_SHIFT));
+                self.emit(abi::vector_add(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[4]));
+                self.emit(abi::vector_sshr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], FIXED_SHIFT));
             }
             SimdUnaryKernel::RoundFixed => {
                 // result = floor(x) + (frac >= threshold), threshold = half + sign
                 // (ties away from zero, matching the scalar Fixed rounder).
-                self.emit(abi::vector_sshr("v1", "v0", FIXED_SHIFT)); // whole
-                self.emit(abi::vector_and("v2", "v0", "v4")); // frac
-                self.emit(abi::vector_ushr("v3", "v0", 63)); // sign bit (0/1)
-                self.emit(abi::vector_add("v3", "v5", "v3")); // threshold
-                self.emit(abi::vector_cmge("v3", "v2", "v3")); // frac >= threshold
-                self.emit(abi::vector_and("v3", "v3", "v6")); // mask & 1
-                self.emit(abi::vector_add("v0", "v1", "v3"));
+                self.emit(abi::vector_sshr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], FIXED_SHIFT)); // whole
+                self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[4])); // frac
+                self.emit(abi::vector_ushr(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0], 63)); // sign bit (0/1)
+                self.emit(abi::vector_add(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[3])); // threshold
+                self.emit(abi::vector_cmge(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3])); // frac >= threshold
+                self.emit(abi::vector_and(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6])); // mask & 1
+                self.emit(abi::vector_add(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[3]));
             }
         }
         Ok(())
@@ -547,10 +547,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
-        self.emit(abi::vector_load("v0", &left_data, 0));
-        self.emit(abi::vector_load("v1", &right_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[0], &left_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[1], &right_data, 0));
         self.emit_simd_binary_vector(kernel);
-        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::vector_store(abi::VEC_SCRATCH[0], &out_data, 0));
         self.emit(abi::add_immediate(&left_data, &left_data, 16));
         self.emit(abi::add_immediate(&right_data, &right_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
@@ -583,19 +583,19 @@ impl CodeBuilder<'_> {
     /// Per-chunk NEON min/max: lanes in `v0` (left) and `v1` (right); result → `v0`.
     fn emit_simd_binary_vector(&mut self, kernel: SimdBinaryKernel) {
         match kernel {
-            SimdBinaryKernel::MinFloat => self.emit(abi::vector_fmin("v0", "v0", "v1")),
-            SimdBinaryKernel::MaxFloat => self.emit(abi::vector_fmax("v0", "v0", "v1")),
+            SimdBinaryKernel::MinFloat => self.emit(abi::vector_fmin(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])),
+            SimdBinaryKernel::MaxFloat => self.emit(abi::vector_fmax(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])),
             SimdBinaryKernel::MinSigned => {
                 // min(a,b): select a where b>a (a is smaller), else b.
-                self.emit(abi::vector_cmgt("v2", "v1", "v0")); // b > a
-                self.emit(abi::vector_bsl("v2", "v0", "v1"));
-                self.emit(abi::vector_orr("v0", "v2", "v2"));
+                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0])); // b > a
+                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
             }
             SimdBinaryKernel::MaxSigned => {
                 // max(a,b): select a where a>b, else b.
-                self.emit(abi::vector_cmgt("v2", "v0", "v1")); // a > b
-                self.emit(abi::vector_bsl("v2", "v0", "v1"));
-                self.emit(abi::vector_orr("v0", "v2", "v2"));
+                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])); // a > b
+                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
             }
         }
     }
@@ -720,18 +720,18 @@ impl CodeBuilder<'_> {
         // v5 = broadcast(low), v6 = broadcast(high).
         let bound = self.temporary_vreg();
         self.emit(abi::load_u64(&bound, abi::stack_pointer(), low_slot));
-        self.emit(abi::vector_dup_from_x("v5", &bound));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[5], &bound));
         self.emit(abi::load_u64(&bound, abi::stack_pointer(), high_slot));
-        self.emit(abi::vector_dup_from_x("v6", &bound));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[6], &bound));
 
         let loop_label = self.label("simd_clamp_loop");
         let loop_done = self.label("simd_clamp_loop_done");
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
-        self.emit(abi::vector_load("v0", &in_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[0], &in_data, 0));
         self.emit_simd_clamp_vector(kernel);
-        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::vector_store(abi::VEC_SCRATCH[0], &out_data, 0));
         self.emit(abi::add_immediate(&in_data, &in_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
         self.emit(abi::subtract_immediate(&pairs, &pairs, 1));
@@ -771,18 +771,18 @@ impl CodeBuilder<'_> {
     fn emit_simd_clamp_vector(&mut self, kernel: SimdClampKernel) {
         match kernel {
             SimdClampKernel::Float => {
-                self.emit(abi::vector_fmin("v0", "v0", "v6")); // min(x, high)
-                self.emit(abi::vector_fmax("v0", "v0", "v5")); // max(.., low)
+                self.emit(abi::vector_fmin(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6])); // min(x, high)
+                self.emit(abi::vector_fmax(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5])); // max(.., low)
             }
             SimdClampKernel::Signed => {
                 // min(x, high): select x where high>x else high.
-                self.emit(abi::vector_cmgt("v1", "v6", "v0"));
-                self.emit(abi::vector_bsl("v1", "v0", "v6"));
-                self.emit(abi::vector_orr("v0", "v1", "v1"));
+                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0]));
+                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
                 // max(.., low): select v0 where v0>low else low.
-                self.emit(abi::vector_cmgt("v1", "v0", "v5"));
-                self.emit(abi::vector_bsl("v1", "v0", "v5"));
-                self.emit(abi::vector_orr("v0", "v1", "v1"));
+                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5]));
+                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5]));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
             }
         }
     }

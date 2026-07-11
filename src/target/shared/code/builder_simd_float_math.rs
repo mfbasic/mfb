@@ -371,9 +371,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
-        self.emit(abi::vector_load("v0", &in_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[0], &in_data, 0));
         self.emit_float_kernel_body(kernel, k);
-        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::vector_store(abi::VEC_SCRATCH[0], &out_data, 0));
         self.emit(abi::add_immediate(&in_data, &in_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
         self.emit(abi::subtract_immediate(&pairs, &pairs, 1));
@@ -389,10 +389,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&tail_done));
         let elem = self.temporary_vreg();
         self.emit(abi::load_u64(&elem, &in_data, 0));
-        self.emit(abi::vector_dup_from_x("v0", &elem));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &elem));
         self.emit_float_kernel_body(kernel, k);
         let res_lane = self.temporary_vreg();
-        self.emit(abi::vector_extract_to_x(&res_lane, "v0", 0));
+        self.emit(abi::vector_extract_to_x(&res_lane, abi::VEC_SCRATCH[0], 0));
         self.emit(abi::store_u64(&res_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
@@ -436,10 +436,10 @@ impl CodeBuilder<'_> {
     /// kernels whose only failure is a NaN result (sin/cos/tan/atan/atan2). Uses
     /// v1/v2 as scratch (free at the end of those bodies).
     fn emit_result_nan_into_mask(&mut self, k: &KernelRegs) {
-        self.emit(abi::vector_fcmeq("v1", "v0", "v0")); // non-NaN = all-ones
-        self.emit(abi::vector_cmeq("v2", "v0", "v0")); // all-ones (bitwise self-eq)
-        self.emit(abi::vector_eor("v1", "v1", "v2")); // NaN lanes = all-ones
-        self.emit(abi::vector_orr(&k.v22, &k.v22, "v1"));
+        self.emit(abi::vector_fcmeq(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // non-NaN = all-ones
+        self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // all-ones (bitwise self-eq)
+        self.emit(abi::vector_eor(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2])); // NaN lanes = all-ones
+        self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[1]));
     }
 
     /// Lower a *scalar* `Float` transcendental onto the array kernel by
@@ -455,7 +455,7 @@ impl CodeBuilder<'_> {
         value_loc: &str,
         text: String,
     ) -> Result<ValueResult, String> {
-        self.emit(abi::vector_dup_from_x("v0", value_loc));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], value_loc));
         let k = &self.float_kernel_regs();
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit_float_kernel_setup(kernel, k);
@@ -472,7 +472,7 @@ impl CodeBuilder<'_> {
             self.emit_float_error_reduce(*err, k)?;
         }
         let dst = self.allocate_register()?;
-        self.emit(abi::vector_extract_to_x(&dst, "v0", 0));
+        self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             type_: "Float".to_string(),
             location: dst,
@@ -563,24 +563,24 @@ impl CodeBuilder<'_> {
     /// (Sterbenz), so both stay ≤1 ULP. `ErrInvalidArgument` for `|x| > 1`.
     fn emit_asin_acos_body(&mut self, want_acos: bool, k: &KernelRegs) {
         // Domain: |x| > 1 fails.
-        self.emit(abi::vector_and("v1", "v0", &k.v19)); // ax
-        self.emit(abi::vector_fcmgt("v6", "v1", &k.v16)); // ax > 1
-        self.emit(abi::vector_orr(&k.v22, &k.v22, "v6"));
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], &k.v19)); // ax
+        self.emit(abi::vector_fcmgt(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[1], &k.v16)); // ax > 1
+        self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[6]));
         if !want_acos {
             // asin(x) = atan(x / sqrt(1 - x^2)).
-            self.emit(abi::vector_orr("v7", &k.v16, &k.v16)); // 1.0
-            self.emit(abi::vector_fmls("v7", "v0", "v0")); // 1 - x*x
-            self.emit(abi::vector_fsqrt("v7", "v7"));
-            self.emit(abi::vector_fdiv("v0", "v0", "v7")); // arg → v0
+            self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], &k.v16, &k.v16)); // 1.0
+            self.emit(abi::vector_fmls(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // 1 - x*x
+            self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7]));
+            self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[7])); // arg → v0
             self.emit_atan_core(k); // v0 = atan(arg) = asin(x)
         } else {
             // acos(x) = 2*atan( sqrt( (1-x)/(1+x) ) ).
-            self.emit(abi::vector_fsub("v6", &k.v16, "v0")); // 1 - x
-            self.emit(abi::vector_fadd("v7", &k.v16, "v0")); // 1 + x
-            self.emit(abi::vector_fdiv("v0", "v6", "v7")); // (1-x)/(1+x)
-            self.emit(abi::vector_fsqrt("v0", "v0")); // sqrt(...) >= 0
+            self.emit(abi::vector_fsub(abi::VEC_SCRATCH[6], &k.v16, abi::VEC_SCRATCH[0])); // 1 - x
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], &k.v16, abi::VEC_SCRATCH[0])); // 1 + x
+            self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7])); // (1-x)/(1+x)
+            self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // sqrt(...) >= 0
             self.emit_atan_core(k); // v0 = atan(sqrt(...))
-            self.emit(abi::vector_fadd("v0", "v0", "v0")); // 2*atan(...)
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // 2*atan(...)
         }
     }
 
@@ -605,111 +605,111 @@ impl CodeBuilder<'_> {
     /// inputs v18=sign mask, v19=abs mask; sign parked in v25; segment masks in
     /// v28-v31; offset in v26/v27. (Reused by asin/acos/atan2.)
     fn emit_atan_core(&mut self, k: &KernelRegs) {
-        self.emit(abi::vector_and("v1", "v0", &k.v19)); // ax = |x|
-        self.emit(abi::vector_and(&k.v25, "v0", &k.v18)); // sign(x)
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], &k.v19)); // ax = |x|
+        self.emit(abi::vector_and(&k.v25, abi::VEC_SCRATCH[0], &k.v18)); // sign(x)
                                                           // Cumulative segment masks (ax >= threshold).
-        self.broadcast_f64("v4", ATAN_SEG_THRESH[0]);
-        self.emit(abi::vector_fcmge(&k.v28, "v1", "v4"));
-        self.broadcast_f64("v4", ATAN_SEG_THRESH[1]);
-        self.emit(abi::vector_fcmge(&k.v29, "v1", "v4"));
-        self.broadcast_f64("v4", ATAN_SEG_THRESH[2]);
-        self.emit(abi::vector_fcmge(&k.v30, "v1", "v4"));
-        self.broadcast_f64("v4", ATAN_SEG_THRESH[3]);
-        self.emit(abi::vector_fcmge(&k.v31, "v1", "v4"));
+        self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_SEG_THRESH[0]);
+        self.emit(abi::vector_fcmge(&k.v28, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+        self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_SEG_THRESH[1]);
+        self.emit(abi::vector_fcmge(&k.v29, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+        self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_SEG_THRESH[2]);
+        self.emit(abi::vector_fcmge(&k.v30, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+        self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_SEG_THRESH[3]);
+        self.emit(abi::vector_fcmge(&k.v31, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
         // reduced = ax (default, segment -1); off = 0.
-        self.emit(abi::vector_orr("v2", "v1", "v1"));
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
         self.emit(abi::vector_eor(&k.v26, &k.v26, &k.v26));
         self.emit(abi::vector_eor(&k.v27, &k.v27, &k.v27));
         // Segment 0: reduced=(2ax-1)/(2+ax), off=atan(0.5).
-        self.broadcast_f64("v4", 2.0);
-        self.emit(abi::vector_fadd("v5", "v1", "v1")); // 2ax
-        self.broadcast_f64("v6", 1.0);
-        self.emit(abi::vector_fsub("v5", "v5", "v6")); // 2ax-1
-        self.emit(abi::vector_fadd("v7", "v1", "v4")); // 2+ax
-        self.emit(abi::vector_fdiv("v3", "v5", "v7"));
-        self.emit_vsel("v2", &k.v28, "v3");
-        self.broadcast_f64("v3", ATAN_HI[0]);
-        self.emit_vsel(&k.v26, &k.v28, "v3");
-        self.broadcast_f64("v3", ATAN_LO[0]);
-        self.emit_vsel(&k.v27, &k.v28, "v3");
+        self.broadcast_f64(abi::VEC_SCRATCH[4], 2.0);
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1])); // 2ax
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[6])); // 2ax-1
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4])); // 2+ax
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[7]));
+        self.emit_vsel(abi::VEC_SCRATCH[2], &k.v28, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_HI[0]);
+        self.emit_vsel(&k.v26, &k.v28, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_LO[0]);
+        self.emit_vsel(&k.v27, &k.v28, abi::VEC_SCRATCH[3]);
         // Segment 1: reduced=(ax-1)/(ax+1), off=atan(1)=pi/4.
-        self.broadcast_f64("v6", 1.0);
-        self.emit(abi::vector_fsub("v5", "v1", "v6"));
-        self.emit(abi::vector_fadd("v7", "v1", "v6"));
-        self.emit(abi::vector_fdiv("v3", "v5", "v7"));
-        self.emit_vsel("v2", &k.v29, "v3");
-        self.broadcast_f64("v3", ATAN_HI[1]);
-        self.emit_vsel(&k.v26, &k.v29, "v3");
-        self.broadcast_f64("v3", ATAN_LO[1]);
-        self.emit_vsel(&k.v27, &k.v29, "v3");
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[7]));
+        self.emit_vsel(abi::VEC_SCRATCH[2], &k.v29, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_HI[1]);
+        self.emit_vsel(&k.v26, &k.v29, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_LO[1]);
+        self.emit_vsel(&k.v27, &k.v29, abi::VEC_SCRATCH[3]);
         // Segment 2: reduced=(ax-1.5)/(1+1.5ax), off=atan(1.5).
-        self.broadcast_f64("v4", 1.5);
-        self.emit(abi::vector_fmul("v7", "v1", "v4")); // 1.5ax
-        self.broadcast_f64("v6", 1.0);
-        self.emit(abi::vector_fadd("v7", "v7", "v6")); // 1+1.5ax
-        self.emit(abi::vector_fsub("v5", "v1", "v4")); // ax-1.5
-        self.emit(abi::vector_fdiv("v3", "v5", "v7"));
-        self.emit_vsel("v2", &k.v30, "v3");
-        self.broadcast_f64("v3", ATAN_HI[2]);
-        self.emit_vsel(&k.v26, &k.v30, "v3");
-        self.broadcast_f64("v3", ATAN_LO[2]);
-        self.emit_vsel(&k.v27, &k.v30, "v3");
+        self.broadcast_f64(abi::VEC_SCRATCH[4], 1.5);
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4])); // 1.5ax
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[6])); // 1+1.5ax
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4])); // ax-1.5
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[7]));
+        self.emit_vsel(abi::VEC_SCRATCH[2], &k.v30, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_HI[2]);
+        self.emit_vsel(&k.v26, &k.v30, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_LO[2]);
+        self.emit_vsel(&k.v27, &k.v30, abi::VEC_SCRATCH[3]);
         // Segment 3: reduced=-1/ax, off=atan(inf)=pi/2.
-        self.broadcast_f64("v6", 1.0);
-        self.emit(abi::vector_fdiv("v3", "v6", "v1"));
-        self.emit(abi::vector_fneg("v3", "v3"));
-        self.emit_vsel("v2", &k.v31, "v3");
-        self.broadcast_f64("v3", ATAN_HI[3]);
-        self.emit_vsel(&k.v26, &k.v31, "v3");
-        self.broadcast_f64("v3", ATAN_LO[3]);
-        self.emit_vsel(&k.v27, &k.v31, "v3");
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[1]));
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3]));
+        self.emit_vsel(abi::VEC_SCRATCH[2], &k.v31, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_HI[3]);
+        self.emit_vsel(&k.v26, &k.v31, abi::VEC_SCRATCH[3]);
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_LO[3]);
+        self.emit_vsel(&k.v27, &k.v31, abi::VEC_SCRATCH[3]);
         // Polynomial: z=reduced^2, w=z^2; s1=z*odd, s2=w*even (fdlibm split).
-        self.emit(abi::vector_fmul("v5", "v2", "v2")); // z
-        self.emit(abi::vector_fmul("v6", "v5", "v5")); // w
-        self.broadcast_f64("v3", ATAN_AT[10]);
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // z
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5])); // w
+        self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_AT[10]);
         for &i in &[8usize, 6, 4, 2] {
-            self.broadcast_f64("v4", ATAN_AT[i]);
-            self.emit(abi::vector_fmla("v4", "v3", "v6"));
-            self.emit(abi::vector_orr("v3", "v4", "v4"));
+            self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_AT[i]);
+            self.emit(abi::vector_fmla(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6]));
+            self.emit(abi::vector_orr(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4]));
         }
-        self.broadcast_f64("v4", ATAN_AT[0]);
-        self.emit(abi::vector_fmla("v4", "v3", "v6"));
-        self.emit(abi::vector_fmul("v3", "v5", "v4")); // s1 = z*(...)
-        self.broadcast_f64("v7", ATAN_AT[9]);
+        self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_AT[0]);
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[4])); // s1 = z*(...)
+        self.broadcast_f64(abi::VEC_SCRATCH[7], ATAN_AT[9]);
         for &i in &[7usize, 5, 3, 1] {
-            self.broadcast_f64("v4", ATAN_AT[i]);
-            self.emit(abi::vector_fmla("v4", "v7", "v6"));
-            self.emit(abi::vector_orr("v7", "v4", "v4"));
+            self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_AT[i]);
+            self.emit(abi::vector_fmla(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[6]));
+            self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4]));
         }
-        self.emit(abi::vector_fmul("v7", "v6", "v7")); // s2 = w*(...)
-        self.emit(abi::vector_fadd("v3", "v3", "v7")); // P = s1+s2
-        self.emit(abi::vector_fmul("v3", "v2", "v3")); // t = reduced*P
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7])); // s2 = w*(...)
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[7])); // P = s1+s2
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3])); // t = reduced*P
                                                        // result = off_hi - ((t - off_lo) - reduced).
-        self.emit(abi::vector_fsub("v4", "v3", &k.v27));
-        self.emit(abi::vector_fsub("v4", "v4", "v2"));
-        self.emit(abi::vector_fsub("v0", &k.v26, "v4"));
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[3], &k.v27));
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[2]));
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[0], &k.v26, abi::VEC_SCRATCH[4]));
         // Restore the sign (atan(|x|) >= 0).
-        self.emit(abi::vector_orr("v0", "v0", &k.v25));
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], &k.v25));
     }
 
     /// Cody-Waite reduce `x` to `r in [-pi/4, pi/4]` and quadrant `q & 3`. Leaves
     /// the reduced angle in `v2` and the quadrant (int) in `v5`. Working: v1,v3,
     /// v6,v7. Assumes the persistent trig constants in v16-v21.
     fn emit_sincos_reduce(&mut self, k: &KernelRegs) {
-        self.emit(abi::vector_fmul("v1", "v0", &k.v16)); // x*invpio2
-        self.emit(abi::vector_fadd("v1", "v1", &k.v17)); // +0.5
-        self.emit(abi::vector_frintm("v1", "v1")); // q = floor(..)
-        self.emit(abi::vector_orr("v2", "v0", "v0")); // r = x
-        self.emit(abi::vector_fmls("v2", "v1", &k.v18)); // r -= q*PIO2_1
-        self.emit(abi::vector_fmul("v3", "v1", &k.v19)); // w = q*PIO2_2
-        self.emit(abi::vector_fsub("v6", "v2", "v3")); // y0 = r - w
-        self.emit(abi::vector_fsub("v7", "v2", "v6")); // r - y0
-        self.emit(abi::vector_fsub("v7", "v7", "v3")); // t = (r-y0) - w
-        self.emit(abi::vector_fneg("v7", "v7")); // -t
-        self.emit(abi::vector_fmla("v7", "v1", &k.v20)); // -t + q*PIO2_2T
-        self.emit(abi::vector_fsub("v2", "v6", "v7")); // reduced = y0 - (..)
-        self.emit(abi::vector_fcvtzs("v5", "v1")); // q (int)
-        self.emit(abi::vector_and("v5", "v5", &k.v21)); // quad = q & 3
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], &k.v16)); // x*invpio2
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v17)); // +0.5
+        self.emit(abi::vector_frintm(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1])); // q = floor(..)
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // r = x
+        self.emit(abi::vector_fmls(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], &k.v18)); // r -= q*PIO2_1
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[1], &k.v19)); // w = q*PIO2_2
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3])); // y0 = r - w
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[6])); // r - y0
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[3])); // t = (r-y0) - w
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7])); // -t
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], &k.v20)); // -t + q*PIO2_2T
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7])); // reduced = y0 - (..)
+        self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1])); // q (int)
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], &k.v21)); // quad = q & 3
     }
 
     /// `sin`/`cos` kernel. After reduction, evaluate the polynomials in
@@ -719,32 +719,32 @@ impl CodeBuilder<'_> {
     /// <=1 ULP of macOS libm.
     fn emit_sin_cos_body(&mut self, want_cos: bool, k: &KernelRegs) {
         self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var)
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // r2 (Horner var)
                                                        // cos_r = collapse(P_cos(r2)) → v23.
-        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS, k);
-        self.emit(abi::vector_fadd(&k.v23, "v3", "v4"));
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &COS_COEFFS, k);
+        self.emit(abi::vector_fadd(&k.v23, abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4]));
         // sin_r = r * collapse(P_sin(r2)) → v24 (carry the lo through the multiply).
-        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS, k);
-        self.emit_twoprod("v6", "v7", "v2", "v3");
-        self.emit(abi::vector_fmla("v7", "v2", "v4")); // pe += r*lo
-        self.emit(abi::vector_fadd(&k.v24, "v6", "v7"));
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &SIN_COEFFS, k);
+        self.emit_twoprod(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3]);
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4])); // pe += r*lo
+        self.emit(abi::vector_fadd(&k.v24, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7]));
         // Quadrant masks: bit0 (v1) and bit1 (v0) of quad.
-        self.emit(abi::vector_shl("v1", "v5", 63));
-        self.emit(abi::vector_sshr("v1", "v1", 63));
-        self.emit(abi::vector_shl("v0", "v5", 62));
-        self.emit(abi::vector_sshr("v0", "v0", 63));
+        self.emit(abi::vector_shl(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[5], 63));
+        self.emit(abi::vector_sshr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], 63));
+        self.emit(abi::vector_shl(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5], 62));
+        self.emit(abi::vector_sshr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], 63));
         if !want_cos {
             // sin: val = bit0 ? cos_r : sin_r; negate if bit1.
-            self.emit(abi::vector_bsl("v1", &k.v23, &k.v24));
-            self.emit(abi::vector_fneg("v3", "v1"));
-            self.emit(abi::vector_bsl("v0", "v3", "v1"));
+            self.emit(abi::vector_bsl(abi::VEC_SCRATCH[1], &k.v23, &k.v24));
+            self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[1]));
+            self.emit(abi::vector_bsl(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[1]));
         } else {
             // cos: val = bit0 ? sin_r : cos_r; negate if bit0 XOR bit1.
-            self.emit(abi::vector_eor("v4", "v1", "v0"));
-            self.emit(abi::vector_bsl("v1", &k.v24, &k.v23));
-            self.emit(abi::vector_fneg("v3", "v1"));
-            self.emit(abi::vector_bsl("v4", "v3", "v1"));
-            self.emit(abi::vector_orr("v0", "v4", "v4"));
+            self.emit(abi::vector_eor(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0]));
+            self.emit(abi::vector_bsl(abi::VEC_SCRATCH[1], &k.v24, &k.v23));
+            self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[1]));
+            self.emit(abi::vector_bsl(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[1]));
+            self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4]));
         }
     }
 
@@ -757,12 +757,12 @@ impl CodeBuilder<'_> {
     /// polynomial work. (`tan` still needs both halves and keeps the array body.)
     fn emit_sin_cos_body_scalar(&mut self, want_cos: bool, k: &KernelRegs) {
         self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var)
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // r2 (Horner var)
                                                        // Negate mask → v25 (the Horner never touches v25/v26): sin negates on
                                                        // bit1, cos on bit0^bit1. Matches emit_sin_cos_body's branchless masks.
-        self.emit(abi::vector_shl(&k.v26, "v5", 63));
+        self.emit(abi::vector_shl(&k.v26, abi::VEC_SCRATCH[5], 63));
         self.emit(abi::vector_sshr(&k.v26, &k.v26, 63)); // bit0 all-ones
-        self.emit(abi::vector_shl(&k.v25, "v5", 62));
+        self.emit(abi::vector_shl(&k.v25, abi::VEC_SCRATCH[5], 62));
         self.emit(abi::vector_sshr(&k.v25, &k.v25, 63)); // bit1 all-ones
         if want_cos {
             self.emit(abi::vector_eor(&k.v25, &k.v26, &k.v25)); // bit0 XOR bit1
@@ -770,7 +770,7 @@ impl CodeBuilder<'_> {
         // Branch on bit0. sin: bit0 ? cos_r : sin_r; cos: bit0 ? sin_r : cos_r.
         let bit0 = self.temporary_vreg();
         let one = self.temporary_vreg();
-        self.emit(abi::vector_extract_to_x(&bit0, "v5", 0));
+        self.emit(abi::vector_extract_to_x(&bit0, abi::VEC_SCRATCH[5], 0));
         self.emit(abi::move_immediate(&one, "Integer", "1"));
         self.emit(abi::and_registers(&bit0, &bit0, &one));
         let bit0_clear = self.label("simd_sc_bit0_clear");
@@ -779,40 +779,40 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&bit0_clear));
         // bit0 set.
         if !want_cos {
-            self.emit_cos_r_into("v0", k);
+            self.emit_cos_r_into(abi::VEC_SCRATCH[0], k);
         } else {
-            self.emit_sin_r_into("v0", k);
+            self.emit_sin_r_into(abi::VEC_SCRATCH[0], k);
         }
         self.emit(abi::branch(&sc_done));
         self.emit(abi::label(&bit0_clear));
         // bit0 clear.
         if !want_cos {
-            self.emit_sin_r_into("v0", k);
+            self.emit_sin_r_into(abi::VEC_SCRATCH[0], k);
         } else {
-            self.emit_cos_r_into("v0", k);
+            self.emit_cos_r_into(abi::VEC_SCRATCH[0], k);
         }
         self.emit(abi::label(&sc_done));
         // Apply the sign: v0 = negmask ? -v0 : v0 (BIT inserts -v0 where set).
-        self.emit(abi::vector_fneg("v3", "v0"));
-        self.emit(abi::vector_bit("v0", "v3", &k.v25));
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0]));
+        self.emit(abi::vector_bit(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3], &k.v25));
         self.emit_result_nan_into_mask(k);
     }
 
     /// `cos_r = collapse(P_cos(r2))` into `dst` (Horner var in `v1`). The exact
     /// instruction sequence emit_sin_cos_body uses, so the result is bit-identical.
     fn emit_cos_r_into(&mut self, dst: &str, k: &KernelRegs) {
-        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS, k);
-        self.emit(abi::vector_fadd(dst, "v3", "v4"));
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &COS_COEFFS, k);
+        self.emit(abi::vector_fadd(dst, abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4]));
     }
 
     /// `sin_r = collapse(r * P_sin(r2))` into `dst` (reduced angle in `v2`, Horner
     /// var in `v1`); carries the lo half through the multiply, exactly as
     /// emit_sin_cos_body — bit-identical.
     fn emit_sin_r_into(&mut self, dst: &str, k: &KernelRegs) {
-        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS, k);
-        self.emit_twoprod("v6", "v7", "v2", "v3");
-        self.emit(abi::vector_fmla("v7", "v2", "v4")); // pe += r*lo
-        self.emit(abi::vector_fadd(dst, "v6", "v7"));
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &SIN_COEFFS, k);
+        self.emit_twoprod(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3]);
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4])); // pe += r*lo
+        self.emit(abi::vector_fadd(dst, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7]));
     }
 
     /// `tan(x) = sin(x) / cos(x)`, strict <=1 ULP. `sin_r` and `cos_r` are
@@ -825,45 +825,45 @@ impl CodeBuilder<'_> {
     /// arguments would need Payne-Hanek, out of scope.)
     fn emit_tan_body(&mut self, k: &KernelRegs) {
         self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var, survives)
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // r2 (Horner var, survives)
                                                        // cos_r as a double-double (hi,lo) → stash in v25/v26.
-        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS, k);
-        self.emit(abi::vector_orr(&k.v25, "v3", "v3")); // cos_hi
-        self.emit(abi::vector_orr(&k.v26, "v4", "v4")); // cos_lo
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &COS_COEFFS, k);
+        self.emit(abi::vector_orr(&k.v25, abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3])); // cos_hi
+        self.emit(abi::vector_orr(&k.v26, abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4])); // cos_lo
                                                         // sin_r = reduced * P_sin(r2) as a double-double → stash in v23/v24.
-        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS, k);
-        self.emit_twoprod("v6", "v7", "v2", "v3"); // reduced*sin_hi → (v6,v7)
-        self.emit(abi::vector_fmla("v7", "v2", "v4")); // lo += reduced*sin_lo
-        self.emit(abi::vector_orr(&k.v23, "v6", "v6")); // sin_hi
-        self.emit(abi::vector_orr(&k.v24, "v7", "v7")); // sin_lo
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &SIN_COEFFS, k);
+        self.emit_twoprod(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3]); // reduced*sin_hi → (v6,v7)
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4])); // lo += reduced*sin_lo
+        self.emit(abi::vector_orr(&k.v23, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6])); // sin_hi
+        self.emit(abi::vector_orr(&k.v24, abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7])); // sin_lo
                                                         // Quadrant masks: b0 → v27, b1 → v2.
-        self.emit(abi::vector_shl(&k.v27, "v5", 63));
+        self.emit(abi::vector_shl(&k.v27, abi::VEC_SCRATCH[5], 63));
         self.emit(abi::vector_sshr(&k.v27, &k.v27, 63));
-        self.emit(abi::vector_shl("v2", "v5", 62));
-        self.emit(abi::vector_sshr("v2", "v2", 63));
+        self.emit(abi::vector_shl(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[5], 62));
+        self.emit(abi::vector_sshr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], 63));
         // sin_full = (b1 ? -1 : 1) * (b0 ? cos_r : sin_r), as a dd → (v28,v29).
-        self.emit(abi::vector_orr("v3", &k.v27, &k.v27));
-        self.emit(abi::vector_bsl("v3", &k.v25, &k.v23)); // b0?cos_hi:sin_hi
-        self.emit(abi::vector_orr("v4", &k.v27, &k.v27));
-        self.emit(abi::vector_bsl("v4", &k.v26, &k.v24)); // b0?cos_lo:sin_lo
-        self.emit(abi::vector_fneg("v6", "v3"));
-        self.emit(abi::vector_fneg("v7", "v4"));
-        self.emit(abi::vector_orr(&k.v28, "v2", "v2"));
-        self.emit(abi::vector_bsl(&k.v28, "v6", "v3")); // sin_full_hi
-        self.emit(abi::vector_orr(&k.v29, "v2", "v2"));
-        self.emit(abi::vector_bsl(&k.v29, "v7", "v4")); // sin_full_lo
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[3], &k.v27, &k.v27));
+        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[3], &k.v25, &k.v23)); // b0?cos_hi:sin_hi
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], &k.v27, &k.v27));
+        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[4], &k.v26, &k.v24)); // b0?cos_lo:sin_lo
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[3]));
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[4]));
+        self.emit(abi::vector_orr(&k.v28, abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+        self.emit(abi::vector_bsl(&k.v28, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[3])); // sin_full_hi
+        self.emit(abi::vector_orr(&k.v29, abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+        self.emit(abi::vector_bsl(&k.v29, abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[4])); // sin_full_lo
                                                         // cos_full = ((b0^b1) ? -1 : 1) * (b0 ? sin_r : cos_r), as a dd → (v30,v31).
-        self.emit(abi::vector_orr("v3", &k.v27, &k.v27));
-        self.emit(abi::vector_bsl("v3", &k.v23, &k.v25)); // b0?sin_hi:cos_hi
-        self.emit(abi::vector_orr("v4", &k.v27, &k.v27));
-        self.emit(abi::vector_bsl("v4", &k.v24, &k.v26)); // b0?sin_lo:cos_lo
-        self.emit(abi::vector_fneg("v6", "v3"));
-        self.emit(abi::vector_fneg("v7", "v4"));
-        self.emit(abi::vector_eor("v1", &k.v27, "v2")); // b0^b1
-        self.emit(abi::vector_orr(&k.v30, "v1", "v1"));
-        self.emit(abi::vector_bsl(&k.v30, "v6", "v3")); // cos_full_hi
-        self.emit(abi::vector_orr(&k.v31, "v1", "v1"));
-        self.emit(abi::vector_bsl(&k.v31, "v7", "v4")); // cos_full_lo
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[3], &k.v27, &k.v27));
+        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[3], &k.v23, &k.v25)); // b0?sin_hi:cos_hi
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], &k.v27, &k.v27));
+        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[4], &k.v24, &k.v26)); // b0?sin_lo:cos_lo
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[3]));
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[4]));
+        self.emit(abi::vector_eor(abi::VEC_SCRATCH[1], &k.v27, abi::VEC_SCRATCH[2])); // b0^b1
+        self.emit(abi::vector_orr(&k.v30, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+        self.emit(abi::vector_bsl(&k.v30, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[3])); // cos_full_hi
+        self.emit(abi::vector_orr(&k.v31, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+        self.emit(abi::vector_bsl(&k.v31, abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[4])); // cos_full_lo
                                                         // Double-double-accurate divide: sh=v28 sl=v29 ch=v30 cl=v31.
         self.emit_tan_divide(&k.v28, &k.v29, &k.v30, &k.v31);
     }
@@ -872,15 +872,15 @@ impl CodeBuilder<'_> {
     /// `q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`. Reads only the
     /// four operand registers; scratch is v0/v3/v4/v6.
     fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str) {
-        self.emit(abi::vector_fdiv("v0", sh, ch)); // q = sh/ch
-        self.emit(abi::vector_fneg("v3", "v0")); // -q
-        self.emit(abi::vector_orr("v4", sh, sh));
-        self.emit(abi::vector_fmla("v4", "v3", ch)); // sh - q*ch (fma residual)
-        self.emit(abi::vector_orr("v6", sl, sl));
-        self.emit(abi::vector_fmls("v6", "v0", cl)); // sl - q*cl
-        self.emit(abi::vector_fadd("v4", "v4", "v6")); // num
-        self.emit(abi::vector_fdiv("v4", "v4", ch)); // num/ch
-        self.emit(abi::vector_fadd("v0", "v0", "v4")); // tan = q + num/ch
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], sh, ch)); // q = sh/ch
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0])); // -q
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], sh, sh));
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[3], ch)); // sh - q*ch (fma residual)
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[6], sl, sl));
+        self.emit(abi::vector_fmls(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], cl)); // sl - q*cl
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[6])); // num
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], ch)); // num/ch
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[4])); // tan = q + num/ch
     }
 
     /// Scalar-only `tan`: `tan` has period π, so the quadrant reduces to bit0 —
@@ -892,21 +892,21 @@ impl CodeBuilder<'_> {
     /// ratio needs both halves); only the selection is removed.
     fn emit_tan_body_scalar(&mut self, k: &KernelRegs) {
         self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var, survives)
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // r2 (Horner var, survives)
                                                        // cos_r as a double-double (hi,lo) → v25/v26.
-        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS, k);
-        self.emit(abi::vector_orr(&k.v25, "v3", "v3")); // cos_hi
-        self.emit(abi::vector_orr(&k.v26, "v4", "v4")); // cos_lo
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &COS_COEFFS, k);
+        self.emit(abi::vector_orr(&k.v25, abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3])); // cos_hi
+        self.emit(abi::vector_orr(&k.v26, abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4])); // cos_lo
                                                         // sin_r = reduced * P_sin(r2) as a double-double → v23/v24.
-        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS, k);
-        self.emit_twoprod("v6", "v7", "v2", "v3"); // reduced*sin_hi → (v6,v7)
-        self.emit(abi::vector_fmla("v7", "v2", "v4")); // lo += reduced*sin_lo
-        self.emit(abi::vector_orr(&k.v23, "v6", "v6")); // sin_hi
-        self.emit(abi::vector_orr(&k.v24, "v7", "v7")); // sin_lo
+        self.emit_compensated_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[1], &SIN_COEFFS, k);
+        self.emit_twoprod(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3]); // reduced*sin_hi → (v6,v7)
+        self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4])); // lo += reduced*sin_lo
+        self.emit(abi::vector_orr(&k.v23, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6])); // sin_hi
+        self.emit(abi::vector_orr(&k.v24, abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7])); // sin_lo
                                                         // bit0 ? -cos_r/sin_r : sin_r/cos_r (bit1 cancels in the ratio).
         let bit0 = self.temporary_vreg();
         let one = self.temporary_vreg();
-        self.emit(abi::vector_extract_to_x(&bit0, "v5", 0));
+        self.emit(abi::vector_extract_to_x(&bit0, abi::VEC_SCRATCH[5], 0));
         self.emit(abi::move_immediate(&one, "Integer", "1"));
         self.emit(abi::and_registers(&bit0, &bit0, &one));
         let bit0_clear = self.label("simd_tan_bit0_clear");
@@ -936,32 +936,32 @@ impl CodeBuilder<'_> {
     /// precision.
     fn emit_exp_body_lo(&mut self, lo: Option<&str>, k: &KernelRegs) {
         // NaN input → ErrFloatNan: chunk_nan = ~fcmeq(x,x); accumulate into v22.
-        self.emit(abi::vector_fcmeq("v6", "v0", "v0")); // non-NaN lanes = all-ones
-        self.emit(abi::vector_cmeq("v7", "v0", "v0")); // all-ones (bitwise self-eq)
-        self.emit(abi::vector_eor("v6", "v6", "v7")); // NaN lanes = all-ones
-        self.emit(abi::vector_orr(&k.v22, &k.v22, "v6"));
+        self.emit(abi::vector_fcmeq(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // non-NaN lanes = all-ones
+        self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // all-ones (bitwise self-eq)
+        self.emit(abi::vector_eor(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7])); // NaN lanes = all-ones
+        self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[6]));
         // n = floor(x*(1/ln2) + 0.5); r = x - n*ln2 (Cody-Waite); Horner P(r).
         // v16 holds 1/ln2 (reciprocal multiply, not a divide).
-        self.emit(abi::vector_fmul("v1", "v0", &k.v16));
-        self.emit(abi::vector_fadd("v1", "v1", &k.v17));
-        self.emit(abi::vector_frintm("v1", "v1"));
-        self.emit(abi::vector_orr("v2", "v0", "v0"));
-        self.emit(abi::vector_fmls("v2", "v1", &k.v18));
-        self.emit(abi::vector_fmls("v2", "v1", &k.v19));
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], &k.v16));
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v17));
+        self.emit(abi::vector_frintm(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+        self.emit(abi::vector_fmls(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], &k.v18));
+        self.emit(abi::vector_fmls(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], &k.v19));
         if let Some(lo) = lo {
-            self.emit(abi::vector_fadd("v2", "v2", lo)); // r += dd low part
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], lo)); // r += dd low part
         }
-        self.emit_horner("v3", "v2", &EXP_COEFFS);
-        self.emit(abi::vector_fcvtzs("v5", "v1"));
+        self.emit_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[2], &EXP_COEFFS);
+        self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1]));
         // Overflow (result past finite range) → ErrFloatInf: n > 1023.
-        self.emit(abi::vector_cmgt("v6", "v5", &k.v20));
-        self.emit(abi::vector_orr(&k.v24, &k.v24, "v6")); // accumulate inf mask
-        self.emit(abi::vector_cmgt("v6", &k.v23, "v5")); // underflow mask
-        self.emit(abi::vector_add("v5", "v5", &k.v20));
-        self.emit(abi::vector_shl("v5", "v5", 52));
-        self.emit(abi::vector_fmul("v0", "v3", "v5"));
-        self.emit(abi::vector_bsl("v6", &k.v21, "v0")); // flush underflow to 0
-        self.emit(abi::vector_orr("v0", "v6", "v6"));
+        self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[5], &k.v20));
+        self.emit(abi::vector_orr(&k.v24, &k.v24, abi::VEC_SCRATCH[6])); // accumulate inf mask
+        self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[6], &k.v23, abi::VEC_SCRATCH[5])); // underflow mask
+        self.emit(abi::vector_add(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], &k.v20));
+        self.emit(abi::vector_shl(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], 52));
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5]));
+        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[6], &k.v21, abi::VEC_SCRATCH[0])); // flush underflow to 0
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6]));
     }
 
     /// `log`/`log10` kernel: x = 2^k*m (frexp + fold to [1/sqrt2, sqrt2)),
@@ -974,51 +974,51 @@ impl CodeBuilder<'_> {
     /// as a double-double `hi=v0`, `lo=v31` instead of collapsing — for `pow`.
     fn emit_log_body(&mut self, base10: bool, keep_lo: bool, k: &KernelRegs) {
         // Domain: x <= 0 fails.
-        self.emit(abi::vector_fcmle_zero("v1", "v0"));
-        self.emit(abi::vector_orr(&k.v22, &k.v22, "v1"));
+        self.emit(abi::vector_fcmle_zero(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0]));
+        self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[1]));
         // k = ((bits>>52) & 0x7ff) - 1022  (integer, v1).
-        self.emit(abi::vector_ushr("v1", "v0", 52));
-        self.emit(abi::vector_and("v1", "v1", &k.v18));
-        self.emit(abi::vector_sub("v1", "v1", &k.v19));
+        self.emit(abi::vector_ushr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], 52));
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v18));
+        self.emit(abi::vector_sub(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v19));
         // m = bits with exponent field replaced by 1022 → m in [0.5, 1) (v6).
-        self.emit(abi::vector_and("v6", "v0", &k.v20));
-        self.emit(abi::vector_orr("v6", "v6", &k.v21));
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], &k.v20));
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6], &k.v21));
         // if m < 1/sqrt2 { m *= 2; k -= 1 }.
-        self.emit(abi::vector_fcmgt("v7", &k.v16, "v6")); // mask: sqrt_half > m
-        self.emit(abi::vector_and("v0", "v7", &k.v23)); // mask & 1
-        self.emit(abi::vector_sub("v1", "v1", "v0")); // k -= adjust
-        self.emit(abi::vector_fadd("v0", "v6", "v6")); // m*2
-        self.emit(abi::vector_bsl("v7", "v0", "v6")); // v7 = mask?m2:m  (= m)
-        self.emit(abi::vector_scvtf("v3", "v1")); // k -> float (v3)
+        self.emit(abi::vector_fcmgt(abi::VEC_SCRATCH[7], &k.v16, abi::VEC_SCRATCH[6])); // mask: sqrt_half > m
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[7], &k.v23)); // mask & 1
+        self.emit(abi::vector_sub(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0])); // k -= adjust
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6])); // m*2
+        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6])); // v7 = mask?m2:m  (= m)
+        self.emit(abi::vector_scvtf(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[1])); // k -> float (v3)
                                                   // s = (m-1)/(m+1) (v2); s2 = s*s (v1, the Horner variable).
-        self.emit(abi::vector_fsub("v0", "v7", &k.v17)); // m - 1
-        self.emit(abi::vector_fadd("v6", "v7", &k.v17)); // m + 1
-        self.emit(abi::vector_fdiv("v2", "v0", "v6")); // s
-        self.emit(abi::vector_fmul("v1", "v2", "v2")); // s2
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[7], &k.v17)); // m - 1
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], &k.v17)); // m + 1
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6])); // s
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // s2
                                                        // P(s2) as a double-double (hi=v4, lo=v5) via compensated Horner.
-        self.emit_compensated_horner("v4", "v5", "v1", &LOG_COEFFS, k);
+        self.emit_compensated_horner(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], &LOG_COEFFS, k);
         // ln(m) = s * (hi+lo): two-product then fma the lo terms → (v7=lh, v28=le).
-        self.emit_twoprod("v7", &k.v28, "v2", "v4");
-        self.emit(abi::vector_fmla(&k.v28, "v2", "v5")); // le += s*lo
+        self.emit_twoprod(abi::VEC_SCRATCH[7], &k.v28, abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4]);
+        self.emit(abi::vector_fmla(&k.v28, abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[5])); // le += s*lo
                                                          // k*ln2 as a double-double → (v29=kh, v30=ke).
-        self.emit_twoprod(&k.v29, &k.v30, "v3", &k.v24);
-        self.emit(abi::vector_fmla(&k.v30, "v3", &k.v25)); // ke += k*ln2lo
+        self.emit_twoprod(&k.v29, &k.v30, abi::VEC_SCRATCH[3], &k.v24);
+        self.emit(abi::vector_fmla(&k.v30, abi::VEC_SCRATCH[3], &k.v25)); // ke += k*ln2lo
                                                            // (kh,ke) + (lh,le): two-sum hi, accumulate the lows → hi=v0, lo=v31.
                                                            // Scratch v4/v5 are dead (Horner outputs consumed).
-        self.emit_twosum("v0", &k.v31, &k.v29, "v7", "v4", "v5");
+        self.emit_twosum(abi::VEC_SCRATCH[0], &k.v31, &k.v29, abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[5]);
         self.emit(abi::vector_fadd(&k.v31, &k.v31, &k.v30)); // + ke
         self.emit(abi::vector_fadd(&k.v31, &k.v31, &k.v28)); // + le
         if !base10 {
             if !keep_lo {
-                self.emit(abi::vector_fadd("v0", "v0", &k.v31)); // ln(x) = hi + lo
+                self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], &k.v31)); // ln(x) = hi + lo
             }
             // keep_lo: leave hi=v0, lo=v31 for pow's double-double y*log(x).
         } else {
             // log10(x) = (hi+lo) * (1/ln10 as hi+lo), compensated.
-            self.emit_twoprod("v6", "v7", "v0", &k.v26); // ph = hi*L10HI
-            self.emit(abi::vector_fmla("v7", "v0", &k.v27)); // pe += hi*L10LO
-            self.emit(abi::vector_fmla("v7", &k.v31, &k.v26)); // pe += lo*L10HI
-            self.emit(abi::vector_fadd("v0", "v6", "v7"));
+            self.emit_twoprod(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], &k.v26); // ph = hi*L10HI
+            self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], &k.v27)); // pe += hi*L10LO
+            self.emit(abi::vector_fmla(abi::VEC_SCRATCH[7], &k.v31, &k.v26)); // pe += lo*L10HI
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7]));
         }
     }
 
@@ -1058,11 +1058,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_eor(lo, lo, lo));
         for i in (0..coeffs.len() - 1).rev() {
             // (ph, pe) = twoprod(hi, var); pe += lo*var.
-            self.emit_twoprod("v7", &k.v28, hi, var);
+            self.emit_twoprod(abi::VEC_SCRATCH[7], &k.v28, hi, var);
             self.emit(abi::vector_fmla(&k.v28, lo, var));
             // (sh, se) = twosum(c, ph). Scratch v0/v31 are free during the Horner.
-            self.broadcast_f64("v6", coeffs[i]);
-            self.emit_twosum(&k.v29, &k.v30, "v6", "v7", "v0", &k.v31);
+            self.broadcast_f64(abi::VEC_SCRATCH[6], coeffs[i]);
+            self.emit_twosum(&k.v29, &k.v30, abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], &k.v31);
             // hi = sh; lo = se + pe.
             self.emit(abi::vector_orr(hi, &k.v29, &k.v29));
             self.emit(abi::vector_fadd(lo, &k.v30, &k.v28));
@@ -1076,9 +1076,9 @@ impl CodeBuilder<'_> {
     fn emit_horner(&mut self, acc: &str, var: &str, coeffs: &[f64]) {
         self.broadcast_f64(acc, coeffs[coeffs.len() - 1]);
         for i in (0..coeffs.len() - 1).rev() {
-            self.broadcast_f64("v4", coeffs[i]);
-            self.emit(abi::vector_fmla("v4", acc, var));
-            self.emit(abi::vector_orr(acc, "v4", "v4"));
+            self.broadcast_f64(abi::VEC_SCRATCH[4], coeffs[i]);
+            self.emit(abi::vector_fmla(abi::VEC_SCRATCH[4], acc, var));
+            self.emit(abi::vector_orr(acc, abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4]));
         }
     }
 
@@ -1243,10 +1243,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
-        self.emit(abi::vector_load("v0", &left_data, 0));
-        self.emit(abi::vector_load("v1", &right_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[0], &left_data, 0));
+        self.emit(abi::vector_load(abi::VEC_SCRATCH[1], &right_data, 0));
         self.emit_float_binary_body(kernel, k);
-        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::vector_store(abi::VEC_SCRATCH[0], &out_data, 0));
         self.emit(abi::add_immediate(&left_data, &left_data, 16));
         self.emit(abi::add_immediate(&right_data, &right_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
@@ -1263,12 +1263,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&tail_done));
         let lane = self.temporary_vreg();
         self.emit(abi::load_u64(&lane, &left_data, 0));
-        self.emit(abi::vector_dup_from_x("v0", &lane));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &lane));
         self.emit(abi::load_u64(&lane, &right_data, 0));
-        self.emit(abi::vector_dup_from_x("v1", &lane));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[1], &lane));
         self.emit_float_binary_body(kernel, k);
         let res_lane = self.temporary_vreg();
-        self.emit(abi::vector_extract_to_x(&res_lane, "v0", 0));
+        self.emit(abi::vector_extract_to_x(&res_lane, abi::VEC_SCRATCH[0], 0));
         self.emit(abi::store_u64(&res_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
@@ -1309,8 +1309,8 @@ impl CodeBuilder<'_> {
         right_loc: &str,
         text: String,
     ) -> Result<ValueResult, String> {
-        self.emit(abi::vector_dup_from_x("v0", left_loc));
-        self.emit(abi::vector_dup_from_x("v1", right_loc));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], left_loc));
+        self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[1], right_loc));
         let k = &self.float_kernel_regs();
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit(abi::vector_eor(&k.v24, &k.v24, &k.v24)); // inf/overflow mask
@@ -1320,7 +1320,7 @@ impl CodeBuilder<'_> {
             self.emit_float_error_reduce(*err, k)?;
         }
         let dst = self.allocate_register()?;
-        self.emit(abi::vector_extract_to_x(&dst, "v0", 0));
+        self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             type_: "Float".to_string(),
             location: dst,
@@ -1347,13 +1347,13 @@ impl CodeBuilder<'_> {
         match kernel {
             FloatBinaryKernel::Atan2 => {
                 // atan2(y=v0, x=v1) = atan(y/x) + (x<0 ? copysign(pi, y) : 0).
-                self.emit(abi::vector_fcmlt_zero(&k.v20, "v1")); // x < 0 mask
-                self.emit(abi::vector_and(&k.v21, "v0", &k.v18)); // sign(y)
-                self.emit(abi::vector_fdiv("v0", "v0", "v1")); // q = y/x
+                self.emit(abi::vector_fcmlt_zero(&k.v20, abi::VEC_SCRATCH[1])); // x < 0 mask
+                self.emit(abi::vector_and(&k.v21, abi::VEC_SCRATCH[0], &k.v18)); // sign(y)
+                self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])); // q = y/x
                 self.emit_atan_core(k); // v0 = atan(q)
-                self.emit(abi::vector_orr("v2", &k.v23, &k.v21)); // copysign(pi, y)
-                self.emit(abi::vector_and("v2", "v2", &k.v20)); // & (x<0)
-                self.emit(abi::vector_fadd("v0", "v0", "v2"));
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], &k.v23, &k.v21)); // copysign(pi, y)
+                self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], &k.v20)); // & (x<0)
+                self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2]));
                 self.emit_result_nan_into_mask(k);
             }
             FloatBinaryKernel::Pow => {
@@ -1362,14 +1362,14 @@ impl CodeBuilder<'_> {
                 // log_body sets v22 for a non-positive base (no real result), and
                 // the result-NaN check below catches NaN/overflow inputs — both
                 // surface as ErrFloatNan, matching the scalar pow man page.
-                self.emit(abi::vector_orr(&k.v26, "v1", "v1")); // save y
+                self.emit(abi::vector_orr(&k.v26, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1])); // save y
                 self.emit_float_kernel_setup(FloatKernel::Log, k);
                 self.emit_log_body(false, true, k); // log(x) as dd: hi=v0, lo=v31
                                                     // y*log(x) as a double-double (v0 = hi, v27 = lo).
-                self.emit_twoprod("v2", "v3", &k.v26, "v0"); // y*log_hi
-                self.emit(abi::vector_fmla("v3", &k.v26, &k.v31)); // + y*log_lo
-                self.emit(abi::vector_orr("v0", "v2", "v2"));
-                self.emit(abi::vector_orr(&k.v27, "v3", "v3"));
+                self.emit_twoprod(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3], &k.v26, abi::VEC_SCRATCH[0]); // y*log_hi
+                self.emit(abi::vector_fmla(abi::VEC_SCRATCH[3], &k.v26, &k.v31)); // + y*log_lo
+                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+                self.emit(abi::vector_orr(&k.v27, abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3]));
                 self.emit_float_kernel_setup(FloatKernel::Exp, k);
                 self.emit_exp_body_lo(Some(&k.v27), k); // exp((y*log x) as dd)
                 self.emit_result_nan_into_mask(k);

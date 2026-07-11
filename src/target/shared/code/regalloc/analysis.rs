@@ -194,7 +194,10 @@ pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
     // `d0`–`d7` lead `FP_ALLOCATABLE`, so the token must be visible to
     // `phys_busy_at` or the allocator would color a live `%fN` onto a busy
     // scratch realization.
-    if let Some(rest) = name.strip_prefix("%fscratch") {
+    if let Some(rest) = name
+        .strip_prefix("%fscratch")
+        .or_else(|| name.strip_prefix("%vscratch"))
+    {
         if let Ok(n) = rest.parse::<u32>() {
             return (n <= 7).then_some(n);
         }

@@ -607,7 +607,9 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
         // and the owned-value zero-inits landed save_size bytes away from the
         // slots the scope-drops actually read.
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
-            matches!(*name, "base" | "src") && (abi::is_stack_pointer(value) || value == "rsp")
+            matches!(*name, "base" | "src")
+                && (abi::is_stack_pointer(value)
+                    || value == crate::arch::x86_64::regmodel::STACK_POINTER)
         });
         if !stack_relative {
             continue;

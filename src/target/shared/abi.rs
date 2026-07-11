@@ -201,6 +201,21 @@ pub(crate) const FP_SCRATCH: [&str; 8] = [
     "%fscratch6", "%fscratch7",
 ];
 
+/// Vector (NEON lane-view) scratch register tokens — the 128-bit view of the
+/// same physical file [`FP_SCRATCH`] names in its scalar `d` view (plan-34-D).
+/// The SIMD kernels (`builder_simd_*`) hand-stage lane data in `v0`–`v7` with
+/// hand-tracked liveness; these tokens spell that bank neutrally.
+/// [`realize_abi_token`] maps `VEC_SCRATCH[i]` to `v{i}` (byte-identical), and
+/// the backends remap the realized name to their own file exactly as they do
+/// the `d` view (x86-64 `xmm{i}` — NEON `v`/`q` alias the `d` register's full
+/// 128 bits). Because the views alias, `VEC_SCRATCH[i]` and `FP_SCRATCH[i]`
+/// occupy the same allocator index (`regalloc::analysis::fp_physical_index`),
+/// mirroring today's `v{i}`/`d{i}` aliasing.
+pub(crate) const VEC_SCRATCH: [&str; 8] = [
+    "%vscratch0", "%vscratch1", "%vscratch2", "%vscratch3", "%vscratch4", "%vscratch5",
+    "%vscratch6", "%vscratch7",
+];
+
 /// The SIMD math-kernel constant-pool base — the register
 /// `builder_simd_float_math` pins for a kernel's lifetime on backends whose
 /// `RegisterModel::math_pool_base` names one (plan-34-D). One role, one
@@ -270,6 +285,16 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         "%fscratch5" => "d5",
         "%fscratch6" => "d6",
         "%fscratch7" => "d7",
+        // Vector scratch pool (`VEC_SCRATCH`), the NEON lane view of the same
+        // low bank (plan-34-D).
+        "%vscratch0" => "v0",
+        "%vscratch1" => "v1",
+        "%vscratch2" => "v2",
+        "%vscratch3" => "v3",
+        "%vscratch4" => "v4",
+        "%vscratch5" => "v5",
+        "%vscratch6" => "v6",
+        "%vscratch7" => "v7",
         // The SIMD math-kernel constant-pool base (plan-34-D).
         "%mathpool" => "x2",
         _ => return None,
