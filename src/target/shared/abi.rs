@@ -182,6 +182,26 @@ pub(crate) const SCRATCH: [&str; 19] = [
     "%scratch14", "%scratch15", "%scratch16", "%scratch17", "%scratch18",
 ];
 
+/// Floating-point scratch register tokens — the FP counterpart of [`SCRATCH`]
+/// (plan-34-D). The float builders and in-tree math kernels hand-stage values in
+/// a short-lived FP bank with hand-tracked liveness (round-trips through
+/// `fmov`, kernel argument staging, compare staging); that bank is spelled by
+/// these tokens, never as a physical `d` register. [`realize_abi_token`] maps
+/// `FP_SCRATCH[i]` to `d{i}` — the caller-saved low bank the code has always
+/// used, so the output is byte-identical — and each backend then remaps that to
+/// its own file (x86-64 `xmm{i}`, riscv64 via `map_fp_register`). The low bank
+/// doubles as the AAPCS64 FP *argument* registers, which is why C-call float
+/// argument staging (`link_thunk`) draws from the same pool — the aliasing is
+/// deliberate, exactly like `SCRATCH`'s x20/x28 overlap. Unlike the int pool's
+/// realizations, `d0`–`d7` sit *inside* `FP_ALLOCATABLE`, so the register
+/// allocator's occupancy analysis parses these tokens directly
+/// (`regalloc::analysis::fp_physical_index`) — a live `%fN` is never colored
+/// onto a busy `FP_SCRATCH` realization.
+pub(crate) const FP_SCRATCH: [&str; 8] = [
+    "%fscratch0", "%fscratch1", "%fscratch2", "%fscratch3", "%fscratch4", "%fscratch5",
+    "%fscratch6", "%fscratch7",
+];
+
 /// Translate a call-boundary role token to its AArch64 register spelling — the
 /// seam **all three** backends apply during selection before their per-ISA remap
 /// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64
@@ -223,6 +243,16 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         "%scratch16" => "x26",
         "%scratch17" => "x27",
         "%scratch18" => "x28",
+        // FP scratch pool (`FP_SCRATCH`), the caller-saved low `d` bank
+        // (plan-34-D).
+        "%fscratch0" => "d0",
+        "%fscratch1" => "d1",
+        "%fscratch2" => "d2",
+        "%fscratch3" => "d3",
+        "%fscratch4" => "d4",
+        "%fscratch5" => "d5",
+        "%fscratch6" => "d6",
+        "%fscratch7" => "d7",
         _ => return None,
     })
 }
@@ -1077,6 +1107,13 @@ mod tests {
         assert_eq!(stack_pointer(), "sp");
         assert_eq!(syscall_register(), "%sysnr");
         assert_eq!(realize_abi_token("%sysnr"), Some("x8"));
+        // The FP scratch pool realizes to the caller-saved low `d` bank, index
+        // for index (plan-34-D).
+        for (i, token) in FP_SCRATCH.iter().enumerate() {
+            assert_eq!(*token, format!("%fscratch{i}"));
+            let expected = format!("d{i}");
+            assert_eq!(realize_abi_token(token), Some(expected.as_str()));
+        }
         assert_eq!(string_length_register(), "x2");
         assert_eq!(string_data_register(), "x1");
         assert!(is_callee_saved("x19"));

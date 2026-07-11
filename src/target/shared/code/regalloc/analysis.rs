@@ -188,6 +188,17 @@ pub(super) fn riscv_int_index(name: &str) -> Option<u32> {
 /// vector `v0`–`v31` (aliased) map to `0..=31`; x86-64 `xmm0`–`xmm15`
 /// (plan-00-H) to `0..=15`.
 pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
+    // An `abi::FP_SCRATCH` token occupies the physical index its realization
+    // (`d{i}`) maps to (plan-34-D). Unlike the int role tokens — whose
+    // realizations sit outside `INT_ALLOCATABLE`, so their occupancy is moot —
+    // `d0`–`d7` lead `FP_ALLOCATABLE`, so the token must be visible to
+    // `phys_busy_at` or the allocator would color a live `%fN` onto a busy
+    // scratch realization.
+    if let Some(rest) = name.strip_prefix("%fscratch") {
+        if let Ok(n) = rest.parse::<u32>() {
+            return (n <= 7).then_some(n);
+        }
+    }
     if let Some(rest) = name.strip_prefix('d').or_else(|| name.strip_prefix('v')) {
         if let Ok(n) = rest.parse::<u32>() {
             return (n <= 31).then_some(n);

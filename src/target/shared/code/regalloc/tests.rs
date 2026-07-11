@@ -308,3 +308,50 @@ fn linear_scan_colors_short_range_in_register() {
     assert!(colored.starts_with('x'));
     assert_eq!(instructions[2].get("lhs"), Some(colored.as_str()));
 }
+
+/// plan-34-D hazard regression: an `abi::FP_SCRATCH` token occupies its
+/// realization's physical index, exactly as the literal `dN` it replaced did.
+/// `%f0` is live across a `%fscratch0` def/use, so it must NOT be colored `d0`
+/// — losing this occupancy would let the scratch write clobber the live value.
+#[test]
+fn linear_scan_avoids_live_fp_scratch_token_realization() {
+    use crate::target::shared::abi;
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        // def %f0
+        CodeInstruction::new("fabs_d")
+            .field("dst", &fp_vreg_name(0))
+            .field("src", "sp"),
+        // hand-staged scratch inside %f0's live range
+        CodeInstruction::new("fabs_d")
+            .field("dst", abi::FP_SCRATCH[0])
+            .field("src", "sp"),
+        CodeInstruction::new("fabs_d")
+            .field("dst", "sp")
+            .field("src", abi::FP_SCRATCH[0]),
+        // use %f0 — keeps it live across the scratch def
+        CodeInstruction::new("fabs_d")
+            .field("dst", "sp")
+            .field("src", &fp_vreg_name(0)),
+        CodeInstruction::new("ret"),
+    ];
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    assert!(outcome.spill_slots.is_empty(), "no FP pressure — %f0 must color");
+    let colored = instructions[1].get("dst").unwrap().to_string();
+    assert!(colored.starts_with('d'), "%f0 must color to a d register, got {colored}");
+    assert_ne!(colored, "d0", "%f0 is live across %fscratch0 (realizes d0)");
+    // The token itself is never rewritten by coloring.
+    assert_eq!(instructions[2].get("dst"), Some(abi::FP_SCRATCH[0]));
+    // And the analysis sees the token at its realization's index.
+    assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH[0]), Some(0));
+    assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));
+    assert_eq!(analysis::fp_physical_index("%fscratch8"), None);
+}
