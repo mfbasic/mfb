@@ -533,7 +533,7 @@ impl CodeBuilder<'_> {
         match kernel {
             FloatKernel::Exp => self.emit_exp_body(k),
             FloatKernel::Log | FloatKernel::Log10 => {
-                self.emit_log_body(kernel == FloatKernel::Log10, false, k)
+                self.emit_log_body(kernel == FloatKernel::Log10, k)
             }
             FloatKernel::Sin => self.emit_sin_cos_body(false, k),
             FloatKernel::Cos => self.emit_sin_cos_body(true, k),
@@ -928,13 +928,6 @@ impl CodeBuilder<'_> {
 
     /// `exp` kernel: n=floor(x/ln2+0.5), Cody-Waite r, Horner P(r), scale 2^n.
     fn emit_exp_body(&mut self, k: &KernelRegs) {
-        self.emit_exp_body_lo(None, k);
-    }
-
-    /// exp kernel. `lo` (if given) is a double-double low correction added to the
-    /// reduced argument `r` — used by `pow` to evaluate `exp(y·log x)` to extra
-    /// precision.
-    fn emit_exp_body_lo(&mut self, lo: Option<&str>, k: &KernelRegs) {
         // NaN input → ErrFloatNan: chunk_nan = ~fcmeq(x,x); accumulate into v22.
         self.emit(abi::vector_fcmeq(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // non-NaN lanes = all-ones
         self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // all-ones (bitwise self-eq)
@@ -948,9 +941,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
         self.emit(abi::vector_fmls(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], &k.v18));
         self.emit(abi::vector_fmls(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], &k.v19));
-        if let Some(lo) = lo {
-            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], lo)); // r += dd low part
-        }
         self.emit_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[2], &EXP_COEFFS);
         self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1])); // n (int)
         // Scale P(r) by 2^n in two steps, 2^n = 2^n1 · 2^n2 with n1 = n>>1 and
@@ -985,9 +975,7 @@ impl CodeBuilder<'_> {
     /// is strict <=1 ULP; `log10` then multiplies by `1/ln10` as a double-double.
     /// Constants: v16 sqrt_half, v17 1.0, v18 0x7ff, v19 1022, v20 mantmask,
     /// v21 1022<<52, v23 1, v24/v25 ln2 hi/lo, v26/v27 1/ln10 hi/lo; v22 error.
-    /// `log`/`log10` kernel. When `keep_lo` (non-base10 only), leaves the result
-    /// as a double-double `hi=v0`, `lo=v31` instead of collapsing — for `pow`.
-    fn emit_log_body(&mut self, base10: bool, keep_lo: bool, k: &KernelRegs) {
+    fn emit_log_body(&mut self, base10: bool, k: &KernelRegs) {
         // Domain: x <= 0 fails.
         self.emit(abi::vector_fcmle_zero(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0]));
         self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[1]));
@@ -1042,10 +1030,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_fadd(&k.v31, &k.v31, &k.v30)); // + ke
         self.emit(abi::vector_fadd(&k.v31, &k.v31, &k.v28)); // + le
         if !base10 {
-            if !keep_lo {
-                self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], &k.v31)); // ln(x) = hi + lo
-            }
-            // keep_lo: leave hi=v0, lo=v31 for pow's double-double y*log(x).
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], &k.v31)); // ln(x) = hi + lo
         } else {
             // log10(x) = (hi+lo) * (1/ln10 as hi+lo), compensated.
             self.emit_twoprod(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], &k.v26); // ph = hi*L10HI
@@ -1371,8 +1356,6 @@ impl CodeBuilder<'_> {
                 self.broadcast_i64(&k.v19, i64::MAX); // abs mask
                 self.broadcast_f64(&k.v23, std::f64::consts::PI);
             }
-            // pow re-broadcasts the log then exp constants inside the body.
-            FloatBinaryKernel::Pow => {}
         }
     }
 
@@ -1401,45 +1384,25 @@ impl CodeBuilder<'_> {
                 self.emit_vsel(abi::VEC_SCRATCH[0], &k.v24, abi::VEC_SCRATCH[2]);
                 self.emit_result_nan_into_mask(k);
             }
-            FloatBinaryKernel::Pow => {
-                // pow(x=v0, y=v1) = exp(y * log(x)). Re-broadcast each kernel's
-                // constants in turn; y is parked in v26 (untouched by log/exp).
-                // log_body sets v22 for a non-positive base (no real result), and
-                // the result-NaN check below catches NaN/overflow inputs — both
-                // surface as ErrFloatNan, matching the scalar pow man page.
-                self.emit(abi::vector_orr(&k.v26, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1])); // save y
-                self.emit_float_kernel_setup(FloatKernel::Log, k);
-                self.emit_log_body(false, true, k); // log(x) as dd: hi=v0, lo=v31
-                                                    // y*log(x) as a double-double (v0 = hi, v27 = lo).
-                self.emit_twoprod(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3], &k.v26, abi::VEC_SCRATCH[0]); // y*log_hi
-                self.emit(abi::vector_fmla(abi::VEC_SCRATCH[3], &k.v26, &k.v31)); // + y*log_lo
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
-                self.emit(abi::vector_orr(&k.v27, abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3]));
-                self.emit_float_kernel_setup(FloatKernel::Exp, k);
-                self.emit_exp_body_lo(Some(&k.v27), k); // exp((y*log x) as dd)
-                self.emit_result_nan_into_mask(k);
-            }
         }
     }
 }
 
-/// A two-array `math::` Float kernel.
+/// A two-array `math::` Float kernel. `atan2` is the sole SIMD binary kernel;
+/// array/scalar `pow` runs the per-element scalar fdlibm kernel
+/// (`emit_pow_scalar`/`lower_pow_array`, bug-68), not this driver.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum FloatBinaryKernel {
     /// `atan2(y, x)`.
     Atan2,
-    /// `pow(base, exponent)`.
-    Pow,
 }
 
 impl FloatBinaryKernel {
     /// The error checks this kernel performs, matching the scalar man pages.
-    /// `atan2` only ever fails with a NaN result (NaN/inf input); `pow` (Phase 4)
-    /// also raises `ErrFloatInf` on overflow (its `exp` core sets the `v24` mask).
+    /// `atan2` only ever fails with a NaN result (NaN/inf input).
     fn errors(self) -> &'static [FloatError] {
         match self {
             FloatBinaryKernel::Atan2 => &[FloatError::Nan],
-            FloatBinaryKernel::Pow => &[FloatError::Nan, FloatError::Inf],
         }
     }
 }

@@ -29,7 +29,7 @@ const GPRS: &[&str] = &[
 /// and `r14` (pinned **zero register** — AArch64 has `xzr`, x86 does not, so
 /// `select_x86` realizes `xzr`/`x31` as `r14`, which the entry zeroes once and
 /// every function preserves because it is callee-saved and never allocated).
-/// Tight (5) versus AArch64's 19 — the linear-scan allocator spills under
+/// Tight (4) versus AArch64's 19 — the linear-scan allocator spills under
 /// pressure; correctness-first for bring-up (plan-00-H §7 frees a register by
 /// moving arena_base to TLS).
 // `r13` is deliberately absent: it realizes the `%closure_env` role token
@@ -157,7 +157,7 @@ impl RegisterModel for X86_64RegisterModel {
 
     fn math_pool_base(&self) -> Option<&'static str> {
         // No spare physical to pin (all 16 GPRs are ABI-role, reserved, or in the
-        // 5-register allocatable pool) and `x2` is an ABI register remap rewrites
+        // 4-register allocatable pool) and `x2` is an ABI register remap rewrites
         // per control-flow context — so the base is an allocator-placed vreg.
         None
     }

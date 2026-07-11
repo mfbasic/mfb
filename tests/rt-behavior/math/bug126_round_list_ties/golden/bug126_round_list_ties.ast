@@ -1,0 +1,41 @@
+{
+  "project": "bug126_round_list_ties",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "List OF Integer", "value": { "kind": "call", "callee": "math.round", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "2.5" }, { "kind": "number", "value": "3.5" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.5" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3.5" } }, { "kind": "number", "value": "0.5" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.5" } }] }] }, "line": 9 },
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 10 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "5" },
+        "step": null,
+        "line": 11,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "identifier", "value": "i" }] }] } }, "right": { "kind": "string", "value": " " } }, "line": 12 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

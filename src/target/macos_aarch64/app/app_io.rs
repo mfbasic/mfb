@@ -407,7 +407,8 @@ pub(crate) fn emit_app_io_terminal_size_helper(
     asm.push(abi::branch_le("ts_error"));
 
     // Allocate the { columns, rows } record (16 bytes, 8-aligned). Spill
-    // columns/rows first; _mfb_arena_alloc clobbers x10/x11/x20-x28.
+    // columns/rows first; _mfb_arena_alloc clobbers all caller-saved x0-x17
+    // (preserves x19-x28).
     asm.push(abi::store_u64("x10", abi::stack_pointer(), off_col));
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_row));
     asm.push(abi::move_immediate("x0", "Integer", "16"));

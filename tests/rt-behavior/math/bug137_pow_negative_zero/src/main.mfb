@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT math
+
+' bug-137: pow(-0.0, y) for non-integer y wrongly returned NaN because -0.0's
+' sign bit classified it as a negative base. IEEE/fdlibm handle x==±0 in a
+' prologue: pow(-0.0, 0.5)=+0, pow(-0.0, 3)=-0, pow(-0.0, 2)=+0.
+FUNC main() AS Integer
+  LET nz AS Float = 0.0 * (0.0 - 1.0)
+  io::print(toString(math::pow(nz, 0.5)))
+  io::print(toString(math::pow(nz, 2.0)))
+  io::print(toString(math::pow(nz, 3.0)))
+  io::print(toString(math::pow(0.0, 0.5)))
+  RETURN 0
+END FUNC

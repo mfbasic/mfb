@@ -108,18 +108,20 @@ impl NativePlanPlatform for Platform {
                 self.libc_import("getpwuid", spec.symbol),
             ],
             "os.executablePath" => vec![self.libc_import("readlink", spec.symbol)],
-            "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-                vec![self.libc_import("write", spec.symbol)]
-            }
+            // `write` is a raw syscall on x86 (`emit_write`, nr 1), never a libc
+            // PLT call, so these helpers import nothing (bug-79.4). Every backend
+            // that raw-syscalls `write` omits the import.
+            "io.print" | "io.write" | "io.printError" | "io.writeError" => Vec::new(),
             // `io.flush` is drain-only since plan-14-A (`lower_io_flush_helper`
             // calls STDOUT_DRAIN and never fsyncs / reads errno), so it needs no
-            // libc import of its own — the drain's `write` comes from the
-            // io.print arm. The old `fsync`+`__errno_location` imports were dead.
+            // libc import of its own — its drain writes via the raw `write`
+            // syscall. The old `fsync`+`__errno_location` imports were dead.
             "io.flush" => Vec::new(),
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
                 let mut imports = vec![self.libc_import("read", spec.symbol)];
                 if spec.call == "io.input" {
-                    imports.push(self.libc_import("write", spec.symbol));
+                    // `write` (the prompt echo) is a raw syscall on x86, not a
+                    // libc call, so it is not imported here (bug-79.4).
                     imports.push(self.libc_import("fsync", spec.symbol));
                     imports.push(self.libc_import("__errno_location", spec.symbol));
                 } else {
@@ -141,10 +143,11 @@ impl NativePlanPlatform for Platform {
                 vec![self.libc_import("isatty", spec.symbol)]
             }
             // `term::` console helpers that emit ANSI escape sequences write to
-            // stdout (plan-01-term.md §6.1).
+            // stdout (plan-01-term.md §6.1) via the raw `write` syscall, so they
+            // import nothing (bug-79.4).
             "term.on" | "term.off" | "term.setForeground" | "term.setBackground"
             | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
-            | "term.clear" | "term.moveTo" => vec![self.libc_import("write", spec.symbol)],
+            | "term.clear" | "term.moveTo" => Vec::new(),
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],
@@ -193,10 +196,11 @@ impl NativePlanPlatform for Platform {
             | "fs.isBuffered"
             | "fs.flush"
             | "fs.eof" => {
+                // `write` is a raw syscall on x86 (`emit_write`), not a libc PLT
+                // call, so the file helpers do not import it (bug-79.4).
                 let mut imports = vec![
                     self.libc_import("open", spec.symbol),
                     self.libc_import("read", spec.symbol),
-                    self.libc_import("write", spec.symbol),
                     self.libc_import("close", spec.symbol),
                     self.libc_import("fsync", spec.symbol),
                     self.libc_import("lseek", spec.symbol),
@@ -393,6 +397,44 @@ mod tests {
     fn io_flush_imports_nothing() {
         let spec = crate::target::shared::runtime::spec_for_call("io.flush")
             .expect("io.flush spec");
+        assert!(platform().runtime_imports(spec).is_empty());
+    }
+
+    /// bug-79.4: x86 emits `write` as a raw syscall (`emit_write`, nr 1), never a
+    /// libc PLT call, so every runtime helper that writes must not import the
+    /// `write` wrapper (a dead unreferenced dynsym copied from AArch64).
+    #[test]
+    fn write_is_never_imported() {
+        for call in [
+            "io.print",
+            "io.write",
+            "io.printError",
+            "io.writeError",
+            "io.input",
+            "term.on",
+            "term.clear",
+            "term.moveTo",
+            "fs.writeText",
+            "fs.open",
+            "fs.writeTextAtomic",
+        ] {
+            let spec = crate::target::shared::runtime::spec_for_call(call)
+                .unwrap_or_else(|| panic!("{call} spec"));
+            assert!(
+                platform()
+                    .runtime_imports(spec)
+                    .iter()
+                    .all(|imp| imp.symbol != "write"),
+                "{call} must not import libc write on x86 (raw syscall)"
+            );
+        }
+    }
+
+    /// The io.print family raw-syscalls `write`, so its import arm is empty.
+    #[test]
+    fn io_print_imports_nothing() {
+        let spec = crate::target::shared::runtime::spec_for_call("io.print")
+            .expect("io.print spec");
         assert!(platform().runtime_imports(spec).is_empty());
     }
 }

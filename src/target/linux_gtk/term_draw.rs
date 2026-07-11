@@ -507,7 +507,8 @@ pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
 /// worker-side grid writer the io write helpers call when term:: is active. Pure
 /// data mutation on the grid (safe off the main thread); requests a main-thread
 /// redraw at the end. Bytes advance the cursor; '\n' (and the trailing newline for
-/// print) move to the next row; rows clamp at the bottom (no scroll in v1).
+/// print) move to the next row; when the cursor passes the last row the grid
+/// scrolls up one line.
 pub(super) fn emit_term_write_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,

@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT math
+IMPORT collections
+
+' bug-126: rv64 v128 frint scalarization corrupted round/floor/ceil for tie and
+' large-magnitude lanes. math::round(List) is ties-away; verify it matches across
+' targets and that a large-magnitude lane survives the (guarded) round-trip.
+FUNC main() AS Integer
+  LET r AS List OF Integer = math::round([2.5, 3.5, -2.5, -3.5, 0.5, -0.5])
+  MUT out AS String = ""
+  FOR i = 0 TO 5
+    out = out & toString(collections::get(r, i)) & " "
+  NEXT
+  io::print(out)
+  RETURN 0
+END FUNC

@@ -462,8 +462,11 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.local_address("x2", WORKER_SYMBOL);
     asm.push(abi::add_immediate("x3", abi::stack_pointer(), OFF_ARGC));
     asm.call_external("_pthread_create", LIB_SYSTEM);
+    // Park the main thread (block in pause() forever) instead of busy-spinning at
+    // 100% CPU; the worker runs the program and exits the process.
     asm.push(abi::label("spin"));
-    asm.push(abi::branch_self());
+    asm.call_external("_pause", LIB_SYSTEM);
+    asm.push(abi::branch("spin"));
 
     // GUI: stash &argblock so applicationDidFinishLaunching: can spawn the worker
     // once launch is complete. _main blocks forever in [NSApp run], so this stack

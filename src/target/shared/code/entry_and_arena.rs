@@ -310,6 +310,7 @@ pub(crate) fn lower_program_entry(
             abi::store_u64(abi::SCRATCH[18], abi::stack_pointer(), args_base + 8),
         ]);
         emit_entry_args_list_materialization(
+            entry_symbol,
             error_label,
             args_base,
             &mut instructions,
@@ -473,6 +474,7 @@ pub(crate) fn lower_program_entry(
 }
 
 fn emit_entry_args_list_materialization(
+    entry_symbol: &str,
     error_label: &str,
     args_base: usize,
     instructions: &mut Vec<CodeInstruction>,
@@ -512,7 +514,7 @@ fn emit_entry_args_list_materialization(
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(CodeRelocation {
-        from: "_main".to_string(),
+        from: entry_symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
@@ -524,7 +526,7 @@ fn emit_entry_args_list_materialization(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address("_main", ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    push_error_message_address(entry_symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
     // The fill phase below uses ONLY `x9`–`x17`: the x86 residual-scratch pool
     // has 11 distinct registers, so `map_scratch_register` wraps at `xN+11` —
     // `x9`/`x20` share rbx, `x10`/`x21` share rsi, and so on. Mixing the low

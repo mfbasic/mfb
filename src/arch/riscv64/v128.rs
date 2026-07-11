@@ -362,19 +362,77 @@ pub(crate) fn scalarize_v128(
                 fsd(&mut out, FT0, &d, h);
             }
         }
-        // Round to integral f64 by mode: convert f64→i64 (with the mode) then back.
+        // Round each lane to an integral f64 by rounding mode. The naive
+        // f64→i64→f64 round-trip has two defects (bug-126.1): (1) a lane with
+        // |x| ≥ 2^63 saturates the i64 (and a non-finite lane traps/produces
+        // garbage), corrupting values that are *already* integral; and (2) there
+        // is no nearest-ties-to-EVEN i64 converter, so `FRintnV` (frintn) must not
+        // reuse the ties-AWAY `fcvtas` (RMM). Both are fixed here, branchlessly
+        // (the per-function slot model has only t0/t1 integer scratch and no local
+        // label generator, so a mask-select is both simpler and deterministic):
+        //
+        //   * Only lanes with |x| < 2^52 have a fractional part; a lane with
+        //     |x| ≥ 2^52 (which includes every ±Inf/NaN, whose |bits| exceed
+        //     2^52's) is already integral and is kept verbatim. `mask` is all-ones
+        //     for the convert lanes, and the result is selected bitwise
+        //     `(converted & mask) | (x & ~mask)` — so the i64 round-trip, which
+        //     only runs where |x| < 2^52 < 2^63, can never saturate.
+        //   * `FRintnV` rounds ties-to-even via the 2^52 magic-number add/sub
+        //     (`fadd_d`/`fsub_d` are hard-wired to RNE) with x's sign restored,
+        //     matching AArch64 `frintn` (including `frintn(-0.3) = -0.0`).
+        //
+        // The four directed modes keep the mode-specific `fcvt`; a zero *result*
+        // from them carries `+0.0` (the pre-existing sign-of-zero behavior of the
+        // i64 round-trip) rather than AArch64's signed zero — unchanged here.
         FRintmV | FRintpV | FRintzV | FRintaV | FRintnV => {
-            let cvt = match op {
-                FRintmV => "fcvtms_x_from_d", // toward -inf
-                FRintpV => "fcvtps_x_from_d", // toward +inf
-                FRintzV => "fcvtzs_x_from_d", // toward zero
-                _ => "fcvtas_x_from_d",       // nearest ties away (frinta / ~frintn)
-            };
+            const TWO52_BITS: &str = "4841369599423283200"; // bits(2^52) = 0x4330000000000000
             let (d, s) = (f(fields, "dst"), f(fields, "src"));
             for h in 0..2 {
-                fld(&mut out, FT0, &s, h);
-                out.push(ci(cvt, &[("dst", T0), ("src", FT0)]));
-                out.push(ci("scvtf_d_from_x", &[("dst", FT0), ("src", T0)]));
+                fld(&mut out, FT0, &s, h); // ft0 = x (preserved through the select)
+                // converted (ft1) = round(x) in the requested mode.
+                if op == FRintnV {
+                    // Nearest-ties-even via the 2^52 magic number, then restore
+                    // x's sign so ±0 and small negatives round to the right zero.
+                    out.push(ci("fabs_d", &[("dst", FT2), ("src", FT0)])); // |x|
+                    out.push(ci("mov_imm", &[("dst", T0), ("value", TWO52_BITS)]));
+                    out.push(ci("fmov_d_from_x", &[("dst", FT1), ("src", T0)])); // ft1 = 2^52
+                    out.push(ci("fadd_d", &[("dst", FT2), ("lhs", FT2), ("rhs", FT1)])); // |x|+2^52
+                    out.push(ci("fsub_d", &[("dst", FT2), ("lhs", FT2), ("rhs", FT1)])); // round(|x|)
+                    out.push(ci("fmov_x_from_d", &[("dst", T0), ("src", FT2)])); // round bits (sign 0)
+                    out.push(ci("fmov_x_from_d", &[("dst", T1), ("src", FT0)])); // x bits
+                    out.push(ci("lsr_imm", &[("dst", T1), ("src", T1), ("shift", "63")])); // signbit
+                    out.push(ci("lsl_imm", &[("dst", T1), ("src", T1), ("shift", "63")])); // sign mask
+                    out.push(ci("orr", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // apply sign
+                    out.push(ci("fmov_d_from_x", &[("dst", FT1), ("src", T0)])); // ft1 = converted
+                } else {
+                    let cvt = match op {
+                        FRintmV => "fcvtms_x_from_d", // toward -inf
+                        FRintpV => "fcvtps_x_from_d", // toward +inf
+                        FRintzV => "fcvtzs_x_from_d", // toward zero
+                        _ => "fcvtas_x_from_d",       // FRintaV: nearest ties away
+                    };
+                    out.push(ci(cvt, &[("dst", T0), ("src", FT0)]));
+                    out.push(ci("scvtf_d_from_x", &[("dst", FT1), ("src", T0)])); // ft1 = converted
+                }
+                // mask (t1) = all-ones iff |x| < 2^52 (a lane with a fractional
+                // part), else 0. Unsigned bit compare: |bits| of any finite
+                // |x| ≥ 2^52 — and of every ±Inf/NaN — is ≥ bits(2^52).
+                out.push(ci("fmov_x_from_d", &[("dst", T0), ("src", FT0)])); // x bits
+                out.push(ci("lsl_imm", &[("dst", T1), ("src", T0), ("shift", "1")])); // drop sign bit
+                out.push(ci("lsr_imm", &[("dst", T1), ("src", T1), ("shift", "1")])); // t1 = |bits|
+                out.push(ci("mov_imm", &[("dst", T0), ("value", TWO52_BITS)]));
+                out.push(ci("rv.sltu", &[("dst", T1), ("lhs", T1), ("rhs", T0)])); // |bits| < 2^52 ?
+                out.push(ci("sub", &[("dst", T1), ("lhs", ZERO), ("rhs", T1)])); // 0/1 → 0/all-ones
+                // result (ft0) = (converted & mask) | (x & ~mask).
+                out.push(ci("fmov_x_from_d", &[("dst", T0), ("src", FT1)])); // converted bits
+                out.push(ci("and", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // converted & mask
+                out.push(ci("fmov_d_from_x", &[("dst", FT1), ("src", T0)])); // park in ft1
+                out.push(ci("fmov_x_from_d", &[("dst", T0), ("src", FT0)])); // x bits
+                out.push(ci("mvn", &[("dst", T1), ("src", T1)])); // ~mask
+                out.push(ci("and", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // x & ~mask
+                out.push(ci("fmov_x_from_d", &[("dst", T1), ("src", FT1)])); // (converted & mask) bits
+                out.push(ci("orr", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // combine
+                out.push(ci("fmov_d_from_x", &[("dst", FT0), ("src", T0)])); // ft0 = result
                 fsd(&mut out, FT0, &d, h);
             }
         }

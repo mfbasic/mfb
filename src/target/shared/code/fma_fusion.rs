@@ -118,6 +118,17 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         if redefined_between {
             continue;
         }
+        // A branch target (`Label`) anywhere between the multiply and its consumer
+        // means control can reach the `fadd`/`fsub` without having executed the
+        // `fmul` — the fused op would then read an operand that a different path
+        // redefined, or the un-rounded product that was never computed on that
+        // edge. Linear single-use/redefinition reasoning does not cover that, so
+        // bail. Today the d-native emitter never lays a label between the two ops,
+        // so this never fires and the emitted code is unchanged; it converts a
+        // future cross-label chain from a silent miscompile into a skipped fusion.
+        if instructions[i + 1..=j].iter().any(|inst| inst.op == CodeOp::Label) {
+            continue;
+        }
 
         let dst = match instructions[j].get("dst") {
             Some(d) => d.to_string(),

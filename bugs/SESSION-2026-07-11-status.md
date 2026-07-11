@@ -1,5 +1,20 @@
 # Bug-fix session disposition — 2026-07-11
 
+## Wave 2 addendum
+Additional fixes landed + verified on all four remotes (round/pow correct on
+aarch64/x86_64/riscv64): **bug-108.2** (depth-aware `" TO "` map-key splitting →
+bug-108 now fully fixed, moved to completed-bugs), **bug-117.4** (macOS headless
+`_pause` park instead of 100% busy-spin), **bug-117.5**/**138.2a** (comments),
+**bug-125.2** (x86 pool docs 5→4 + spec), **bug-126.1** (rv64 frint ties-to-even
++ integral/non-finite guard — `math::round(List)` verified byte-correct on rv64),
+**bug-137.5** (`pow(-0.0, y)` fdlibm ±0 prologue — verified: `pow(-0.0,0.5)=+0`,
+`pow(-0.0,3)=-0`), **bug-137.6** (FMA fusion label guard), **bug-138.1** (deleted
+dead FloatBinaryKernel::Pow), **bug-139.1/.3/.6** (plan-fold guards, literal
+merge, link-thunk hex escape), **bug-102.2** (entry-symbol reloc param),
+**bug-79.4** (x86 dead `write` imports). Clusters 79/102/117/125/126/137/138/139
+remain open for their still-deferred sub-issues (below).
+
+
 Fixed + tested + verified on all four remotes (Kali aarch64 :2223, Alpine x86_64
 musl :2227, Ubuntu x86_64 libc :2228, Alpine riscv64 musl :2229). Host acceptance
 (892 tests) and `cargo test` (2488+ unit + integration) green. bug-87 determinism

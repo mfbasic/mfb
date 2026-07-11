@@ -546,11 +546,7 @@ pub(super) fn collect_runtime_symbols_from_value(
             args,
             ..
         } => {
-            if target != "typeName"
-                && !runtime::is_native_direct_call(target)
-                && native_static_string_value(value, constants).is_none()
-                && native_static_graphemes_value(target, args, constants).is_none()
-            {
+            if target != "typeName" && !runtime::is_native_direct_call(target) {
                 push_unique(symbols, runtime::symbol_for_call(*helper, target));
             }
             for arg in args {

@@ -36,18 +36,24 @@ pub(crate) const LINK_INIT_SYMBOL: &str = "_mfb_linker_init";
 /// The internal text symbol for a native `LINK` function's marshaling thunk
 /// (plan-linker.md §12.2): `_mfb_linker_<alias>_<name>`.
 pub(crate) fn link_thunk_symbol(alias: &str, name: &str) -> String {
-    let sanitize = |part: &str| {
-        part.chars()
-            .map(|ch| {
-                if ch.is_ascii_alphanumeric() || ch == '_' {
-                    ch
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
+    // Escape each part so no character can be confused with the `_` that joins
+    // the two parts: every byte that is not `[A-Za-z0-9]` (including `_` itself)
+    // becomes an unambiguous `_XX` two-hex-digit escape. Reusing `_` as both a
+    // pass-through character and the separator (the previous `sanitize`) made
+    // `(a_b, c)` and `(a, b_c)` collide on `_mfb_linker_a_b_c` (bug-139.6);
+    // escaping the interior `_` bytes keeps the two apart.
+    let escape = |part: &str| {
+        let mut out = String::new();
+        for byte in part.bytes() {
+            if byte.is_ascii_alphanumeric() {
+                out.push(byte as char);
+            } else {
+                out.push_str(&format!("_{byte:02X}"));
+            }
+        }
+        out
     };
-    format!("_mfb_linker_{}_{}", sanitize(alias), sanitize(name))
+    format!("_mfb_linker_{}_{}", escape(alias), escape(name))
 }
 
 pub(crate) struct NirEntryPoint {
@@ -344,3 +350,23 @@ pub(crate) use lower::{lower_module, merge_packages};
 pub(crate) use symbols::{
     function_symbol, global_initializer_name, global_symbol, symbol_fragment,
 };
+
+#[cfg(test)]
+mod link_thunk_symbol_tests {
+    use super::link_thunk_symbol;
+
+    #[test]
+    fn separator_and_replacement_no_longer_collide() {
+        // `(a_b, c)` and `(a, b_c)` used to both render as `_mfb_linker_a_b_c`.
+        let left = link_thunk_symbol("a_b", "c");
+        let right = link_thunk_symbol("a", "b_c");
+        assert_ne!(left, right);
+        assert_eq!(left, "_mfb_linker_a_5Fb_c");
+        assert_eq!(right, "_mfb_linker_a_b_5Fc");
+    }
+
+    #[test]
+    fn plain_alnum_parts_are_unescaped_except_separator() {
+        assert_eq!(link_thunk_symbol("printf", "libc"), "_mfb_linker_printf_libc");
+    }
+}

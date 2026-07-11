@@ -739,7 +739,7 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         };
         if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
-            if let Some((key, value)) = rest.split_once(" TO ") {
+            if let Some((key, value)) = split_top_level_to(rest) {
                 return match member {
                     "key" => self.parse_type(key),
                     "value" => self.parse_type(value),
@@ -1370,6 +1370,65 @@ impl<'a> SyntaxChecker<'a> {
             isolated: false,
         }
     }
+}
+
+/// Split a `Map`/`MapEntry` body `K TO V` on the top-level ` TO ` separating the
+/// outer key from its value. A leftmost `split_once(" TO ")` mis-parses a key
+/// that itself carries a top-level ` TO ` (a nested `Map`/`Thread`/`FUNC`-typed
+/// key, bug-108.2). Mirrors `syntaxcheck::types::split_map_body`: separators
+/// inside parenthesized / `FUNC(...)` groups and those owned by nested
+/// `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-types are skipped.
+fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
+    let bytes = body.as_bytes();
+    let mut depth: usize = 0;
+    let mut pending: usize = 0;
+    let mut index = 0;
+    while index < body.len() {
+        match bytes[index] {
+            b'(' => {
+                depth += 1;
+                index += 1;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+            }
+            _ if depth == 0 && body[index..].starts_with(" TO ") => {
+                if pending > 0 {
+                    pending -= 1;
+                    index += 4;
+                } else {
+                    return Some((&body[..index], &body[index + 4..]));
+                }
+            }
+            _ if depth == 0 && type_owns_a_to_separator(body, index) => {
+                pending += 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Whether a `Map`/`MapEntry`/`Thread`/`ThreadWorker` `OF`-construct (each owning
+/// exactly one top-level ` TO `) begins at byte `at`, on a word boundary.
+fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
+    let bytes = body.as_bytes();
+    if at > 0 {
+        let prev = bytes[at - 1];
+        if prev.is_ascii_alphanumeric()
+            || prev == b'_'
+            || prev == b'.'
+            || prev == b':'
+            || prev >= 0x80
+        {
+            return false;
+        }
+    }
+    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
+        .iter()
+        .any(|keyword| body[at..].starts_with(keyword))
 }
 
 #[cfg(test)]

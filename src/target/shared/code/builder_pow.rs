@@ -232,6 +232,66 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&end));
         self.emit(abi::label(&y_nonzero));
 
+        // |x| == 0 (x is +-0.0): fdlibm's special-value rule, not the general
+        // log2/exp2 path. The general path handles +0.0 via natural
+        // overflow/underflow, but -0.0 has the sign bit set and the x<0 test in
+        // emit_pow_yisint is a *signed* compare of the raw bits, so -0.0 wrongly
+        // classified as a negative base and routed pow(-0.0, non-integer) to
+        // ret_nan (bug-137.5). Handle both zeros here per e_pow.c: z = |x| = +0;
+        // y<0 -> z = 1/z = +inf; then for x == -0.0 and an odd-integer y, negate z
+        // (the (-1)**non-int NaN sub-case of fdlibm cannot occur for ix == 0). The
+        // caller's emit_float_result_check turns a +-inf result into ErrFloatInf.
+        let x_nonzero = self.label("pow_x_nonzero");
+        self.emit(abi::float_move_x_from_d(xs, s.x));
+        self.emit(abi::move_immediate(xm, "Integer", ABS_MASK));
+        self.emit(abi::and_registers(xt, xs, xm)); // |x| bits
+        self.emit(abi::compare_immediate(xt, "0"));
+        self.emit(abi::branch_ne(&x_nonzero));
+        // x is +-0.0. base result = (y < 0 ? +inf : +0.0).
+        self.emit(abi::move_immediate(&result, "Integer", "0")); // +0.0
+        let zero_ypos = self.label("pow_zero_ypos");
+        self.emit(abi::float_move_x_from_d(xm, s.y));
+        self.emit(abi::compare_immediate(xm, "0")); // signed: y < 0 ?
+        self.emit(abi::branch_ge(&zero_ypos));
+        self.emit(abi::move_immediate(
+            &result,
+            "Integer",
+            "9218868437227405312",
+        )); // +inf = 0x7FF0000000000000
+        self.emit(abi::label(&zero_ypos));
+        // Negate the result iff x is -0.0 AND y is an odd integer.
+        let zero_ret = self.label("pow_zero_ret");
+        self.emit(abi::float_move_x_from_d(xm, s.x));
+        self.emit(abi::compare_immediate(xm, "0")); // signed: x < 0 (i.e. -0.0) ?
+        self.emit(abi::branch_ge(&zero_ret)); // x == +0.0 -> no sign flip
+        // |y| >= 2^53 -> even integer -> no flip.
+        self.emit(abi::float_move_x_from_d(xs, s.y));
+        self.emit(abi::move_immediate(xm, "Integer", ABS_MASK));
+        self.emit(abi::and_registers(xs, xs, xm)); // |y| bits
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], xs)); // |y|
+        self.emit_f64_const(abi::FP_SCRATCH[1], xt, TWO53);
+        self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+        self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
+        self.emit(abi::branch_ge(&zero_ret)); // |y| >= 2^53 -> even
+        // trunc(y) == y ? (non-integer -> no flip).
+        self.emit(abi::float_move_x_from_d(xs, s.y));
+        self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], xs)); // y
+        self.emit(abi::float_convert_to_signed_x(xt, abi::FP_SCRATCH[0])); // trunc(y)
+        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[1], xt));
+        self.emit(abi::float_move_x_from_d(xm, abi::FP_SCRATCH[1]));
+        self.emit(abi::compare_registers(xm, xs));
+        self.emit(abi::branch_ne(&zero_ret)); // non-integer -> no flip
+        // odd? trunc & 1.
+        self.emit(abi::move_immediate(xm, "Integer", "1"));
+        self.emit(abi::and_registers(xt, xt, xm));
+        self.emit(abi::compare_immediate(xt, "0"));
+        self.emit(abi::branch_eq(&zero_ret)); // even -> no flip
+        self.emit(abi::move_immediate(xm, "Integer", SIGN_BIT));
+        self.emit(abi::exclusive_or_registers(&result, &result, xm)); // -0.0 ** odd -> negate
+        self.emit(abi::label(&zero_ret));
+        self.emit(abi::branch(&end));
+        self.emit(abi::label(&x_nonzero));
+
         // Sign / integer-exponent rule for x < 0 (sets smask or jumps to ret_nan).
         self.emit(abi::move_immediate(smask, "Integer", "0"));
         self.emit_pow_yisint(s.x, s.y, xs, xm, xt, smask, &ret_nan);

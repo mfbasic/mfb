@@ -254,7 +254,8 @@ impl CodeBuilder<'_> {
             "Float" => {
                 let kernel = match function {
                     "atan2" => FloatBinaryKernel::Atan2,
-                    "pow" => FloatBinaryKernel::Pow,
+                    // `pow` never reaches here — the `"Float" if function == "pow"`
+                    // arm above diverts it to the scalar fdlibm kernel.
                     _ => return Err(format!("math.{function} has no scalar Float binary kernel")),
                 };
                 self.reset_temporary_registers();

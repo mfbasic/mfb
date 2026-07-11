@@ -160,6 +160,10 @@ impl FunctionPlanBuilder<'_> {
                     let loop_label = self.add_label(LabelKind::WhileLoop);
                     let end_label = self.add_label(LabelKind::WhileEnd);
                     self.operations.push(format!("label {loop_label}"));
+                    // A constant bound before the loop is not foldable inside the
+                    // body: the back-edge re-enters here, so clear at the loop head
+                    // to match codegen (bug-57 / bug-139.1).
+                    self.constants.clear();
                     self.lower_value(condition)?;
                     self.operations.push(format!(
                         "branchIfFalse {} -> {end_label}",
@@ -191,6 +195,7 @@ impl FunctionPlanBuilder<'_> {
                         describe_value(step)
                     ));
                     self.operations.push(format!("label {loop_label}"));
+                    self.constants.clear();
                     self.add_stack_slot(name, type_, true)?;
                     self.lower_ops(body)?;
                     self.operations.push(format!("branch -> {loop_label}"));
@@ -201,6 +206,7 @@ impl FunctionPlanBuilder<'_> {
                     let loop_label = self.add_label(LabelKind::WhileLoop);
                     let end_label = self.add_label(LabelKind::WhileEnd);
                     self.operations.push(format!("label {loop_label}"));
+                    self.constants.clear();
                     self.lower_ops(body)?;
                     self.lower_value(condition)?;
                     self.operations.push(format!(
@@ -222,6 +228,10 @@ impl FunctionPlanBuilder<'_> {
                         describe_value(iterable)
                     ));
                     let constants_before_loop = self.constants.clone();
+                    // Constants bound before the loop are not foldable inside the
+                    // body (the iteration re-enters the head); restore them after
+                    // so code following the loop can still fold them (bug-139.1).
+                    self.constants.clear();
                     self.add_stack_slot(name, type_, false)?;
                     self.lower_ops(body)?;
                     self.constants = constants_before_loop;
@@ -416,10 +426,18 @@ pub(super) fn push_call_with_literals(
     kind: CallKind,
     string_literals: Vec<String>,
 ) {
-    if calls
-        .iter()
-        .any(|call| call.target == target && call.symbol == symbol)
+    if let Some(existing) = calls
+        .iter_mut()
+        .find(|call| call.target == target && call.symbol == symbol)
     {
+        // The `(target, symbol)` pair is already present: merge the incoming
+        // literals into it rather than dropping them, so a later call site's
+        // string literals are not lost to the dedup (bug-139.3).
+        for literal in string_literals {
+            if !existing.string_literals.contains(&literal) {
+                existing.string_literals.push(literal);
+            }
+        }
         return;
     }
     calls.push(PlanCall {

@@ -112,7 +112,7 @@ reference, not asserted against a system assembler.** [[src/arch/x86_64/encode/t
 allocator asks. [[src/arch/x86_64/regmodel.rs:X86_64RegisterModel]]
 
 - **16 GPRs** in the integer class: `rax rbx rcx rdx rsi rdi rbp rsp r8..r15`.
-- **The allocatable integer set is tight — only five:** `r10, r11, rbx, r12, r13`
+- **The allocatable integer set is tight — only four:** `r10, r11, r12, r14`
   (AArch64 has 19). The allocator spills freely under this pressure; this is a
   correctness-first bring-up choice.
 - **Reserved / non-allocatable, and why:** `rax`/`rdx` (mul/div implicit, plus

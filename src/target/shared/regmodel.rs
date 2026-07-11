@@ -97,7 +97,7 @@ pub(crate) trait RegisterModel {
     /// overrides this with a *token* (never a physical spelling — plan-34-D);
     /// AArch64 pins [`crate::target::shared::abi::MATH_POOL`], realized `x2` at
     /// the Phase-3b seam. x86-64 stays `None`: all 16 GPRs are either SysV
-    /// ABI-role, reserved (`rsp`/`rbp`/`r14`/`r15`), or in the five-register
+    /// ABI-role, reserved (`rsp`/`rbp`/`r15`), or in the four-register
     /// allocatable pool — there is no spare physical to pin, and the realized
     /// `x2` is an ABI register `remap_x86_abi` would rewrite per control-flow
     /// context (rdx as a call-arg, rcx as a result), splitting the base across
