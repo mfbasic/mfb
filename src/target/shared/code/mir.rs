@@ -1639,6 +1639,87 @@ mod tests {
         }
     }
 
+    /// plan-34-C Phase 5 — the invariant that makes the hand-picked-scratch bug
+    /// (`bug-56`) *unrepresentable*: no shared lowering source may name a physical
+    /// AArch64 scratch register (`x9`–`x18`, `x20`–`x28`). Every scratch value is a
+    /// virtual register (`%vN`); the call boundary is role tokens (plan-34-B); the
+    /// invariant registers are neutral tokens (plan-34-A, guarded above). A
+    /// `format!("x{base}")` or a stray `"x13"` cannot pass this test.
+    ///
+    /// The allowlist is the machine-floor code the plan's §2.6 / Open Decisions
+    /// sanction as documented physical-by-design (each entry carries its reason);
+    /// `#[cfg(test)]` fixtures (register-literal test inputs) are skipped by
+    /// scanning only the code above each file's test module.
+    #[test]
+    fn shared_lowering_names_no_physical_scratch_register() {
+        use std::path::Path;
+        // Documented physical-by-design (NOT vreg-able) — plan-34-C:
+        //   entry_and_arena.rs — the process entry stub + panic-path integer
+        //     formatter run before/around the arena with no allocator frame (§2.6);
+        //   runtime_helpers.rs / runtime_helpers_thread.rs — the thread trampoline
+        //     and thread ops pin `x20` as the current-thread control-block register
+        //     (like `arena_base`) that a worker's `is_cancelled` reads directly, and
+        //     the trampoline is machine-floor (its own frame, program-invariant
+        //     register save/restore).
+        const ALLOWLIST: &[&str] = &[
+            "entry_and_arena.rs",
+            "runtime_helpers.rs",
+            "runtime_helpers_thread.rs",
+        ];
+        // The forbidden AArch64 scratch registers: x9–x18 and x20–x28. (x0–x8 are
+        // the call/syscall boundary → role tokens; x19 is the arena base and x30/x31
+        // are lr/zero → invariant tokens, all guarded separately.)
+        let forbidden: Vec<String> = (9..=18).chain(20..=28).map(|n| format!("\"x{n}\"")).collect();
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/target/shared/code");
+        let mut offenders: Vec<String> = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("read shared/code dir") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                let name = path.file_name().unwrap().to_str().unwrap().to_string();
+                if ALLOWLIST.contains(&name.as_str()) {
+                    continue;
+                }
+                // Pure test-module files (`tests.rs`, `test_support.rs`) carry
+                // register-literal fixtures, not lowering.
+                if name.contains("test") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).expect("read source");
+                // Scan only above the test module (register-literal test fixtures).
+                let code = match src.find("#[cfg(test)]").or_else(|| src.find("mod tests")) {
+                    Some(i) => &src[..i],
+                    None => &src,
+                };
+                for (line_no, line) in code.lines().enumerate() {
+                    for reg in &forbidden {
+                        if line.contains(reg.as_str()) {
+                            offenders.push(format!(
+                                "{}:{} names {reg}",
+                                path.strip_prefix(&root).unwrap().display(),
+                                line_no + 1
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "shared lowering must name no physical scratch register (plan-34-C Phase 5); \
+             offenders (vreg them, or add a justified allowlist entry):\n{}",
+            offenders.join("\n")
+        );
+    }
+
     /// Relocation intents are neutral: a `CodeRelocation` carries a
     /// [`RelocIntent`], its `-mir` name never an AArch64 reloc kind, and the
     /// AArch64 table realizes it back to today's `branch26`/`page21`/`pageoff12`
