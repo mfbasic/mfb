@@ -161,3 +161,19 @@ SIGINT/SIGTERM handler racing the normal exit path cannot double-free.
 * ./mfb spec memory heap-values — the in-arena layout of the materialized argv `List OF String`
 * ./mfb spec architecture native — app-mode entry divergence and native codegen
 * ./mfb spec threading thread-runtime-helpers — per-worker arena seeding and reclamation
+
+## The entry stub uses physical scratch registers by design
+
+Unlike the rest of shared lowering — where every scratch value is a virtual
+register the allocator places (plan-34-C) — the process **entry stub**
+(`lower_program_entry`, `emit_entry_args_list_materialization`) and the
+panic-path integer formatter (`emit_write_integer_to_stderr`) name physical
+scratch registers (`x9`–`x17`, and the callee-saved `x20`–`x28` for values held
+across the argc/argv-parking libc calls) directly. This is deliberate: the entry
+runs **before the arena and a normal frame exist**, manipulates `sp` and `x19`
+(the arena base) with pre-`finalize_frame` offsets, and manages its own stack, so
+the register allocator cannot run over it. These functions are the documented
+allowlist of the plan-34-C Phase-5 guard test (`shared lowering names no physical
+scratch register`); the thread trampoline is allowlisted for the same
+machine-floor reason plus its pinned current-thread register. Every other shared
+lowering path names no physical scratch register.
