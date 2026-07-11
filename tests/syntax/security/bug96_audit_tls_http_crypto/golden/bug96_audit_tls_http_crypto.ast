@@ -1,0 +1,32 @@
+{
+  "project": "bug96_audit_tls_http_crypto",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "tls", "line": 2 },
+    { "module": "crypto", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.randomBytes", "arguments": [{ "kind": "number", "value": "32" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "GET / HTTP/1.0" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "key" }] }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

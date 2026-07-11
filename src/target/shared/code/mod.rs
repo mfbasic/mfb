@@ -1057,30 +1057,10 @@ pub(crate) fn lower_module_for_platform(
         mir::route_function_through_mir(function);
     }
 
-    // rv64 `v128` scalarization (plan-99 §6) lowers SIMD ops onto a 512-byte
-    // (`32 × 16`) global slot region; add it once when any selected function
-    // references it (an `adrp`/`add_pageoff` carrying its symbol). The scan runs
-    // after selection so builder-inlined kernels and hand-written helpers are
-    // both covered.
-    let references_v128_slots = code_functions.iter().any(|function| {
-        function.instructions.iter().any(|instruction| {
-            instruction
-                .fields
-                .iter()
-                .any(|(key, value)| *key == "symbol" && value == "_mfb_rt_v128_slots")
-        })
-    });
-    if references_v128_slots {
-        // 128 slots × 16 bytes (plan-99 §6, `arch::riscv64::v128::SLOT_COUNT`).
-        data_objects.push(CodeDataObject {
-            symbol: "_mfb_rt_v128_slots".to_string(),
-            kind: "raw".to_string(),
-            layout: "mfb.runtime.v128_slots.v1 { u8 slots[2048] }".to_string(),
-            align: 16,
-            size: 2048,
-            value: "00".repeat(2048),
-        });
-    }
+    // rv64 `v128` scalarization (plan-99 §6) stages SIMD lanes in a slot region.
+    // That region now lives in the **per-thread** arena state (bug-122), addressed
+    // off the pinned arena base — no process-global data object is emitted (a
+    // global was raced between worker threads running v128 kernels concurrently).
 
     let plan = NativeCodePlan {
         target: module.target.clone(),

@@ -1,0 +1,41 @@
+{
+  "project": "bug105_grouped_type_names",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "apply",
+      "line": 6,
+      "params": [
+      { "name": "f", "type": "FUNC(FUNC(Integer) AS Integer, Integer) AS Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF (Map OF String TO Integer)", "value": { "kind": "list", "values": [] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "y", "type": "(Integer)", "value": { "kind": "number", "value": "7" }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] }, "right": { "kind": "identifier", "value": "y" } }] }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

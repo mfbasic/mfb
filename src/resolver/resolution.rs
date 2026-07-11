@@ -1197,6 +1197,18 @@ impl Resolver<'_> {
         line: usize,
         imports: &HashMap<String, String>,
     ) {
+        // Grouped type names (`(T)`) are valid syntax the parser emits verbatim
+        // (ast/expr.rs). `parse_type` and `thread_parts_full` already strip the
+        // group at their positions; do the same here so a parenthesized type in
+        // any non-thread position (`List OF (Map OF String TO Integer)`,
+        // `AS (Integer)`) resolves through its inner type instead of falling to
+        // the bare-name arm and being rejected as unknown (bug-105).
+        let stripped = crate::builtins::thread::strip_type_group(type_name);
+        if stripped != type_name {
+            self.resolve_type_name(file, stripped, line, imports);
+            return;
+        }
+
         // `Result` (and its success member `Ok`) are internal runtime types: a
         // user never names them in any type position. Intercept them here with a
         // targeted diagnostic instead of resolving them as types or falling
@@ -1254,7 +1266,10 @@ impl Resolver<'_> {
 
         if let Some((base, args)) = type_name.split_once(" OF ") {
             if self.types.contains(base) || self.active_template_params.contains(base) {
-                for arg in args.split(", ") {
+                // Split at top-level commas only: a template argument may itself
+                // be a nested `FUNC(...) AS R` or `Map OF K TO V` whose internal
+                // commas must not split the argument list (bug-106).
+                for arg in crate::builtins::split_top_level_commas(args) {
                     self.resolve_type_name(file, arg, line, imports);
                 }
                 return;
@@ -1284,7 +1299,10 @@ impl Resolver<'_> {
         line: usize,
         imports: &HashMap<String, String>,
     ) {
-        let Some((params, return_type)) = rest.split_once(") AS ") else {
+        // Split at the depth-0 `) AS ` so a parameter that is itself a
+        // `FUNC(...) AS …` (or any parenthesized/nested type) does not split at
+        // an inner `) AS ` and produce garbage names (bug-106).
+        let Some((params, return_type)) = crate::builtins::split_func_params_and_return(rest) else {
             self.report(
                 "SYMBOL_UNKNOWN_TYPE",
                 &format!("Function type `FUNC({rest}` is malformed."),
@@ -1293,10 +1311,8 @@ impl Resolver<'_> {
             );
             return;
         };
-        if !params.trim().is_empty() {
-            for param in params.split(", ") {
-                self.resolve_type_name(file, param, line, imports);
-            }
+        for param in params {
+            self.resolve_type_name(file, param, line, imports);
         }
         self.resolve_type_name(file, return_type, line, imports);
     }

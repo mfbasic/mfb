@@ -228,13 +228,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(byte, "57"));
         self.emit(abi::branch_hi(&invalid));
         self.emit(abi::subtract_immediate(digit, byte, 48));
+        // UNSIGNED overflow guard (bug-144): parsing i64::MIN's magnitude drives
+        // `acc` to exactly 2^63, which as an i64 register is negative. A signed
+        // `>` would then see 2^63 as less than the positive `cutoff` and admit a
+        // further digit, wrapping silently. `cutoff`/`cutlim` bound the unsigned
+        // magnitude, so the compares must be unsigned (`branch_hi`); equality is
+        // sign-agnostic, and positive inputs stay below 2^63 where unsigned and
+        // signed order agree. Mirrors the base-N path (bug-49).
         self.emit(abi::compare_registers(acc, cutoff));
-        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_hi(&overflow));
         self.emit(abi::branch_eq(&cutoff_equal));
         self.emit(abi::branch(&digit_ok));
         self.emit(abi::label(&cutoff_equal));
         self.emit(abi::compare_registers(digit, cutlim));
-        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_hi(&overflow));
         self.emit(abi::label(&digit_ok));
         self.emit(abi::multiply_registers(acc, acc, ten));
         self.emit(abi::add_registers(acc, acc, digit));

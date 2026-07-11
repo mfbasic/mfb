@@ -1,0 +1,59 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug144_toint_base10_overflow",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "parse",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 7, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 8, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "line": 8,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 8, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 8, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "return", "line": 9, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "ERR:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } } }
+      ]
+    },
+    { "op": "bind", "line": 8, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "return", "line": 11, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "n" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "parse", "args": [{ "kind": "const", "type": "String", "value": "-92233720368547758080" }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "parse", "args": [{ "kind": "const", "type": "String", "value": "-9223372036854775808" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "parse", "args": [{ "kind": "const", "type": "String", "value": "9223372036854775807" }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "parse", "args": [{ "kind": "const", "type": "String", "value": "9223372036854775808" }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "parse", "args": [{ "kind": "const", "type": "String", "value": "123" }] }] } },
+    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

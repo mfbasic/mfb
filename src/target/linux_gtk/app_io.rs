@@ -40,6 +40,17 @@ pub(crate) fn emit_app_term_helper(
     Some(helper)
 }
 
+/// The plan-01-term §4.2.1 no-op gate: branch to `inactive` when TUI mode is off
+/// (app-state `ST_TERM_ACTIVE == 0`), so every GTK term setter is a no-op while
+/// inactive, matching macOS app-mode and the console backend (bug-111). Reads via
+/// `load_state` (clobbers only x9), so argument registers are preserved for the
+/// active path.
+fn emit_gtk_term_active_gate(asm: &mut Asm, inactive: &str) {
+    asm.load_state("x9", ST_TERM_ACTIVE);
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq(inactive));
+}
+
 /// `term::terminalSize()`: OK(record) where the arena-allocated 16-byte record is
 /// `{ columns@0, rows@8 }` = the fixed grid size. On allocation failure, propagate
 /// the allocator's error result. Result ABI: x0 = tag, x1 = record/err code.
@@ -54,6 +65,9 @@ fn emit_app_term_terminal_size(
         abi::stack_pointer(),
         0,
     ));
+    // While TUI mode is inactive, terminalSize is unsupported (matches macOS and
+    // plan-01-term §4.2.1) rather than reporting the grid size (bug-111).
+    emit_gtk_term_active_gate(&mut asm, "ts_unsupported");
     // record = arena_alloc(16, 8) -> x0=tag, x1=ptr (clobbers caller-saved).
     asm.push(abi::move_immediate("x0", "Integer", "16"));
     asm.push(abi::move_immediate("x1", "Integer", "8"));
@@ -65,6 +79,11 @@ fn emit_app_term_terminal_size(
     asm.load_state("x9", ST_TERM_ROWS);
     asm.push(abi::store_u64("x9", "x1", 8)); // rows
     asm.push(abi::move_immediate("x0", "Integer", "0")); // OK; x1 = record
+    asm.push(abi::branch("ts_err"));
+    asm.push(abi::label("ts_unsupported"));
+    asm.push(abi::move_immediate("x0", "Integer", code::RESULT_ERR_TAG));
+    asm.push(abi::move_immediate("x1", "Integer", code::ERR_UNSUPPORTED_CODE));
+    asm.local_address(code::RESULT_ERROR_MESSAGE_REGISTER, code::ERR_UNSUPPORTED_SYMBOL);
     asm.push(abi::label("ts_err"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -84,6 +103,7 @@ fn emit_app_term_set_color(
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
+    emit_gtk_term_active_gate(&mut asm, "sc_inactive"); // §4.2.1 no-op gate (bug-111)
     asm.push(abi::shift_left_immediate("x10", "x1", 8)); // g<<8
     asm.push(abi::shift_left_immediate("x11", "x2", 16)); // b<<16
     asm.push(abi::or_registers("x10", "x0", "x10")); // r | g<<8
@@ -96,6 +116,7 @@ fn emit_app_term_set_color(
     ));
     asm.push(abi::or_registers("x11", "x10", "x11")); // packed | COLOR_SET
     asm.store_state("x11", field); // app current color (x9 = store_state scratch)
+    asm.push(abi::label("sc_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
@@ -111,8 +132,10 @@ fn emit_app_term_set_attr(
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
+    emit_gtk_term_active_gate(&mut asm, "sa_inactive"); // §4.2.1 no-op gate (bug-111)
     asm.push(abi::store_u64("x0", ARENA_REG, tso + arena_field)); // arena
     asm.store_state("x0", field); // app field (store_state uses x9, x0 safe)
+    asm.push(abi::label("sa_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
@@ -131,11 +154,13 @@ fn emit_app_term_set_cursor(
         abi::stack_pointer(),
         0,
     ));
+    emit_gtk_term_active_gate(&mut asm, "cur_inactive"); // §4.2.1 no-op gate (bug-111)
     asm.push(abi::move_immediate("x10", "Integer", visible));
     asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
     asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");
+    asm.push(abi::label("cur_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -252,6 +277,7 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
         abi::stack_pointer(),
         0,
     ));
+    emit_gtk_term_active_gate(&mut asm, "clr_inactive"); // §4.2.1 no-op gate (bug-111)
     // Blank the whole backing store (chars=' ', fg/bg=0).
     asm.state_array("x0", ST_TERM_CHARS);
     asm.push(abi::move_immediate("x1", "Integer", "32"));
@@ -284,6 +310,7 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
     asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");
+    asm.push(abi::label("clr_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -295,6 +322,7 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
 fn emit_app_term_move_to(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
+    emit_gtk_term_active_gate(&mut asm, "mt_inactive"); // §4.2.1 no-op gate (bug-111)
     // row = clamp(x0, 0, rows-1)
     asm.push(abi::compare_immediate("x0", "0"));
     asm.push(abi::branch_ge("mt_row_lo"));
@@ -319,6 +347,7 @@ fn emit_app_term_move_to(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<
     asm.push(abi::move_register("x1", "x9"));
     asm.push(abi::label("mt_col_hi"));
     asm.store_state("x1", ST_TERM_COL);
+    asm.push(abi::label("mt_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)

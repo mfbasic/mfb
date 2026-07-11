@@ -1,0 +1,30 @@
+{
+  "project": "bug101_readtext_roundtrip",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "/tmp/mfb_bug101.txt" }, { "kind": "string", "value": "hello world" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "/tmp/mfb_bug101.txt" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "string", "value": "/tmp/mfb_bug101.txt" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

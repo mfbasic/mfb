@@ -437,6 +437,34 @@ fn accepts_capture_index_within_slot_count() {
     check(&project(vec![closure_body, maker], vec![])).expect("in-range capture is valid");
 }
 
+/// bug-99: a `Capture` sitting in a function that is never targeted by any
+/// `Closure` node has no captured environment, so the slot count was `None` and
+/// the bounds check was skipped entirely — a crafted `.mfp` could then drive an
+/// out-of-bounds env-relative load off `CLOSURE_ENV_REGISTER` at an
+/// attacker-chosen index. The legitimate front end never emits such a `Capture`
+/// (zero-capture lambdas lower to a plain `FunctionRef`), so it is malformed IR
+/// and must be rejected.
+#[test]
+fn rejects_capture_in_non_closure_body() {
+    // `f` is a plain function (no `Closure` node names it) yet reads a capture.
+    let f = func_returns(
+        "f",
+        "FUNC() AS Integer",
+        vec![],
+        vec![IrOp::Return {
+            value: Some(IrValue::Capture {
+                index: 9999,
+                type_: "Integer".to_string(),
+                by_ref: false,
+            }),
+            loc: IrSourceLoc::default(),
+        }],
+    );
+    let err = check(&project(vec![f], vec![]))
+        .expect_err("a capture outside any closure body must be rejected");
+    assert!(err.contains("capture index 9999"), "{err}");
+}
+
 /// bug-32: two closures over one body with differing capture counts used to make
 /// the slot count "ambiguous", which skipped the bounds check entirely — so the
 /// body could read `Capture{index: 9999}` off the end of its environment.

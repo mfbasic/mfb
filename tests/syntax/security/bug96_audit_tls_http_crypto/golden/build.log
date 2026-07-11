@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/security/bug96_audit_tls_http_crypto
+Wrote AST to tests/syntax/security/bug96_audit_tls_http_crypto/bug96_audit_tls_http_crypto.ast
+Wrote IR to tests/syntax/security/bug96_audit_tls_http_crypto/bug96_audit_tls_http_crypto.ir
+[exit 0]

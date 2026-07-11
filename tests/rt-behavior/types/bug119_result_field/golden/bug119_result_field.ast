@@ -1,0 +1,36 @@
+{
+  "project": "bug119_result_field",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Calc",
+      "line": 6,
+      "fields": [
+      { "visibility": null, "name": "result", "type": "Integer", "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": null, "value": { "kind": "constructor", "type": "Calc", "arguments": [{ "kind": "number", "value": "5" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "result" }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -18,8 +18,9 @@ pub(crate) fn emit_app_io_write_helper(
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     let fd = if stderr { "2" } else { "1" };
-    // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32, x22(sel)@40
-    let frame = 48;
+    // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32, x22(sel)@40,
+    // autorelease-pool token@48, string arg@56.
+    let frame = 64;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -31,6 +32,15 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
     asm.push(abi::store_u64("x22", abi::stack_pointer(), 40));
+    // Per-write autorelease pool. The worker's process-lifetime pool
+    // (emit_worker_shim) is never drained, so the autoreleased NSStrings this
+    // helper builds for the "[stderr] " prefix and the trailing newline would
+    // accumulate for the process lifetime (bug-112). Save the string arg first
+    // (poolPush clobbers x0); `objc_autoreleasePoolPush` preserves x19-x28, so
+    // the pinned arena-state base in x19 survives for the TUI-active check below.
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 56)); // string arg
+    asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 48)); // pool token
     // While TUI mode is active, route to the TermView surface (x19 is the pinned
     // arena-state base on entry, before it is reused for the string object).
     if let Some(off) = term_state_offset {
@@ -39,11 +49,11 @@ pub(crate) fn emit_app_io_write_helper(
             TERM_ARENA_STATE_REG,
             off + code::TERM_STATE_ACTIVE_OFFSET,
         ));
-        asm.push(abi::move_register("x19", "x0")); // string object
+        asm.push(abi::load_u64("x19", abi::stack_pointer(), 56)); // string object
         asm.push(abi::compare_immediate("x9", "0"));
         asm.push(abi::branch_ne("term_surface_path"));
     } else {
-        asm.push(abi::move_register("x19", "x0")); // string object
+        asm.push(abi::load_u64("x19", abi::stack_pointer(), 56)); // string object
     }
 
     // app = [NSApplication sharedApplication]; view = objc_getAssociatedObject(app, &KEY)
@@ -173,6 +183,11 @@ pub(crate) fn emit_app_io_write_helper(
     }
 
     asm.push(abi::label("done"));
+    // Drain this write's autoreleased NSStrings, then re-establish the OK result
+    // (poolPop clobbers x0). Every path here returns RESULT_OK_TAG.
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 48)); // pool token
+    asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));

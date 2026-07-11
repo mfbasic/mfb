@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/math/bug131_float_atan2_origin
+Wrote AST to tests/rt-behavior/math/bug131_float_atan2_origin/bug131_float_atan2_origin.ast
+Wrote IR to tests/rt-behavior/math/bug131_float_atan2_origin/bug131_float_atan2_origin.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/bug131_float_atan2_origin
+Wrote executable to tests/rt-behavior/math/bug131_float_atan2_origin/bug131_float_atan2_origin.out
+[exit 0]
+$ tests/rt-behavior/math/bug131_float_atan2_origin/bug131_float_atan2_origin.out
+0.00
+0.79
+1.57
+0.00
+3.14
+[exit 0]

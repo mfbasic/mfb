@@ -878,6 +878,21 @@ impl<'a> FileParser<'a> {
             self.skip_separators();
         }
 
+        // A FREE block that reaches `END FREE` without a SYMBOL and an ABI
+        // clause must not be silently dropped (that would leave `free: None`,
+        // indistinguishable from "no FREE declared", so the deallocator vanishes
+        // and every call leaks its native return buffer). Diagnose it as a
+        // malformed FREE block, matching the missing-SYMBOL/ABI diagnostics the
+        // sibling link-FUNC path emits.
+        if symbol.is_none() || param.is_none() || return_ctype.is_none() {
+            let token = self.previous().clone();
+            self.report(
+                "NATIVE_FREE_INVALID",
+                "A FREE block must declare both a SYMBOL and an ABI clause.",
+                &token,
+            );
+            return None;
+        }
         let symbol = symbol?;
         let (param_name, param_ctype) = param?;
         let return_ctype = return_ctype?;

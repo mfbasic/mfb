@@ -1868,6 +1868,19 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch(&result_copy_loop),
         abi::label(&result_copy_done),
         abi::store_u8(abi::ZERO, "%v11", 0),
+        // The working line buffer is now fully copied into the result String and
+        // is dead. Return it to the free-list before returning Ok, so a
+        // line-processing loop (`WHILE ... io::readLine ...`) doesn't leak
+        // max(32, ~2×line) bytes of arena on every call — an unbounded growth
+        // that scope-drop (user values only) never reclaims (bug-95).
+        // `arena_free` clobbers x0/x1/x9–x16; the result pointer/tag are reloaded
+        // from the stack immediately afterward, so nothing live is lost.
+        abi::load_u64(abi::ARG[0], abi::stack_pointer(), BUFFER_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), CAPACITY_OFFSET),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

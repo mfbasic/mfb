@@ -1,0 +1,7 @@
+' bug-107: a monomorph diagnostic in a non-first file was attributed to the first
+' project file. The return-type-ambiguous call below lives in other.mfb and must
+' be reported against other.mfb, not main.mfb.
+IMPORT io
+FUNC main() AS Integer
+  RETURN 0
+END FUNC

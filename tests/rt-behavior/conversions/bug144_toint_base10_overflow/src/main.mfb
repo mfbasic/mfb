@@ -1,0 +1,20 @@
+IMPORT io
+
+' bug-144: the base-10 toInt overflow guard used a signed compare on the
+' accumulator, so a >=20-digit negative drove acc to exactly 2^63 (negative as
+' i64) and a further digit escaped the guard and wrapped. An unsigned compare
+' (matching the radix path's bug-49 fix) makes it fail with ErrOverflow.
+FUNC parse(s AS String) AS String
+  LET n = toInt(s) TRAP(e)
+    RETURN "ERR:" & toString(e.code)
+  END TRAP
+  RETURN toString(n)
+END FUNC
+FUNC main() AS Integer
+  io::print(parse("-92233720368547758080"))
+  io::print(parse("-9223372036854775808"))
+  io::print(parse("9223372036854775807"))
+  io::print(parse("9223372036854775808"))
+  io::print(parse("123"))
+  RETURN 0
+END FUNC

@@ -410,7 +410,13 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 singleton_slot,
             ));
-            return self.lower_map_concat(without_slot, singleton_slot, &collection.type_);
+            // The concat copies both intermediates into the result; free the
+            // `without` whole-map copy and the `singleton` map afterward, mirroring
+            // the list branch's frees. Without this every non-in-place map `set`
+            // leaked one whole-map-sized block plus a singleton per call (bug-145).
+            let result = self.lower_map_concat(without_slot, singleton_slot, &collection.type_)?;
+            let result = self.free_intermediate_collection(without_slot, &collection.type_, result)?;
+            return self.free_intermediate_collection(singleton_slot, &collection.type_, result);
         }
 
         Err(format!(

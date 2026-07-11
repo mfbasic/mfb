@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT math
+
+' bug-134: Float log/log10 of a subnormal input was silently wrong because the
+' frexp exponent/mantissa split assumed a normal input. The fdlibm subnormal
+' prologue (scale by 2^54, subtract 54 from the exponent) fixes it. 5.0e-324 is
+' the smallest positive subnormal; ln is about -744.44, log10 about -323.3.
+FUNC main() AS Integer
+  io::print(toString(math::log(5.0e-324)))
+  io::print(toString(math::log10(5.0e-324)))
+  io::print(toString(math::log(2.718281828459045)))
+  io::print(toString(math::log10(1000.0)))
+  RETURN 0
+END FUNC

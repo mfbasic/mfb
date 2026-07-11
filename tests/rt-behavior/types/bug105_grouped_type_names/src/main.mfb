@@ -1,0 +1,14 @@
+IMPORT io
+
+' bug-105/106: the resolver rejected parenthesized (grouped) type names outside
+' thread positions, and function-type re-parsers weren't nesting-aware. Both a
+' grouped nested type and a nested function-typed parameter must now resolve.
+FUNC apply(f AS FUNC(FUNC(Integer) AS Integer, Integer) AS Integer) AS Integer
+  RETURN 0
+END FUNC
+FUNC main() AS Integer
+  LET xs AS List OF (Map OF String TO Integer) = []
+  LET y AS (Integer) = 7
+  io::print(toString(len(xs) + y))
+  RETURN 0
+END FUNC

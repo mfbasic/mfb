@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT fs
+
+' bug-132: `..` directly under root left the popped component in place because
+' the pop at index 0 skipped the out_len store instead of keeping the root slash.
+FUNC main() AS Integer
+  io::print(fs::pathNormalize("/a/.."))
+  io::print(fs::pathNormalize("/a/../b"))
+  io::print(fs::pathNormalize("/tmp///a/../b/"))
+  io::print(fs::pathNormalize("a/b/../c"))
+  io::print(fs::pathNormalize("/x/y/../.."))
+  RETURN 0
+END FUNC

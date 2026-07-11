@@ -1,0 +1,13 @@
+IMPORT io
+
+' bug-119: a record/enum field named `result` unconditionally declared the Thread
+' runtime helper (a stale `.result`-means-Thread heuristic), so a valid program
+' with such a field was rejected as declaring an unused helper.
+TYPE Calc
+  result AS Integer
+END TYPE
+FUNC main() AS Integer
+  LET c = Calc[5]
+  io::print(toString(c.result))
+  RETURN 0
+END FUNC

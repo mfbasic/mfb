@@ -551,11 +551,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), index_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch9,
-            COLLECTION_OFFSET_CAPACITY,
-        ));
+        // Walk only the live entries `[0..count)`. The entry table is dense, but
+        // slots `[count..capacity)` of a grown buffer are never initialized (grow
+        // copies `count*ENTRY` bytes) and recycled arena memory is entropy-
+        // scrubbed, so bounding at `capacity` deep-copied any spare entry whose
+        // garbage flags byte happened to equal USED — a wild pointer walk
+        // (bug-146).
+        self.emit(abi::load_u64(&scratch10, &scratch9, COLLECTION_OFFSET_COUNT));
         self.emit(abi::compare_registers(&scratch8, &scratch10));
         self.emit(abi::branch_ge(&done_label));
 

@@ -306,6 +306,11 @@ fn lower_net_endpoint_helper(
     const POLLFD_OFFSET: usize = 120; // pollfd { fd; events; revents }
     const SOERR_OFFSET: usize = 128; // getsockopt SO_ERROR output
     const SOLEN_OFFSET: usize = 136; // getsockopt option length
+    // getaddrinfo `service` pointer (NULL for a resolved host; the `"0"` C string
+    // below for a NULL/bind-all host, since getaddrinfo rejects node==service==NULL
+    // — the real port is patched into sin_port afterward). bug-113.
+    const SERVICE_OFFSET: usize = 144;
+    const SERVICE_STR_OFFSET: usize = 152; // holds the bytes "0\0…"
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");
@@ -338,6 +343,8 @@ fn lower_net_endpoint_helper(
         ]);
     }
     emit_hints(HINTS_OFFSET, listen, SOCK_STREAM, &mut instructions);
+    // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE_OFFSET));
     // Choose host C string. An empty host on a listener binds all interfaces
     // (NULL host + AI_PASSIVE).
     instructions.extend([
@@ -362,13 +369,22 @@ fn lower_net_endpoint_helper(
         instructions.extend([
             abi::label(&null_host),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), CSTR_OFFSET),
+            // Bind-all: node is NULL, so service must be non-NULL. Stage the C
+            // string "0" (0x30 then a zero terminator) and point service at it,
+            // so getaddrinfo(NULL, "0", &hints|AI_PASSIVE, …) returns the wildcard
+            // address instead of EAI_NONAME (bug-113). The real port overwrites
+            // sin_port afterward.
+            abi::move_immediate("%v9", "Integer", "48"),
+            abi::store_u64("%v9", abi::stack_pointer(), SERVICE_STR_OFFSET),
+            abi::add_immediate("%v9", abi::stack_pointer(), SERVICE_STR_OFFSET),
+            abi::store_u64("%v9", abi::stack_pointer(), SERVICE_OFFSET),
         ]);
     }
     instructions.extend([
         abi::label(&resolved),
-        // getaddrinfo(host, NULL, &hints, &res)
+        // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SERVICE_OFFSET),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);

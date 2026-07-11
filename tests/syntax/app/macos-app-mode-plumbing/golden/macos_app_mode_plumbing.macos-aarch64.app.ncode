@@ -15,6 +15,7 @@
   { "library": "libobjc", "symbol": "_objc_msgSend" },
   { "library": "libobjc", "symbol": "_sel_registerName" },
   { "library": "libobjc", "symbol": "_objc_autoreleasePoolPush" },
+  { "library": "libobjc", "symbol": "_objc_autoreleasePoolPop" },
   { "library": "libobjc", "symbol": "_objc_setAssociatedObject" },
   { "library": "libobjc", "symbol": "_objc_getAssociatedObject" },
   { "library": "libobjc", "symbol": "_objc_allocateClassPair" },
@@ -172,10 +173,10 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "sub_sp", "imm": "1696" },
+    { "op": "sub_sp", "imm": "3744" },
     { "op": "add_imm", "dst": "x19", "src": "sp", "imm": "0" },
     { "op": "mov", "dst": "x9", "src": "x19" },
-    { "op": "add_imm", "dst": "x10", "src": "x19", "imm": "1680" },
+    { "op": "add_imm", "dst": "x10", "src": "x19", "imm": "3728" },
     { "op": "label", "name": "entry_arena_state_zero" },
     { "op": "str_u64", "src": "xzr", "base": "x9", "offset": "0" },
     { "op": "add_imm", "dst": "x9", "src": "x9", "imm": "8" },
@@ -1318,6 +1319,8 @@
     { "op": "str_u64", "src": "x22", "base": "sp", "offset": "32" },
     { "op": "mov", "dst": "x19", "src": "x0" },
     { "op": "mov", "dst": "x20", "src": "x1" },
+    { "op": "bl", "target": "_objc_autoreleasePoolPush" },
+    { "op": "str_u64", "src": "x0", "base": "sp", "offset": "40" },
     { "op": "adrp", "dst": "x21", "symbol": "_OBJC_CLASS_$_NSFont" },
     { "op": "add_pageoff", "dst": "x21", "src": "x21", "symbol": "_OBJC_CLASS_$_NSFont" },
     { "op": "ldr_u64", "dst": "x21", "base": "x21", "offset": "0" },
@@ -1391,6 +1394,8 @@
     { "op": "mov", "dst": "x1", "src": "x0" },
     { "op": "mov", "dst": "x0", "src": "x20" },
     { "op": "bl", "target": "_objc_msgSend" },
+    { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "40" },
+    { "op": "bl", "target": "_objc_autoreleasePoolPop" },
     { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "16" },
@@ -1400,6 +1405,7 @@
     { "op": "ret" }
     ],
     "relocations": [
+    { "from": "_mfb_macapp_append", "to": "_objc_autoreleasePoolPush", "kind": "branch26", "binding": "external", "library": "libobjc" },
     { "from": "_mfb_macapp_append", "to": "_OBJC_CLASS_$_NSFont", "kind": "page21", "binding": "external", "library": "AppKit" },
     { "from": "_mfb_macapp_append", "to": "_OBJC_CLASS_$_NSFont", "kind": "pageoff12", "binding": "external", "library": "AppKit" },
     { "from": "_mfb_macapp_append", "to": "_mfb_macapp_sel_userFixedFont", "kind": "page21", "binding": "data", "library": null },
@@ -1438,7 +1444,8 @@
     { "from": "_mfb_macapp_append", "to": "_mfb_macapp_sel_release", "kind": "page21", "binding": "data", "library": null },
     { "from": "_mfb_macapp_append", "to": "_mfb_macapp_sel_release", "kind": "pageoff12", "binding": "data", "library": null },
     { "from": "_mfb_macapp_append", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_macapp_append", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" }
+    { "from": "_mfb_macapp_append", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_macapp_append", "to": "_objc_autoreleasePoolPop", "kind": "branch26", "binding": "external", "library": "libobjc" }
     ]
   },
   {
@@ -4284,7 +4291,7 @@
     { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "0" },
     { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "48" },
     { "op": "add_imm", "dst": "x8", "src": "x19", "imm": "104" },
-    { "op": "add_imm", "dst": "x9", "src": "x19", "imm": "1680" },
+    { "op": "add_imm", "dst": "x9", "src": "x19", "imm": "3728" },
     { "op": "label", "name": "arena_destroy_bins" },
     { "op": "str_u64", "src": "xzr", "base": "x8", "offset": "0" },
     { "op": "add_imm", "dst": "x8", "src": "x8", "imm": "8" },
@@ -4347,13 +4354,16 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "sub_sp", "imm": "48" },
+    { "op": "sub_sp", "imm": "64" },
     { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
     { "op": "str_u64", "src": "x19", "base": "sp", "offset": "8" },
     { "op": "str_u64", "src": "x20", "base": "sp", "offset": "16" },
     { "op": "str_u64", "src": "x21", "base": "sp", "offset": "24" },
     { "op": "str_u64", "src": "x22", "base": "sp", "offset": "40" },
-    { "op": "mov", "dst": "x19", "src": "x0" },
+    { "op": "str_u64", "src": "x0", "base": "sp", "offset": "56" },
+    { "op": "bl", "target": "_objc_autoreleasePoolPush" },
+    { "op": "str_u64", "src": "x0", "base": "sp", "offset": "48" },
+    { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "56" },
     { "op": "adrp", "dst": "x20", "symbol": "_OBJC_CLASS_$_NSApplication" },
     { "op": "add_pageoff", "dst": "x20", "src": "x20", "symbol": "_OBJC_CLASS_$_NSApplication" },
     { "op": "ldr_u64", "dst": "x20", "base": "x20", "offset": "0" },
@@ -4428,15 +4438,19 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "b", "target": "done" },
     { "op": "label", "name": "done" },
+    { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "48" },
+    { "op": "bl", "target": "_objc_autoreleasePoolPop" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
     { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "16" },
     { "op": "ldr_u64", "dst": "x21", "base": "sp", "offset": "24" },
     { "op": "ldr_u64", "dst": "x22", "base": "sp", "offset": "40" },
-    { "op": "add_sp", "imm": "48" },
+    { "op": "add_sp", "imm": "64" },
     { "op": "ret" }
     ],
     "relocations": [
+    { "from": "_mfb_rt_io_io_print", "to": "_objc_autoreleasePoolPush", "kind": "branch26", "binding": "external", "library": "libobjc" },
     { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSApplication", "kind": "page21", "binding": "external", "library": "AppKit" },
     { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSApplication", "kind": "pageoff12", "binding": "external", "library": "AppKit" },
     { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_sharedApplication", "kind": "page21", "binding": "data", "library": null },
@@ -4471,7 +4485,8 @@
     { "from": "_mfb_rt_io_io_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
     { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_append", "kind": "branch26", "binding": "internal", "library": null },
     { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
-    { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" }
+    { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_io_print", "to": "_objc_autoreleasePoolPop", "kind": "branch26", "binding": "external", "library": "libobjc" }
     ]
   }
   ]

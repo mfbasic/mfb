@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT tls
+IMPORT crypto
+
+' bug-96: the audit source collector omitted tls/http/crypto from the capability,
+' fallibility, and resource tables, so a TLS-only program disclosed "no network
+' use". Audit must now report the network capability, the randomness capability
+' (crypto::randomBytes), the TlsSocket resource, and the fallible tls/crypto call
+' sites.
+FUNC main() AS Integer
+  LET s = tls::connect("example.com", 443)
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  tls::writeText(s, "GET / HTTP/1.0")
+  tls::close(s)
+  io::print(toString(len(key)))
+  RETURN 0
+END FUNC

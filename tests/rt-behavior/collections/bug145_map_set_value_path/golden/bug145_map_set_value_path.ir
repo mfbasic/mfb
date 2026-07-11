@@ -1,0 +1,45 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug145_map_set_value_path",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": true, "name": "m", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "20" } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 9,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 9, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "assign", "line": 10, "name": "m", "value": { "kind": "call", "type": "Map OF String TO Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "m" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "k" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }] } }
+      ]
+    },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "k17" }] }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "a" }] }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "m" }] }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

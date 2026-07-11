@@ -28,6 +28,7 @@
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_autoreleasePoolPush", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_objc_autoreleasePoolPop", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_setAssociatedObject", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_getAssociatedObject", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_allocateClassPair", "requiredBy": "_main" },

@@ -1213,6 +1213,14 @@ pub(super) fn lower_fs_read_text_path_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
+        // The result-String allocation failed after the file fd was opened and
+        // seeked; close the fd before returning ErrOutOfMemory so a caught OOM in
+        // a loop doesn't leak an fd per call and exhaust the fd table (bug-101,
+        // mirroring the fd-close on this helper's seek/read error paths).
+        abi::move_register(abi::return_register(), &fd),
+    ]);
+    platform.emit_close_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);

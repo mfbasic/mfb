@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/math/bug130_neon_exp_range_boundaries
+Wrote AST to tests/rt-behavior/math/bug130_neon_exp_range_boundaries/bug130_neon_exp_range_boundaries.ast
+Wrote IR to tests/rt-behavior/math/bug130_neon_exp_range_boundaries/bug130_neon_exp_range_boundaries.ir
+[exit 0]
+$ mfb build tests/rt-behavior/math/bug130_neon_exp_range_boundaries
+Wrote executable to tests/rt-behavior/math/bug130_neon_exp_range_boundaries/bug130_neon_exp_range_boundaries.out
+[exit 0]
+$ tests/rt-behavior/math/bug130_neon_exp_range_boundaries/bug130_neon_exp_range_boundaries.out
+finite-positive
+finite-positive
+1.00
+zero
+trap:77050014
+[exit 0]

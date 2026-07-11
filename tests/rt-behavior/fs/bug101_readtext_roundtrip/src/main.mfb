@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT fs
+
+' bug-101: fs::readText leaked its open fd when the result-String allocation
+' OOMed; the fd is now closed on that path. The observable behavior (a normal
+' read round-trips) must stay correct after the added close.
+FUNC main() AS Integer
+  fs::writeText("/tmp/mfb_bug101.txt", "hello world")
+  io::print(fs::readText("/tmp/mfb_bug101.txt"))
+  fs::deleteFile("/tmp/mfb_bug101.txt")
+  io::print("ok")
+  RETURN 0
+END FUNC

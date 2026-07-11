@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT math
+
+' bug-128: Fixed atan2 overflowed the i64 CORDIC working registers for
+' large-magnitude args, and negating a raw i64::MIN operand was a no-op that
+' broke the x<0 reflection. Pre-scaling both operands (atan2 is scale-invariant)
+' fixes both. Verify the two documented triggers plus the axis regressions.
+FUNC main() AS Integer
+  io::print(toString(math::atan2(2000000000.0F, 2000000000.0F)))
+  io::print(toString(math::atan2(1.0F, -2147483648.0F)))
+  io::print(toString(math::atan2(1.0F, 1.0F)))
+  io::print(toString(math::atan2(1.0F, 0.0F)))
+  io::print(toString(math::atan2(-1.0F, -1.0F)))
+  RETURN 0
+END FUNC

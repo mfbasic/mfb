@@ -1,0 +1,64 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug118_match_guard_helper",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "classify",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 7, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "$match0", "type": "Integer", "value": { "kind": "local", "name": "n" } },
+    {
+      "op": "match",
+      "line": 8,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 9,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+        "guard": { "kind": "call", "type": "Boolean", "target": "fs.exists", "args": [{ "kind": "const", "type": "String", "value": "/" }] },
+        "body": [
+        { "op": "return", "line": 10, "value": { "kind": "const", "type": "String", "value": "one-and-root-exists" } }
+        ]
+      },
+      {
+        "line": 11,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 12, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

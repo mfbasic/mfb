@@ -1,0 +1,32 @@
+{
+  "project": "bug94_fixedoffset_named_args",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "datetime", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "z", "type": null, "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "named", "name": "hours", "value": { "kind": "number", "value": "5" } }, { "kind": "named", "name": "mins", "value": { "kind": "number", "value": "0" } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.offsetAt", "arguments": [{ "kind": "identifier", "value": "z" }, { "kind": "call", "callee": "datetime.fromMillis", "arguments": [{ "kind": "number", "value": "0" }] }] }] }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "z2", "type": null, "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "named", "name": "offsetSeconds", "value": { "kind": "number", "value": "5" } }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.offsetAt", "arguments": [{ "kind": "identifier", "value": "z2" }, { "kind": "call", "callee": "datetime.fromMillis", "arguments": [{ "kind": "number", "value": "0" }] }] }] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "z3", "type": null, "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "5" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.offsetAt", "arguments": [{ "kind": "identifier", "value": "z3" }, { "kind": "call", "callee": "datetime.fromMillis", "arguments": [{ "kind": "number", "value": "0" }] }] }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

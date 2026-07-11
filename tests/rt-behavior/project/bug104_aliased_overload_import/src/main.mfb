@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT package_simple AS radio
+
+' bug-104: normalize_type stripped qualifiers by an unanchored, HashSet-ordered
+' substring replace, so overloaded-import resolution flapped run-to-run; and the
+' overload rewrite used the package name, which is unresolvable when the package
+' is imported under an alias. With both fixed, calling an overloaded imported
+' function under an alias resolves deterministically.
+FUNC main() AS Integer
+  io::print(toString(radio::score()))
+  RETURN 0
+END FUNC

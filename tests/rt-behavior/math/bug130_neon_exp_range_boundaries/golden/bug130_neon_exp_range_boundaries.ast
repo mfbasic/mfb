@@ -1,0 +1,62 @@
+{
+  "project": "bug130_neon_exp_range_boundaries",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "classify",
+      "line": 8,
+      "params": [
+      { "name": "x", "type": "Float", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": { "kind": "call", "callee": "math.exp", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 9 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "0.0" } },
+        "line": 10,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "finite-positive" }, "line": 11 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "zero" }, "line": 13 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 14,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 15 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "709.5" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "709.0" } }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "math.exp", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "709.0" } }] }, "right": { "kind": "call", "callee": "math.exp", "arguments": [{ "kind": "number", "value": "354.0" }] } }, "right": { "kind": "call", "callee": "math.exp", "arguments": [{ "kind": "number", "value": "355.0" }] } }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "800.0" } }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "710.0" }] }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

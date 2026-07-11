@@ -4,9 +4,11 @@
 //! neutral `v128` ops — which the transcendental math kernels and `vector::`
 //! carry on 128-bit vector values (physical `v0`–`v31` *or* FP virtual registers
 //! `%fN`, neither of which fits a 64-bit rv64 register) — are realized as
-//! operations on a **memory slot region**: `_mfb_rt_v128_slots`, where each
-//! distinct `v128` value gets a 16-byte slot and lane `h ∈ {0,1}` lives at
-//! `slots + slot*16 + h*8`.
+//! operations on a **memory slot region** in the *per-thread* arena state
+//! (`arena_base + ARENA_V128_SLOTS_OFFSET`), where each distinct `v128` value
+//! gets a 16-byte slot and lane `h ∈ {0,1}` lives at `base + slot*16 + h*8`. The
+//! region was a process-global (`_mfb_rt_v128_slots`) until bug-122: two OS
+//! threads running v128 kernels concurrently corrupted each other's lanes.
 //!
 //! Slots are assigned per function by [`build_slot_map`] over *every* `v128`
 //! value the function uses (compactly, so both `vN` and `%fN` fit); this runs in
@@ -17,9 +19,11 @@
 //! scalar results, and stores them back. Correct and slower — the "scalarize"
 //! the plan calls for; native-`D` FMA keeps the ≤1-ULP kernel contract.
 //!
-//! The global slots make this **single-threaded / non-reentrant**: a `v128`
+//! The per-thread slots are **non-reentrant within a thread**: a `v128`
 //! computation must not span a call to another `v128`-using function. The
-//! transcendental kernels are inlined straight-line leaf code, so this holds.
+//! transcendental kernels are inlined straight-line leaf code, so this holds;
+//! and because each thread addresses its own region off `s11`, concurrent
+//! threads no longer race (bug-122).
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
@@ -27,10 +31,6 @@ use std::collections::{BinaryHeap, HashMap};
 use crate::arch::aarch64::ops::CodeOp;
 use crate::target::shared::code::mir::MirInstruction;
 use crate::target::shared::code::CodeInstruction;
-
-/// The global slot region symbol. Sized [`SLOT_COUNT`] × 16 bytes; emitted as a
-/// data object by the module lowering when any function references it.
-pub(crate) const V128_SLOTS_SYMBOL: &str = "_mfb_rt_v128_slots";
 
 /// Maximum distinct `v128` values per function. Capped so the largest lane
 /// offset (`(SLOT_COUNT-1)*16 + 8`) stays within the 12-bit signed load/store
@@ -232,11 +232,23 @@ pub(crate) fn scalarize_v128(
     slots: &HashMap<String, usize>,
 ) -> Vec<CodeInstruction> {
     let mut out = Vec::new();
-    // Materialize the slot base into t2 (`auipc t2, %hi; addi t2, t2, %lo`).
-    out.push(ci("adrp", &[("dst", T2), ("symbol", V128_SLOTS_SYMBOL)]));
+    // Materialize the per-thread slot base into t2: `addi t2, s11,
+    // ARENA_V128_SLOTS_OFFSET`. The slots live in the per-thread arena state
+    // (addressed off the pinned arena base `s11`), so each OS thread gets its own
+    // region — the old process-global `_mfb_rt_v128_slots` was corrupted by two
+    // worker threads running v128 kernels concurrently (bug-122). t0 is free at
+    // this point (lanes are loaded after), so the immediate materialization the
+    // encoder would use for an out-of-range offset is harmless here.
     out.push(ci(
-        "add_pageoff",
-        &[("dst", T2), ("src", T2), ("symbol", V128_SLOTS_SYMBOL)],
+        "add_imm",
+        &[
+            ("dst", T2),
+            ("src", crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER),
+            (
+                "imm",
+                &crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string(),
+            ),
+        ],
     ));
 
     let off = |name: &str, half: u8| -> String {
@@ -593,9 +605,14 @@ mod tests {
         ];
         let slots = map(&[("v0", 0), ("%f7", 1), ("v2", 2)]);
         let out = scalarize_v128(CodeOp::FAddV, &fields, &slots);
-        // auipc + addi base, then 2 lanes × (ldr,ldr,fadd,str) = 2 + 8.
-        assert_eq!(out.len(), 10);
-        assert_eq!(out[0].op, CodeOp::Adrp);
+        // Per-thread slot base is one `addi t2, s11, ARENA_V128_SLOTS_OFFSET`
+        // (bug-122), then 2 lanes × (ldr,ldr,fadd,str) = 1 + 8.
+        assert_eq!(out.len(), 9);
+        assert_eq!(out[0].op.mnemonic(), "add_imm");
+        assert_eq!(out[0].get("src"), Some("s11"));
+        let expected_offset =
+            crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string();
+        assert_eq!(out[0].get("imm"), Some(expected_offset.as_str()));
         assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(), 2);
         // %f7 (slot 1) low lane reads offset 16.
         assert!(out.iter().any(|i| i.get("offset") == Some("16")));

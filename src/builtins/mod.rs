@@ -410,7 +410,7 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 /// by selecting the overload first, then binding names within it; every other
 /// builtin uses the merged per-position table of [`call_param_names`].
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    net::call_param_name_overloads(name)
+    net::call_param_name_overloads(name).or_else(|| datetime::call_param_name_overloads(name))
 }
 
 /// Pick the overload a call selects, given how many arguments were passed

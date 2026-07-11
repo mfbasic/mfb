@@ -952,16 +952,31 @@ impl CodeBuilder<'_> {
             self.emit(abi::vector_fadd(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], lo)); // r += dd low part
         }
         self.emit_horner(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[2], &EXP_COEFFS);
-        self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1]));
-        // Overflow (result past finite range) → ErrFloatInf: n > 1023.
-        self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[5], &k.v20));
-        self.emit(abi::vector_orr(&k.v24, &k.v24, abi::VEC_SCRATCH[6])); // accumulate inf mask
-        self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[6], &k.v23, abi::VEC_SCRATCH[5])); // underflow mask
-        self.emit(abi::vector_add(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], &k.v20));
-        self.emit(abi::vector_shl(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], 52));
-        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5]));
-        self.emit(abi::vector_bsl(abi::VEC_SCRATCH[6], &k.v21, abi::VEC_SCRATCH[0])); // flush underflow to 0
-        self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1])); // n (int)
+        // Scale P(r) by 2^n in two steps, 2^n = 2^n1 · 2^n2 with n1 = n>>1 and
+        // n2 = n-n1, so each biased exponent (n_i+1023) stays inside the normal
+        // range and both `2^n_i` factors are exact powers of two. Multiplying by
+        // exact powers of two is itself exact for any in-range result, so this is
+        // bit-identical to the old single `(n+1023)<<52` shift wherever that shift
+        // was valid — but it now overflows to +Inf only for a genuinely
+        // out-of-range result and underflows through the subnormals to 0, instead
+        // of fabricating Inf at n=1024 (finite results near x≈709.5) and flushing
+        // every subnormal result to 0 (bug-130).
+        self.emit(abi::vector_sshr(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[5], 1)); // n1 = n>>1
+        self.emit(abi::vector_sub(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[6])); // n2 = n-n1
+        self.emit(abi::vector_add(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6], &k.v20)); // n1+1023
+        self.emit(abi::vector_shl(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6], 52)); // 2^n1
+        self.emit(abi::vector_add(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], &k.v20)); // n2+1023
+        self.emit(abi::vector_shl(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], 52)); // 2^n2
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6])); // P(r)·2^n1
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[7])); // ·2^n2
+        // ErrFloatInf iff the actual result overflowed to +/-Inf: result*0 is NaN
+        // only for a non-finite result (NaN inputs were already masked above).
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], &k.v21)); // result*0
+        self.emit(abi::vector_fcmeq(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6])); // finite = all-ones
+        self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6])); // all-ones
+        self.emit(abi::vector_eor(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1])); // Inf lanes = all-ones
+        self.emit(abi::vector_orr(&k.v24, &k.v24, abi::VEC_SCRATCH[7])); // accumulate inf mask
     }
 
     /// `log`/`log10` kernel: x = 2^k*m (frexp + fold to [1/sqrt2, sqrt2)),
@@ -976,10 +991,28 @@ impl CodeBuilder<'_> {
         // Domain: x <= 0 fails.
         self.emit(abi::vector_fcmle_zero(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0]));
         self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[1]));
+        // Subnormal prologue (bug-134): a subnormal input (biased exponent field
+        // 0) carries no implicit leading mantissa bit, so the exponent/mantissa
+        // split below would extract a fake k = -1022 and a fake m. Scale such
+        // lanes by 2^54 into the normal range — making the split correct — and
+        // subtract 54 from the extracted exponent afterward, since
+        // log(x) = log(x·2^54) − 54·ln2. The mask is taken from the original
+        // bits; v28 is dead until the two-product further down.
+        self.emit(abi::vector_ushr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], 52));
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v18)); // exponent field
+        self.emit(abi::vector_eor(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // 0
+        self.emit(abi::vector_cmeq(&k.v28, abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2])); // subnormal (exp == 0)
+        self.broadcast_f64(abi::VEC_SCRATCH[2], 18014398509481984.0); // 2^54
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2])); // x·2^54
+        self.emit_vsel(abi::VEC_SCRATCH[0], &k.v28, abi::VEC_SCRATCH[1]); // v0 = subnormal ? x·2^54 : x
         // k = ((bits>>52) & 0x7ff) - 1022  (integer, v1).
         self.emit(abi::vector_ushr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], 52));
         self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v18));
         self.emit(abi::vector_sub(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], &k.v19));
+        // Undo the 2^54 scale in the exponent for subnormal lanes (k -= 54).
+        self.broadcast_i64(abi::VEC_SCRATCH[2], 54);
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], &k.v28));
+        self.emit(abi::vector_sub(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2]));
         // m = bits with exponent field replaced by 1022 → m in [0.5, 1) (v6).
         self.emit(abi::vector_and(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], &k.v20));
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6], &k.v21));
@@ -1347,6 +1380,15 @@ impl CodeBuilder<'_> {
         match kernel {
             FloatBinaryKernel::Atan2 => {
                 // atan2(y=v0, x=v1) = atan(y/x) + (x<0 ? copysign(pi, y) : 0).
+                // The origin (0,0) drives q = 0/0 = NaN, which the result-NaN
+                // check would raise as ErrFloatNan — but the man page (and the
+                // Fixed sibling) define atan2(0,0) = 0. Capture the origin lanes
+                // now, while both operands are live, in v24 (untouched by
+                // emit_atan_core), and force those result lanes to +0.0 before the
+                // NaN check runs (bug-131).
+                self.emit(abi::vector_fcmeq_zero(&k.v24, abi::VEC_SCRATCH[0])); // y == 0
+                self.emit(abi::vector_fcmeq_zero(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1])); // x == 0
+                self.emit(abi::vector_and(&k.v24, &k.v24, abi::VEC_SCRATCH[2])); // origin mask
                 self.emit(abi::vector_fcmlt_zero(&k.v20, abi::VEC_SCRATCH[1])); // x < 0 mask
                 self.emit(abi::vector_and(&k.v21, abi::VEC_SCRATCH[0], &k.v18)); // sign(y)
                 self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])); // q = y/x
@@ -1354,6 +1396,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], &k.v23, &k.v21)); // copysign(pi, y)
                 self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], &k.v20)); // & (x<0)
                 self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2]));
+                // Origin lanes → +0.0 (select 0 where the origin mask is set).
+                self.emit(abi::vector_eor(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+                self.emit_vsel(abi::VEC_SCRATCH[0], &k.v24, abi::VEC_SCRATCH[2]);
                 self.emit_result_nan_into_mask(k);
             }
             FloatBinaryKernel::Pow => {

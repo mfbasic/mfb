@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT datetime
+
+' bug-94: `fixedOffset(hours := N, ...)` merged both overloads' names into one
+' positional table, so `hours` bound position 0 of the 1-arg (offsetSeconds)
+' overload and N was interpreted as seconds. A per-overload table (like
+' net.connectTcp) makes the 2-arg form bind hours correctly (5h = 18000s) and
+' the 1-arg `offsetSeconds`/positional forms bind seconds.
+FUNC main() AS Integer
+  LET z = datetime::fixedOffset(hours := 5, mins := 0)
+  io::print(toString(datetime::offsetAt(z, datetime::fromMillis(0))))
+  LET z2 = datetime::fixedOffset(offsetSeconds := 5)
+  io::print(toString(datetime::offsetAt(z2, datetime::fromMillis(0))))
+  LET z3 = datetime::fixedOffset(5)
+  io::print(toString(datetime::offsetAt(z3, datetime::fromMillis(0))))
+  RETURN 0
+END FUNC

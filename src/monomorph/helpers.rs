@@ -286,7 +286,13 @@ pub(super) fn collect_imported_overloads(
                         .iter()
                         .map(|param| param.type_.clone())
                         .collect(),
-                    qualified_name: format!("{package}.{}", export.name),
+                    // Rewrite to the importer-facing `binding.name`, not
+                    // `package.name`: the post-monomorph resolver maps import
+                    // bindings (binding→package), so a `package.name` target is
+                    // unresolvable when the file imported under an alias
+                    // (`IMPORT pkg AS radio`). When the import is unaliased,
+                    // binding == package, so this is unchanged (bug-104).
+                    qualified_name: format!("{binding}.{}", export.name),
                 });
             }
         }

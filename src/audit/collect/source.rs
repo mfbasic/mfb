@@ -509,7 +509,19 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         "fs" => Some("filesystem"),
         "io" => Some("terminal"),
         "thread" => Some("threads"),
-        "net" => Some("network"),
+        // Networking also flows through `tls::*` and `http::*` (audit runs on the
+        // pre-monomorph AST, before the http→net source rewrite, so these must be
+        // listed directly or a TLS/HTTP-only program discloses no network use —
+        // bug-96).
+        "net" | "tls" | "http" => Some("network"),
+        // Secure-randomness surface: the entropy-drawing crypto builtins (the
+        // rest of `crypto` is pure computation over caller-supplied bytes).
+        "crypto" => match callee {
+            "crypto.randomBytes" | "crypto.randomInt" | "crypto.uuid4"
+            | "crypto.generateEd25519" | "crypto.generateP256" | "crypto.generateP384"
+            | "crypto.generateP521" => Some("randomness"),
+            _ => None,
+        },
         "os" => match callee {
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv"
             | "os.environ" => Some("environment"),
@@ -552,10 +564,65 @@ fn link_aliases(ast: &ast::AstProject) -> HashSet<String> {
 }
 
 fn is_fallible_call(callee: &str, fallible: &HashSet<String>) -> bool {
-    if matches!(package_of(callee), "fs" | "io" | "json" | "net" | "thread") {
+    // Whole-package fallible surfaces — every call raises a trappable host error.
+    // `tls`/`http` join the original set: they are network I/O like `net`
+    // (bug-96).
+    if matches!(
+        package_of(callee),
+        "fs" | "io" | "json" | "net" | "thread" | "tls" | "http"
+    ) {
+        return true;
+    }
+    if is_fallible_builtin(callee) {
         return true;
     }
     fallible.contains(callee)
+}
+
+/// The specific builtins in mixed pure/fallible packages (`crypto`, `datetime`)
+/// that raise a trappable domain error. The rest of those packages are total
+/// computation, so a coarse package match would over-report (bug-96).
+fn is_fallible_builtin(callee: &str) -> bool {
+    matches!(
+        callee,
+        // crypto — AEAD (auth-tag verification), signatures, key generation, KDFs,
+        // MACs, and entropy draws can each fail; the SHA hashes and
+        // constant-time compare are total.
+        "crypto.aes256GcmSeal"
+            | "crypto.aes256GcmOpen"
+            | "crypto.chacha20Poly1305Seal"
+            | "crypto.chacha20Poly1305Open"
+            | "crypto.ed25519Sign"
+            | "crypto.ed25519Verify"
+            | "crypto.p256Sign"
+            | "crypto.p256Verify"
+            | "crypto.p384Sign"
+            | "crypto.p384Verify"
+            | "crypto.p521Sign"
+            | "crypto.p521Verify"
+            | "crypto.generateEd25519"
+            | "crypto.generateP256"
+            | "crypto.generateP384"
+            | "crypto.generateP521"
+            | "crypto.hkdfSha256"
+            | "crypto.hkdfSha512"
+            | "crypto.pbkdf2Sha256"
+            | "crypto.pbkdf2Sha512"
+            | "crypto.hmacSha256"
+            | "crypto.hmacSha512"
+            | "crypto.randomBytes"
+            | "crypto.randomInt"
+            | "crypto.uuid4"
+            // datetime — the parsers and formatters and the range-checked
+            // constructors raise; date/duration arithmetic is total. Derived from
+            // the `FAIL` sites in datetime_package.mfb.
+            | "datetime.date"
+            | "datetime.time"
+            | "datetime.fixedOffset"
+            | "datetime.format"
+            | "datetime.parse"
+            | "datetime.parseIso"
+    )
 }
 
 fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
@@ -566,6 +633,12 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
         "thread.start" => Some(("Thread", "thread.waitFor")),
         "net.connectTcp" | "net.accept" => Some(("Socket", "net.close")),
         "net.listenTcp" => Some(("Listener", "net.close")),
+        // bug-96: the tls/http/udp resource producers were missing, so those
+        // handles never appeared in the Resources section or the
+        // close-may-fail findings.
+        "net.bindUdp" => Some(("UdpSocket", "net.close")),
+        "tls.connect" | "tls.accept" => Some(("TlsSocket", "tls.close")),
+        "tls.listen" | "http.serverSSL" => Some(("TlsListener", "tls.close")),
         _ => None,
     }
 }

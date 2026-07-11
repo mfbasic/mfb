@@ -297,6 +297,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&finish));
 
         self.emit(abi::label(&general));
+        // Pre-scale large-magnitude operands. CORDIC vectoring grows the working
+        // magnitude to ~1.6468·hypot(x,y); a raw |value| ≳ 2^63/1.6468 overflows
+        // the signed i64 registers mid-iteration and corrupts the accumulated
+        // angle. atan2 is scale-invariant, so shift both operands right by the
+        // same amount (discarding only low bits that don't affect the angle) to
+        // keep the magnitude bounded. Shifting first also fixes the raw i64::MIN
+        // operand, whose `0 - vx` reflection below is otherwise a two's-complement
+        // no-op that leaves vx < 0 and breaks CORDIC's precondition (bug-128).
+        let no_scale = self.label("fixed_atan2_no_scale");
+        let mag_x = self.allocate_register()?;
+        let mag_y = self.allocate_register()?;
+        let mag = self.allocate_register()?;
+        let mag_threshold = self.allocate_register()?;
+        // |v| without overflow: v ^ (v>>63) is |v| for v>=0 and |v|-1 for v<0, so
+        // even i64::MIN maps to i64::MAX (top bit clear) rather than overflowing.
+        self.emit(abi::arithmetic_shift_right_immediate(&mag_x, &vx, 63));
+        self.emit(abi::exclusive_or_registers(&mag_x, &vx, &mag_x));
+        self.emit(abi::arithmetic_shift_right_immediate(&mag_y, &vy, 63));
+        self.emit(abi::exclusive_or_registers(&mag_y, &vy, &mag_y));
+        self.emit(abi::or_registers(&mag, &mag_x, &mag_y));
+        // 2^61: post-scale headroom keeps 1.6468·sqrt(2)·2^61 well under 2^63.
+        self.emit(abi::move_immediate(&mag_threshold, "Integer", "2305843009213693952"));
+        self.emit(abi::compare_registers(&mag, &mag_threshold));
+        self.emit(abi::branch_lt(&no_scale));
+        self.emit(abi::arithmetic_shift_right_immediate(&vx, &vx, 3));
+        self.emit(abi::arithmetic_shift_right_immediate(&vy, &vy, 3));
+        self.emit(abi::label(&no_scale));
         let x_positive = self.label("fixed_atan2_x_positive");
         let offset_neg = self.label("fixed_atan2_offset_neg");
         let setup_done = self.label("fixed_atan2_setup_done");

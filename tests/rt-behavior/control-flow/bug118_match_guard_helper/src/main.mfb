@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT fs
+
+' bug-118: a runtime helper (here fs::exists) used only in a MATCH `WHEN` guard
+' was never collected, so the program failed to compile with an internal error.
+' It must now compile and evaluate the guard both ways.
+FUNC classify(n AS Integer) AS String
+  MATCH n
+    CASE 1 WHEN fs::exists("/")
+      RETURN "one-and-root-exists"
+    CASE ELSE
+      RETURN "other"
+  END MATCH
+END FUNC
+FUNC main() AS Integer
+  io::print(classify(1))
+  io::print(classify(2))
+  RETURN 0
+END FUNC

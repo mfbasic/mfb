@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/functions/bug107_multifile_diag_attribution
+   6 | END FUNC
+   7 | FUNC useIt() AS Integer
+   8 |   LET z = makeIt()
+     | ^
+tests/syntax/functions/bug107_multifile_diag_attribution/src/other.mfb:8 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
+               Call to `makeIt` matches 2 overloads that differ only by return type; supply the expected type (e.g. a `LET … AS` annotation) to select one.
+[exit 1]

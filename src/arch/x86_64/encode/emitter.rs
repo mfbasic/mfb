@@ -1967,8 +1967,14 @@ fn enc_add_carry(instruction: &CodeInstruction) -> Result<Encoded, String> {
         // adc dst, rhs : 0x11 /r (MR form)
         bytes.extend_from_slice(&alu_rr(0x11, dst, rhs));
     }
-    // setc carry_out ; movzx carry_out, carry_out  (0x92 = SETB/SETC)
-    bytes.extend_from_slice(&enc_setcc_to(carry_out, 0x92));
+    // A carry_out of the zero token ("discard the carry", the last-limb
+    // convention) must emit no setcc at all: `enc_setcc_to(16, ...)` computes
+    // `16 & 7 == 0` with REX.B and would store the carry into r8 (a SysV arg
+    // register outside the allocatable pool) instead of discarding it (bug-123).
+    if !is_zero_token(carry_out) {
+        // setc carry_out ; movzx carry_out, carry_out  (0x92 = SETB/SETC)
+        bytes.extend_from_slice(&enc_setcc_to(carry_out, 0x92));
+    }
     Ok(Encoded::plain(bytes))
 }
 
@@ -1998,7 +2004,11 @@ fn enc_sub_borrow(instruction: &CodeInstruction) -> Result<Encoded, String> {
         // sbb dst, rhs : 0x19 /r (MR form)
         bytes.extend_from_slice(&alu_rr(0x19, dst, rhs));
     }
-    // setc borrow_out (CF set on borrow) ; movzx
-    bytes.extend_from_slice(&enc_setcc_to(borrow_out, 0x92));
+    // A borrow_out of the zero token discards the borrow: emit no setcc, else
+    // the byte target `16 & 7 == 0` with REX.B would corrupt r8 (bug-123).
+    if !is_zero_token(borrow_out) {
+        // setc borrow_out (CF set on borrow) ; movzx
+        bytes.extend_from_slice(&enc_setcc_to(borrow_out, 0x92));
+    }
     Ok(Encoded::plain(bytes))
 }

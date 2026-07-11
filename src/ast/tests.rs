@@ -2268,17 +2268,18 @@ fn free_block_malformed_abi_paths() {
         "{head}    FREE return\n      SYMBOL \"g\"\n      ABI (ptr CPtr) CVoid\n    END FREE\n{tail}"
     ))
     .is_err());
-    // FREE missing SYMBOL yields `free = None` silently (symbol? short-circuit),
-    // so the enclosing native FUNC still parses.
+    // FREE missing SYMBOL must be diagnosed (bug-90): silently dropping the
+    // block (`free = None`) let the declared deallocator vanish and leaked the
+    // native return buffer on every call.
     assert!(try_parse(&format!(
         "{head}    FREE return\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n{tail}"
     ))
-    .is_ok());
-    // FREE missing ABI likewise yields `free = None` (param? short-circuit).
+    .is_err());
+    // FREE missing ABI must likewise be diagnosed, not silently dropped.
     assert!(try_parse(&format!(
         "{head}    FREE return\n      SYMBOL \"g\"\n    END FREE\n{tail}"
     ))
-    .is_ok());
+    .is_err());
 }
 
 #[test]

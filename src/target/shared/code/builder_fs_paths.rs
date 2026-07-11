@@ -326,6 +326,7 @@ impl CodeBuilder<'_> {
         let append_dot_dot = self.label("fs_path_normalize_append_dot_dot");
         let pop_previous = self.label("fs_path_normalize_pop_previous");
         let pop_scan = self.label("fs_path_normalize_pop_scan");
+        let pop_store = self.label("fs_path_normalize_pop_store");
         let finish = self.label("fs_path_normalize_finish");
         let finish_nonempty = self.label("fs_path_normalize_finish_nonempty");
         let scratch8 = self.temporary_vreg();
@@ -545,8 +546,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u8(&scratch15, &scratch14, 0));
         self.emit(abi::compare_immediate(&scratch15, "47"));
         self.emit(abi::branch_ne(&pop_scan));
+        // Found the preceding '/' at index `scratch13`; truncate the output
+        // there. When that slash sits at index 0 it is the root slash of an
+        // absolute path: keep it (out_len = 1) rather than skipping the store,
+        // which left the popped component in place — `"/a/.."` stayed `"/a"`
+        // instead of collapsing to `"/"` (bug-132).
         self.emit(abi::compare_immediate(&scratch13, "0"));
-        self.emit(abi::branch_eq(&component_loop));
+        self.emit(abi::branch_ne(&pop_store));
+        self.emit(abi::move_immediate(&scratch13, "Integer", "1"));
+        self.emit(abi::label(&pop_store));
         self.emit(abi::store_u64(
             &scratch13,
             abi::stack_pointer(),

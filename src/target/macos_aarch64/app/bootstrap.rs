@@ -571,6 +571,18 @@ pub(super) fn emit_append_helper() -> CodeFunction {
     asm.push(abi::move_register("x19", "x0")); // text view
     asm.push(abi::move_register("x20", "x1")); // nsstring
 
+    // Per-append autorelease pool. The worker's process-lifetime pool
+    // (emit_worker_shim) is never drained (the worker parks forever), so the
+    // autoreleased font and attributes NSDictionary created below would
+    // accumulate for the process lifetime — RSS grows without bound with output
+    // volume (bug-112). Push a fresh pool here and pop it before returning so
+    // this call's autoreleases are reclaimed immediately. Token saved at sp+40
+    // (the frame's spare slot). The owned attributed string is still released
+    // explicitly (bug-53); waitUntilDone:YES means the main thread has finished
+    // consuming it before the pop.
+    asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 40)); // pool token
+
     // font = [NSFont userFixedPitchFontOfSize:N]
     asm.external_data("x21", CLASS_NS_FONT, LIB_APPKIT);
     asm.load_selector(SEL_USER_FIXED_FONT.0);
@@ -629,6 +641,10 @@ pub(super) fn emit_append_helper() -> CodeFunction {
     asm.load_selector(SEL_RELEASE.0);
     asm.push(abi::move_register("x0", "x20")); // attributed string
     asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Drain this call's autoreleased objects (font, attributes dictionary).
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 40)); // pool token
+    asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));

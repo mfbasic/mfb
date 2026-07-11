@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT collections
+
+' bug-145: the non-in-place map `set` value path leaked the `without` whole-map
+' copy and the `singleton` intermediate per call. This exercises a set-in-a-loop
+' (value semantics) and checks the result stays correct after the added frees.
+FUNC main() AS Integer
+  MUT m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
+  FOR i = 0 TO 20
+    m = collections::set(m, "k" & toString(i), i * 10)
+  NEXT
+  io::print(toString(collections::get(m, "k17")))
+  io::print(toString(collections::get(m, "a")))
+  io::print(toString(len(m)))
+  RETURN 0
+END FUNC

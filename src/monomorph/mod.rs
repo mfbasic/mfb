@@ -44,6 +44,15 @@ struct Monomorphizer<'a> {
     /// and `member` a `collections::` function is rewritten to the internal
     /// generic implementation `__collections_member` before instantiation.
     collections_bindings: HashSet<String>,
+    /// Source-file path (project-relative) for each declared function, keyed by
+    /// both its original and concrete/mangled name. Lets a monomorph diagnostic
+    /// be attributed to the file the offending function actually lives in rather
+    /// than always the first project file (bug-107).
+    function_files: HashMap<String, String>,
+    /// The file whose function body is currently being lowered, if known;
+    /// diagnostics are attributed here. Saved/restored across nested
+    /// instantiation so the attribution follows the frame being lowered.
+    current_file: Option<String>,
     had_error: bool,
 }
 

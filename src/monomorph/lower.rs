@@ -1,5 +1,29 @@
 use super::*;
 
+/// Remove every occurrence of `qualifier` in `input` that begins a type-name
+/// token — at position 0 or immediately after a non-identifier byte — leaving
+/// substring occurrences inside a longer identifier untouched (so `io.` does not
+/// bite into `radio.`). See `Monomorphizer::normalize_type` (bug-104).
+fn strip_qualifier_prefixes(input: &str, qualifier: &str) -> String {
+    if qualifier.is_empty() {
+        return input.to_string();
+    }
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i..].starts_with(qualifier) && (i == 0 || !is_ident(bytes[i - 1])) {
+            i += qualifier.len();
+            continue;
+        }
+        let ch = input[i..].chars().next().expect("valid char boundary");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 impl<'a> Monomorphizer<'a> {
     pub(super) fn new(project_dir: &'a Path, source: &'a AstProject) -> Self {
         let mut type_templates = HashMap::new();
@@ -8,6 +32,7 @@ impl<'a> Monomorphizer<'a> {
         let mut concrete_functions = HashMap::new();
         let mut function_overloads: HashMap<String, Vec<Function>> = HashMap::new();
         let mut overload_names = HashMap::new();
+        let mut function_files: HashMap<String, String> = HashMap::new();
 
         for file in &source.files {
             for item in &file.items {
@@ -20,9 +45,13 @@ impl<'a> Monomorphizer<'a> {
                         concrete_types.insert(type_decl.name.clone(), type_decl.clone());
                     }
                     Item::Function(function) if !function.template_params.is_empty() => {
+                        function_files.insert(function.name.clone(), file.path.clone());
                         function_templates.insert(function.name.clone(), function.clone());
                     }
                     Item::Function(function) => {
+                        function_files
+                            .entry(function.name.clone())
+                            .or_insert_with(|| file.path.clone());
                         function_overloads
                             .entry(function.name.clone())
                             .or_default()
@@ -67,6 +96,9 @@ impl<'a> Monomorphizer<'a> {
                     ),
                     concrete_name.clone(),
                 );
+                if let Some(path) = function_files.get(&function.name).cloned() {
+                    function_files.insert(concrete_name.clone(), path);
+                }
                 let mut concrete = function.clone();
                 concrete.name = concrete_name.clone();
                 concrete_functions.insert(concrete_name, concrete);
@@ -93,6 +125,8 @@ impl<'a> Monomorphizer<'a> {
             collections_bindings: crate::builtins::collections::collections_bindings(source)
                 .into_keys()
                 .collect(),
+            function_files,
+            current_file: None,
             had_error: false,
         }
     }
@@ -179,9 +213,19 @@ impl<'a> Monomorphizer<'a> {
     /// Strip package/import-binding qualifiers from each user/resource type name
     /// inside `type_` so an importer's `sqlite.Db` matches the package's bare `Db`.
     fn normalize_type(&self, type_: &str) -> String {
+        // Strip each qualifier only where it prefixes a type-name token — at the
+        // start of the string or after a non-identifier byte — never as a bare
+        // substring. An unanchored `replace` lets a short qualifier (`io.`) eat
+        // into a longer name (`radio.`), and iterating `package_qualifiers` (a
+        // `HashSet`-derived Vec) in hash order made the result depend on hash
+        // seed, so the same source produced different overload resolutions and
+        // flapping diagnostics run-to-run (bug-104). Sort longest-first for a
+        // stable, prefix-preferring order.
+        let mut qualifiers: Vec<&str> = self.package_qualifiers.iter().map(String::as_str).collect();
+        qualifiers.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         let mut normalized = type_.to_string();
-        for qualifier in &self.package_qualifiers {
-            normalized = normalized.replace(qualifier, "");
+        for qualifier in qualifiers {
+            normalized = strip_qualifier_prefixes(&normalized, qualifier);
         }
         normalized
     }
@@ -370,6 +414,28 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn lower_function(
+        &mut self,
+        function: Function,
+        substitutions: &HashMap<String, String>,
+        concrete_name: Option<String>,
+    ) -> Function {
+        // Attribute any diagnostic raised while lowering this body to the file
+        // the function was declared in, restoring the caller's file afterward so
+        // a nested instantiation doesn't leak its file to the enclosing frame
+        // (bug-107). The incoming `function.name` is the origin name (template
+        // name for an instantiation, concrete name on the top-level pass).
+        let saved_file = self.current_file.take();
+        self.current_file = self
+            .function_files
+            .get(&function.name)
+            .cloned()
+            .or(saved_file.clone());
+        let result = self.lower_function_inner(function, substitutions, concrete_name);
+        self.current_file = saved_file;
+        result
+    }
+
+    fn lower_function_inner(
         &mut self,
         mut function: Function,
         substitutions: &HashMap<String, String>,
@@ -1272,6 +1338,10 @@ impl<'a> Monomorphizer<'a> {
         type_name: &str,
         substitutions: &HashMap<String, String>,
     ) -> String {
+        // A grouped type (`(T)`) is valid syntax the parser keeps verbatim;
+        // unwrap it before matching so it isn't mis-parsed as a `(Map`-named
+        // template and mangled into garbage (bug-105).
+        let type_name = crate::builtins::thread::strip_type_group(type_name);
         if let Some(value) = substitutions.get(type_name) {
             return value.clone();
         }
@@ -1344,6 +1414,7 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn template_view_type(&self, type_name: &str) -> String {
+        let type_name = crate::builtins::thread::strip_type_group(type_name);
         if let Some(element) = type_name.strip_prefix("List OF ") {
             return format!("List OF {}", self.template_view_type(element));
         }
@@ -1648,11 +1719,16 @@ impl<'a> Monomorphizer<'a> {
 
     fn report(&mut self, rule: &str, detail: &str, line: usize) {
         self.had_error = true;
-        let path = self
-            .source
-            .files
-            .first()
-            .map(|file| self.project_dir.join(&file.path))
+        // Prefer the file whose body is currently being lowered (bug-107); fall
+        // back to the first project file only when the frame is unknown.
+        let relative = self.current_file.clone().or_else(|| {
+            self.source
+                .files
+                .first()
+                .map(|file| file.path.clone())
+        });
+        let path = relative
+            .map(|rel| self.project_dir.join(rel))
             .unwrap_or_else(|| self.project_dir.join("src/main.mfb"));
         rules::show_diagnostic(rule, detail, &path, line, 1, 1);
     }

@@ -141,7 +141,12 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         INSTANT | DURATION => &[&["days"], &["hours"], &["mins"], &["seconds"], &["nanos"]],
         DATE => &[&["year"], &["month"], &["day"]],
         TIME => &[&["hour"], &["minute"], &["second"], &["nanos"]],
-        FIXED_OFFSET => &[&["hours", "offsetSeconds"], &["mins"]],
+        // FIXED_OFFSET's two overloads disagree on position 0 (`offsetSeconds`
+        // in the 1-arg form vs `hours` in the 2-arg form), so it cannot use a
+        // merged per-position table — a merged alias would bind `hours := N`
+        // to the 1-arg `offsetSeconds` slot (bug-94). It uses a per-overload
+        // table instead; see `call_param_name_overloads`.
+        FIXED_OFFSET => return None,
         OFFSET_AT => &[&["zone"], &["at"]],
         IN_ZONE => &[&["at"], &["zone"]],
         TO_UTC | TO_LOCAL => &[&["at"]],
@@ -170,6 +175,18 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         _ => return None,
     };
     Some(params)
+}
+
+/// Per-overload parameter names for datetime builtins whose overloads have
+/// structurally different positional layouts (a named arg binds a different
+/// index depending on which overload it selects). Each entry is one overload's
+/// parameter names, in order. See `net::call_param_name_overloads` for the
+/// pattern and bug-94 for the `fixedOffset` motivation.
+pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        FIXED_OFFSET => Some(&[&["offsetSeconds"], &["hours", "mins"]]),
+        _ => None,
+    }
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
@@ -464,9 +481,12 @@ mod tests {
             )
         );
         assert_eq!(call_param_names(DATE).unwrap().len(), 3);
+        // FIXED_OFFSET has no merged per-position table (its overloads disagree
+        // on position 0); it uses a per-overload table instead (bug-94).
+        assert_eq!(call_param_names(FIXED_OFFSET), None);
         assert_eq!(
-            call_param_names(FIXED_OFFSET).unwrap()[0],
-            &["hours", "offsetSeconds"]
+            call_param_name_overloads(FIXED_OFFSET),
+            Some(&[&["offsetSeconds"][..], &["hours", "mins"][..]][..])
         );
         assert_eq!(call_param_names(NOW_NANOS), Some(&[][..] as &[&[&str]]));
         assert!(call_param_names("datetime.nope").is_none());

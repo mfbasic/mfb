@@ -1,0 +1,205 @@
+$ mfb audit --format text tests/syntax/security/bug96_audit_tls_http_crypto
+Audit: bug96_audit_tls_http_crypto 0.1.0 (executable)
+Root: tests/syntax/security/bug96_audit_tls_http_crypto
+Language: 1.0
+Entry: main
+Lockfile: absent
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 4
+
+Permissions:
+  network
+    tls.connect at src/main.mfb:11
+    tls.writeText at src/main.mfb:13
+    tls.close at src/main.mfb:14
+  randomness
+    crypto.randomBytes at src/main.mfb:12
+  terminal
+    io.print at src/main.mfb:15
+
+Resources:
+  TlsSocket s at src/main.mfb:11 (standard, close tls.close, may fail)
+
+Control flow:
+  main at src/main.mfb:10 (fallible)
+    fallible call tls.connect at src/main.mfb:11 -> return
+    fallible call crypto.randomBytes at src/main.mfb:12 -> return
+    fallible call tls.writeText at src/main.mfb:13 -> return
+    fallible call tls.close at src/main.mfb:14 -> return
+    fallible call io.print at src/main.mfb:15 -> return
+
+Findings:
+  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `s` (TlsSocket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure (src/main.mfb:11)
+  info AUDIT-PERM-NETWORK project uses host capability: network
+  info AUDIT-PERM-RANDOMNESS project uses host capability: randomness
+  info AUDIT-PERM-TERMINAL project uses host capability: terminal
+[exit 0]
+$ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "bug96_audit_tls_http_crypto",
+    "ident": "bug96_audit_tls_http_crypto",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/syntax/security/bug96_audit_tls_http_crypto",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 4
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 10,
+      "fallible": true,
+      "trap": null,
+      "calls": [
+        {
+          "callee": "tls.connect",
+          "line": 11,
+          "propagation": "return",
+          "capability": "network"
+        },
+        {
+          "callee": "crypto.randomBytes",
+          "line": 12,
+          "propagation": "return",
+          "capability": "randomness"
+        },
+        {
+          "callee": "tls.writeText",
+          "line": 13,
+          "propagation": "return",
+          "capability": "network"
+        },
+        {
+          "callee": "tls.close",
+          "line": 14,
+          "propagation": "return",
+          "capability": "network"
+        },
+        {
+          "callee": "io.print",
+          "line": 15,
+          "propagation": "return",
+          "capability": "terminal"
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "function": "main",
+      "name": "s",
+      "resourceType": "TlsSocket",
+      "closeOp": "tls.close",
+      "path": "src/main.mfb",
+      "line": 11,
+      "native": false,
+      "closeMayFail": true
+    }
+  ],
+  "nativeLinks": [],
+  "nativeResources": [],
+  "permissions": [
+    {
+      "capability": "network",
+      "package": "tls",
+      "function": "tls.connect",
+      "path": "src/main.mfb",
+      "line": 11,
+      "kind": "standard"
+    },
+    {
+      "capability": "network",
+      "package": "tls",
+      "function": "tls.writeText",
+      "path": "src/main.mfb",
+      "line": 13,
+      "kind": "standard"
+    },
+    {
+      "capability": "network",
+      "package": "tls",
+      "function": "tls.close",
+      "path": "src/main.mfb",
+      "line": 14,
+      "kind": "standard"
+    },
+    {
+      "capability": "randomness",
+      "package": "crypto",
+      "function": "crypto.randomBytes",
+      "path": "src/main.mfb",
+      "line": 12,
+      "kind": "standard"
+    },
+    {
+      "capability": "terminal",
+      "package": "io",
+      "function": "io.print",
+      "path": "src/main.mfb",
+      "line": 15,
+      "kind": "standard"
+    }
+  ],
+  "findings": [
+    {
+      "code": "AUDIT-RESOURCE-CLOSE-MAY-FAIL",
+      "severity": "info",
+      "category": "resource",
+      "message": "resource `s` (TlsSocket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure",
+      "location": {
+        "path": "src/main.mfb",
+        "line": 11
+      },
+      "package": null
+    },
+    {
+      "code": "AUDIT-PERM-NETWORK",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: network",
+      "location": null,
+      "package": null
+    },
+    {
+      "code": "AUDIT-PERM-RANDOMNESS",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: randomness",
+      "location": null,
+      "package": null
+    },
+    {
+      "code": "AUDIT-PERM-TERMINAL",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: terminal",
+      "location": null,
+      "package": null
+    }
+  ]
+}
+[exit 0]

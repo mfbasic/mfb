@@ -1,0 +1,42 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug105_grouped_type_names",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "apply",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 6, "type": "FUNC(FUNC(Integer) AS Integer, Integer) AS Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 10, "mutable": false, "name": "xs", "type": "List OF Map OF String TO Integer", "value": { "kind": "list", "type": "List OF Map OF String TO Integer", "values": [] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "y", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }, "right": { "kind": "local", "name": "y" } }] }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

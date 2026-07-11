@@ -1,0 +1,25 @@
+IMPORT io
+IMPORT math
+
+' bug-130: the NEON exp kernel fabricated ErrFloatInf at n=1024 (finite results
+' near x=709.5) and flushed every subnormal result to 0. A two-step 2^n scale
+' fixes both boundaries. exp(709.5) is finite; exp(-709) is a nonzero subnormal;
+' exp(710) genuinely overflows; exp(-800) genuinely underflows to 0.
+FUNC classify(x AS Float) AS String
+  LET r = math::exp(x)
+  IF r > 0.0 THEN
+    RETURN "finite-positive"
+  END IF
+  RETURN "zero"
+  TRAP(e)
+    RETURN "trap:" & toString(e.code)
+  END TRAP
+END FUNC
+FUNC main() AS Integer
+  io::print(classify(709.5))
+  io::print(classify(-709.0))
+  io::print(toString(math::exp(-709.0) * math::exp(354.0) * math::exp(355.0)))
+  io::print(classify(-800.0))
+  io::print(classify(710.0))
+  RETURN 0
+END FUNC

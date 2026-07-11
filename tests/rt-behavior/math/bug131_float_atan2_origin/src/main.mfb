@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT math
+
+' bug-131: Float atan2(0,0) trapped ErrFloatNan; the man page (and the Fixed
+' sibling) define it as 0.0. Verify the origin plus the axis cases.
+FUNC main() AS Integer
+  io::print(toString(math::atan2(0.0, 0.0)))
+  io::print(toString(math::atan2(1.0, 1.0)))
+  io::print(toString(math::atan2(1.0, 0.0)))
+  io::print(toString(math::atan2(0.0, 1.0)))
+  io::print(toString(math::atan2(0.0, -1.0)))
+  RETURN 0
+END FUNC

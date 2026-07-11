@@ -1,0 +1,27 @@
+{
+  "project": "bug104_aliased_overload_import",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "package_simple", "alias": "radio", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "radio.score", "arguments": [] }] }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

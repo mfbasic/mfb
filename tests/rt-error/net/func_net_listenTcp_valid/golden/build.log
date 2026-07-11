@@ -6,5 +6,5 @@ $ mfb build tests/rt-error/net/func_net_listenTcp_valid
 Wrote executable to tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid.out
 [exit 0]
 $ tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid.out
-Code: 77070001 Message: address invalid
-[exit 255]
+listening all overloads
+[exit 0]

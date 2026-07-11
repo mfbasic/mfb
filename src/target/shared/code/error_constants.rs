@@ -210,7 +210,20 @@ pub(crate) const ARENA_OUT_ENABLED_OFFSET: usize = ARENA_OUT_FILLED_OFFSET + 8;
 /// stdout-buffer words so every historical offset is unchanged.
 pub(crate) const ARENA_LARGE_BIN_COUNT: usize = 64;
 pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET + 8;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
+/// Per-thread rv64 `v128` scalarization slot region (bug-122). RV64GC has no
+/// 128-bit registers, so the neutral `v128` ops (the transcendental/`vector::`
+/// math kernels) stage their lanes in memory. That region was a single process
+/// **global**, which two OS threads running v128 kernels concurrently corrupted.
+/// Reserving it inside the per-thread arena state — addressed off the pinned
+/// per-thread arena base (`s11`) — gives every thread its own slots. 128 slots ×
+/// 16 bytes matches `arch::riscv64::v128::SLOT_COUNT`. The region is reserved
+/// uniformly (all targets) so the arena-state layout stays target-independent;
+/// only rv64 codegen addresses it. Placed last so `ARENA_V128_SLOTS_OFFSET`
+/// stays within the rv64 12-bit `addi` immediate (±2047).
+pub(crate) const ARENA_V128_SLOTS_OFFSET: usize =
+    ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
+pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// Internal helper that drains the per-arena stdout buffer to fd 1 (plan-14-A):

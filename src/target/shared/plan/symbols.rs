@@ -253,6 +253,12 @@ pub(super) fn collect_platform_imports_from_ops(
             NirOp::Match { value, cases } => {
                 collect_platform_imports_from_value(platform, required_by, value, imports);
                 for case in cases {
+                    // A guard may call a builtin that needs a platform import
+                    // (e.g. `fs::exists` → `_access`); walk it like the case body
+                    // so the import is not missing at link (bug-118).
+                    if let Some(guard) = &case.guard {
+                        collect_platform_imports_from_value(platform, required_by, guard, imports);
+                    }
                     collect_platform_imports_from_ops(platform, required_by, &case.body, imports);
                 }
             }
@@ -476,6 +482,12 @@ pub(super) fn collect_runtime_symbols_from_ops_with_constants(
             NirOp::Match { value, cases } => {
                 collect_runtime_symbols_from_value(value, symbols, constants);
                 for case in cases {
+                    // A runtime call used only in a `WHEN` guard must have its
+                    // symbol emitted too, mirroring the guard traversal
+                    // `validate_nir` performs (bug-118).
+                    if let Some(guard) = &case.guard {
+                        collect_runtime_symbols_from_value(guard, symbols, constants);
+                    }
                     let mut case_constants = constants.clone();
                     collect_runtime_symbols_from_ops_with_constants(
                         &case.body,
@@ -589,13 +601,11 @@ pub(super) fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(value, symbols, constants);
             }
         }
-        NirValue::MemberAccess { target, member } => {
-            if member == "result" {
-                push_unique(
-                    symbols,
-                    runtime::symbol_for_call(runtime::RuntimeHelper::Thread, "thread.waitFor"),
-                );
-            }
+        NirValue::MemberAccess { target, .. } => {
+            // No `.result`-means-Thread heuristic: `Thread.result` was removed
+            // from the language, so a `.result` access is always a user
+            // record/enum field and must not inject the Thread waitFor symbol
+            // (bug-119).
             collect_runtime_symbols_from_value(target, symbols, constants)
         }
         NirValue::Binary { left, right, .. } => {

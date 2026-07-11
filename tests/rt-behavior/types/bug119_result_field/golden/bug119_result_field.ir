@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug119_result_field",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 6,
+    "visibility": "public",
+    "name": "Calc",
+    "fields": [
+    { "visibility": null, "line": 7, "name": "result", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 10, "mutable": false, "name": "c", "type": "Calc", "value": { "kind": "constructor", "type": "Calc", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "c" }, "member": "result" }] }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

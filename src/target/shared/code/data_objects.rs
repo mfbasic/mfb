@@ -416,6 +416,9 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                     if let NirMatchPattern::Value(value) = &case.pattern {
                         collect_type_name_values_from_value(value, values);
                     }
+                    if let Some(guard) = &case.guard {
+                        collect_type_name_values_from_value(guard, values);
+                    }
                     collect_type_name_values_from_ops(&case.body, values);
                 }
             }
@@ -771,6 +774,12 @@ fn collect_string_values_from_ops_with_constants(
                 for case in cases {
                     if let NirMatchPattern::Value(value) = &case.pattern {
                         collect_string_values_from_value(value, values, constants, types);
+                    }
+                    // A guard is a value expression that may hold string
+                    // literals; without walking it, `fs::exists("/tmp/x")` in a
+                    // `WHEN` guard has no data object at codegen (bug-118).
+                    if let Some(guard) = &case.guard {
+                        collect_string_values_from_value(guard, values, constants, types);
                     }
                     let mut case_constants = constants.clone();
                     let mut case_types = types.clone();
@@ -1152,6 +1161,9 @@ fn collect_builtin_function_refs_in_ops(
                 for case in cases {
                     if let NirMatchPattern::Value(pattern) = &case.pattern {
                         collect_builtin_function_refs_in_value(pattern, refs, seen);
+                    }
+                    if let Some(guard) = &case.guard {
+                        collect_builtin_function_refs_in_value(guard, refs, seen);
                     }
                     collect_builtin_function_refs_in_ops(&case.body, refs, seen);
                 }

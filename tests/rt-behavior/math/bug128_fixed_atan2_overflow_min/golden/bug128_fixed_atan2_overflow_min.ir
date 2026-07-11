@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug128_fixed_atan2_overflow_min",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.atan2", "args": [{ "kind": "const", "type": "Fixed", "value": "2000000000.0" }, { "kind": "const", "type": "Fixed", "value": "2000000000.0" }] }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.atan2", "args": [{ "kind": "const", "type": "Fixed", "value": "1.0" }, { "kind": "const", "type": "Fixed", "value": "-2147483648.0" }] }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.atan2", "args": [{ "kind": "const", "type": "Fixed", "value": "1.0" }, { "kind": "const", "type": "Fixed", "value": "1.0" }] }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.atan2", "args": [{ "kind": "const", "type": "Fixed", "value": "1.0" }, { "kind": "const", "type": "Fixed", "value": "0.0" }] }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.atan2", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1.0" } }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1.0" } }] }] }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

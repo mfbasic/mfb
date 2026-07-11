@@ -1,0 +1,10 @@
+FUNC makeIt() AS Integer
+  RETURN 1
+END FUNC
+FUNC makeIt() AS String
+  RETURN "x"
+END FUNC
+FUNC useIt() AS Integer
+  LET z = makeIt()
+  RETURN 0
+END FUNC

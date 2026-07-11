@@ -74,17 +74,16 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn parse_function_type(&self, rest: &str, isolated: bool) -> Type {
-        let Some((params, return_type)) = rest.split_once(") AS ") else {
+        // Split at the depth-0 `) AS ` and at top-level commas so a nested
+        // function-typed parameter (`FUNC(FUNC(Integer) AS Integer, …) AS R`) is
+        // not mis-split at an inner `) AS `/comma (bug-106).
+        let Some((params, return_type)) = builtins::split_func_params_and_return(rest) else {
             return Type::Unknown;
         };
-        let params = if params.trim().is_empty() {
-            Vec::new()
-        } else {
-            params
-                .split(", ")
-                .map(|param| self.parse_type(param))
-                .collect()
-        };
+        let params = params
+            .into_iter()
+            .map(|param| self.parse_type(param))
+            .collect();
         Type::Function {
             params,
             return_type: Box::new(self.parse_type(return_type)),

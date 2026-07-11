@@ -934,6 +934,11 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     const FD_OFFSET: usize = 32;
     const CSTR_OFFSET: usize = 40;
     const HINTS_OFFSET: usize = 48; // 48..96
+    // getaddrinfo `service`: NULL for a resolved host, the "0" C string below for
+    // a NULL/bind-all host (getaddrinfo rejects node==service==NULL; the real
+    // port is patched into sin_port afterward). bug-113.
+    const SERVICE_OFFSET: usize = 96;
+    const SERVICE_STR_OFFSET: usize = 104; // holds the bytes "0\0…"
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");
@@ -950,6 +955,8 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
     ]);
     emit_hints(HINTS_OFFSET, true, SOCK_DGRAM, &mut instructions);
+    // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE_OFFSET));
     // Empty host binds all interfaces (NULL host + AI_PASSIVE).
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
@@ -970,10 +977,17 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     instructions.extend([
         abi::label(&null_host),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CSTR_OFFSET),
+        // Bind-all: node is NULL, so service must be non-NULL. Stage the C string
+        // "0" and point service at it (bug-113); the real port overwrites
+        // sin_port afterward.
+        abi::move_immediate("%v9", "Integer", "48"),
+        abi::store_u64("%v9", abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::add_immediate("%v9", abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), SERVICE_OFFSET),
         abi::label(&resolved),
-        // getaddrinfo(host, NULL, &hints, &res)
+        // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SERVICE_OFFSET),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);

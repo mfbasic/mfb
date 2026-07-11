@@ -87,6 +87,7 @@ impl plan::NativePlanPlatform for Platform {
             ("libobjc", "_objc_msgSend"),
             ("libobjc", "_sel_registerName"),
             ("libobjc", "_objc_autoreleasePoolPush"),
+            ("libobjc", "_objc_autoreleasePoolPop"),
             ("libobjc", "_objc_setAssociatedObject"),
             ("libobjc", "_objc_getAssociatedObject"),
             ("libobjc", "_objc_allocateClassPair"),

@@ -3706,6 +3706,28 @@ impl TypeEnv {
     /// as a closure body, so it has no environment to index at all.
     fn check_value_captures(&self, value: &IrValue, slots: Option<usize>) {
         let Some(slots) = slots else {
+            // The enclosing function is never targeted by any `Closure` node, so
+            // it has no captured environment at all. A `Capture` here would lower
+            // to an env-relative load off whatever `CLOSURE_ENV_REGISTER` holds
+            // in a non-closure frame — an out-of-bounds read a crafted `.mfp`
+            // could steer. The legitimate front end never emits a `Capture`
+            // outside a closure body (zero-capture lambdas lower to a plain
+            // `FunctionRef`), so any such `Capture` is malformed IR (bug-99).
+            let mut stray = None;
+            walk_captures(value, &mut |index| {
+                if stray.is_none() {
+                    stray = Some(index);
+                }
+            });
+            if let Some(index) = stray {
+                self.emit(
+                    VERIFY_TYPE,
+                    format!(
+                        "closure capture index {index} appears in a function that is \
+                         not a closure body (no captured environment)"
+                    ),
+                );
+            }
             return;
         };
         let mut violation = None;

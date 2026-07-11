@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug101_readtext_roundtrip",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "/tmp/mfb_bug101.txt" }, { "kind": "const", "type": "String", "value": "hello world" }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "/tmp/mfb_bug101.txt" }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "const", "type": "String", "value": "/tmp/mfb_bug101.txt" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

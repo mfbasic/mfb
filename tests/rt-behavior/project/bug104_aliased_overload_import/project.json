@@ -1,0 +1,12 @@
+{
+  "name": "bug104_aliased_overload_import",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "package_simple", "version": "=0.1.0", "source": "file:packages/package_simple.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

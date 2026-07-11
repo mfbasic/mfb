@@ -522,6 +522,13 @@ pub(super) fn emit_finish_helper() -> CodeFunction {
 fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
     // h = code/100; rem = code%100; t = rem/10; o = rem%10.
     asm.push(abi::move_register("x9", code)); // n
+    // Mask to the low 8 bits, matching macOS (bug-70): `_exit(status)` delivers
+    // only `status & 0xFF` to the parent, so the GUI transcript must show that
+    // truncated value. Without the mask a code >= 1000 makes hundreds >= 10 and
+    // emits `'0'+10 = ':'` garbage, and a negative (u64-wrapped) code garbles all
+    // three digits — diverging from macOS and console (bug-110).
+    asm.push(abi::move_immediate("x11", "Integer", "255"));
+    asm.push(abi::and_registers("x9", "x9", "x11"));
     asm.push(abi::move_immediate("x11", "Integer", "100"));
     asm.push(abi::unsigned_divide_registers("x10", "x9", "x11")); // hundreds
     asm.push(abi::multiply_subtract_registers("x9", "x10", "x11", "x9")); // n %= 100

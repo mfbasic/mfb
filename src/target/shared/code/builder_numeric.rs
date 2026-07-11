@@ -1578,10 +1578,19 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_float_pow(&mut self, dst: &str, exponent: &str) -> Result<(), String> {
+        // `dst` holds the base f64; `exponent` the exponent f64. The `^` operator
+        // on Float is defined only for a whole, non-negative exponent
+        // (ErrFloatDomain otherwise), so keep those two domain guards. The actual
+        // power was previously computed by repeated multiplication whose only
+        // loop exit was `exponent == 0`: a large whole exponent (e.g. `1.0e18`)
+        // ran ~1e18 iterations and effectively hung the program. Compute via the
+        // fdlibm scalar-pow kernel — the same one `math::pow` uses (unaffected) —
+        // which is O(1) and, for the whole exponents this operator admits, gives
+        // the mathematically correct result (bug-135). Overflow to Inf stays an
+        // anonymous intermediate trapped at the observation boundary (plan-17),
+        // so no inline result check is emitted here.
         let nonnegative = self.label("float_pow_nonnegative");
         let exponent_whole = self.label("float_pow_whole");
-        let loop_label = self.label("float_pow_loop");
-        let done_label = self.label("float_pow_done");
         self.emit(abi::float_compare_zero_d(exponent));
         self.emit(abi::branch_ge(&nonnegative));
         self.emit_float_domain_return()?;
@@ -1589,7 +1598,6 @@ impl CodeBuilder<'_> {
         let exponent_int = self.allocate_register()?;
         let exponent_roundtrip = self.allocate_register()?;
         let exponent_bits = self.allocate_register()?;
-        let scratch = self.allocate_register()?;
         self.emit(abi::float_convert_to_signed_x(&exponent_int, exponent));
         self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], &exponent_int));
         self.emit(abi::float_move_x_from_d(&exponent_roundtrip, abi::FP_SCRATCH[2]));
@@ -1598,16 +1606,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&exponent_whole));
         self.emit_float_domain_return()?;
         self.emit(abi::label(&exponent_whole));
-        self.emit_f64_const(abi::FP_SCRATCH[2], &scratch, 1.0);
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate(&exponent_int, "0"));
-        self.emit(abi::branch_eq(&done_label));
-        self.emit(abi::float_multiply_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], dst));
-        self.emit(abi::subtract_immediate(&exponent_int, &exponent_int, 1));
-        self.emit(abi::branch(&loop_label));
-        self.emit(abi::label(&done_label));
-        self.emit_f64_const(abi::FP_SCRATCH[7], &scratch, 0.0);
-        self.emit(abi::float_add_d(dst, abi::FP_SCRATCH[2], abi::FP_SCRATCH[7]));
+        // Spill the base and exponent bit patterns before invoking the kernel,
+        // which resets the register file (mirroring the `MOD`/fmod path).
+        let base_slot = self.allocate_stack_object("float_pow_base", 8);
+        let exp_slot = self.allocate_stack_object("float_pow_exp", 8);
+        let base_bits = self.allocate_register()?;
+        self.emit(abi::float_move_x_from_d(&base_bits, dst));
+        self.emit(abi::store_u64(&base_bits, abi::stack_pointer(), base_slot));
+        self.emit(abi::store_u64(&exponent_bits, abi::stack_pointer(), exp_slot));
+        self.reset_temporary_registers();
+        let base_reg = self.allocate_register()?;
+        self.emit(abi::load_u64(&base_reg, abi::stack_pointer(), base_slot));
+        let exp_reg = self.allocate_register()?;
+        self.emit(abi::load_u64(&exp_reg, abi::stack_pointer(), exp_slot));
+        let result = self.emit_pow_scalar(&base_reg, &exp_reg)?;
+        self.emit(abi::float_move_d_from_x(dst, &result));
         Ok(())
     }
 

@@ -1,0 +1,52 @@
+{
+  "project": "bug144_toint_base10_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "parse",
+      "line": 7,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "n", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 8,
+        "expression": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 9 }
+        ]
+      }, "line": 8 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "parse", "arguments": [{ "kind": "string", "value": "-92233720368547758080" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "parse", "arguments": [{ "kind": "string", "value": "-9223372036854775808" }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "parse", "arguments": [{ "kind": "string", "value": "9223372036854775807" }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "parse", "arguments": [{ "kind": "string", "value": "9223372036854775808" }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "parse", "arguments": [{ "kind": "string", "value": "123" }] }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}

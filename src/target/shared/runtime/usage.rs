@@ -180,6 +180,13 @@ fn push_op_helpers(
             IrOp::Match { value, cases, .. } => {
                 push_value_helpers(value, helpers);
                 for case in cases {
+                    // A helper called only inside a `WHEN` guard must be
+                    // collected too; `validate_nir` walks guards into its
+                    // used-helper set, so skipping them here trips the strict
+                    // declared-vs-used parity check (bug-118).
+                    if let Some(guard) = &case.guard {
+                        push_value_helpers(guard, helpers);
+                    }
                     push_op_helpers(&case.body, resource_union_closes, helpers);
                 }
             }
@@ -230,10 +237,13 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(arg, helpers);
             }
         }
-        IrValue::MemberAccess { target, member, .. } => {
-            if member == "result" {
-                push_unique(helpers, RuntimeHelper::Thread);
-            }
+        IrValue::MemberAccess { target, .. } => {
+            // No `.result` heuristic: `Thread.result` was removed from the
+            // language (TYPE_THREAD_RESULT_REMOVED), so every surviving
+            // `.result` is a user record/enum field access — declaring the
+            // Thread helper for it was a pure false positive that rejected valid
+            // programs (bug-119). `validate_nir` never counted MemberAccess, so
+            // the declared-but-unused check fired.
             push_value_helpers(target, helpers);
         }
         IrValue::Binary { left, right, .. } => {
