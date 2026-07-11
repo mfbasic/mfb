@@ -113,7 +113,7 @@ pub(super) fn lower_datetime_helper(
             // buffer (bug-42). The return sits in the return register, which is
             // also `RESULT_TAG_REGISTER`, so test it before the OK tail overwrites
             // it below.
-            instructions.push(abi::compare_immediate(abi::RETURN_REGISTER, "0"));
+            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
             instructions.push(abi::branch_eq(&localoffset_range_fail));
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,

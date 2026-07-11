@@ -8,19 +8,19 @@ use crate::target::shared::abi;
 const OS_NAME_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "name",
     type_: "String",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 const OS_NAME_FALLBACK_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "name",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "fallback",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -28,12 +28,12 @@ const OS_NAME_VALUE_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "name",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 

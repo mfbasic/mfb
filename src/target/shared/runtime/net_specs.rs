@@ -6,12 +6,12 @@ const NET_HOST_PORT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "port",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -19,17 +19,17 @@ const NET_CONNECT_TCP_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "port",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 
@@ -37,36 +37,36 @@ const NET_LISTEN_TCP_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "port",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "backlog",
         type_: "Integer",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 
 const NET_SOCKET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "sock",
     type_: "Socket",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const NET_SOCKET_TIMEOUT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "Socket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -74,12 +74,12 @@ const NET_LISTENER_TIMEOUT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "listener",
         type_: "Listener",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -87,12 +87,12 @@ const NET_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "Socket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "maxBytes",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -100,12 +100,12 @@ const NET_SOCKET_BYTES_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "Socket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "bytes",
         type_: "List OF Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -113,12 +113,12 @@ const NET_SOCKET_STRING_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "Socket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -148,12 +148,12 @@ const NET_CONNECT_TCP_ADDR_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "address",
         type_: "Address",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -308,12 +308,12 @@ const NET_UDP_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "UdpSocket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "maxBytes",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -321,17 +321,17 @@ const NET_SEND_TO_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "UdpSocket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "address",
         type_: "Address",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "bytes",
         type_: "List OF Byte",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 
@@ -339,17 +339,17 @@ const NET_SEND_TEXT_TO_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "UdpSocket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "address",
         type_: "Address",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 
@@ -416,22 +416,22 @@ const TLS_CONNECT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "port",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x2",
+        location: abi::ARG[2],
     },
     RuntimeAbiParam {
         name: "serverName",
         type_: "String",
-        location: "x3",
+        location: abi::ARG[3],
     },
 ];
 
@@ -439,12 +439,12 @@ const TLS_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "TlsSocket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "maxBytes",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -452,12 +452,12 @@ const TLS_SOCKET_BYTES_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "TlsSocket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "bytes",
         type_: "List OF Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -465,46 +465,46 @@ const TLS_SOCKET_STRING_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
         type_: "TlsSocket",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
 const TLS_SOCKET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "sock",
     type_: "TlsSocket",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const TLS_LISTEN_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "port",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "certPath",
         type_: "String",
-        location: "x2",
+        location: abi::ARG[2],
     },
     RuntimeAbiParam {
         name: "keyPath",
         type_: "String",
-        location: "x3",
+        location: abi::ARG[3],
     },
     RuntimeAbiParam {
         name: "backlog",
         type_: "Integer",
-        location: "x4",
+        location: abi::ARG[4],
     },
 ];
 
@@ -512,19 +512,19 @@ const TLS_ACCEPT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "listener",
         type_: "TlsListener",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
 const TLS_LISTENER_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "listener",
     type_: "TlsListener",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 pub(crate) const TLS_CONNECT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {

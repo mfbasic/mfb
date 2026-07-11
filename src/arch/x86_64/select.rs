@@ -411,16 +411,10 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // alias the same register file (NEON `v`/`q` = the `d` register's full
             // 128 bits), so they map to the same `xmmN`. FP virtual registers
             // (`%fN`) are colored to xmm by the allocator and pass through here.
-            // An `abi::FP_SCRATCH` token (plan-34-D) realizes to its `d` spelling
-            // here, inside the main loop — the late Phase-3b seam below runs
-            // after this arm, so a token left for it would miss the xmm remap.
-            // Int role tokens realize to `xN`, never `d`-prefixed, and fall
-            // through untouched to keep the inference's input unchanged.
-            let fp_source: &str = match crate::target::shared::abi::realize_abi_token(value) {
-                Some(realized) if realized.starts_with('d') => realized,
-                _ => value,
-            };
-            if let Some(fp) = fp_source
+            // `abi::FP_SCRATCH` tokens (plan-34-D) never reach this arm: the
+            // Phase-3b seam in `select_x86` realizes every token to its AArch64
+            // spelling (`%fscratch0` → `d0`) before `remap_x86_abi` runs.
+            if let Some(fp) = value
                 .strip_prefix(['d', 'v', 'q'])
                 .and_then(|rest| rest.parse::<usize>().ok())
                 .filter(|n| *n < 16)

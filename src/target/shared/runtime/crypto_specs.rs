@@ -10,7 +10,7 @@ use crate::target::shared::abi;
 const CRYPTO_RANDOM_BYTES_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "count",
     type_: "Integer",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 pub(crate) const CRYPTO_RANDOM_BYTES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
@@ -34,12 +34,12 @@ const CRYPTO_EC_SIGN_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "privateKey",
         type_: "List OF Byte",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "message",
         type_: "List OF Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -47,17 +47,17 @@ const CRYPTO_EC_VERIFY_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "publicKey",
         type_: "List OF Byte",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "message",
         type_: "List OF Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "signature",
         type_: "List OF Byte",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 

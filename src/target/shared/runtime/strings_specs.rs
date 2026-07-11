@@ -5,19 +5,19 @@ use crate::target::shared::abi;
 const STRING_VALUE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "value",
     type_: "String",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const STRING_VALUE_PATTERN_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "pattern",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -25,12 +25,12 @@ const STRING_LIST_SEPARATOR_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "values",
         type_: "List OF String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "separator",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 

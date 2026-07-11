@@ -6,36 +6,36 @@ const TERM_RGB_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "r",
         type_: "Byte",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "g",
         type_: "Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "b",
         type_: "Byte",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 
 const TERM_BOOL_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "enabled",
     type_: "Boolean",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const TERM_MOVE_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "row",
         type_: "Integer",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "column",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 

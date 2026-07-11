@@ -6,52 +6,52 @@ const THREAD_START_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "f",
         type_: "ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "data",
         type_: "In",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "inboundLimit",
         type_: "Integer",
-        location: "x2",
+        location: abi::ARG[2],
     },
     RuntimeAbiParam {
         name: "outboundLimit",
         type_: "Integer",
-        location: "x3",
+        location: abi::ARG[3],
     },
 ];
 
 const THREAD_HANDLE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "t",
     type_: "Thread OF Msg TO Out",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const THREAD_WORKER_HANDLE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "t",
     type_: "ThreadWorker OF Msg TO Out",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const THREAD_SEND_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "t",
         type_: "Thread OF Msg TO Out",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "data",
         type_: "Msg",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 
@@ -59,12 +59,12 @@ const THREAD_POLL_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "t",
         type_: "Thread OF Msg TO Out",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "ms",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -72,12 +72,12 @@ const THREAD_RECEIVE_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "t",
         type_: "ThreadWorker OF Msg TO Out",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -85,12 +85,12 @@ const THREAD_PARENT_RECEIVE_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "t",
         type_: "Thread OF Msg TO Out",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -98,17 +98,17 @@ const THREAD_WORKER_SEND_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "t",
         type_: "ThreadWorker OF Msg TO Out",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "data",
         type_: "Msg",
-        location: "x1",
+        location: abi::ARG[1],
     },
     RuntimeAbiParam {
         name: "timeoutMs",
         type_: "Integer",
-        location: "x2",
+        location: abi::ARG[2],
     },
 ];
 

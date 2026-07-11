@@ -11,7 +11,7 @@ use crate::target::shared::abi;
 const DATETIME_LOCAL_OFFSET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "epochSeconds",
     type_: "Integer",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 pub(crate) const DATETIME_NOW_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {

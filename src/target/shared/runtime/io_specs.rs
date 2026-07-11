@@ -5,19 +5,19 @@ use crate::target::shared::abi;
 const IO_PRINT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "value",
     type_: "String",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 const IO_INPUT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "prompt",
     type_: "String",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 const IO_POLL_INPUT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "timeoutMs",
     type_: "Integer",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 pub(crate) const IO_PRINT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
@@ -83,7 +83,7 @@ pub(crate) const IO_FLUSH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 const IO_SET_BUFFERED_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "enabled",
     type_: "Boolean",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 pub(crate) const IO_IS_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {

@@ -5,38 +5,38 @@ use crate::target::shared::abi;
 const FS_PATH_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "path",
     type_: "String",
-    location: abi::RETURN_REGISTER,
+    location: abi::ARG[0],
 }];
 
 const FS_PATH_MODE_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "path",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "mode",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
 const FS_FILE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "file",
     type_: "File",
-    location: "x0",
+    location: abi::ARG[0],
 }];
 
 const FS_FILE_BOOLEAN_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "file",
         type_: "File",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "enabled",
         type_: "Boolean",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -44,12 +44,12 @@ const FS_FILE_STRING_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "file",
         type_: "File",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -57,12 +57,12 @@ const FS_PATH_STRING_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "path",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "value",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -70,12 +70,12 @@ const FS_TWO_PATH_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "base",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "child",
         type_: "String",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -83,12 +83,12 @@ const FS_FILE_BYTE_LIST_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "file",
         type_: "File",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "bytes",
         type_: "List OF Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -96,12 +96,12 @@ const FS_PATH_BYTE_LIST_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "path",
         type_: "String",
-        location: "x0",
+        location: abi::ARG[0],
     },
     RuntimeAbiParam {
         name: "bytes",
         type_: "List OF Byte",
-        location: "x1",
+        location: abi::ARG[1],
     },
 ];
 
@@ -267,7 +267,7 @@ pub(crate) const FS_CREATE_TEMP_FILE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
         params: &[RuntimeAbiParam {
             name: "directory",
             type_: "String",
-            location: "x0",
+            location: abi::ARG[0],
         }],
         returns: "File",
         clobbers: abi::IO_PRINT_CLOBBERS,

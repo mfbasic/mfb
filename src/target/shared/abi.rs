@@ -1,6 +1,5 @@
 use crate::target::shared::code::CodeInstruction;
 
-pub(crate) const RETURN_REGISTER: &str = "x0";
 pub(crate) const IO_PRINT_CLOBBERS: &[&str] = &["x0", "x1", "x2", "x9", "x16"];
 
 pub(crate) fn argument_register(index: usize) -> Result<String, String> {
@@ -283,12 +282,16 @@ pub(crate) fn syscall_register() -> &'static str {
     SYSNR
 }
 
+/// The print/write helpers' length argument — argument role 2, spelled as its
+/// token (plan-34-D). Realized `x2` at the Phase-3b seam, exactly the register
+/// the helpers have always read.
 pub(crate) fn string_length_register() -> &'static str {
-    "x2"
+    ARG[2]
 }
 
+/// The print/write helpers' data-pointer argument — argument role 1 (plan-34-D).
 pub(crate) fn string_data_register() -> &'static str {
-    "x1"
+    ARG[1]
 }
 
 pub(crate) fn is_callee_saved(register: &str) -> bool {
@@ -1123,8 +1126,10 @@ mod tests {
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register(), "x2");
-        assert_eq!(string_data_register(), "x1");
+        assert_eq!(string_length_register(), "%arg2");
+        assert_eq!(realize_abi_token(string_length_register()), Some("x2"));
+        assert_eq!(string_data_register(), "%arg1");
+        assert_eq!(realize_abi_token(string_data_register()), Some("x1"));
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
         assert!(!is_callee_saved("x0"));
