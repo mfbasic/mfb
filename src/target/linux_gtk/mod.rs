@@ -202,8 +202,9 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_signal_connect_data" => GOBJECT,
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
-        "pipe" | "dup2" | "close" | "setenv" | "write" | "_exit" | "__libc_start_main"
-        | "malloc" | "free" | "memcpy" | "memset" | "memmove" | "pause" => LIBC,
+        "pipe" | "dup2" | "close" | "setenv" | "write" | "fcntl" | "_exit"
+        | "__libc_start_main" | "malloc" | "free" | "memcpy" | "memset" | "memmove"
+        | "pause" => LIBC,
         // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
         "gdk_keyval_to_unicode" => GTK,
         "g_object_ref_sink" => GOBJECT,
@@ -679,6 +680,10 @@ pub(crate) fn app_mode_imports() -> Vec<crate::target::shared::plan::PlatformImp
         (LIBC, "close"),
         (LIBC, "setenv"),
         (LIBC, "write"),
+        // The activate handler sets the pipe write end O_NONBLOCK so a full pipe
+        // makes the key handler's write() return EAGAIN instead of blocking the
+        // GTK main thread (bug-114).
+        (LIBC, "fcntl"),
         // Output marshaling to the GTK main thread + the worker park-on-finish.
         (LIBC, "malloc"),
         (LIBC, "free"),

@@ -137,6 +137,8 @@ pub(crate) fn lower_tls_connect_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `socket` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -232,6 +234,8 @@ pub(crate) fn lower_tls_connect_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `poll` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
         abi::branch_eq(&connect_timeout),
@@ -253,6 +257,8 @@ pub(crate) fn lower_tls_connect_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `getsockopt` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
         abi::load_u32("%v9", abi::stack_pointer(), SOERR_OFFSET),
@@ -288,6 +294,8 @@ pub(crate) fn lower_tls_connect_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `connect` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
         abi::label(&connected),
@@ -927,6 +935,8 @@ pub(crate) fn lower_tls_listen_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `socket` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -968,6 +978,8 @@ pub(crate) fn lower_tls_listen_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `bind` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&op_fail),
         // listen(fd, backlog)
@@ -982,6 +994,8 @@ pub(crate) fn lower_tls_listen_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `listen` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&op_fail),
         // freeaddrinfo(res)
@@ -1354,6 +1368,8 @@ pub(crate) fn lower_tls_accept_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `poll` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&accept_fail),
         abi::branch_eq(&accept_timeout),
@@ -1371,6 +1387,8 @@ pub(crate) fn lower_tls_accept_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-102.3: narrow the C int `accept` return before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CONNFD_OFFSET),
@@ -1665,6 +1683,9 @@ pub(crate) fn lower_tls_read_helper(
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
+        // SSL_read returns a C int; sign-extend before the signed 0/<0 tests so a
+        // -1 error isn't read as a large positive byte count (bug-102).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
         abi::branch_lt(&read_fail),
@@ -1922,6 +1943,8 @@ pub(crate) fn lower_tls_write_helper(
         abi::move_register(abi::ARG[2], "%v10"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
+        // SSL_write returns a C int; sign-extend before the signed <=0 test (bug-102).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&write_fail),
         abi::load_u64("%v11", abi::stack_pointer(), SRC_OFFSET),

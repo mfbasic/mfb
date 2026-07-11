@@ -880,6 +880,48 @@ fn emit_restore_stdin_terminal(
     Ok(())
 }
 
+/// Emit one EINTR-guarded UTF-8 continuation-byte `read` for `io::readChar` /
+/// `io::readLine` (bug-97.2). A signal delivered mid-multibyte-sequence returns
+/// `-1`/`EINTR`; before this the bare `compare/branch_lt(<input_error>)` treated
+/// that as a fatal input error (discarding `readLine`'s partial line). This
+/// replicates the lead-read guard: `retry_label` re-issues the identical 1-byte
+/// read into `stack[byte_offset]`, and the guard leaves the `cmp x0, 0` flags
+/// live so the caller's follow-on `branch_eq(<encoding_error>)` (a 0-byte read
+/// mid-sequence is a truncated sequence) fuses on every backend. Reads always go
+/// through libc, so the guard uses the `errno`-accessor convention (both read
+/// helpers already import it for the lead read).
+#[allow(clippy::too_many_arguments)]
+fn emit_continuation_read(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    byte_offset: usize,
+    retry_label: &str,
+    resume_label: &str,
+    input_error: &str,
+) -> Result<(), String> {
+    instructions.extend([
+        abi::label(retry_label),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), byte_offset),
+        abi::move_immediate(abi::ARG[2], "Integer", "1"),
+    ]);
+    platform.emit_read_file(symbol, platform_imports, instructions, relocations)?;
+    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+    emit_single_op_eintr_guard(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        retry_label,
+        resume_label,
+        input_error,
+    )
+}
+
 pub(super) fn lower_io_read_byte_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -1155,19 +1197,19 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_lo(&encoding_error),
         abi::compare_immediate("%v10", "223"),
         abi::branch_hi(&read_third),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 1,
+        &format!("{symbol}_cont1_retry"),
+        &format!("{symbol}_cont1_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
         abi::compare_immediate("%v11", "128"),
@@ -1180,19 +1222,19 @@ pub(super) fn lower_io_read_char_helper(
         abi::label(&read_third),
         abi::compare_immediate("%v10", "239"),
         abi::branch_hi(&read_fourth),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 1,
+        &format!("{symbol}_cont2_retry"),
+        &format!("{symbol}_cont2_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
         abi::compare_immediate("%v10", "224"),
@@ -1216,19 +1258,19 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_three_second_ok")),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 2,
+        &format!("{symbol}_cont3_retry"),
+        &format!("{symbol}_cont3_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
         abi::compare_immediate("%v11", "128"),
@@ -1243,19 +1285,19 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_lo(&encoding_error),
         abi::compare_immediate("%v10", "244"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 1,
+        &format!("{symbol}_cont4_retry"),
+        &format!("{symbol}_cont4_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
         abi::compare_immediate("%v10", "240"),
@@ -1279,38 +1321,38 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_four_second_ok")),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 2,
+        &format!("{symbol}_cont5_retry"),
+        &format!("{symbol}_cont5_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
         abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
         abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 3),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 3,
+        &format!("{symbol}_cont6_retry"),
+        &format!("{symbol}_cont6_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 3),
         abi::compare_immediate("%v11", "128"),
@@ -1590,19 +1632,19 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_lo(&encoding_error),
         abi::compare_immediate("%v10", "223"),
         abi::branch_hi(&format!("{symbol}_line_read_third")),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 1,
+        &format!("{symbol}_cont1_retry"),
+        &format!("{symbol}_cont1_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
         abi::compare_immediate("%v11", "128"),
@@ -1615,19 +1657,19 @@ pub(super) fn lower_io_read_line_helper(
         abi::label(&format!("{symbol}_line_read_third")),
         abi::compare_immediate("%v10", "239"),
         abi::branch_hi(&format!("{symbol}_line_read_fourth")),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 1,
+        &format!("{symbol}_cont2_retry"),
+        &format!("{symbol}_cont2_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
         abi::compare_immediate("%v10", "224"),
@@ -1651,19 +1693,19 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_line_three_second_ok")),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 2,
+        &format!("{symbol}_cont3_retry"),
+        &format!("{symbol}_cont3_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
         abi::compare_immediate("%v11", "128"),
@@ -1678,19 +1720,19 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_lo(&encoding_error),
         abi::compare_immediate("%v10", "244"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 1,
+        &format!("{symbol}_cont4_retry"),
+        &format!("{symbol}_cont4_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
         abi::compare_immediate("%v10", "240"),
@@ -1714,38 +1756,38 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_line_four_second_ok")),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 2,
+        &format!("{symbol}_cont5_retry"),
+        &format!("{symbol}_cont5_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
         abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
         abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET + 3),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
+    emit_continuation_read(
         symbol,
         platform_imports,
+        platform,
         &mut instructions,
         &mut relocations,
+        BYTES_OFFSET + 3,
+        &format!("{symbol}_cont6_retry"),
+        &format!("{symbol}_cont6_resume"),
+        &input_error,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
         abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 3),
         abi::compare_immediate("%v11", "128"),

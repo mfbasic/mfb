@@ -29,6 +29,12 @@ pub(super) struct RunResult {
     pub(super) instructions: Vec<CodeInstruction>,
     pub(super) spill_slot_count: usize,
     pub(super) extra_callee_saved: Vec<String>,
+    /// Set when coloring could not represent an instruction (it names more
+    /// simultaneously-live registers than the target's allocatable pool holds),
+    /// so no valid allocation exists. `allocate` surfaces this as a clear
+    /// compile-time failure rather than the raw `.expect` ICE it replaced
+    /// (bug-127.2). `None` on success.
+    pub(super) error: Option<String>,
 }
 
 /// Allocate one register class over `instructions`. Spill slots are placed at
@@ -189,7 +195,10 @@ pub(super) fn run(
     // clobbered (bug-54). Collected here and merged into `extra_callee_saved`.
     let mut scratch_callee_saved: Vec<String> = Vec::new();
     let mut out: Vec<CodeInstruction> = Vec::with_capacity(n);
-    for (i, instruction) in instructions.iter().enumerate() {
+    // Set if an instruction cannot be colored (more simultaneously-live registers
+    // than the pool holds); surfaced by `allocate` (bug-127.2).
+    let mut alloc_error: Option<String> = None;
+    'rewrite: for (i, instruction) in instructions.iter().enumerate() {
         let eff = analysis::effect(instruction, class_model);
         let used_spilled: Vec<u32> = eff
             .uses
@@ -250,11 +259,27 @@ pub(super) fn run(
                 } else {
                     // Every register is live, so borrow one that this instruction
                     // does not itself use, saving and restoring it around the use.
-                    // There are always more registers than operands, so one exists.
-                    let &(name, pi) = allocatable
+                    // One exists whenever the pool is at least as large as the
+                    // instruction's distinct register-operand count. If it is not
+                    // — e.g. a 5-operand `add_carry` all spilled against x86's
+                    // 4-register integer pool — no valid allocation exists: distinct
+                    // simultaneously-live operands need distinct homes, so scratch
+                    // cannot be reused. Surface a hard error via `RunResult` instead
+                    // of the raw `.expect` ICE this replaced (bug-127.2); `allocate`
+                    // turns it into a clear compile-time failure.
+                    let Some(&(name, pi)) = allocatable
                         .iter()
                         .find(|&&(_, pi)| (reserved & (1u64 << pi)) == 0)
-                        .expect("register allocator: instruction has more operands than registers");
+                    else {
+                        alloc_error = Some(format!(
+                            "register allocator: instruction `{}` names more \
+                             simultaneously-live registers than the {} allocatable \
+                             {class:?}-class registers this target provides",
+                            instruction.op.mnemonic(),
+                            allocatable.len(),
+                        ));
+                        break 'rewrite;
+                    };
                     reserved |= 1u64 << pi;
                     let slot_index = evictions.len();
                     evictions.push((name.to_string(), slot_index));
@@ -329,6 +354,7 @@ pub(super) fn run(
         instructions: out,
         spill_slot_count: total_slot_count,
         extra_callee_saved,
+        error: alloc_error,
     }
 }
 

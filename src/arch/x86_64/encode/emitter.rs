@@ -359,15 +359,22 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         }
         // rbit: reverse all 64 bits. x86 has no single instruction, so use the
         // classic swap-by-strides (1,2,4 bits) then a byte reverse (`bswap`). rax
-        // (mask) and rdx (temp) are free scratch — both excluded from the pool.
+        // (mask) and rdx (temp) are used as scratch. They are excluded from the
+        // allocatable pool, so no body vreg lands there, but ABI-staging and the
+        // residual scratch mapping (map_scratch_register uses rax/rdx) can leave a
+        // live caller value in either across this multi-instruction expansion. The
+        // allocator's clobber model does not cover that, so preserve rax/rdx with
+        // an explicit push/pop. (dst is never rax/rdx — the algorithm overwrites
+        // both — so the pop cannot clobber the result.)
         "rbit" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
-            let mut b = if dst == src {
-                Vec::new()
-            } else {
-                enc_mov(dst, src)
-            };
+            let mut b = Vec::new();
+            b.push(0x50); // push rax
+            b.push(0x52); // push rdx
+            if dst != src {
+                b.extend_from_slice(&enc_mov(dst, src));
+            }
             // or dst, rdx : REX.W 09 /r (rm=dst, reg=rdx=2)
             let or_dst_rdx = |b: &mut Vec<u8>| {
                 b.push(rex(true, false, false, dst >= 8));
@@ -405,6 +412,8 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             b.push(rex(true, false, false, dst >= 8));
             b.push(0x0F);
             b.push(0xC8 + (dst & 7));
+            b.push(0x5A); // pop rdx
+            b.push(0x58); // pop rax
             Ok(Encoded::plain(b))
         }
         "mul" => {
@@ -428,8 +437,17 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(bytes))
         }
         "umulh" | "smulh" => {
-            // rdx:rax = lhs * rhs ; dst = rdx.  Clobbers rax/rdx (non-allocatable).
-            // F7 /4 = MUL (unsigned high), F7 /5 = IMUL (signed high).
+            // rdx:rax = lhs * rhs ; dst = rdx (the high 64 bits).
+            // F7 /4 = MUL (unsigned high), F7 /5 = IMUL (signed high). MUL/IMUL
+            // implicitly read rax and write rdx:rax. Those registers are not in the
+            // allocatable pool, but ABI-staging and the residual scratch mapping
+            // (map_scratch_register uses rax/rdx) can leave a live caller value in
+            // either across this multi-instruction expansion, and rhs may itself be
+            // mapped onto rax — where the `mov rax,lhs` setup would destroy it
+            // before the multiply reads it. Mirror div_seq: preserve rax/rdx
+            // (except whichever is the destination, since that carries the result),
+            // and when rhs aliases rax stage it in a stack slot and multiply from
+            // memory.
             let dst = reg(field(instruction, "dst")?)?;
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
@@ -438,11 +456,46 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             } else {
                 4
             };
-            let mut bytes = enc_mov(0, lhs); // mov rax, lhs
-            bytes.push(rex(true, false, false, rhs >= 8));
-            bytes.push(0xF7);
-            bytes.push(modrm(0b11, ext, rhs));
-            bytes.extend_from_slice(&enc_mov(dst, 2)); // mov dst, rdx
+            let save_rax = dst != 0; // rax = low product / scratch; skip if dst==rax
+            let save_rdx = dst != 2; // rdx = high product (result source); skip if dst==rdx
+            let stage_rhs = rhs == 0; // rhs on rax → `mov rax,lhs` would clobber it
+            let mut bytes = Vec::new();
+            if save_rax {
+                bytes.push(0x50); // push rax
+            }
+            if save_rdx {
+                bytes.push(0x52); // push rdx
+            }
+            if stage_rhs {
+                // sub rsp,8 ; mov [rsp],rhs — capture rhs (in rax) before it is
+                // overwritten by `mov rax,lhs`.
+                bytes.extend_from_slice(&enc_alu_imm32(5, 4, 8)); // sub rsp, 8
+                bytes.push(rex(true, rhs >= 8, false, false)); // mov [rsp], rhs
+                bytes.push(0x89);
+                bytes.push(modrm(0b00, rhs, 4));
+                bytes.push(0x24); // SIB: base=rsp
+            }
+            bytes.extend_from_slice(&enc_mov(0, lhs)); // mov rax, lhs
+            if stage_rhs {
+                // mul/imul qword [rsp]
+                bytes.push(rex(true, false, false, false));
+                bytes.push(0xF7);
+                bytes.push(modrm(0b00, ext, 4));
+                bytes.push(0x24); // SIB: base=rsp
+                bytes.extend_from_slice(&enc_alu_imm32(0, 4, 8)); // add rsp, 8 (free staged rhs)
+            } else {
+                // mul/imul rhs (register — survives the rax push and `mov rax,lhs`)
+                bytes.push(rex(true, false, false, rhs >= 8));
+                bytes.push(0xF7);
+                bytes.push(modrm(0b11, ext, rhs));
+            }
+            bytes.extend_from_slice(&enc_mov(dst, 2)); // dst = rdx (capture before restore)
+            if save_rdx {
+                bytes.push(0x5A); // pop rdx
+            }
+            if save_rax {
+                bytes.push(0x58); // pop rax
+            }
             Ok(Encoded::plain(bytes))
         }
         "udiv" => div_seq(instruction, false),
@@ -1592,6 +1645,20 @@ fn enc_alu_imm32(digit: u8, rm: u8, imm: i32) -> Vec<u8> {
     bytes
 }
 
+/// `bt r/m64, 0` — REX.W 0F BA /4 ib. Sets CF = bit 0 of `rm` WITHOUT modifying
+/// the register. For the {0,1} carry-in domain CF == rm, exactly like the old
+/// `add rm,-1` trick but non-destructively (so a carry_in whose interval extends
+/// past the op, or aliases lhs, is not corrupted).
+fn enc_bt_imm0(rm: u8) -> Vec<u8> {
+    vec![
+        rex(true, false, false, rm >= 8),
+        0x0F,
+        0xBA,
+        modrm(0b11, 4, rm),
+        0x00,
+    ]
+}
+
 #[derive(Clone, Copy)]
 enum MemWidth {
     U64,
@@ -1774,28 +1841,54 @@ fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<Encoded, St
 }
 
 /// Variable shift/rotate by CL: `mov rcx, amount ; mov dst, value ; shift dst,cl`.
-/// `digit` is the group-2 /digit (1=ROR, 4=SHL, 5=SHR, 7=SAR). rcx is
-/// non-allocatable, so clobbering it is safe. Field convention (abi.rs): `dst`,
-/// `lhs` = value, `rhs` = amount.
+/// `digit` is the group-2 /digit (1=ROR, 4=SHL, 5=SHR, 7=SAR). Field convention
+/// (abi.rs): `dst`, `lhs` = value, `rhs` = amount.
+///
+/// rcx is not in the allocatable pool, but ABI-staging and the residual scratch
+/// mapping (map_scratch_register uses rcx) can leave a live caller value there
+/// across this expansion; the shift-count staging (`mov rcx, amount`) would
+/// destroy it. Preserve rcx with push/pop (except when dst==rcx — then rcx is the
+/// result carrier). When `value` itself was mapped onto rcx, `mov rcx,amount`
+/// overwrites it, so read the preserved copy back from the stack.
 fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String> {
     let dst = reg(field(instruction, "dst")?)?;
     let value = reg(field(instruction, "lhs")?)?;
     let amount = reg(field(instruction, "rhs")?)?;
-    let mut bytes = enc_mov(1, amount); // mov rcx, amount
+    let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
+    let mut bytes = Vec::new();
+    if save_rcx {
+        bytes.push(0x51); // push rcx (preserve foreign/residual value)
+    }
+    bytes.extend_from_slice(&enc_mov(1, amount)); // mov rcx, amount
     if dst != value {
-        bytes.extend_from_slice(&enc_mov(dst, value)); // mov dst, value
+        if value == 1 && save_rcx {
+            // `value` aliased rcx and was just overwritten by the count; reload
+            // the preserved copy from [rsp]. mov dst, [rsp] : REX.W 8B /r.
+            bytes.push(rex(true, dst >= 8, false, false));
+            bytes.push(0x8B);
+            bytes.push(modrm(0b00, dst, 4));
+            bytes.push(0x24); // SIB: base=rsp
+        } else {
+            bytes.extend_from_slice(&enc_mov(dst, value)); // mov dst, value
+        }
     }
     // D3 /digit : shift r/m64, CL
     bytes.push(rex(true, false, false, dst >= 8));
     bytes.push(0xD3);
     bytes.push(modrm(0b11, digit, dst));
+    if save_rcx {
+        bytes.push(0x59); // pop rcx
+    }
     Ok(Encoded::plain(bytes))
 }
 
 /// 32-bit variable shift/rotate by CL: `mov ecx,amount ; mov edst,evalue ;
 /// shift edst,cl`. The 32-bit ops zero-extend into the full 64-bit register, so
-/// the result matches AArch64's `rorv_w` (upper 32 bits cleared). rcx is
-/// non-allocatable, so clobbering it is safe.
+/// the result matches AArch64's `rorv_w` (upper 32 bits cleared).
+///
+/// Same rcx-preservation as `var_shift` (see there): rcx may hold a live foreign
+/// value across this expansion, and `value` may alias rcx and be overwritten by
+/// the shift-count staging.
 fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String> {
     let dst = reg(field(instruction, "dst")?)?;
     let value = reg(field(instruction, "lhs")?)?;
@@ -1810,9 +1903,25 @@ fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, Stri
         b.push(modrm(0b11, s, d));
         b
     };
-    let mut bytes = mov32(1, amount); // mov ecx, amount
+    let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
+    let mut bytes = Vec::new();
+    if save_rcx {
+        bytes.push(0x51); // push rcx (preserve foreign/residual value)
+    }
+    bytes.extend_from_slice(&mov32(1, amount)); // mov ecx, amount
     if dst != value {
-        bytes.extend_from_slice(&mov32(dst, value)); // mov edst, evalue
+        if value == 1 && save_rcx {
+            // `value` aliased rcx, now overwritten by the count; reload the
+            // preserved copy. mov r32, [rsp] : 8B /r (zero-extends to 64 bits).
+            if dst >= 8 {
+                bytes.push(rex(false, false, false, true));
+            }
+            bytes.push(0x8B);
+            bytes.push(modrm(0b00, dst, 4));
+            bytes.push(0x24); // SIB: base=rsp
+        } else {
+            bytes.extend_from_slice(&mov32(dst, value)); // mov edst, evalue
+        }
     }
     // D3 /digit : shift r/m32, CL — no REX.W; REX.B only for r8–r15.
     if dst >= 8 {
@@ -1820,6 +1929,9 @@ fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, Stri
     }
     bytes.push(0xD3);
     bytes.push(modrm(0b11, digit, dst));
+    if save_rcx {
+        bytes.push(0x59); // pop rcx
+    }
     Ok(Encoded::plain(bytes))
 }
 
@@ -1937,14 +2049,18 @@ fn enc_setcc_to(reg_out: u8, cc: u8) -> Vec<u8> {
 /// `add_carry`: `dst = lhs + rhs + carry_in`, `carry_out` = CF as 0/1.
 ///
 /// No carry-in (carry_in is the zero token): `mov dst,lhs ; add dst,rhs`.
-/// Carry-in register: set CF from carry_in (0/1) with `add carry_in, -1` (sets CF
-/// iff carry_in != 0 for the {0,1} domain... actually `add 0xFF..FF` to 0 leaves
-/// CF=0, to 1 leaves CF=1), then `mov dst,lhs ; adc dst,rhs`. Finally
-/// `setc carry_out`.
+/// Carry-in register: set CF from carry_in (0/1) with `bt carry_in, 0` (CF = bit0
+/// of carry_in, which for the {0,1} domain equals carry_in), then
+/// `mov dst,lhs ; adc dst,rhs`. Finally `setc carry_out`.
+///
+/// `bt` is used instead of the old `add carry_in,-1`: both set CF = carry_in, but
+/// `bt` does NOT modify carry_in, so if the allocator's pure-USE model of carry_in
+/// is violated (its interval extends past the op, or it aliases lhs) the register
+/// is not corrupted.
 ///
 /// To keep dst/lhs/rhs distinct, we move lhs into dst first; rhs is read after.
-/// If carry_in aliases dst/lhs/rhs the `add carry_in,-1` must happen before dst
-/// is overwritten — we read carry_in into CF first.
+/// If carry_in aliases dst/lhs/rhs the CF read must happen before dst is
+/// overwritten — we read carry_in into CF first.
 fn enc_add_carry(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let dst = reg(field(instruction, "dst")?)?;
     let carry_out = reg(field(instruction, "carry_out")?)?;
@@ -1959,8 +2075,8 @@ fn enc_add_carry(instruction: &CodeInstruction) -> Result<Encoded, String> {
         }
         bytes.extend_from_slice(&alu_rr(0x01, dst, rhs)); // add dst, rhs
     } else {
-        // Set CF = carry_in (domain {0,1}): add carry_in, -1.
-        bytes.extend_from_slice(&enc_alu_imm32(0, carry_in, -1)); // add carry_in, -1
+        // Set CF = carry_in (domain {0,1}) without modifying carry_in: bt carry_in, 0.
+        bytes.extend_from_slice(&enc_bt_imm0(carry_in)); // CF = bit0(carry_in)
         if dst != lhs {
             bytes.extend_from_slice(&enc_mov(dst, lhs));
         }
@@ -1982,8 +2098,9 @@ fn enc_add_carry(instruction: &CodeInstruction) -> Result<Encoded, String> {
 /// Field convention (abi.rs): `dst`, `borrow_out`, `lhs`, `rhs`, `borrow_in`.
 ///
 /// No borrow-in (zero token): `mov dst,lhs ; sub dst,rhs`. Borrow-in register:
-/// set CF = borrow_in via `add borrow_in,-1`, then `mov dst,lhs ; sbb dst,rhs`.
-/// On x86 a subtract sets CF iff there was a borrow, so `setc borrow_out`.
+/// set CF = borrow_in via `bt borrow_in,0` (non-destructive; CF = bit0 = borrow_in
+/// for the {0,1} domain), then `mov dst,lhs ; sbb dst,rhs`. On x86 a subtract sets
+/// CF iff there was a borrow, so `setc borrow_out`.
 fn enc_sub_borrow(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let dst = reg(field(instruction, "dst")?)?;
     let borrow_out = reg(field(instruction, "borrow_out")?)?;
@@ -1997,7 +2114,7 @@ fn enc_sub_borrow(instruction: &CodeInstruction) -> Result<Encoded, String> {
         }
         bytes.extend_from_slice(&alu_rr(0x29, dst, rhs)); // sub dst, rhs
     } else {
-        bytes.extend_from_slice(&enc_alu_imm32(0, borrow_in, -1)); // add borrow_in,-1 → CF=borrow_in
+        bytes.extend_from_slice(&enc_bt_imm0(borrow_in)); // bt borrow_in,0 → CF=borrow_in (non-destructive)
         if dst != lhs {
             bytes.extend_from_slice(&enc_mov(dst, lhs));
         }

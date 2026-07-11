@@ -71,6 +71,28 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Inter-element padding alignment for a homogeneous **list** payload of
+    /// `type_`. Fixed-size payloads (scalars, pointers, fixed records/unions,
+    /// byte-addressed `String`) are always a whole multiple of their own
+    /// alignment, so consecutive elements pack with no gap and need no rounding
+    /// — those return 1 (a no-op) so primitive/pointer lists stay byte-identical.
+    /// Only a *variable-length* element — a record with an inlined `String`
+    /// field, a data union, or a flat nested collection — can end on a non-8
+    /// boundary and leave the next element's `U64` slots unaligned; those round
+    /// up to 8 (bug-147.4). The allocation-size pass and the writer both apply
+    /// this identical rounding, and each element's absolute offset is recorded
+    /// per-entry, so the reader (which loads the stored offset) stays in lockstep.
+    pub(super) fn list_element_padding_alignment(&self, type_: &str) -> usize {
+        if self.record_has_inline_data(type_)
+            || self.union_is_data(type_)
+            || (is_collection_type(type_) && self.type_is_flat(type_))
+        {
+            8
+        } else {
+            1
+        }
+    }
+
     /// Rounds the unsigned offset stored at `slot` up to `alignment`. A no-op
     /// for `alignment <= 1`. Uses x12/x13 as scratch so it does not disturb the
     /// x8-x11 registers used by the surrounding collection-writer code.
@@ -1167,13 +1189,23 @@ impl CodeBuilder<'_> {
             if let Some(key) = &slot.key {
                 // Map entries pack a key then a value; round each payload's start
                 // offset up to its type alignment so the running data length
-                // accounts for the same padding the writer inserts below. List
-                // payloads are homogeneous and size-aligned, so they never need
-                // padding (no key present).
+                // accounts for the same padding the writer inserts below.
                 let key_alignment = self.collection_payload_alignment(&key.type_);
                 self.emit_align_offset_slot(data_len_slot, key_alignment);
                 self.emit_add_payload_length(data_len_slot, key)?;
                 let value_alignment = self.collection_payload_alignment(&slot.value.type_);
+                self.emit_align_offset_slot(data_len_slot, value_alignment);
+            } else {
+                // List payloads are homogeneous. Fixed-size elements pack with no
+                // gap (their size is a whole multiple of their alignment), but a
+                // *variable-length* element (a record with an inlined String
+                // field, a data union, or a flat nested collection) can end on a
+                // non-8 boundary and leave the next element's U64 slots unaligned,
+                // so round the running length up before appending the next one
+                // (bug-147.4). The writer below applies the identical rounding;
+                // `list_element_padding_alignment` returns 1 for every fixed-size
+                // or byte-addressed payload, keeping primitive lists byte-identical.
+                let value_alignment = self.list_element_padding_alignment(&slot.value.type_);
                 self.emit_align_offset_slot(data_len_slot, value_alignment);
             }
             self.emit_add_payload_length(data_len_slot, &slot.value)?;
@@ -1397,14 +1429,20 @@ impl CodeBuilder<'_> {
             ));
         }
 
-        // Align the value payload start to its type alignment before recording
-        // its offset. Only map entries can leave the cursor unaligned (a
-        // variable-length or 1-byte key preceding an 8-byte value); list
-        // payloads are homogeneous and stay naturally aligned.
-        if slot.key.is_some() {
-            let value_alignment = self.collection_payload_alignment(&slot.value.type_);
-            self.emit_align_offset_slot(data_offset_slot, value_alignment);
-        }
+        // Align the value payload start before recording its offset. Map entries
+        // round to the value's type alignment (a variable-length or 1-byte key
+        // preceding an 8-byte value can leave the cursor unaligned). List entries
+        // only need rounding for a *variable-length* element whose size may not be
+        // a multiple of 8 (bug-147.4); `list_element_padding_alignment` returns 1
+        // for fixed-size list payloads, so those stay byte-identical. This
+        // mirrors the allocation-size pass exactly, so the recorded offset never
+        // runs past the allocated block.
+        let value_alignment = if slot.key.is_some() {
+            self.collection_payload_alignment(&slot.value.type_)
+        } else {
+            self.list_element_padding_alignment(&slot.value.type_)
+        };
+        self.emit_align_offset_slot(data_offset_slot, value_alignment);
         self.emit(abi::load_u64(
             collection_register,
             abi::stack_pointer(),

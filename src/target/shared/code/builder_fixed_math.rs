@@ -936,9 +936,52 @@ fn fixed_raw(value: f64) -> i64 {
     (value * 4_294_967_296.0).round() as i64
 }
 
-/// `atan(2^-i)` as a raw Q32.32 constant.
+/// Precomputed `atan(2^-i)` as raw Q32.32 constants for `i = 0..CORDIC_ITERATIONS`
+/// (bug-137.1). These were formerly `fixed_raw((2f64).powi(-i).atan())`, computed
+/// at compile time with the **build host's** libm `atan()`. A ≤1-ulp difference
+/// between two hosts' `atan()` implementations flipped the `.round()` in
+/// `fixed_raw`, so the same source produced byte-different binaries depending on
+/// which machine built the compiler. Baking the exact Q32.32 values makes the
+/// CORDIC table host-independent. The values reproduce the current host's f64
+/// path bit-for-bit (verified: `(2^-i).atan() * 2^32` rounded, both with and
+/// without optimization), so no numeric result changes.
+const CORDIC_ATAN_TABLE: [i64; CORDIC_ITERATIONS] = [
+    3373259426, // atan(2^-0)
+    1991351318, // atan(2^-1)
+    1052175346, // atan(2^-2)
+    534100635,  // atan(2^-3)
+    268086748,  // atan(2^-4)
+    134174063,  // atan(2^-5)
+    67103403,   // atan(2^-6)
+    33553749,   // atan(2^-7)
+    16777131,   // atan(2^-8)
+    8388597,    // atan(2^-9)
+    4194303,    // atan(2^-10)
+    2097152,    // atan(2^-11)
+    1048576,    // atan(2^-12)
+    524288,     // atan(2^-13)
+    262144,     // atan(2^-14)
+    131072,     // atan(2^-15)
+    65536,      // atan(2^-16)
+    32768,      // atan(2^-17)
+    16384,      // atan(2^-18)
+    8192,       // atan(2^-19)
+    4096,       // atan(2^-20)
+    2048,       // atan(2^-21)
+    1024,       // atan(2^-22)
+    512,        // atan(2^-23)
+    256,        // atan(2^-24)
+    128,        // atan(2^-25)
+    64,         // atan(2^-26)
+    32,         // atan(2^-27)
+    16,         // atan(2^-28)
+    8,          // atan(2^-29)
+    4,          // atan(2^-30)
+];
+
+/// `atan(2^-i)` as a raw Q32.32 constant (baked; see [`CORDIC_ATAN_TABLE`]).
 fn cordic_atan_raw(i: usize) -> i64 {
-    fixed_raw((2f64).powi(-(i as i32)).atan())
+    CORDIC_ATAN_TABLE[i]
 }
 
 /// Raw Q32.32 value of `pi`.
@@ -958,12 +1001,13 @@ fn fixed_two_over_pi() -> i64 {
 
 /// Raw Q32.32 inverse CORDIC gain `prod 1/sqrt(1 + 2^-2i)` over the iteration
 /// count, i.e. the starting `x` for rotation mode so the result is unscaled.
+///
+/// Baked as a constant (bug-137.1): the former `.sqrt()`-based product ran on the
+/// build host's libm, so a ≤1-ulp difference could flip `fixed_raw`'s `.round()`
+/// and produce byte-different binaries per build host. This value reproduces the
+/// current host's f64 computation bit-for-bit (verified), so results are unchanged.
 fn cordic_gain_inverse() -> i64 {
-    let mut gain = 1.0f64;
-    for i in 0..CORDIC_ITERATIONS {
-        gain *= (1.0 + (2f64).powi(-2 * i as i32)).sqrt();
-    }
-    fixed_raw(1.0 / gain)
+    2_608_131_496
 }
 
 /// Raw Q32.32 value of `ln(2)`.

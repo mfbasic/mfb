@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
-use crate::target::linux_gtk as gtk;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
     MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,
@@ -108,19 +107,12 @@ impl code::CodegenPlatform for Platform {
         // main thread (GTK loop) decides the shutdown policy. Console programs (and
         // the finish helper's own fallback) still terminate via `_exit`.
         if from == code::MACAPP_PROGRAM_SYMBOL {
-            instructions.extend([
-                abi::branch_link(gtk::FINISH_SYMBOL),
-                abi::branch_self(),
-                abi::return_(),
-            ]);
-            relocations.push(CodeRelocation {
-                from: from.to_string(),
-                to: gtk::FINISH_SYMBOL.to_string(),
-                kind: RelocIntent::Call,
-                binding: "internal".to_string(),
-                library: None,
-            });
-            return Ok(());
+            // bug-117.1: app mode is not ported to rv64 (`supports_app_mode()`
+            // is false, so the CLI rejects `-app`). The old body delegated to
+            // `target::linux_gtk`, which emits aarch64-convention register names
+            // — armed-but-dead wrong-ISA code. Hard-stop so a future flag flip
+            // cannot silently emit it.
+            unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
         }
         instructions.push(abi::branch_link("_exit"));
         relocations.push(CodeRelocation {
@@ -139,10 +131,13 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_app_program_entry(
         &self,
-        spec: &AppEntrySpec,
-        platform_imports: &HashMap<String, String>,
+        _spec: &AppEntrySpec,
+        _platform_imports: &HashMap<String, String>,
     ) -> Option<Result<Vec<CodeFunction>, String>> {
-        Some(gtk::emit_app_program_entry(spec, platform_imports))
+        // bug-117.1: not ported to rv64. Delegating to `target::linux_gtk` would
+        // emit aarch64-convention code; hard-stop instead of silently returning
+        // wrong-ISA functions.
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_program_entry(
@@ -176,58 +171,65 @@ impl code::CodegenPlatform for Platform {
     }
 
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
-        gtk::app_mode_data_objects()
+        // bug-117.1: not ported to rv64; do not source app-mode rodata from the
+        // aarch64 GTK backend.
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_app_io_write_helper(
         &self,
-        symbol: &str,
-        stderr: bool,
-        newline: bool,
+        _symbol: &str,
+        _stderr: bool,
+        _newline: bool,
         _term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(gtk::emit_app_io_write_helper(symbol, stderr, newline)))
+        // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_app_io_flush_helper(
         &self,
-        symbol: &str,
+        _symbol: &str,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(gtk::emit_app_io_flush_helper(symbol)))
+        // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_app_io_input_helper(
         &self,
-        symbol: &str,
+        _symbol: &str,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(gtk::emit_app_io_input_helper(symbol)))
+        // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_app_raw_input_mode(
         &self,
-        symbol: &str,
-        instructions: &mut Vec<CodeInstruction>,
-        relocations: &mut Vec<CodeRelocation>,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
-        gtk::emit_set_raw_input_mode(instructions, relocations, symbol);
-        Some(Ok(()))
+        // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_app_io_is_terminal_helper(
         &self,
-        symbol: &str,
+        _symbol: &str,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(gtk::emit_app_io_is_terminal_helper(symbol)))
+        // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_app_term_helper(
         &self,
-        call: &str,
-        symbol: &str,
-        term_state_offset: usize,
+        _call: &str,
+        _symbol: &str,
+        _term_state_offset: usize,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        gtk::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
+        // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn emit_write(

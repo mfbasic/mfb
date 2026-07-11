@@ -9,6 +9,11 @@ use std::collections::HashMap;
 
 use super::*;
 
+/// `EINTR` errno (Linux/macOS both use 4). A blocking socket syscall interrupted
+/// by a signal returns `-1`/`EINTR` (or `-EINTR` on the raw-`svc` backend); the
+/// call must be re-issued rather than misreported as a hard failure (bug-115).
+const EINTR_ERRNO: &str = "4";
+
 // ---------------------------------------------------------------------------
 // net.accept
 // ---------------------------------------------------------------------------
@@ -31,6 +36,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     const TIMEOUT_OFFSET: usize = 16;
 
     let closed = format!("{symbol}_closed");
+    let accept_retry = format!("{symbol}_accept_retry");
     let accept_fail = format!("{symbol}_accept_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -44,8 +50,10 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::branch_ne(&closed),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        // accept(fd, NULL, NULL)
-        abi::move_register(abi::return_register(), "%v9"),
+        // accept(fd, NULL, NULL); accept_retry reloads fd from the stack so an
+        // EINTR retry re-issues the identical call (bug-115).
+        abi::label(&accept_retry),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
@@ -72,6 +80,20 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&accept_fail),
+    ]);
+    // bug-115: a signal that interrupts the blocking accept returns -1/EINTR;
+    // re-issue rather than reporting a spurious network failure. accept goes
+    // through libc on every backend, so read the real code from errno.
+    platform.emit_errno(
+        symbol,
+        "%v9",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::branch_eq(&accept_retry),
     ]);
     emit_fail(
         symbol,
@@ -258,6 +280,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer_closed");
+    let read_retry = format!("{symbol}_read_retry");
     let read_fail = format!("{symbol}_read_fail");
     let timeout = format!("{symbol}_timeout");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -288,7 +311,9 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
-        // read(fd, buf, maxBytes)
+        // read(fd, buf, maxBytes); read_retry reloads the args from the stack so
+        // an EINTR retry re-issues the identical call (bug-115).
+        abi::label(&read_retry),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUF_OFFSET),
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), MAX_OFFSET),
@@ -431,6 +456,10 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     instructions.extend([
         abi::compare_immediate("%v9", platform.eagain()),
         abi::branch_eq(&timeout),
+        // bug-115: a signal that interrupts the blocking read returns -1/EINTR;
+        // re-issue rather than misreporting it as a closed connection.
+        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::branch_eq(&read_retry),
     ]);
     emit_fail(
         symbol,
@@ -587,10 +616,16 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
             .eagain()
             .parse::<usize>()
             .expect("eagain is numeric");
+        let eintr = EINTR_ERRNO.parse::<usize>().expect("eintr is numeric");
         instructions.extend([
             abi::add_immediate("%v9", abi::return_register(), eagain),
             abi::compare_immediate("%v9", "0"),
             abi::branch_eq(&timeout),
+            // bug-115: EINTR (raw `-errno`) re-issues the write from write_loop,
+            // which reloads the unchanged cursor/remaining (no bytes moved).
+            abi::add_immediate("%v9", abi::return_register(), eintr),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&write_loop),
         ]);
     } else {
         // Every other backend routes `write` through libc: a `-1` return with the
@@ -605,6 +640,11 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         instructions.extend([
             abi::compare_immediate("%v9", platform.eagain()),
             abi::branch_eq(&timeout),
+            // bug-115: a signal that interrupts the blocking write returns
+            // -1/EINTR; re-issue from write_loop rather than reporting a closed
+            // connection.
+            abi::compare_immediate("%v9", EINTR_ERRNO),
+            abi::branch_eq(&write_loop),
         ]);
     }
     emit_fail(

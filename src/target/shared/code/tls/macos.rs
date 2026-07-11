@@ -1817,6 +1817,9 @@ fn emit_read_whole_file(
     ]);
     platform.emit_open_file(symbol, platform_imports, ins, rel)?;
     ins.extend([
+        // bug-102.3: narrow the C int `open` return before the signed compare
+        // (lseek/read below return 64-bit off_t/ssize_t and must NOT be narrowed).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(open_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), fd_off),

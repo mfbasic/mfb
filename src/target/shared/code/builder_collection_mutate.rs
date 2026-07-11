@@ -537,22 +537,29 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch15, &scratch14, &scratch15));
+        let size_overflow = self.label("list_insert_size_overflow");
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch17, &scratch13, &scratch16));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): count and dataLength are
+        // read from live collection headers, so route count*ENTRY + HEADER + dataLen
+        // through the overflow-guarded helpers — a wrapped size would under-allocate
+        // and corrupt the heap.
+        self.emit_checked_size_multiply(&scratch17, &scratch13, &scratch16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch17,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -568,6 +575,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
@@ -876,27 +885,32 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
+        let size_overflow = self.label("list_append_size_overflow");
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch17, &scratch14, &scratch16));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
+        // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
+        self.emit_checked_size_multiply(&scratch17, &scratch14, &scratch16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch17,
             COLLECTION_HEADER_SIZE,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -912,6 +926,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
 
@@ -1226,23 +1242,28 @@ impl CodeBuilder<'_> {
 
         // alloc size = HEADER + newCapacity * ENTRY + newDataCapacity.
         self.emit(abi::load_u64(&s14, abi::stack_pointer(), new_cap_slot));
+        let size_overflow = self.label("list_bulk_append_size_overflow");
         self.emit(abi::move_immediate(
             &s16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&s17, &s14, &s16));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
+        // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
+        self.emit_checked_size_multiply(&s17, &s14, &s16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &s17,
             COLLECTION_HEADER_SIZE,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::load_u64(&s15, abi::stack_pointer(), new_dcap_slot));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &s15,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1258,6 +1279,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
 
@@ -1517,27 +1540,32 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
+        let size_overflow = self.label("list_prepend_size_overflow");
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch17, &scratch14, &scratch16));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
+        // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
+        self.emit_checked_size_multiply(&scratch17, &scratch14, &scratch16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch17,
             COLLECTION_HEADER_SIZE,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1553,6 +1581,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
@@ -2278,27 +2308,32 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_CAPACITY,
         ));
+        let size_overflow = self.label("map_vgrow_size_overflow");
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch17, &scratch14, &scratch16));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
+        // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
+        self.emit_checked_size_multiply(&scratch17, &scratch14, &scratch16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch17,
             COLLECTION_HEADER_SIZE,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &size_overflow,
+        );
         // Reserve the map hash bucket region (x14 = capacity, unchanged on vgrow).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
@@ -2316,6 +2351,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&valloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&valloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
         // Header: old count / old dataLength, same capacity, new data capacity.
@@ -2588,27 +2625,32 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
+        let size_overflow = self.label("map_grow_size_overflow");
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch17, &scratch14, &scratch16));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
+        // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
+        self.emit_checked_size_multiply(&scratch17, &scratch14, &scratch16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch17,
             COLLECTION_HEADER_SIZE,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
             new_dcap_slot,
         ));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &size_overflow,
+        );
         // Reserve the map hash bucket region (x14 = new capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
@@ -2626,6 +2668,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
@@ -2947,17 +2991,23 @@ impl CodeBuilder<'_> {
             data_len_slot,
         ));
         self.emit(abi::subtract_immediate(&scratch13, &scratch11, 1));
-        self.emit(abi::multiply_registers(&scratch17, &scratch13, &scratch16));
-        self.emit(abi::add_immediate(
+        let size_overflow = self.label("list_remove_at_size_overflow");
+        // Checked collection-size arithmetic (bug-147.7): (count-1) and dataLength
+        // are runtime-derived, so guard count*ENTRY + HEADER + dataLen against
+        // overflow.
+        self.emit_checked_size_multiply(&scratch17, &scratch13, &scratch16, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch17,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch15,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -2973,6 +3023,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
@@ -3374,22 +3426,27 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&s9, abi::stack_pointer(), cap_slot));
         self.emit(abi::store_u64(&s10, abi::stack_pointer(), dcap_slot));
         // alloc size = HEADER + capacity * ENTRY + dataCapacity.
+        let size_overflow = self.label("reserved_list_size_overflow");
         self.emit(abi::move_immediate(
             &s11,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&s12, &s9, &s11));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
+        // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
+        self.emit_checked_size_multiply(&s12, &s9, &s11, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &s12,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &s10,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -3405,6 +3462,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();
@@ -3647,22 +3706,28 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch14, &scratch13, &scratch14));
+        let size_overflow = self.label("map_concat_size_overflow");
         self.emit(abi::move_immediate(
             &scratch15,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch16, &scratch12, &scratch15));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7): the total count and both
+        // data lengths come from live map headers, so guard count*ENTRY + HEADER +
+        // dataLen against overflow before allocating.
+        self.emit_checked_size_multiply(&scratch16, &scratch12, &scratch15, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch16,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch14,
-        ));
+            &size_overflow,
+        );
         // Reserve the map hash bucket region (x12 = total count = capacity).
         self.emit_reserve_map_buckets(true, &scratch12, abi::return_register(), &scratch15);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
@@ -3680,6 +3745,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let nb = self.temporary_vreg();

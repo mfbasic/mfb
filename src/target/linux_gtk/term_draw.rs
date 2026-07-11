@@ -268,7 +268,11 @@ fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
 }
 
 /// `void _mfb_gtkapp_term_scroll(void)` — shift the grid up one row (chars/fg/bg)
-/// and blank the last row. Worker-side data mutation (no GTK).
+/// and blank the last row. Worker-side data mutation (no GTK calls). Like
+/// [`emit_term_write_helper`], this runs unsynchronized against the main-thread
+/// draw callback: a concurrent redraw during the memmove/memset can paint a torn
+/// row. Benign (fixed static buffers, no memory unsafety, corrected next frame);
+/// the marshaling fix is deferred (bug-117.3).
 pub(super) fn emit_term_scroll_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_SCROLL_SYMBOL);
     // lr@0, x19(cells = (rows-1)*MAX_COLS, the chars to move / last-row offset)@8.
@@ -504,11 +508,22 @@ pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
 }
 
 /// `void _mfb_gtkapp_term_write(string obj /*x0*/, gboolean newline /*x1*/)` — the
-/// worker-side grid writer the io write helpers call when term:: is active. Pure
-/// data mutation on the grid (safe off the main thread); requests a main-thread
-/// redraw at the end. Bytes advance the cursor; '\n' (and the trailing newline for
-/// print) move to the next row; when the cursor passes the last row the grid
-/// scrolls up one line.
+/// worker-side grid writer the io write helpers call when term:: is active. It
+/// mutates the fixed grid arrays (chars/fg/bg) from the worker thread and then
+/// requests a main-thread redraw. Bytes advance the cursor; '\n' (and the
+/// trailing newline for print) move to the next row; when the cursor passes the
+/// last row the grid scrolls up one line.
+///
+/// Concurrency (bug-117.3): these grid writes are NOT synchronized against the
+/// main-thread [`term_draw`](emit_term_draw_helper) render callback, so a queued
+/// draw can read a row mid-update and paint a torn cell. The race is benign —
+/// the grids are fixed-size static buffers (no reallocation, no dangling
+/// pointer, no memory unsafety), and the worst case is one stale/torn row for a
+/// single frame that the next redraw corrects. The full fix marshals grid writes
+/// to the main thread (as the macOS backend does); that larger app-mode change
+/// is deferred. Do not "fix" this with a lock held across the draw callback — a
+/// lock the worker holds during a write while the GTK main loop blocks on it can
+/// stall the UI.
 pub(super) fn emit_term_write_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,

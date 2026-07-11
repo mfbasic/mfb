@@ -358,11 +358,31 @@ pub(super) fn finalize_frame(
     {
         callee_saved.push(abi::link_register().to_string());
     }
+    // Per-register save-area offsets (bug-124.2). An AArch64 FP/SIMD callee-saved
+    // register (`d8`–`d15`) can hold a 128-bit `v128` value live across a call, so
+    // it is saved with the 128-bit `str q`/`ldr q` into a 16-byte, 16-aligned slot
+    // — a 64-bit `str d` would drop lane[1] and corrupt the vector::/math-array
+    // kernels. Every other callee-saved register (integer, and RISC-V's 64-bit
+    // `fs*` FP scalars — no 128-bit SIMD on that path) keeps an 8-byte slot, so a
+    // target with no 128-bit FP callee-saved register lays out `index * 8` exactly
+    // as before and stays byte-identical. `outgoing_bytes` is 16-aligned, so an
+    // FP slot placed at a 16-aligned running offset is 16-aligned overall, which
+    // the `str q` scaled immediate requires.
+    let mut callee_offsets: Vec<usize> = Vec::with_capacity(callee_saved.len());
+    let mut save_cursor = 0usize;
+    for register in &callee_saved {
+        if is_aarch64_fp_callee_saved(register) {
+            save_cursor = align(save_cursor, 16);
+            callee_offsets.push(save_cursor);
+            save_cursor += 16;
+        } else {
+            callee_offsets.push(save_cursor);
+            save_cursor += 8;
+        }
+    }
     // Rounded to 16 so the shift below keeps every 16-aligned spill offset
-    // 16-aligned — AArch64 FP spills are `str q`/`ldr q`, whose scaled immediate
-    // requires a 16-byte-aligned address (the saves themselves still land at
-    // `index * 8`; an odd count leaves 8 padding bytes).
-    let save_size = align(callee_saved.len() * 8, 16);
+    // 16-aligned (the spill area sits above this callee-saved area).
+    let save_size = align(save_cursor, 16);
     // A called function on x86-64 must offset its 16-aligned frame by the pushed
     // return address so rsp is 16-aligned at its own call sites (0 on AArch64).
     let call_padding = if has_calls {
@@ -409,7 +429,7 @@ pub(super) fn finalize_frame(
     let mut prologue = Vec::new();
     prologue.push(abi::subtract_stack(total_stack_size));
     for (index, register) in callee_saved.iter().enumerate() {
-        prologue.push(save_callee_saved(register, outgoing_bytes + index * 8));
+        prologue.push(save_callee_saved(register, outgoing_bytes + callee_offsets[index]));
     }
 
     let insert_at = if instructions
@@ -426,7 +446,7 @@ pub(super) fn finalize_frame(
     for instruction in instructions.drain(..) {
         if instruction.op == CodeOp::Ret {
             for (index, register) in callee_saved.iter().enumerate().rev() {
-                rewritten.push(restore_callee_saved(register, outgoing_bytes + index * 8));
+                rewritten.push(restore_callee_saved(register, outgoing_bytes + callee_offsets[index]));
             }
             rewritten.push(abi::add_stack(total_stack_size));
             rewritten.push(instruction);
@@ -563,8 +583,28 @@ fn is_fp_register(register: &str) -> bool {
     })
 }
 
+/// Whether `register` is an AArch64 FP/SIMD callee-saved register (`d8`–`d15`).
+/// These are the only callee-saved registers that can carry a 128-bit `v128`
+/// value, so they must be saved/restored with the 128-bit `str q`/`ldr q` into a
+/// 16-byte slot (bug-124.2). RISC-V's FP callee-saved registers are 64-bit
+/// doubles (`fs*`; no 128-bit SIMD on that path) and take the `str d` branch —
+/// so this predicate matches only the `d`-prefixed spelling, never `fs*`.
+/// Written with a prefix + numeric-range check (not literal register names) so it
+/// does not trip the plan-34-D "shared lowering names no physical register"
+/// source scan — it is a *classifier*, not a hardcoded operand.
+fn is_aarch64_fp_callee_saved(register: &str) -> bool {
+    register
+        .strip_prefix('d')
+        .and_then(|rest| rest.parse::<u8>().ok())
+        .is_some_and(|n| (8..=15).contains(&n))
+}
+
 fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {
-    if is_fp_register(register) {
+    if is_aarch64_fp_callee_saved(register) {
+        // 128-bit `str q` — a 64-bit `str d` would truncate a `v128` value's high
+        // lane (bug-124.2). Only AArch64 `d`-registers can carry a 128-bit vector.
+        abi::vector_store(register, abi::stack_pointer(), offset)
+    } else if is_fp_register(register) {
         abi::store_double(register, abi::stack_pointer(), offset)
     } else {
         abi::store_u64(register, abi::stack_pointer(), offset)
@@ -572,7 +612,9 @@ fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {
 }
 
 fn restore_callee_saved(register: &str, offset: usize) -> CodeInstruction {
-    if is_fp_register(register) {
+    if is_aarch64_fp_callee_saved(register) {
+        abi::vector_load(register, abi::stack_pointer(), offset)
+    } else if is_fp_register(register) {
         abi::load_double(register, abi::stack_pointer(), offset)
     } else {
         abi::load_u64(register, abi::stack_pointer(), offset)

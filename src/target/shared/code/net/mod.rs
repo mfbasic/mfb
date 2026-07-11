@@ -24,6 +24,10 @@ const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (
 const SOCKADDR_STORAGE_SIZE: usize = 128;
 const ADDR_STR_CAP: usize = 64;
 const POLLIN: &str = "1";
+/// `EINTR` errno (Linux/macOS both use 4): a `poll` interrupted by a signal
+/// returns `-1`/`EINTR` and must be re-issued rather than treated as a hard
+/// connect failure (bug-115).
+const EINTR_ERRNO: &str = "4";
 
 fn internal_reloc(symbol: &str, target: &str) -> CodeRelocation {
     CodeRelocation {
@@ -319,6 +323,8 @@ fn lower_net_endpoint_helper(
     let op_fail = format!("{symbol}_op_fail");
     let blocking_connect = format!("{symbol}_blocking_connect");
     let nb_connected = format!("{symbol}_nb_connected");
+    let connect_poll_retry = format!("{symbol}_connect_poll_retry");
+    let connect_poll_ready = format!("{symbol}_connect_poll_ready");
     let connect_timeout = format!("{symbol}_connect_timeout");
     let connected_done = format!("{symbol}_connected_done");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -539,7 +545,9 @@ fn lower_net_endpoint_helper(
         instructions.extend([
             abi::compare_immediate("%v9", platform.einprogress()),
             abi::branch_ne(&op_fail),
-            // poll(&pollfd { fd, POLLOUT }, 1, timeoutMs)
+            // poll(&pollfd { fd, POLLOUT }, 1, timeoutMs); connect_poll_retry
+            // re-runs the pollfd rebuild + poll on an EINTR (bug-115).
+            abi::label(&connect_poll_retry),
             abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
             abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
             abi::move_immediate("%v10", "Integer", "4"), // POLLOUT
@@ -560,8 +568,23 @@ fn lower_net_endpoint_helper(
         )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_lt(&op_fail),
             abi::branch_eq(&connect_timeout),
+            abi::branch_gt(&connect_poll_ready),
+        ]);
+        // bug-115: a negative poll return is either EINTR (re-issue the poll) or a
+        // genuine failure. poll goes through libc here, so read errno.
+        platform.emit_errno(
+            symbol,
+            "%v9",
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate("%v9", EINTR_ERRNO),
+            abi::branch_eq(&connect_poll_retry),
+            abi::branch(&op_fail),
+            abi::label(&connect_poll_ready),
             // getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
             abi::move_immediate("%v9", "Integer", "4"),
             abi::store_u64("%v9", abi::stack_pointer(), SOLEN_OFFSET),

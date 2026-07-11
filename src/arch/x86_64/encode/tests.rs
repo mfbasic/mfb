@@ -197,7 +197,10 @@ fn umulh() {
     // mov rbx,rdx (48 89 D3)
     assert_eq!(
         bytes("umulh", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi")]),
-        [0x48, 0x89, 0xF0, 0x48, 0xF7, 0xE7, 0x48, 0x89, 0xD3]
+        // push rax ; push rdx ; mov rax,rsi ; mul rdi ; mov rbx,rdx ; pop rdx ;
+        // pop rax — rax/rdx are saved so an ABI-staged/residual operand there
+        // survives (bug-125).
+        [0x50, 0x52, 0x48, 0x89, 0xF0, 0x48, 0xF7, 0xE7, 0x48, 0x89, 0xD3, 0x5A, 0x58]
     );
 }
 
@@ -318,20 +321,20 @@ fn shifts_imm() {
 
 #[test]
 fn shifts_var() {
-    // lslv rax, rax, rbx : mov rcx,rbx (48 89 D9) ; shl rax,cl (48 D3 E0)
+    // lslv rax, rax, rbx : push rcx ; mov rcx,rbx ; shl rax,cl ; pop rcx (bug-125).
     assert_eq!(
         bytes("lslv", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x48, 0x89, 0xD9, 0x48, 0xD3, 0xE0]
+        [0x51, 0x48, 0x89, 0xD9, 0x48, 0xD3, 0xE0, 0x59]
     );
-    // rorv rax, rax, rbx : mov rcx,rbx ; ror rax,cl (48 D3 C8)
+    // rorv rax, rax, rbx : push rcx ; mov rcx,rbx ; ror rax,cl ; pop rcx.
     assert_eq!(
         bytes("rorv", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x48, 0x89, 0xD9, 0x48, 0xD3, 0xC8]
+        [0x51, 0x48, 0x89, 0xD9, 0x48, 0xD3, 0xC8, 0x59]
     );
-    // asrv rax, rax, rbx : mov rcx,rbx ; sar rax,cl (48 D3 F8)
+    // asrv rax, rax, rbx : push rcx ; mov rcx,rbx ; sar rax,cl ; pop rcx.
     assert_eq!(
         bytes("asrv", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x48, 0x89, 0xD9, 0x48, 0xD3, 0xF8]
+        [0x51, 0x48, 0x89, 0xD9, 0x48, 0xD3, 0xF8, 0x59]
     );
 }
 
@@ -512,7 +515,8 @@ fn add_carry_no_carry_in() {
 #[test]
 fn add_carry_with_carry_in() {
     // carry_in = r10 :
-    // add r10,-1 (49 81 C2 FF FF FF FF) ; (dst==lhs) adc rbx,rdi (48 11 FB) ;
+    // bt r10,0 (49 0F BA E2 00) sets CF=carry_in non-destructively (bug-125) ;
+    // (dst==lhs) adc rbx,rdi (48 11 FB) ;
     // setc sil (40 0F 92 C6) ; movzx rsi,sil (48 0F B6 F6)
     assert_eq!(
         bytes(
@@ -526,8 +530,8 @@ fn add_carry_with_carry_in() {
             ]
         ),
         [
-            0x49, 0x81, 0xC2, 0xFF, 0xFF, 0xFF, 0xFF, 0x48, 0x11, 0xFB, 0x40, 0x0F, 0x92, 0xC6,
-            0x48, 0x0F, 0xB6, 0xF6
+            0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x11, 0xFB, 0x40, 0x0F, 0x92, 0xC6, 0x48, 0x0F,
+            0xB6, 0xF6
         ]
     );
 }
@@ -644,7 +648,9 @@ fn smulh_signed_high() {
     // smulh rbx, rsi, rdi : mov rax,rsi ; imul rdi (F7 /5) ; mov rbx,rdx
     assert_eq!(
         bytes("smulh", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi")]),
-        [0x48, 0x89, 0xF0, 0x48, 0xF7, 0xEF, 0x48, 0x89, 0xD3]
+        // push rax ; push rdx ; mov rax,rsi ; imul rdi ; mov rbx,rdx ; pop rdx ;
+        // pop rax (bug-125 rax/rdx save).
+        [0x50, 0x52, 0x48, 0x89, 0xF0, 0x48, 0xF7, 0xEF, 0x48, 0x89, 0xD3, 0x5A, 0x58]
     );
 }
 
@@ -693,12 +699,13 @@ fn lsrv_variable_shift() {
     // lsrv rax, rax, rbx : mov rcx,rbx (48 89 D9) ; shr rax,cl (48 D3 E8)
     assert_eq!(
         bytes("lsrv", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x48, 0x89, 0xD9, 0x48, 0xD3, 0xE8]
+        // push rcx ; mov rcx,rbx ; shr rax,cl ; pop rcx — rcx saved (bug-125).
+        [0x51, 0x48, 0x89, 0xD9, 0x48, 0xD3, 0xE8, 0x59]
     );
     // Move-in when dst != value: lslv rdx, rax, rbx
     assert_eq!(
         bytes("lslv", &[("dst", "rdx"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x48, 0x89, 0xD9, 0x48, 0x89, 0xC2, 0x48, 0xD3, 0xE2]
+        [0x51, 0x48, 0x89, 0xD9, 0x48, 0x89, 0xC2, 0x48, 0xD3, 0xE2, 0x59]
     );
     // Extended dst drives REX.B on the shift.
     let _ = bytes("lslv", &[("dst", "r8"), ("lhs", "r8"), ("rhs", "rbx")]);
@@ -709,12 +716,13 @@ fn rorv_word_variable() {
     // rorv_w rax, rax, rbx : mov ecx,ebx (89 D9) ; ror eax,cl (D3 C8)
     assert_eq!(
         bytes("rorv_w", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x89, 0xD9, 0xD3, 0xC8]
+        // push rcx ; mov ecx,ebx ; ror eax,cl ; pop rcx (bug-125 rcx save).
+        [0x51, 0x89, 0xD9, 0xD3, 0xC8, 0x59]
     );
     // move-in + extended-dst arms
     assert_eq!(
         bytes("rorv_w", &[("dst", "rdx"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x89, 0xD9, 0x89, 0xC2, 0xD3, 0xCA]
+        [0x51, 0x89, 0xD9, 0x89, 0xC2, 0xD3, 0xCA, 0x59]
     );
     let _ = bytes("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rbx")]);
 }
@@ -1704,10 +1712,10 @@ fn div_aliasing_and_dividend_preservation() {
 
 #[test]
 fn shifts_var_32bit() {
-    // rorv_w rbx, rbx, rsi : mov ecx,esi ; ror ebx,cl (D3 /1)
+    // rorv_w rbx, rbx, rsi : push rcx ; mov ecx,esi ; ror ebx,cl ; pop rcx (bug-125).
     assert_eq!(
         bytes("rorv_w", &[("dst", "rbx"), ("lhs", "rbx"), ("rhs", "rsi")]),
-        [0x89, 0xF1, 0xD3, 0xCB]
+        [0x51, 0x89, 0xF1, 0xD3, 0xCB, 0x59]
     );
     // dst != value copies the value too; extended reg sets REX.
     assert!(!enc("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rsi")]).is_empty());

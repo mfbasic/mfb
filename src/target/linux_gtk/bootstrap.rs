@@ -215,6 +215,15 @@ pub(super) fn emit_activate_handler() -> CodeFunction {
     asm.push(abi::load_u32("x11", abi::stack_pointer(), 20)); // write fd
     asm.store_state("x11", ST_PIPE_WRITE_FD);
 
+    // Make the pipe write end non-blocking (bug-114): if the worker stops
+    // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
+    // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
+    // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
+    asm.push(abi::load_u32("x0", abi::stack_pointer(), 20)); // write fd
+    asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
+    asm.push(abi::move_immediate("x2", "Integer", "2048")); // O_NONBLOCK (0o4000)
+    asm.call_external("fcntl");
+
     // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
     // on the stack (sp+16) rather than in a register — a caller-saved register
     // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
@@ -373,12 +382,18 @@ pub(super) fn emit_key_pressed_handler() -> CodeFunction {
     asm.push(abi::add_immediate("x1", "x10", ST_LINE_BUF));
     asm.load_state("x2", ST_LINE_LEN);
     asm.call_external("write");
+    // O_NONBLOCK write end (bug-114): on -1/EAGAIN (pipe full, worker not
+    // reading) drop the line rather than block; skip the trailing newline write
+    // and fall through to echo + clear.
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_lt("commit_echo"));
     asm.push(abi::move_immediate("x9", "Integer", "10"));
     asm.push(abi::store_u8("x9", abi::stack_pointer(), 32)); // '\n'
     asm.load_state("x0", ST_PIPE_WRITE_FD);
     asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
     asm.push(abi::move_immediate("x2", "Integer", "1"));
     asm.call_external("write");
+    asm.push(abi::label("commit_echo"));
     asm.load_state("x9", ST_INPUT_MODE);
     asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
     asm.push(abi::branch_ne("commit_clear"));

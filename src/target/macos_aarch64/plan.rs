@@ -123,6 +123,7 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_write"),
             ("libSystem", "_pipe"),
             ("libSystem", "_dup2"),
+            ("libSystem", "_fcntl"), // bug-114: set pipe write end O_NONBLOCK
             ("libSystem", "_strlen"),
             ("libSystem", "_calloc"),
             ("libSystem", "_bzero"),

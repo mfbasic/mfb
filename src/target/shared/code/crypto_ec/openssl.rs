@@ -755,6 +755,18 @@ fn generate(
         p.point_len,
         &mut ins,
     );
+    // Bounds-guard the SEC1 private-key DER before reading the scalar. The
+    // scalar offset is a fixed table entry (7/8/8) that assumes the long-form
+    // DER header the default OpenSSL emits; a shorter-than-expected encoding
+    // (e.g. a build that omits the optional publicKey and shrinks the SEQUENCE,
+    // or a short-form length prefix) would otherwise read `field_len` bytes past
+    // the SEC1LEN-sized buffer (bug-136.3). Require
+    // SEC1LEN >= sec1_scalar_off + field_len; route to gen_fail otherwise.
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SEC1LEN),
+        abi::compare_immediate("%v9", &(p.sec1_scalar_off + p.field_len).to_string()),
+        abi::branch_lo(&gen_fail),
+    ]);
     emit_copy(
         symbol,
         "sc",

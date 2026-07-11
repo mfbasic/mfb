@@ -276,6 +276,17 @@ pub(crate) fn allocate(
                 slot_bytes,
                 reserved,
             );
+            // No valid register allocation exists (bug-127.2): an instruction names
+            // more simultaneously-live registers than the target's integer pool
+            // holds. This is a codegen defect (an ISA `select` emitting an
+            // over-wide instruction, or a mis-sized pool), not user input, so it is
+            // an ICE — but a clear, actionable one surfaced at the allocation
+            // boundary rather than the raw operand-count `.expect` it replaced. A
+            // user-facing diagnostic would require threading a `Result` out through
+            // `allocate` and its callers.
+            if let Some(error) = int.error {
+                panic!("{error}");
+            }
             *instructions = int.instructions;
             let fp_base = spill_base_offset + int.spill_slot_count * slot_bytes;
             let fp = linear_scan::run(
@@ -287,6 +298,9 @@ pub(crate) fn allocate(
                 slot_bytes,
                 reserved,
             );
+            if let Some(error) = fp.error {
+                panic!("{error}");
+            }
             *instructions = fp.instructions;
 
             let total_spills = int.spill_slot_count + fp.spill_slot_count;

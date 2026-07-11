@@ -31,7 +31,7 @@ pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
 
 /// The integer registers the bump allocator hands out as temporaries, in the
 /// exact order `abi::temporary_register` produced them: caller-saved
-/// `x8`–`x17` first, then callee-saved `x20`–`x28`. Keeping this order makes the
+/// `x8`–`x14` first, then callee-saved `x21`–`x27`. Keeping this order makes the
 /// linear-scan allocator prefer caller-saved scratch (no save/restore cost) and
 /// fall through to callee-saved only under pressure, matching the legacy layout.
 // `x28` is deliberately absent: it realizes the `%closure_env` role token
@@ -40,9 +40,17 @@ pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
 // `x20` is deliberately absent: it realizes the `%thread` token
 // ([`Aarch64RegisterModel::current_thread`]), the program-wide worker
 // current-thread register every function must preserve.
+// `x15`, `x16`, `x17` are deliberately absent (bug-124.1): the AArch64 encoder
+// materializes oversized immediates/offsets through these three as *implicit*
+// scratch (`encode::operand::scratch_excluding` hands out `x17`/`x16`/`x15` for
+// the out-of-range `ldr`/`str`/`cmp` fallbacks), with no clobber model. A body
+// vreg colored onto one of them and live across such an instruction would be
+// silently destroyed. `x16`/`x17` are the platform IP0/IP1 scratch and `x15` is
+// the encoder scratch, so all three are ABI-clean to reserve from allocation.
+// They remain in `INT_CALLER_SAVED` so the call-clobber mask still treats them
+// as destroyed across a `bl`.
 const INT_ALLOCATABLE: &[&str] = &[
-    "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x21", "x22", "x23", "x24",
-    "x25", "x26", "x27",
+    "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x21", "x22", "x23", "x24", "x25", "x26", "x27",
 ];
 
 /// Caller-saved integer registers (clobbered by any `bl`). `x16`/`x17` are the

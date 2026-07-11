@@ -337,6 +337,18 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     // handler.
     asm.push(abi::add_immediate("x0", abi::stack_pointer(), OFF_PIPE));
     asm.call_external("_pipe", LIB_SYSTEM);
+    // Make the pipe write end (fds[1]) non-blocking so the keyDown: commit
+    // write() returns -1/EAGAIN instead of blocking the UI thread forever when
+    // the worker stops draining stdin and the 64 KiB pipe fills (bug-114). The
+    // third `fcntl` argument is variadic, so on Apple AArch64 it is passed on
+    // the stack (mirrors emit_variadic_call).
+    asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
+    asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
+    asm.push(abi::move_immediate("x2", "Integer", "4")); // O_NONBLOCK (0x0004 on Darwin)
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64("x2", abi::stack_pointer(), 0));
+    asm.call_external("_fcntl", LIB_SYSTEM);
+    asm.push(abi::add_stack(16));
     asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
     asm.push(abi::move_immediate("x1", "Integer", "0")); // newfd: stdin
     asm.call_external("_dup2", LIB_SYSTEM);

@@ -6,6 +6,11 @@ use std::collections::HashMap;
 
 use super::*;
 
+/// `EINTR` errno (Linux/macOS both use 4): a `poll` interrupted by a signal
+/// returns `-1`/`EINTR` and must be re-issued rather than reported as a hard
+/// failure (bug-115).
+const EINTR_ERRNO: &str = "4";
+
 // ---------------------------------------------------------------------------
 // net.poll
 // ---------------------------------------------------------------------------
@@ -30,6 +35,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
+    let poll_retry = format!("{symbol}_poll_retry");
     let poll_fail = format!("{symbol}_poll_fail");
     let not_ready = format!("{symbol}_not_ready");
     let done = format!("{symbol}_done");
@@ -52,7 +58,9 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
-        // poll(&pollfd, 1, timeoutMs)
+        // poll(&pollfd, 1, timeoutMs); poll_retry re-issues the call (the pollfd is
+        // already on the stack and %v12 holds the timeout) on an EINTR (bug-115).
+        abi::label(&poll_retry),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::move_register(abi::ARG[2], "%v12"),
@@ -76,6 +84,20 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&poll_fail),
+    ]);
+    // bug-115: a signal that interrupts poll returns -1/EINTR; re-issue rather
+    // than reporting a spurious resource-closed failure. poll goes through libc,
+    // so read the real code from errno.
+    platform.emit_errno(
+        symbol,
+        "%v9",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::branch_eq(&poll_retry),
     ]);
     emit_fail(
         symbol,

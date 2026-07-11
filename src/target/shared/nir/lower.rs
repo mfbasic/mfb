@@ -354,6 +354,31 @@ fn lower_match_pattern(pattern: &IrMatchPattern) -> NirMatchPattern {
     }
 }
 
+/// Appends builtin default arguments that the IR omits: the implicit "read"
+/// mode for a 1-arg `fs.openFile`/`fs.openFileNoFollow`, and the implicit
+/// `fs.tempDirectory` argument for a 0-arg `fs.createTempFile`. Applied to both
+/// the `Call` and `CallResult` lowerings so a File-returning builtin behind an
+/// inline TRAP gets the same fixup as the fallible-assignment form.
+fn apply_default_args(target: &str, args: &mut Vec<NirValue>, loc: NirSourceLoc) {
+    match (target, args.len()) {
+        ("fs.openFile" | "fs.openFileNoFollow", 1) => {
+            args.push(NirValue::Const {
+                type_: "String".to_string(),
+                value: "read".to_string(),
+            });
+        }
+        ("fs.createTempFile", 0) => {
+            args.push(NirValue::RuntimeCall {
+                helper: super::runtime::RuntimeHelper::Fs,
+                target: "fs.tempDirectory".to_string(),
+                args: Vec::new(),
+                loc,
+            });
+        }
+        _ => {}
+    }
+}
+
 fn lower_value(value: &IrValue) -> NirValue {
     match value {
         IrValue::Const { type_, value } => NirValue::Const {
@@ -396,23 +421,7 @@ fn lower_value(value: &IrValue) -> NirValue {
         } => {
             let loc = lower_loc(*loc);
             let mut args = args.iter().map(lower_value).collect::<Vec<_>>();
-            match (target.as_str(), args.len()) {
-                ("fs.openFile" | "fs.openFileNoFollow", 1) => {
-                    args.push(NirValue::Const {
-                        type_: "String".to_string(),
-                        value: "read".to_string(),
-                    });
-                }
-                ("fs.createTempFile", 0) => {
-                    args.push(NirValue::RuntimeCall {
-                        helper: super::runtime::RuntimeHelper::Fs,
-                        target: "fs.tempDirectory".to_string(),
-                        args: Vec::new(),
-                        loc,
-                    });
-                }
-                _ => {}
-            }
+            apply_default_args(target, &mut args, loc);
             if super::runtime::is_native_direct_call(target) {
                 NirValue::Call {
                     target: target.clone(),
@@ -436,11 +445,16 @@ fn lower_value(value: &IrValue) -> NirValue {
         }
         IrValue::CallResult {
             target, args, loc, ..
-        } => NirValue::CallResult {
-            target: target.clone(),
-            args: args.iter().map(lower_value).collect(),
-            loc: lower_loc(*loc),
-        },
+        } => {
+            let loc = lower_loc(*loc);
+            let mut args = args.iter().map(lower_value).collect::<Vec<_>>();
+            apply_default_args(target, &mut args, loc);
+            NirValue::CallResult {
+                target: target.clone(),
+                args,
+                loc,
+            }
+        }
         IrValue::Constructor { type_, args } => NirValue::Constructor {
             type_: type_.clone(),
             args: args.iter().map(lower_value).collect(),

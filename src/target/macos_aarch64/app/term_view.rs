@@ -113,12 +113,19 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.push(abi::move_register("x1", "x21"));
     asm.call_external("_write", LIB_SYSTEM);
+    // The pipe write end is O_NONBLOCK (bug-114): if the pipe buffer is full the
+    // worker hasn't drained stdin, so write() returns -1/EAGAIN instead of
+    // blocking the UI thread forever. On failure drop this line (skip the
+    // trailing newline write) rather than block; still echo + clear below.
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_lt("kd_commit_echo"));
     asm.push(abi::move_immediate("x9", "Integer", "10"));
     asm.push(abi::store_u8("x9", abi::stack_pointer(), 72));
     asm.push(abi::move_register("x0", "x23"));
     asm.push(abi::add_immediate("x1", abi::stack_pointer(), 72));
     asm.push(abi::move_immediate("x2", "Integer", "1"));
     asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::label("kd_commit_echo"));
     asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
     asm.push(abi::branch_ne("kd_commit_clear"));
     build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
@@ -1141,12 +1148,18 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.push(abi::move_register("x1", "x21"));
     asm.call_external("_write", LIB_SYSTEM);
+    // O_NONBLOCK write end (bug-114): on -1/EAGAIN (pipe full, worker not
+    // reading) drop the line rather than block the UI thread; skip the trailing
+    // newline write and fall through to echo + clear.
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_lt("tkd_commit_echo"));
     asm.push(abi::move_immediate("x9", "Integer", "10"));
     asm.push(abi::store_u8("x9", abi::stack_pointer(), 72));
     asm.push(abi::move_register("x0", "x23"));
     asm.push(abi::add_immediate("x1", abi::stack_pointer(), 72));
     asm.push(abi::move_immediate("x2", "Integer", "1"));
     asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::label("tkd_commit_echo"));
     asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
     asm.push(abi::branch_ne("tkd_commit_clear"));
     build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
