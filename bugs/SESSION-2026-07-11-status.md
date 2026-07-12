@@ -29,8 +29,22 @@ returned error code, not a codegen defect).
   place — removing it churns x86 bytes via the fragile arg-staging inference for
   zero benefit.
 - **bug-147** — 147.1/147.3/147.4/147.7 fixed (147.6 already fixed, 147.2 stale);
-  147.5 (error-path frees) needs an ActiveCleanup redesign to avoid double-free /
-  cross-thread arena races — an OOM-under-TRAP / send-failure-only leak.
+  147.5(a) list `set` trap-route singleton leak FIXED (commit 1cfcba82, reorder the
+  fallible removeAt before the singleton alloc; verified 4 remotes, byte-identical
+  goldens). 147.5(b) thread-send copied-message leak still open — a cross-thread
+  arena-free data race needing a threading/ownership redesign.
+
+## Wave 4 addendum (bug-147.5a continuation)
+- **bug-151** — general caught-`Error`-per-trap leak (every taken `TRAP(e)` leaked
+  the `Error` block; trap-in-a-loop grew RSS ~0.6 KB/catch) FIXED (commit 64700c29):
+  register `e` as the first owned value of the handler body scope, freed once per
+  exit. Discovered while validating 147.5(a); it dominated the 147.5 leak
+  measurement. Verified 4 remotes (RSS flat, `RETURN e`/`FAIL e`/`e.message` correct,
+  no double-free). Moved to completed-bugs.
+- **bug-152** — FILED: `FAIL e` re-raise leaks the deep-copied propagation transient
+  (a pre-existing error-Result-ABI issue, not a bug-151 regression; no double-free;
+  the common catch-and-handle path is fully fixed). Needs an error-Result-ABI redesign
+  (propagate an owned block pointer), same block-lifetime family as 147.5(b).
 
 **Discovered (filed separately, pre-existing, out of scope):** x86-glibc
 `math::rand` with a fixed seed is non-deterministic (present at HEAD before this
