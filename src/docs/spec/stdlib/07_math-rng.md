@@ -51,8 +51,8 @@ emit_pcg_step(lo, hi):
 
 The cross term `MULT_HI * hi` is dropped because it contributes only to bits
 ≥128 and the state is truncated to 128 bits. The step reads `(lo, hi)` at entry
-and rewrites them in place; `x11`–`x16` are scratch (caller-saved). The aarch64
-encoders are `mul`, `umulh`, `adds`, `adc`.
+and rewrites them in place; its working values are register-allocated caller-saved
+scratch. The aarch64 encoders are `mul`, `umulh`, `adds`, `adc`.
 [[src/target/shared/abi.rs:unsigned_multiply_high_registers]]
 
 ## Output function (XSL-RR 128/64)
@@ -126,7 +126,7 @@ entry:
 The program-entry seed's random-bytes seam is `getentropy` (libc) on macOS and
 Linux-aarch64; Linux-x86_64 instead draws it from the `getrandom` syscall (nr
 318). (The `math::rand`/`math::seed` runtime helpers and `crypto::randomBytes`
-use `getentropy` on all three targets — only the entry seed differs.) [[src/target/macos_aarch64/plan.rs:514]] [[src/target/linux_x86_64/code.rs:emit_random_bytes]]
+use `getentropy` on all three targets — only the entry seed differs.) [[src/target/macos_aarch64/plan.rs:entry_imports]] [[src/target/linux_x86_64/code.rs:emit_random_bytes]]
 
 ### Spawned thread — drawn from the parent stream
 
@@ -151,25 +151,33 @@ each spawn; and spawning a child advances the parent's own sequence by one draw.
 ## `math::rand(min, max)` bounding
 
 `math::rand` validates `min <= max` (reporting `ErrInvalidArgument` otherwise),
-computes the inclusive span, draws one raw 64-bit value from `_mfb_rng_next`, and
-maps it into range. [[src/builtins/math.rs:RAND]]
+computes the inclusive span, and maps a raw draw into range with Lemire's
+multiply-shift rejection sampling. [[src/builtins/math.rs:RAND]]
 
 ```text
 if min > max: report ErrInvalidArgument
 span := (max - min) + 1                     ; wraps to 0 only for the full domain
-raw  := _mfb_rng_next()
 if span == 0:                               ; min=INT_MIN, max=INT_MAX
-    result := raw                           ; return the raw draw directly
+    result := _mfb_rng_next()               ; return the raw draw directly
 else:
-    result := min + (raw mod span)          ; unsigned modulo
+    t := (0 - span) mod span                ; biased-tail width (2^64 mod span)
+    loop:
+        raw := _mfb_rng_next()
+        hi  := high64(raw * span)           ; candidate offset in [0, span)
+        lo  := low64(raw * span)
+        if lo >= span: break                ; no draw could fall in the tail
+        if lo >= t:    break                ; above the tail — accept
+                                            ; else redraw
+    result := min + hi
 ```
 
-The reduction is a plain unsigned `raw mod span` (`udiv` + `msub`), so the
-mapping is *not* rejection-sampled; for `span` values that do not divide `2^64`
-evenly there is a negligible modulo bias. The full-domain case
-(`min = INT_MIN`, `max = INT_MAX`) detects the `span == 0` wrap and returns the
-raw 64-bit draw unmodified, covering every `Integer` uniformly.
-[[src/target/shared/code/builder_math.rs:794]]
+The reduction is Lemire's multiply-shift: the offset is the high word of the
+128-bit product `raw * span`, and a draw whose low word falls in the biased tail
+`t = 2^64 mod span` is rejected and redrawn, so the mapping is **unbiased** with
+no modulo bias. The tail threshold `t` is computed once with `udiv`/`msub`. The
+full-domain case (`min = INT_MIN`, `max = INT_MAX`) detects the `span == 0` wrap
+and returns the raw 64-bit draw unmodified, covering every `Integer` uniformly.
+[[src/target/shared/code/builder_math.rs:lower_math_rand]]
 
 ## `math::seed(value)` semantics
 

@@ -15,10 +15,11 @@ algorithm set, the backend split, and the security-relevant guarantees.
 
 `crypto` is **software-first**: every hash, HMAC, KDF, AEAD, and Ed25519
 primitive is a portable core implemented in injected MFBASIC source over the
-`bits` package (`crypto_package.mfb`). Because each core computes the same
+`bits` package. Because each core computes the same
 standard algorithm, its output is **byte-identical on every target**
-(macOS/Linux, aarch64/x86-64), and it uses **no deprecated platform functions**.
-This is a deliberate divergence from an earlier library-backed draft: on macOS
+(macOS/Linux, aarch64/x86-64/riscv64), and it uses **no deprecated platform
+functions**. The software cores are used in preference to platform crypto
+libraries because, on macOS,
 the only C-ABI symmetric/AEAD/EdDSA entry points are deprecated (`CC_SHA*`,
 `CCCryptorGCM`) or Swift-only (CryptoKit), so a software core is both the
 portable and the non-deprecated choice.
@@ -27,9 +28,9 @@ Two categories bind the platform instead of computing in source:
 
 - **`randomBytes`** draws from the OS CSPRNG via `getentropy` (present and
   non-deprecated on macOS and Linux, glibc and musl). It is a native runtime
-  helper (`_mfb_rt_crypto_crypto_randomBytes`). This is **distinct from
+  helper. This is **distinct from
   `math::rand`** (PCG64, non-cryptographic; `./mfb spec stdlib math-rng`) and is
-  deliberately **not seedable**.
+  deliberately **not seedable**. [[src/target/shared/runtime/crypto_specs.rs:CRYPTO_RANDOM_BYTES_SPEC]]
 - **NIST-EC public-key** (P-256/384/521 key generation and ECDSA) binds the
   platform's key API — `SecKey` (Security.framework) on macOS, `EVP_PKEY`
   (libcrypto) on Linux — rather than a software core: generic NIST bignum
@@ -54,9 +55,8 @@ Two categories bind the platform instead of computing in source:
     133 bytes);
   - signatures = ASN.1 DER `Ecdsa-Sig-Value` (X9.62).
 
-Hardware acceleration (AES-NI, SHA extensions) is not currently inherited by the
-software cores; a future library-backed fast path could add it without changing
-any output.
+The software cores do not use hardware crypto acceleration (AES-NI, SHA
+extensions); computation is portable-arithmetic only, identical across targets.
 
 ## Algorithm set
 
@@ -81,9 +81,10 @@ any output.
 
 The software cores keep 32-bit arithmetic masked to `0..2^32-1` (a sum of two such
 values is at most `2^33-2`, within the trapping 63-bit `+`, and is masked back).
-64-bit modular addition (SHA-512, Poly1305) is done through a limb-split helper
-that never lets an intermediate cross `2^63`. Ed25519 field elements use 16 × 16-bit
-limbs (TweetNaCl representation), whose products stay well within range.
+SHA-512's 64-bit modular addition is done through a limb-split helper that never
+lets an intermediate cross `2^63`. Poly1305 uses a 5 × 26-bit limb representation
+(poly1305-donna) with explicit carry propagation. Ed25519 field elements use
+16 × 16-bit limbs (TweetNaCl representation), whose products stay well within range.
 
 ## Security notes
 

@@ -97,10 +97,9 @@ Because the separator is consumed by its measured length, a CRLF split across tw
 graphemes and a CRLF merged into one grapheme both advance the cursor past the
 whole separator and yield identical results.
 
-The CR grapheme itself is built at runtime by `__csv_crChar`, which encodes byte
-13 via `toString([toByte(13)])`. The lexer only decodes the `\"`, `\\`, `\n`, and
-`\t` string escapes, so a `"\r"` literal would lex to the letter `r`; CR must be
-constructed from its byte instead. [[src/builtins/csv_package.mfb:__csv_crChar]]
+The CR grapheme is the one-character carriage-return (U+000D) string, written
+directly as a `"\r"` string literal — the lexer decodes the `\r` escape.
+[[src/builtins/csv_package.mfb:__csv_crChar]]
 
 ## Errors
 

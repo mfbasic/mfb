@@ -87,9 +87,9 @@ body's **byte** length (`strings::byteLen`), not its grapheme count.
 
 ### Line terminators
 
-This file is lexed in internal mode, where the `\r` string escape is not decoded.
-`CRLF` is therefore constructed from raw bytes 13 and 10 rather than a literal,
-and all framing (status line, header lines, the blank separator) uses it.
+`CRLF` is the two-character `"\r\n"` string literal — the lexer decodes the `\r`
+and `\n` escapes — and all framing (status line, header lines, the blank
+separator) uses it.
 
 [[src/builtins/http_package.mfb:__http_crlf]]
 

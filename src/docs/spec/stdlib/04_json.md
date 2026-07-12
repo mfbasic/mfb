@@ -47,10 +47,9 @@ out-of-range or unparseable tokens fail (see grammar).
 
 ## AST injection (front-end seam)
 
-`json::` is not linked as a precompiled object. The Rust seam in
-`src/builtins/json.rs` carries the package source as `include_str!` and, when the
-program imports `json`, appends the parsed package file into the project AST
-before the rest of the front end runs. `augmented_project` clones the project and
+`json::` is not linked as a precompiled object. Its behaviour is injected MFBASIC
+source: when the program imports `json`, the parsed package file is appended into
+the project AST before the rest of the front end runs. The augmented project clones the original and
 pushes `source_file()` (the parsed `json_package.mfb`) only if `uses_package`
 finds an `IMPORT json`; otherwise the project is returned unchanged. The package
 source then flows through the same resolver / monomorphization / codegen path as

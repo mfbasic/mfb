@@ -9,13 +9,14 @@ built-in `bits` package (bitwise/shift/rotate primitives), `strings::toBytes`
 This topic owns the codec *models* (algorithms, alphabets, padding, and error
 conditions). The per-function API — signatures, parameters, return types, errors
 — is owned by `./mfb man encoding`. The integer bitwise/shift/rotate primitives
-the codecs lean on are native single-instruction operations owned by
-`./mfb man bits`.
+the codecs lean on are native inline operations (each one, or a few, machine
+instructions) owned by `./mfb man bits`.
 
 Outputs are standardized, so the native and Binary Representation execution paths
 produce identical results, and every encoder/decoder pair round-trips. Encoders
-are **total**; decoders fail closed with `ErrInvalidFormat` (`77050003`) on
-malformed input, so a `TRAP` can recover from bad data.
+are **total** except `uleb128Encode`, which rejects a negative value; decoders
+fail closed with `ErrInvalidFormat` (`77050003`) on malformed input, so a `TRAP`
+can recover from bad data.
 
 ## The String↔bytes seam
 
@@ -28,7 +29,7 @@ bytes that already back a `String`. Its inverse is the universal
   Unicode scalar values (used by `utf16Encode`, `utf32Encode`, and
   `punycodeEncode`).
 - `__encoding_fromCodepoint(Integer) AS String` UTF-8-encodes one scalar value
-  (used by every `*Decode` that rebuilds text).
+  (used by every `*Decode` that rebuilds text from individual code points).
 
 ## Unicode transforms
 

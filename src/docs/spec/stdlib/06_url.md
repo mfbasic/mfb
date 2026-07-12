@@ -6,9 +6,8 @@ MFBASIC source; sockets, DNS, and UDP stay native. This topic specifies the
 the parse/render *model*, not the per-function API (that is `./mfb man net`).
 
 The `Url` record and both helpers live in the source companion
-`src/builtins/net_package.mfb`; only the nominal type name `Url` is registered
-on the Rust side (`URL_TYPE` in `src/builtins/net.rs`), and the universal
-`toString` is routed to the renderer in `src/builtins/mod.rs`. [[src/builtins/net_package.mfb:Url]] [[src/builtins/net.rs:URL_TYPE]]
+injected MFBASIC source; only the nominal type name `Url` is registered natively,
+and the universal `toString` is routed to the record renderer. [[src/builtins/net_package.mfb:Url]] [[src/builtins/net.rs:URL_TYPE]]
 
 ## The `Url` record
 
@@ -49,9 +48,9 @@ host       = regname | ipv4 | "[" ipv6 "]"
 pathpart   = path [ "?" query ] [ "#" fragment ]
 ```
 
-All string indexing is by **grapheme** (via `strings::graphemes`/`find`/`mid`),
-through the `__net_indexOf` / `__net_slice` wrappers (half-open slices,
-`-1`-on-miss). Parsing proceeds: [[src/builtins/net_package.mfb:__net_toUrl]] [[src/builtins/net_package.mfb:__net_indexOf]]
+All string indexing is by **grapheme** (via `strings::find`/`strings::mid`, with
+`strings::contains` guarding a miss), through half-open-slice, `-1`-on-miss
+wrappers. Parsing proceeds: [[src/builtins/net_package.mfb:__net_toUrl]] [[src/builtins/net_package.mfb:__net_indexOf]]
 
 1. **Scheme.** Split at the first `"://"`. Absence fails. The scheme text is
    lowercased (`strings::lower`); only `"http"` and `"https"` are accepted —
