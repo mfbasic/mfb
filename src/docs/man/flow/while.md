@@ -1,0 +1,36 @@
+# while
+
+Pre-test loops
+
+## Synopsis
+
+```
+WHILE condition : ... : WEND
+WHILE condition
+  ...
+WEND
+```
+
+## Description
+
+`WHILE` evaluates its `Boolean` condition before each iteration. The condition
+must be `Boolean`. When the condition is `FALSE` before the first check, the body
+does not run. `EXIT WHILE` leaves the loop and `CONTINUE WHILE` skips to the next
+iteration.
+
+## Errors
+
+No errors.
+
+## Examples
+
+Count to ten:
+
+```
+WHILE x < 10 : x = x + 1 : WEND
+```
+
+## See also
+
+- `mfb man flow do`
+- `mfb man flow if`
