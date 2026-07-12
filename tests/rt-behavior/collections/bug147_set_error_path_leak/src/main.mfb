@@ -1,0 +1,43 @@
+IMPORT io
+IMPORT collections
+
+' bug-147.5: collections::set on a List materializes a singleton for the new
+' element and a removeAt product before copying both into the result. Those
+' intermediates were freed only on the SUCCESS path. An out-of-range index makes
+' removeAt route to the function-level TRAP between the singleton's creation and
+' the copy-out, so the old code leaked the singleton (unbounded in a loop). The
+' fix registers both intermediates as owned values freed exactly once — by
+' trap_route_cleanups on the error path, at statement end on the success path.
+' This exercises both paths in one loop many times: it must complete without a
+' double-free crash and with the correct running total (RSS stays flat).
+FUNC trySet(xs AS List OF Integer, idx AS Integer, v AS Integer) AS Integer
+  LET updated AS List OF Integer = collections::set(xs, idx, v)
+  RETURN len(updated)
+  TRAP(e)
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  LET xs AS List OF Integer = [10, 20, 30]
+  MUT ok AS Integer = 0
+  MUT bad AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 5000
+    ' Alternate a valid in-range set with an out-of-range (TRAP'd) set so both
+    ' the success free and the error-path free run every pair of iterations.
+    LET good AS Integer = trySet(xs, 1, i)
+    LET err AS Integer = trySet(xs, 999, i)
+    IF good = 3 THEN
+      ok = ok + 1
+    END IF
+    IF err = -1 THEN
+      bad = bad + 1
+    END IF
+    i = i + 1
+  WEND
+  io::print("ok=" & toString(ok))
+  io::print("bad=" & toString(bad))
+  io::print("final=" & toString(len(collections::set(xs, 0, 99))))
+  RETURN 0
+END FUNC

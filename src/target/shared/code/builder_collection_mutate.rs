@@ -317,8 +317,15 @@ impl CodeBuilder<'_> {
             }
             // Materialize a `d`-native float before the payload spill (plan-01).
             let item = self.materialize_value(item)?;
-            let (singleton_slot, materialized) =
-                self.collection_argument_as_list_slot(&collection.type_, &element_type, item)?;
+            // Do the fallible `removeAt` (which range-checks the index) BEFORE
+            // materializing the singleton, so an out-of-range index — the failure
+            // an inline `TRAP`'d or auto-propagating `set` hits — routes to the
+            // handler with nothing yet allocated, and cannot leak the singleton
+            // (bug-147.5). `removeAt` allocates its product only after the bounds
+            // pass, so the OOB route allocates nothing at all. Both intermediates
+            // are freed on the success path once the insert has copied out of them;
+            // the sole remaining leak window is a mid-operation OOM (arena already
+            // exhausted), which was equally present before this reorder.
             let removed =
                 self.lower_list_remove_at(list_slot, index_slot, &collection.type_, &element_type)?;
             let removed_slot = self.allocate_stack_object("set_removed_list", 8);
@@ -327,6 +334,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 removed_slot,
             ));
+            let (singleton_slot, materialized) =
+                self.collection_argument_as_list_slot(&collection.type_, &element_type, item)?;
             let mut result = self.lower_list_insert_collection(
                 removed_slot,
                 index_slot,

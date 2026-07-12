@@ -91,15 +91,33 @@ noted, not separately re-filed.
 - 147.7 (checked collection-size arithmetic at 9 alloc sites) — FIXED.
 - 147.6 — already fixed (commit 39c4bcd8). 147.2 — stale (values.rs is flat-layout
   correct).
-- 147.5 (error-path intermediate frees) — DEFERRED. Two parts, both risky:
-  (a) the set/set_in_place trap-route leak needs the singleton/removed intermediates
-  re-registered as ActiveCleanup owned values (so trap_route_cleanups frees them)
-  with the manual success-path free removed — a delicate lifetime restructure that
-  is exactly the double-free-prone class (memory: trap-cleanup-double-free); an
-  alternative (reorder the fallible removeAt before the singleton is materialized)
-  fixes only the common index-OOB case and churns goldens. (b) the thread-send
-  copied-message leak lives in the DESTINATION worker's arena and would need
-  cross-thread arena-free of another thread's live free-list — a data race. Both are
-  exceptional error-path (OOM-under-TRAP / send-failure) leaks; a wrong free is a
-  double-free crash, so per "correctness over performance" this needs a dedicated
-  ActiveCleanup redesign with runtime trap/OOM validation, not a spot free.
+- 147.5(a) list `set` trap-route intermediate leak — FIXED (2026-07-11) via the
+  reorder alternative: `lower_collection_set`'s list path now runs the fallible
+  `removeAt` (which range-checks the index) BEFORE materializing the singleton, so
+  an out-of-range index — the failure a `TRAP`'d or auto-propagating `set` hits —
+  routes to the handler with nothing yet allocated and cannot leak. `removeAt`
+  allocates its own product only after the bounds pass, so the OOB route allocates
+  nothing at all. The manual success-path `free_intermediate_collection` calls stay
+  (both intermediates are copied into the result and freed once). This deliberately
+  avoids the ActiveCleanup-owned-value restructure (the double-free-prone class,
+  memory: trap-cleanup-double-free): a function-top-level intermediate registered as
+  an OwnedValue sits *below* `trap_cleanup_floor`, so `trap_route_cleanups` DEFERS it
+  to the handler, which never frees an anonymous temp (it was already popped from
+  `active_cleanups` at statement-end) — measured to still leak. `set_in_place`
+  already bounds-checks before allocating any intermediate, so its OOB path never
+  leaked. Verified: set-OOB-in-a-loop RSS now tracks get-OOB exactly (no
+  set-specific component). Regression: `tests/rt-behavior/collections/bug147_set_error_path_leak`.
+  The sole residual `set` window is a mid-operation OOM (arena already exhausted),
+  equally present before and terminal anyway.
+- 147.5(b) thread-send copied-message leak — DEFERRED (genuinely blocked): the leak
+  lives in the DESTINATION worker's arena and freeing it needs a cross-thread
+  arena-free of another thread's live free-list — a data race. Needs a threading/
+  ownership redesign, not a spot free.
+- Separately discovered while validating 147.5(a): a **general Error-object-per-trap
+  leak** — every taken `TRAP(e)` leaks the caught `Error` block (`e` is bound at a
+  function-level slot in `function_lowering.rs:688` / `builder_control.rs:772` but
+  never registered for scope-drop), so any trap-in-a-loop (retry/per-item error
+  handling) grows RSS ~0.6 KB/catch. This is NOT a collections bug and dominates the
+  147.5 leak measurement (bare `FAIL … TRAP` in a loop leaks identically). Filed as a
+  new bug; the fix (register `e` as an OwnedValue plus `FAIL e`/`RETURN e` move
+  tracking) is the same double-free-prone class and needs its own validated change.
