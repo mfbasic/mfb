@@ -3,7 +3,7 @@
 Every heap-backed value — strings, records, unions, errors, and collections —
 is allocated from an *arena*. An arena owns a chain of OS-mapped blocks plus a
 small fixed *arena-state* control structure, and manages the mapped bytes with
-three cooperating structures (allocator-01, the classic deferred-coalescing
+three cooperating structures (the classic deferred-coalescing
 design): **128 per-size-class quick bins** (exact chunk sizes 16…2048 — a freed
 small chunk parks on its bin in O(1) and the next same-class allocation pops it
 in O(1)), a **designated-victim carve chunk** (one active chunk that bump-serves
@@ -11,7 +11,7 @@ small bin misses, so misses never splinter parked inventory), and a per-arena
 **address-ordered coalescing free-list** as the backing store (large chunks,
 block remainders, and re-coalesced bin drains). The common alloc/free cycle is
 O(1) amortized regardless of the size mix. The designated victim subsumes the
-historical bump pointer. Freeing is **internal reuse only**: a freed chunk goes
+bump pointer. Freeing is **internal reuse only**: a freed chunk goes
 back to the allocator for the next allocation but is never returned to the OS;
 mapped blocks are unmapped only by the bulk `arena_destroy` when the owning
 package instance shuts down.
@@ -26,7 +26,7 @@ reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
-The arena-state structure is `ARENA_STATE_SIZE` = **1680 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
+The arena-state structure is `ARENA_STATE_SIZE` = **3728 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
 
 ```text
 ArenaState (at x19)
@@ -52,6 +52,9 @@ ArenaState (at x19)
   +1160 U64  outEnabled       ; io::setBuffered flag (0 = unbuffered default)
   +1168 U64  largeBin[64]     ; segregated large-block bin heads, hashed by exact
                               ; size (index = (size >> 4) & 63); chunks > 2048; 0 = empty
+  +1680 U64  v128Slots[256]   ; per-thread v128 scalarization region (2048 bytes);
+                              ; reserved on every target, addressed only by rv64
+                              ; codegen; placed last so its offset stays layout-neutral
 ```
 
 `blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
@@ -103,14 +106,14 @@ ArenaBlock
   +0   U64  prevBlock        ; previous block in the chain, 0 for the first
   +8   U64  blockSize        ; total mapped size of this block, in bytes
   +16  U64  usableCapacity   ; blockSize - 32 (bytes available after the header)
-  +24  U64  bumpOffset       ; vestigial under the free-list (kept 0); see below
+  +24  U64  bumpOffset       ; reserved under the free-list (kept 0); see below
   +32  ...  payload          ; usableCapacity bytes managed by the free-list
 ```
 
 `ArenaState.blockHead` always points at the newest block; older blocks are
 reachable only through each block's `prevBlock` link, which is the chain
 `arena_destroy` unmaps. The default block size is `ARENA_DEFAULT_BLOCK_SIZE` =
-**4096 bytes**. [[src/target/shared/code/error_constants.rs:ARENA_DEFAULT_BLOCK_SIZE]] Allocation no longer reads `bumpOffset` — it is written `0` at map
+**4096 bytes**. [[src/target/shared/code/error_constants.rs:ARENA_DEFAULT_BLOCK_SIZE]] Allocation does not read `bumpOffset` — it is written `0` at map
 time and kept only so the block-header layout is unchanged; the free-list drives
 all placement.
 
@@ -147,8 +150,8 @@ The algorithm:
 2b. **Designated-victim bump.** On a bin miss, if the carve chunk holds at
    least `size` bytes, serve from `carvePtr` and advance it — an O(1) bump.
    Concentrating all small-miss carving in one chunk keeps parked bin
-   inventory whole (splitting parked chunks per miss was measured to shave
-   them into sub-class fragments nothing ever requests).
+   inventory whole (splitting parked chunks per miss shaves them into
+   sub-class fragments nothing ever requests).
 2c. **Victim renewal.** When the carve chunk runs dry, its remnant parks on
    its exact-size bin (or joins the coalescing list if larger than 2048), and
    a new victim is acquired: the largest parked bin chunk that fits the
@@ -173,7 +176,7 @@ The algorithm:
    the drain is cheap and coalescing adjacent parked chunks genuinely can
    produce a fit. A large request grows directly — draining a big parked-small
    inventory almost never coalesces past interleaved live objects into a
-   large-enough run and was measured to dominate whole workloads.
+   large-enough run and can dominate whole workloads.
 5. **Grow.** If the walk (and, for a small request, the flush retry) finds no
    fit, map a new block sized `max(4096, round_up(size + align + 32, 4096))`,
    write its header, link it at the head, and **carve the request directly
@@ -200,7 +203,7 @@ so the freed extent matches the live chunk that was handed out. A chunk of
 push, no list walk (`quickBin[size/16 - 1]`; bin nodes reuse the `FreeNode`
 overlay, so a later flush hands them straight to the coalescing insert). A
 larger chunk (> 2048) instead **parks on its hashed large-block bin** —
-`largeBin[(size >> 4) & 63]`, also an O(1) head push (plan-25-A). Routing large
+`largeBin[(size >> 4) & 63]`, also an O(1) head push. Routing large
 frees through the address-ordered `arena_insert_free` grew that list without
 bound under heavy large-list churn (a 1000-element `List` frees ~40 KB per op),
 so both the insert and every later first-fit walk went quadratic; the segregated
@@ -235,7 +238,7 @@ Freed chunks and freshly mapped blocks are filled with pseudo-random bytes —
 always on, in debug and release. This scrubs freed secrets so they
 do not linger as plaintext and poisons memory so a use-after-free or
 uninitialized read yields garbage instead of stale-but-plausible data. Because
-fresh arena memory is no longer implicitly zero, every allocation site must fully
+fresh arena memory is not implicitly zero, every allocation site must fully
 initialize the bytes it later reads (the language's allocators already do).
 
 The fill source is a **dedicated per-arena PCG64** at arena-state offsets 16/24,
@@ -303,8 +306,8 @@ plain arena blocks this scope owns: **resources** (a move-only handle to the sin
 arena-global instance, reclaimed by its own close op); **runtime-managed thread
 results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing
 and the worker arena, bulk-freed at teardown); and **recursive / non-flat composites**
-(kept as pointer graphs, `type_is_flat` is false). Builtins that previously returned
-a borrow into an argument now return an owned block instead (`collections::get`/`getOr`
+(kept as pointer graphs, `type_is_flat` is false). Builtins that could otherwise return
+a borrow into an argument return an owned block instead (`collections::get`/`getOr`
 materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
 call result is always safe for the caller to own and free.
 

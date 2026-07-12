@@ -135,7 +135,7 @@ insertion-ordered entries. [[src/target/shared/code/mod.rs:lower_map_probe_helpe
 The data region packs every **flat** payload directly, addressed by the lookup
 entry's `valueOffset`/`valueLength`: primitive
 payloads, `String` bytes, inlined record blocks, inlined data-union blocks, and —
-since Phase 5a — **nested flat collections** (a `List`/`Map` whose own payloads
+for **nested flat collections** (a `List`/`Map` whose own payloads
 are flat) as their full block (header + lookup table + data region) inlined by
 offset, `valueLength` = the block byte size. Because a collection's internal
 entry offsets are relative to its own base, an inlined nested collection
@@ -150,7 +150,7 @@ closures`), 8-aligned, `valueLength` = 8. It is a **reference** payload with the
 same discipline as a scalar `Integer` word: the pointer is written verbatim on
 insert, read back verbatim on `get`, and `memcpy`-copied when the collection is
 copied — the closure object it points at is **never deep-copied on insert and
-never freed when the collection is dropped** (bug-73). A function value therefore
+never freed when the collection is dropped**. A function value therefore
 matches the `List OF Integer` flatness class (`type_is_flat` is true for a function
 type), so a `List`/`Map` of function values is itself a flat block whose scope-drop
 `arena_free` reclaims only the packed pointer array, leaving every referenced
@@ -347,7 +347,7 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   [[src/target/shared/code/builder_collection_mutate.rs:lower_map_set_in_place]]
 
 The source `collections::sort` is an insertion sort built on `set`, so its
-per-swap `items = collections::set(items, j, …)` overwrites now run in place:
+per-swap `items = collections::set(items, j, …)` overwrites run in place:
 the sort is a stable in-place O(n²)-comparison / O(1)-swap pass over a copy of the
 argument (the argument itself is never modified).
 
@@ -408,4 +408,4 @@ from `capacity`, never `count` — is what keeps that headroom unobservable.
 
 - Whether future layout versions should also inline the **non-flat** nested
   collection payloads that still remain 8-byte pointer handles (flat nested
-  collections are already inlined, since Phase 5a).
+  collections are already inlined).

@@ -16,7 +16,7 @@ Arguments are assigned to positional slots strictly by position, regardless of
 type. The first eight (`REGISTER_ARGUMENT_COUNT`) go in `x0`, `x1`, … `x7`; every
 argument at index ≥ 8 goes on the **stack tail** — one 8-byte slot per argument,
 in ascending index order, laid out at `[sp+0..]` at the moment of the call
-(bug-08). [[src/target/shared/abi.rs:argument_register]] The tail keeps the same one-slot-per-value model as the register
+[[src/target/shared/abi.rs:argument_register]] The tail keeps the same one-slot-per-value model as the register
 window: a `Float`/`Fixed` stack argument is its raw 8-byte bit pattern, exactly
 like an integer or pointer. There is no separate floating-point argument area and
 no struct-by-value classification — this is **not** AAPCS64/SysV stack passing.
@@ -51,7 +51,7 @@ x` (`fmov_d_from_x`), the `fadd`/`fmul`/etc. runs, and the result moves back int
 an `x` register with `fmov x, d` (`fmov_x_from_d`) for the finiteness check and
 the value model. [[src/target/shared/abi.rs:float_move_d_from_x]] Under the linear-scan allocator, **chained float arithmetic
 stays resident in `d`-registers** across operations (the FP register class,
-plan-03 Stage C): a parent float op reads its operand straight from the
+the FP register class): a parent float op reads its operand straight from the
 `d`-register the child op produced, skipping the GPR round-trip. At every memory
 or ABI boundary (storing to a slot, passing an argument, returning) a `Float` is
 still its 8-byte little-endian form in an `x` register, so its value
@@ -128,7 +128,7 @@ internal runtime helper (e.g. `_mfb_arena_alloc` clobbers callee-saved
 "break a deep expression into `LET` bindings" limit** — an arbitrarily nested
 expression compiles. [[src/target/shared/code/regalloc/linear_scan.rs:run]]
 
-The reference strategy, **`bump`**, replays the legacy fixed numbering — the
+The reference strategy, **`bump`**, replays the fixed numbering — the
 `next_register` counter starts at `8` and `temporary_register` maps it to a
 physical register (`8..17` → `x8..x17`; `18..26` → the callee-saved `x20..x28`,
 skipping the reserved `x18`/`x19`); allocation past `26` is a hard error. It is
@@ -159,7 +159,7 @@ duty as both the closure-environment register and the final scratch slot.
 The register names above are the concrete AArch64 realizations. The three registers
 whose role is a program- or frame-wide **invariant** are never spelled by their
 AArch64 number in shared lowering (`src/target/shared/code/`); each is named by one
-neutral token, realized per ISA at selection (plan-34-A):
+neutral token, realized per ISA at selection:
 
 | role | token | AArch64 | RISC-V | x86-64 |
 |---|---|---|---|---|

@@ -32,17 +32,16 @@ Slot layout in the entry frame:
 
 ```text
 entry frame (base = sp = x19)
-  +0                      ArenaState      ; ARENA_STATE_SIZE = 1144 bytes, the main arena-state
-  +1144 ENTRY_SEED_SCRATCH getentropy buf ; ENTRY_SEED_SCRATCH_OFFSET = ARENA_STATE_SIZE (RNG-seed scratch word)
-  +1152 ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 1152; globals, LINK slots, term:: state
+  +0                      ArenaState      ; ARENA_STATE_SIZE = 3728 bytes, the main arena-state
+  +3728 ENTRY_SEED_SCRATCH getentropy buf ; ENTRY_SEED_SCRATCH_OFFSET = ARENA_STATE_SIZE (RNG-seed scratch word)
+  +3736 ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 3736; globals, LINK slots, term:: state
   +top-48  args region (arg-accepting entries only; base = frame size - 48)
            +0 argc  +8 argv  +16 args List ptr  +24 data length  +32 saved count
 ```
 
-`ENTRY_STACK_SIZE` is `1152`; globals begin there. The in-frame
-scratch word at `ARENA_STATE_SIZE` (`1144`) is the RNG-seed `getentropy` buffer.
-(The arena-state's 128 quick bins begin at `ARENA_QUICK_BIN_BASE_OFFSET = 104`,
-which is the pre-quick-bin value the arena-state size used to be.)
+`ENTRY_STACK_SIZE` is `3736`; globals begin there. The in-frame
+scratch word at `ARENA_STATE_SIZE` (`3728`) is the RNG-seed `getentropy` buffer.
+(The arena-state's 128 quick bins begin at `ARENA_QUICK_BIN_BASE_OFFSET = 104`.)
 For an arg-accepting entry, a dedicated 48-byte args region (argc, argv, args
 `List` pointer, data length, saved count) is appended ABOVE the globals at the
 top of the frame — the slots must not overlap the globals (they are written
@@ -53,9 +52,10 @@ LINK + term:: state slots) * 8`, rounded up to 16, plus `ENTRY_ARGS_REGION_SIZE`
 (`48`) when the entry accepts args.
 [[src/target/shared/code/error_constants.rs:ENTRY_ARGS_REGION_SIZE]]
 
-When the program uses `term::`, eight `TERM_STATE_SLOTS` (`u64` each) are reserved
-just past the program globals and `LINK` slots; the entry's global-slot clear
-zero-initializes them, which is the inert (TUI-off) default.
+When the program uses `term::`, `TERM_STATE_SLOTS` (`u64` each, 27 in all —
+leading style slots plus the raw-termios save area) are reserved just past the
+program globals and `LINK` slots; the entry's global-slot clear zero-initializes
+them, which is the inert (TUI-off) default. [[src/target/shared/code/error_constants.rs:TERM_STATE_SLOTS]]
 [[src/target/shared/code/error_constants.rs:TERM_STATE_SLOTS]]
 
 ## Publishing the Arena Address
@@ -182,7 +182,7 @@ is byte-identical — and each backend then remaps to its own file. The pinned
 registers are neutral tokens too: `abi::ARENA`, `%thread` (current-thread),
 `%closure_env`, `%sysnr`, and the `%arg`/`%ret` call-boundary bank.
 
-Since plan-34-D the same holds for **every register class and every stream**:
+The same holds for **every register class and every stream**:
 the float builders' and SIMD kernels' scratch banks are the `abi::FP_SCRATCH`
 (`%fscratch0`…`%fscratch7` → `d0`–`d7`) and `abi::VEC_SCRATCH` (`%vscratch0`…
 `%vscratch7` → `v0`–`v7`, the 128-bit lane view of the same file) token pools;

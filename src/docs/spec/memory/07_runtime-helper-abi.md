@@ -2,7 +2,7 @@
 
 A *runtime helper* is a compiler-owned native routine that implements an
 OS-touching or otherwise non-inlinable builtin (`io::`, `fs::`, `net::`, `tls::`,
-`term::`, `datetime::`, and the `thread::` family). Source calls to those packages
+`term::`, `datetime::`, `crypto::`, `os::`, and the `thread::` family). Source calls to those packages
 lower to a `bl` against a stable helper symbol; the helper itself is supplied by
 the backend runtime, not by user code, and never appears as a `LINK` import or a
 package dependency. This topic owns the *general* helper ABI; the `thread`
@@ -12,7 +12,7 @@ family's per-op symbols and direction split are owned by
 Not every builtin becomes a helper call. The `math` and `general` families have
 **no** helper specs at all — they are lowered inline. The `strings` family is
 likewise emitted inline: every `strings.*` lowering target is intercepted by
-`is_native_direct_call` and codegen'd directly, so its (legacy) specs are never
+`is_native_direct_call` and codegen'd directly, so its specs are never
 reached as gated runtime calls. [[src/target/shared/runtime/usage.rs:is_native_direct_call]] [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
 ## Symbol Scheme
@@ -24,7 +24,7 @@ _mfb_rt_<helper>_<call>
 ```
 
 where `<helper>` is the family name (`io`, `fs`, `net`, `tls`, `term`,
-`datetime`, `thread`) and `<call>` is the lowering target with every non
+`datetime`, `crypto`, `os`, `thread`) and `<call>` is the lowering target with every non
 `[A-Za-z0-9_]` byte replaced by `_`. Because the lowering target itself is
 already module-qualified (`io.print`, `fs.open`), the `.` is rewritten to `_` and
 the family name appears **twice** — the characteristic doubled-module quirk:
@@ -83,7 +83,7 @@ IO_PRINT_CLOBBERS = [ x0, x1, x2, x9, x16 ]
 `x0`/`x1`/`x2` are the result-form registers the helper writes (tag, value,
 message); `x9` is a runtime scratch register; `x16` is the platform syscall
 register. A caller must spill any live value held in those registers across the
-`bl`. In practice **every** gated helper currently declares
+`bl`. In practice **every** gated helper declares
 `clobbers = IO_PRINT_CLOBBERS`; the field is per-helper so a future helper can
 widen its clobber set without changing the dispatch path. [[src/target/shared/runtime/catalog.rs:supported_helper_specs]]
 
@@ -114,13 +114,14 @@ meaningful.
 The helper family is the `RuntimeHelper` enum: [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
 ```text
-Datetime  Fs  General  Io  Math  Net  Strings  Term  Thread  Tls
+Crypto  Datetime  Fs  General  Io  Math  Net  Os  Strings  Term  Thread  Tls
 ```
 
 Of these, `General`, `Math`, and `Strings` are **inline-codegen'd** and contribute
 no gated runtime calls (`Math` and `General` have zero specs; every `Strings`
 target is routed through `is_native_direct_call`). The gated, helper-dispatched
-families are `Datetime`, `Fs`, `Io`, `Net`, `Term`, `Tls`, and `Thread`.
+families are `Crypto`, `Datetime`, `Fs`, `Io`, `Net`, `Os`, `Term`, `Tls`, and
+`Thread`.
 `helper_for_call` maps a lowering target to its family. [[src/target/shared/runtime/mod.rs:helper_for_call]]
 
 ## Required-Helper Analysis
