@@ -152,7 +152,10 @@ impl plan::NativePlanPlatform for Platform {
                 self.libc_import("write", spec.symbol),
                 self.libc_import("tcsetattr", spec.symbol),
             ],
-            "term.sync" => vec![self.libc_import("write", spec.symbol)],
+            "term.sync" => vec![
+                self.libc_import("write", spec.symbol),
+                self.libc_import("ioctl", spec.symbol),
+            ],
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],

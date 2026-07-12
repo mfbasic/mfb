@@ -322,11 +322,14 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: spec.symbol.to_string(),
                 })
                 .collect(),
-            "term.sync" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_write".to_string(),
-                required_by: spec.symbol.to_string(),
-            }],
+            "term.sync" => ["_write", "_ioctl"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: spec.symbol.to_string(),
+                })
+                .collect(),
             "term.terminalSize" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_ioctl".to_string(),

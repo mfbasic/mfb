@@ -163,7 +163,10 @@ impl NativePlanPlatform for Platform {
             "term.off" => vec![self.libc_import("tcsetattr", spec.symbol)],
             "term.setForeground" | "term.setBackground"
             | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
-            | "term.clear" | "term.moveTo" | "term.sync" => Vec::new(),
+            | "term.clear" | "term.moveTo" => Vec::new(),
+            // `term::sync`'s present writes via the raw `write` syscall (no import),
+            // but the resize check reads the terminal size via libc ioctl.
+            "term.sync" => vec![self.libc_import("ioctl", spec.symbol)],
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],

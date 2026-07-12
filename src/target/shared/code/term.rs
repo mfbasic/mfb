@@ -270,10 +270,16 @@ pub(super) fn lower_term_helper(
             // plan-35-C: present the frame — diff the back buffer against the
             // last-presented front buffer and emit only the changed cells as one
             // batched write. A no-op while TUI mode is off (grid pointer null).
+            let request = if platform.target() == "macos-aarch64" {
+                DARWIN_TIOCGWINSZ
+            } else {
+                LINUX_TIOCGWINSZ
+            };
             term_grid::emit_grid_present(
                 symbol,
                 term_state_offset,
                 SCRATCH_END,
+                request,
                 platform,
                 platform_imports,
                 &mut instructions,
