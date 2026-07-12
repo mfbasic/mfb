@@ -76,6 +76,18 @@ no-alloc path pointing message at rodata) to always allocate a block. That is a
 change to every `FAIL`, error return, trap route, and error-producing builtin across
 all three backends.
 
+Feasibility measured (2026-07-11): **140 sites across 19 files** set `RESULT_ERR_TAG`
+(every error producer — fs/io/os/net/tls/crypto/datetime/term/thread/link/app plus
+the shared assemblers). Carrying an Error-block-base signal means each of those 140
+sites must set it (0 for the rodata-message majority, the block base for the few that
+own a block); a single missed site leaves a garbage/stale base that the trap route
+would `arena_free`, crashing error handling on that path. Functional tests + the four
+remotes cannot exercise all 140 error paths, so this change is NOT provably
+regression-free by the validation available here — a missed producer would be a
+latent crash on an untested error path. The correct execution is a dedicated effort
+that routes ALL error construction through one choke point (so the base is set in a
+single place) plus exhaustive error-path coverage, not a 140-site sweep.
+
 ## Scope
 
 All targets (shared codegen). Correctness-critical only for programs that re-raise
