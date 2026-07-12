@@ -159,7 +159,11 @@ pub(crate) const SYSARG: [&str; 6] = [
     "%sysarg0", "%sysarg1", "%sysarg2", "%sysarg3", "%sysarg4", "%sysarg5",
 ];
 
-/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
+/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`). Emitters stage
+/// the result through `RET[0]` (which realizes to the same register), so this
+/// member of the syscall token family is retained for the documented vocabulary
+/// and the defensive `%sysret` arm in [`realize_abi_token`] rather than emitted.
+#[allow(dead_code)]
 pub(crate) const SYSRET: &str = "%sysret";
 
 /// The Darwin syscall-number register — macOS/AArch64 delivers the number in
