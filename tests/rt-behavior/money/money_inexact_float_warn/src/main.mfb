@@ -1,0 +1,18 @@
+IMPORT io
+' plan-29-F §4.6: scaling Money by a BARE decimal literal warns
+' (MONEY_INEXACT_FLOAT_LITERAL, warn-only); an F/f suffix or a Float variable
+' silences it. The warning never changes the type — the program still builds and
+' runs, producing the inexact Float-scaled result.
+FUNC main() AS Integer
+  LET a AS Money = 9.99
+  LET rate AS Float = 1.08
+  LET w1 = a * 1.08       ' warns
+  LET w2 = 1.08 * a       ' warns (commutative)
+  LET w3 = a / 1.08       ' warns
+  LET ok1 = a * 1.08F     ' silent: exact Fixed scaling
+  LET ok2 = a * 1.08f     ' silent: explicit Float
+  LET ok3 = a * rate      ' silent: Float variable, not a literal
+  io::print(toString(w1))       ' 10.79 (inexact Float, rounded to 2)
+  io::print(toString(ok1))      ' 10.79 (exact Fixed at 2 places)
+  RETURN 0
+END FUNC

@@ -171,6 +171,9 @@ impl<'a> SyntaxChecker<'a> {
             } => {
                 let left_type = self.infer_expression(file, left, locals, line, ExprMode::Read);
                 let right_type = self.infer_expression(file, right, locals, line, ExprMode::Read);
+                self.warn_money_bare_float_literal(
+                    file, operator, left, right, &left_type, &right_type, line,
+                );
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
             Expression::Unary {
@@ -899,6 +902,49 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
+    /// The exactness nudge (plan-29-F §4.6): warn when a `Money` is scaled
+    /// (`*`/`/`) by a **bare, suffixless decimal literal**, which silently takes
+    /// the inexact `Float` path (a bare decimal defaults to `Float`). It is
+    /// diagnostic-only — the type is unchanged. Silenced by `1.08F` (exact Fixed
+    /// scaling) or `1.08f` (explicitly, but still inexactly, Float). A Float
+    /// *variable* never warns; a Fixed literal never warns.
+    fn warn_money_bare_float_literal(
+        &mut self,
+        file: &AstFile,
+        operator: &str,
+        left: &Expression,
+        right: &Expression,
+        left_type: &Type,
+        right_type: &Type,
+        line: usize,
+    ) {
+        let money = |t: &Type| matches!(t, Type::Money);
+        let float = |t: &Type| matches!(t, Type::Float);
+        // Both commutative orders of `*`; only `Money / literal` for `/`.
+        let culprit = match operator {
+            "*" if money(left_type) && float(right_type) && is_bare_decimal_float(right) => {
+                Some(right)
+            }
+            "*" if money(right_type) && float(left_type) && is_bare_decimal_float(left) => {
+                Some(left)
+            }
+            "/" if money(left_type) && float(right_type) && is_bare_decimal_float(right) => {
+                Some(right)
+            }
+            _ => None,
+        };
+        if culprit.is_some() {
+            self.report_warning(
+                "MONEY_INEXACT_FLOAT_LITERAL",
+                &format!(
+                    "scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional."
+                ),
+                file,
+                line,
+            );
+        }
+    }
+
     /// Type-check one of the four assertion builtins (plan-18-B). All produce
     /// `Nothing`; the argument constraints differ per builtin. Called from the
     /// `Call` arm before general builtin dispatch.
@@ -1433,6 +1479,29 @@ fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
     ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
         .iter()
         .any(|keyword| body[at..].starts_with(keyword))
+}
+
+/// Whether `expr` is a bare (suffixless) decimal literal that types as `Float`:
+/// the `Money`-scaling exactness nudge (plan-29-F §4.6) fires only on these, not
+/// on `f`/`F`-suffixed literals or Float variables. A leading unary minus is
+/// transparent (`-1.08` is still a bare literal).
+fn is_bare_decimal_float(expr: &Expression) -> bool {
+    match expr {
+        Expression::Number(text) => {
+            // A suffixed literal (`1.08f`/`1.08F`) is intrinsically typed and is
+            // never the culprit; only an unsuffixed decimal that classifies as
+            // Float qualifies.
+            !text.ends_with('f')
+                && !text.ends_with('F')
+                && !text.ends_with('m')
+                && !text.ends_with('M')
+                && matches!(numeric::classify_literal(text).1, numeric::LiteralType::Float)
+        }
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => is_bare_decimal_float(operand),
+        _ => false,
+    }
 }
 
 #[cfg(test)]

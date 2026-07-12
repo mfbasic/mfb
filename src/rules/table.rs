@@ -737,6 +737,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "Money literal has more than 5 fractional digits and is rounded",
     },
     Rule {
+        code: "2-203-0109",
+        name: "MONEY_INEXACT_FLOAT_LITERAL",
+        severity: Severity::Warn,
+        message: "scaling Money by a bare decimal literal uses inexact Float arithmetic",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

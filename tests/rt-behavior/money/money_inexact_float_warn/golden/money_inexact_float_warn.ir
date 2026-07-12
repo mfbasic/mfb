@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "money_inexact_float_warn",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 7, "mutable": false, "name": "a", "type": "Money", "value": { "kind": "const", "type": "Money", "value": "9.99" } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "rate", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.08" } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "w1", "type": "Money", "value": { "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Float", "value": "1.08" } } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "w2", "type": "Money", "value": { "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "const", "type": "Float", "value": "1.08" }, "right": { "kind": "local", "name": "a" } } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "w3", "type": "Money", "value": { "kind": "binary", "type": "Money", "op": "/", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Float", "value": "1.08" } } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "ok1", "type": "Money", "value": { "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Fixed", "value": "1.08" } } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "ok2", "type": "Money", "value": { "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Float", "value": "1.08" } } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "ok3", "type": "Money", "value": { "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "rate" } } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "w1" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ok1" }] }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
