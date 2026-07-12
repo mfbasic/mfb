@@ -436,6 +436,29 @@ impl CodeBuilder<'_> {
             arg_slots[1],
         ));
 
+        // Byte size of the message copy, passed as arg 3 so a failed send can reclaim
+        // it via the queue's pending-free list (bug-147.5b). Computed ONLY for a flat
+        // block type whose exact copy size `emit_inlined_block_size_from_ptr_slot`
+        // returns (the `copy_flat_block` path — String / record / data-union / Result
+        // / flat collection, all copied tight so the block size equals the alloc);
+        // otherwise 0 = "not reclaimable" (a scalar has no copy block; a resource or
+        // resource-embedding value copies through a path we do not size here and keeps
+        // the pre-existing bounded leak rather than risk a wrong-size free).
+        let msg_type = arg_values[1].type_.clone();
+        let size_slot = self.allocate_stack_object("runtime_thread_send_copy_size", 8);
+        let size_computable = self.type_is_flat(&msg_type)
+            && (msg_type == "String"
+                || self.type_model.record_fields.contains_key(&msg_type)
+                || self.union_is_data(&msg_type)
+                || msg_type.starts_with("Result OF ")
+                || is_collection_type(&msg_type));
+        if size_computable {
+            self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
+        } else {
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), size_slot));
+        }
+        self.reset_temporary_registers();
+
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
             self.emit(abi::move_register(
@@ -443,6 +466,9 @@ impl CodeBuilder<'_> {
                 &scratch9,
             ));
         }
+        // Arg 3: the message-copy size (0 when not reclaimable).
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
+        self.emit(abi::move_register(&abi::argument_register(3)?, &scratch9));
         self.emit_symbol_call(symbol);
 
         // An inline `TRAP` traps the raw send `Result`. On failure the sent value

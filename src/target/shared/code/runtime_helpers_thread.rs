@@ -748,6 +748,9 @@ pub(super) fn thread_queue_write_helper(
     const TIMEOUT_OFFSET: usize = 24;
     const QUEUE_OFFSET: usize = 32;
     const TIMESPEC_OFFSET: usize = 40;
+    // Byte size of the message copy (arg 3), so a failed send can record it on the
+    // pending-free list for the destination to reclaim (bug-147.5b).
+    const DATA_SIZE_OFFSET: usize = 48;
 
     let invalid = format!("{symbol}_invalid");
     let closed = format!("{symbol}_closed");
@@ -765,6 +768,7 @@ pub(super) fn thread_queue_write_helper(
         abi::store_u64(abi::ARG[0], abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::ARG[3], abi::stack_pointer(), DATA_SIZE_OFFSET),
         abi::compare_immediate(abi::ARG[2], "0"),
         abi::branch_lt(&invalid),
     ]);
@@ -924,9 +928,33 @@ pub(super) fn thread_queue_write_helper(
         &mut instructions,
         &mut relocations,
     );
+    let skip_orphan_push = format!("{symbol}_skip_orphan_push");
     instructions.extend([
         abi::branch(&done),
         abi::label(&unlock),
+        // bug-147.5b: a failed send (tag != Ok) leaves the message copy orphaned in
+        // the DESTINATION arena. Still holding the queue mutex, push it onto the
+        // queue's pending-free list — reusing the dead block's own first two words as
+        // `{next, size}` — so the destination reclaims it (in its own arena) on its
+        // next read. `DATA_OFFSET` still holds the copy pointer here (it is reused as
+        // a result-register spill slot only below). The result registers are live, so
+        // scratch stays in %v8-%v11.
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_eq(&skip_orphan_push),
+        // A size of 0 means the caller did not hand us a reclaimable block (a scalar
+        // message with no copy, or a type whose exact copy size we do not compute) —
+        // skip the push and let it leak (bounded, reclaimed at worker teardown)
+        // rather than risk a wrong-size `arena_free`.
+        abi::load_u64("%v10", abi::stack_pointer(), DATA_SIZE_OFFSET),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&skip_orphan_push),
+        abi::load_u64("%v8", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), DATA_OFFSET),
+        abi::load_u64("%v11", "%v8", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::store_u64("%v11", "%v9", 0),
+        abi::store_u64("%v10", "%v9", 8),
+        abi::store_u64("%v9", "%v8", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::label(&skip_orphan_push),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(
@@ -1083,6 +1111,31 @@ pub(super) fn thread_queue_read_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // bug-147.5b: drain the queue's pending-free list — the message copies a failed
+    // send orphaned in THIS thread's arena. We hold the queue mutex and run in the
+    // owning thread's arena (x19), so `arena_free` here reclaims each copy on the
+    // owning thread with no cross-thread race. Each node stores `{next, size}` in its
+    // own first two words; the queue pointer is reloaded from its frame slot every
+    // iteration because `arena_free` clobbers caller-saved registers.
+    let drain_loop = format!("{symbol}_pending_free_drain");
+    let drain_done = format!("{symbol}_pending_free_done");
+    instructions.extend([
+        abi::label(&drain_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("%v10", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&drain_done),
+        abi::load_u64("%v11", "%v10", 0),
+        abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
+        abi::load_u64(abi::ARG[1], "%v10", 8),
+        abi::move_register(abi::ARG[0], "%v10"),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    instructions.extend([
+        abi::branch(&drain_loop),
+        abi::label(&drain_done),
+    ]);
     instructions.extend([
         abi::label(&wait_loop),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),

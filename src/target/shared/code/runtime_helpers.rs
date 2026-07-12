@@ -37,7 +37,17 @@ pub(super) const THREAD_QUEUE_HEAD_OFFSET: usize = 208;
 pub(super) const THREAD_QUEUE_TAIL_OFFSET: usize = 216;
 pub(super) const THREAD_QUEUE_CLOSED_OFFSET: usize = 224;
 pub(super) const THREAD_QUEUE_VALUES_OFFSET: usize = 232;
-pub(super) const THREAD_QUEUE_BLOCK_SIZE: usize = 240;
+/// Head of a singly-linked list of orphaned message copies to reclaim (bug-147.5b).
+/// A `thread.send` deep-copies the message into the DESTINATION arena before the
+/// enqueue commits; a failed send (queue full / closed / cancelled) leaves that
+/// copy orphaned there, and a sender-side free would be a cross-thread arena race.
+/// Instead the send-failure path pushes the copy onto this list (under the queue
+/// mutex, using the dead block's own first two words as `{next, size}`), and the
+/// DESTINATION thread drains + frees it in its OWN arena on its next queue read
+/// (also under the mutex) — every free on the owning thread, every list op
+/// serialized by the mutex both paths already hold.
+pub(super) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 240;
+pub(super) const THREAD_QUEUE_BLOCK_SIZE: usize = 248;
 
 pub(super) fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> String {
     if platform.target() == "macos-aarch64" {
@@ -138,6 +148,8 @@ pub(super) fn emit_thread_queue_alloc(
         abi::label(&alloc_values_ok),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
         abi::store_u64(abi::RET[1], "%v9", THREAD_QUEUE_VALUES_OFFSET),
+        // Empty pending-free list (bug-147.5b).
+        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
         abi::move_register(abi::ARG[0], "%v9"),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
