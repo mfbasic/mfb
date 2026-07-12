@@ -782,7 +782,31 @@ impl CodeBuilder<'_> {
                         if let Some(trap) = &mut self.trap {
                             trap.in_trap_body = true;
                         }
-                        self.lower_ops(body)?;
+                        // Free the caught `Error` block on every exit from the
+                        // handler (bug-151): the routed error is a fresh arena block
+                        // stored into the trap slot, and it was never registered for
+                        // scope-drop, so a `TRAP(e)` taken in a loop leaked one block
+                        // per catch. Register `e` as the FIRST owned value of the
+                        // handler body's own cleanup scope, mirroring `lower_ops`, so
+                        // the body's scope-drop frees it exactly once on RETURN / FAIL
+                        // / fall-through and NOT on the success path that branches over
+                        // the handler (where the slot is never written). Escapes are
+                        // already safe: `RETURN e` elides via `plan_returned_move`, and
+                        // `FAIL e` deep-copies the error in `store_pending_error_from_value`
+                        // before the cleanup frees the original.
+                        let handler_scope_start = self.active_cleanups.len();
+                        self.cleanup_scope_starts.push(handler_scope_start);
+                        self.active_cleanups.push(ActiveCleanup::OwnedValue(
+                            OwnedValueCleanup {
+                                type_: "Error".to_string(),
+                                stack_offset: trap_offset,
+                            },
+                        ));
+                        self.owned_value_slots.push(trap_offset);
+                        let handler_result =
+                            self.lower_ops_inner(body, handler_scope_start);
+                        self.cleanup_scope_starts.pop();
+                        handler_result?;
                         if let Some(trap) = &mut self.trap {
                             trap.in_trap_body = false;
                         }

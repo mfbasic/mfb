@@ -1,0 +1,70 @@
+# bug-152 — `FAIL e` re-raise leaks the deep-copied Error transient
+
+Discovered 2026-07-11 while fixing bug-151 (the general caught-`Error` leak). Once
+bug-151 registers the caught `e` for scope-drop, re-raising it with `FAIL e` from a
+handler leaks a *different* block — the deep copy made on the way out — so a
+re-raise-in-a-loop still grows RSS ~1 KB/iteration.
+
+## Symptom
+
+A handler that re-raises the caught error:
+
+```
+FUNC reraise(n AS Integer) AS Integer
+  LET v AS Integer = inner(n)   ' inner FAILs
+  RETURN v
+  TRAP(e)
+    FAIL e                       ' re-raise
+  END TRAP
+END FUNC
+```
+
+called in a loop leaks linearly:
+
+| N (re-raises) | max RSS |
+|---------------|---------|
+| 10,000        | 10.9 MB |
+| 20,000        | 20.7 MB |
+| 40,000        | 40.4 MB |
+
+Output stays correct (the propagated error's `code`/`message` are intact) — this is
+a pure leak, not a miscompile or double-free.
+
+## Root cause
+
+`emit_error_value_exit` runs the scope-drop cleanups before propagating. When the
+handler has live owned cleanups (after bug-151, the caught `e` is always one),
+`store_pending_error_from_value` → `lower_value_owned(error)` **deep-copies** the
+`FAIL`ed error into a fresh standalone block B so the subsequent frees cannot scrub
+the message/source pointers it propagates (plan-02 Phase 8). The original `e` (block
+A) is then correctly freed by the cleanup, and B's *fields* (code + block-relative
+message/source pointers) travel to the caller in registers — but block B itself is
+never freed. The caller's trap route rebuilds its own `e` block from those
+registers, so B is orphaned the moment the propagation copies out of it.
+
+Before bug-151 the handler usually had *no* live cleanups, so `FAIL e` took the
+`emit_direct_error_route_to_trap` path (no deep copy) and instead leaked block A —
+same net one-block-per-`FAIL e` leak, just a different block. So this is not a
+regression from bug-151; it is a pre-existing leak in the deep-copy propagation path
+that bug-151 makes the common trigger for.
+
+## Fix (needs design)
+
+The deep-copy transient B is a caller-relative propagation buffer whose lifetime
+ends as soon as the receiving trap route (or the top-level exit handler) has copied
+its fields out. Freeing it requires either:
+- propagating the error as an *owned block pointer* the receiver frees after
+  rebuilding (a Result-ABI change — the error currently travels as three loose
+  registers: code, message-ptr, source-ptr), or
+- having the deep copy target a caller-owned slot the receiver adopts, rather than a
+  fresh arena block orphaned at the send site.
+
+Both touch the error-Result ABI and the trap-route rebuild, so this is an
+error-propagation redesign, not a spot free. Same block-lifetime family as bug-151
+and the bug-147.5(b) thread-send copied-message leak.
+
+## Scope
+
+All targets (shared codegen). Correctness-critical only for programs that re-raise
+(`FAIL e`) in a loop; the common catch-and-handle path is fixed by bug-151. No
+double-free, no miscompile — pure memory growth.

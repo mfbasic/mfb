@@ -1,0 +1,86 @@
+{
+  "project": "bug151_caught_error_freed",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "boom",
+      "line": 11,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "600" }, "right": { "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "3" } } }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "boom " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "3" } }] } }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "handle",
+      "line": 16,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "boom", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "v" }, "line": 18 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 19,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "String", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" }, "line": 22 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 23,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 24 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 31 },
+      { "kind": "binding", "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 32 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "20000" } },
+        "line": 33,
+        "body": [
+        { "kind": "assignment", "name": "sum", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sum" }, "right": { "kind": "call", "callee": "handle", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "line": 34 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 35 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sum" }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "one=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "handle", "arguments": [{ "kind": "number", "value": "1" }] }] } }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

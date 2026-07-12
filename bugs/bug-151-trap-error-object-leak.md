@@ -34,28 +34,44 @@ The trap error binding `e` is allocated a function-level stack slot in
 the trap slot; nothing frees that block when the handler exits. Every catch builds
 a new block, so every catch leaks one.
 
-## Fix (not yet applied — double-free-prone, needs its own validated change)
+## Fix — APPLIED (2026-07-11)
 
-Register `e` as an `ActiveCleanup::OwnedValue` at the trap slot when the handler
-body begins, so every exit from the handler frees it exactly once. This is the same
-double-free-prone class as the "TRAP cleanup double-free" history — the caught error
-can *escape* the handler and must then NOT be freed:
+Register `e` as the FIRST `ActiveCleanup::OwnedValue` of the handler body's own
+cleanup scope (mirroring `lower_ops`: push `cleanup_scope_starts`, register `e`,
+then `lower_ops_inner`). The body's existing scope-drop then frees `e` exactly once
+on every handler exit — RETURN, FAIL, or fall-through — and NEVER on the success
+path that branches over the handler (where the slot is never written; the free is
+null-guarded regardless). The escape cases are handled by existing machinery:
 
 - `RETURN e` (handler in an `Error`-returning FUNC) — already covered by the
   existing `plan_returned_move` move-elision (it drops the owned-value cleanup for a
   returned owned local).
-- `FAIL e` (re-raise) — routes through `emit_error_value_exit`, which for the
-  in-trap-body case frees all `active_cleanups` (including `e`) and *then* propagates
-  `e`'s registers → freeing the very block being propagated (use-after-free). Needs
-  a `plan_returned_move`-equivalent for the `Fail` path: when the failed value is the
-  trap local, drop its cleanup for that exit.
+- `FAIL e` (re-raise) — safe without new move logic: `emit_error_value_exit` calls
+  `store_pending_error_from_value` → `lower_value_owned(e)` FIRST, which deep-copies
+  the error into a standalone block before the scope-drop frees the original `e`, so
+  the propagated copy is not use-after-freed. (The deep copy itself is then orphaned —
+  a separate pre-existing leak, filed as bug-152 — but there is no double-free.)
 - `FAIL <other>` / implicit propagation of a *different* error — `e` is freed, the
-  other error propagated; safe as long as the other error is a distinct block (it is;
-  building a new error from `e`'s fields deep-copies them).
+  other error propagated; safe (the other error is a distinct block; building a new
+  error from `e`'s fields deep-copies them).
 
-Validation before this can land: a trap-in-a-loop RSS-flat test, plus double-free
-tests for `FAIL e`, `RETURN e`, nested `TRAP`, `e`-field access, and `e` captured
-into an escaping value — on all four remotes.
+Validated (host + all four remotes: Kali aarch64, Alpine x86_64 musl, Ubuntu x86_64
+glibc, Alpine riscv64 musl):
+- bare `FAIL … TRAP(e){RETURN}` in a 200 K loop — RSS flat (~20 MB at 100 K/200 K/
+  400 K); was ~118 MB and growing.
+- `RETURN e` from an `Error`-returning FUNC — correct error returned, no double-free.
+- `FAIL e` re-raise through two levels — correct propagation, no double-free/UAF.
+- `e.code`/`e.message` read then a derived value returned — fields intact.
+- 40+ existing trap tests crash-free; the flagged error/syntax tests still match
+  their committed goldens; no golden churn (no trap test carries codegen goldens).
+
+Regression: `tests/rt-behavior/trap/bug151_caught_error_freed`.
+
+## Residual
+
+The `FAIL e` re-raise path still leaks the deep-copied propagation transient
+(bug-152) — a pre-existing error-Result-ABI issue, not a regression here. The common
+catch-and-handle path (the vast majority of trap usage) is fully fixed.
 
 ## Scope
 

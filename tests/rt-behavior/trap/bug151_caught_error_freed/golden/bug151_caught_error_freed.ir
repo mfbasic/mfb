@@ -1,0 +1,88 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug151_caught_error_freed",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "boom",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 11, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "fail", "line": 12, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "600" }, "right": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "boom " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }] } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "12" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
+    { "op": "return", "line": 13, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "handle",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 16, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "n" }] } },
+    { "op": "return", "line": 18, "value": { "kind": "local", "name": "v" } },
+    {
+      "op": "trap",
+      "line": 19,
+      "name": "e",
+      "body": [
+      { "op": "bind", "line": 21, "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "bind", "line": 22, "mutable": false, "name": "m", "type": "String", "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "message" } },
+      {
+        "op": "if",
+        "line": 23,
+        "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "m" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+        "then": [
+        { "op": "return", "line": 24, "value": { "kind": "local", "name": "c" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 30,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 31, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 32, "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 33,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "20000" } },
+      "body": [
+      { "op": "assign", "line": 34, "name": "sum", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "sum" }, "right": { "kind": "call", "type": "Integer", "target": "handle", "args": [{ "kind": "local", "name": "i" }] } } },
+      { "op": "assign", "line": 35, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "sum" }] } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "one=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "handle", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } }] } },
+    { "op": "return", "line": 39, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
