@@ -19,6 +19,7 @@
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libSystem", "symbol": "_fsync" },
   { "library": "libSystem", "symbol": "___error" },
+  { "library": "libSystem", "symbol": "_tcsetattr" },
   { "library": "libSystem", "symbol": "_read" },
   { "library": "libSystem", "symbol": "_isatty" },
   { "library": "libSystem", "symbol": "_tcgetattr" },

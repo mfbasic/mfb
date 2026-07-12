@@ -697,29 +697,40 @@ fn termios_storage_size(platform: &dyn CodegenPlatform) -> usize {
     platform.termios_size().next_multiple_of(8)
 }
 
-struct TerminalModeSlots {
-    active: usize,
-    saved_tag: usize,
-    saved_value: usize,
-    saved_message: usize,
-    original: usize,
-    modified: usize,
+pub(super) struct TerminalModeSlots {
+    pub(super) active: usize,
+    pub(super) saved_tag: usize,
+    pub(super) saved_value: usize,
+    pub(super) saved_message: usize,
+    pub(super) original: usize,
+    pub(super) modified: usize,
 }
 
-fn emit_configure_stdin_terminal(
+/// Configure stdin's line discipline for a single-key read: `tcgetattr` the
+/// current `termios` into `slots.original`, copy it to `slots.modified` with
+/// `ECHO`/`ICANON` optionally cleared and `VMIN=1`/`VTIME=0` set, and
+/// `tcsetattr` the modified copy. `slots.active` records whether the change was
+/// applied (so the paired restore knows to undo it). All `slots` offsets are
+/// relative to `base_register` — `abi::stack_pointer()` for the transient
+/// per-read toggle in the read helpers, or `ARENA_STATE_REGISTER` for
+/// `term::on`'s persistent console raw mode (bug-149), which parks the buffers
+/// in the term-state region rather than a read-scoped stack frame.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_configure_stdin_terminal(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     slots: &TerminalModeSlots,
+    base_register: &str,
     disable_echo: bool,
     disable_canonical: bool,
     error_label: &str,
 ) -> Result<(), String> {
     let skip = format!("{symbol}_terminal_mode_skip");
     instructions.extend([
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.active),
+        abi::store_u64(abi::ZERO, base_register, slots.active),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
     ]);
     platform.emit_libc_call(
@@ -733,7 +744,7 @@ fn emit_configure_stdin_terminal(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&skip),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), slots.original),
+        abi::add_immediate(abi::ARG[1], base_register, slots.original),
     ]);
     platform.emit_libc_call(
         "tcgetattr",
@@ -746,13 +757,13 @@ fn emit_configure_stdin_terminal(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(error_label),
         abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", abi::stack_pointer(), slots.active),
+        abi::store_u64("%v9", base_register, slots.active),
     ]);
 
     for offset in (0..termios_storage_size(platform)).step_by(8) {
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), slots.original + offset),
-            abi::store_u64("%v9", abi::stack_pointer(), slots.modified + offset),
+            abi::load_u64("%v9", base_register, slots.original + offset),
+            abi::store_u64("%v9", base_register, slots.modified + offset),
         ]);
     }
 
@@ -766,9 +777,9 @@ fn emit_configure_stdin_terminal(
     if clear_flags != 0 {
         let lflag_offset = slots.modified + platform.termios_lflag_offset();
         if platform.termios_lflag_width() == 4 {
-            instructions.push(abi::load_u32("%v9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::load_u32("%v9", base_register, lflag_offset));
         } else {
-            instructions.push(abi::load_u64("%v9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::load_u64("%v9", base_register, lflag_offset));
         }
         instructions.extend([
             abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
@@ -776,9 +787,9 @@ fn emit_configure_stdin_terminal(
             abi::and_registers("%v9", "%v9", "%v10"),
         ]);
         if platform.termios_lflag_width() == 4 {
-            instructions.push(abi::store_u32("%v9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::store_u32("%v9", base_register, lflag_offset));
         } else {
-            instructions.push(abi::store_u64("%v9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::store_u64("%v9", base_register, lflag_offset));
         }
     }
 
@@ -788,12 +799,12 @@ fn emit_configure_stdin_terminal(
             abi::move_immediate("%v9", "Integer", "1"),
             abi::store_u8(
                 "%v9",
-                abi::stack_pointer(),
+                base_register,
                 cc_offset + platform.termios_vmin_index(),
             ),
             abi::store_u8(
                 abi::ZERO,
-                abi::stack_pointer(),
+                base_register,
                 cc_offset + platform.termios_vtime_index(),
             ),
         ]);
@@ -802,7 +813,7 @@ fn emit_configure_stdin_terminal(
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), slots.modified),
+        abi::add_immediate(abi::ARG[2], base_register, slots.modified),
     ]);
     platform.emit_libc_call(
         "tcsetattr",
@@ -877,6 +888,73 @@ fn emit_restore_stdin_terminal(
     ]);
     push_error_message_address(symbol, ERR_INPUT_SYMBOL, instructions, relocations);
     instructions.push(abi::label(&format!("{symbol}_terminal_mode_restore_done")));
+    Ok(())
+}
+
+/// Emit a guarded `tcsetattr` that swaps stdin's line discipline to one of
+/// `term::on`'s persistent save buffers while TUI single-key (raw) mode is
+/// active (bug-149). `line_mode = true` selects the saved cooked buffer (a line
+/// read waits for Return and echoes as usual); `line_mode = false` re-applies
+/// the raw buffer after the read. A no-op when the raw-active flag is 0 (stdin
+/// was never put into raw mode — not a tty, or no `term::on`), so a program that
+/// never enters TUI mode keeps the exact pre-bug-149 behavior. The `termios`
+/// buffers live in the term-state region (addressed off `ARENA_STATE_REGISTER`),
+/// so nothing is read from a read-scoped stack frame. When `preserve_result` is
+/// set the `Result` registers are parked across the `tcsetattr` call (needed for
+/// the post-read re-apply, which runs after the read result is already staged).
+fn emit_console_raw_line_mode(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    term_state_offset: usize,
+    line_mode: bool,
+    preserve_result: bool,
+) -> Result<(), String> {
+    let tag = if line_mode { "line" } else { "raw" };
+    let skip = format!("{symbol}_console_{tag}_mode_skip");
+    let buffer_offset = if line_mode {
+        term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET
+    } else {
+        term_state_offset + TERM_STATE_RAW_TERMIOS_OFFSET
+    };
+    instructions.extend([
+        abi::load_u64(
+            "%v9",
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+        ),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+    ]);
+    if preserve_result {
+        instructions.extend([
+            abi::move_register("%v20", RESULT_TAG_REGISTER),
+            abi::move_register("%v21", RESULT_VALUE_REGISTER),
+            abi::move_register("%v22", RESULT_ERROR_MESSAGE_REGISTER),
+        ]);
+    }
+    instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], ARENA_STATE_REGISTER, buffer_offset),
+    ]);
+    platform.emit_libc_call(
+        "tcsetattr",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    if preserve_result {
+        instructions.extend([
+            abi::move_register(RESULT_TAG_REGISTER, "%v20"),
+            abi::move_register(RESULT_VALUE_REGISTER, "%v21"),
+            abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, "%v22"),
+        ]);
+    }
+    instructions.push(abi::label(&skip));
     Ok(())
 }
 
@@ -977,6 +1055,7 @@ pub(super) fn lower_io_read_byte_helper(
         &mut instructions,
         &mut relocations,
         &terminal_slots,
+        abi::stack_pointer(),
         true,
         true,
         &input_error,
@@ -1156,6 +1235,7 @@ pub(super) fn lower_io_read_char_helper(
         &mut instructions,
         &mut relocations,
         &terminal_slots,
+        abi::stack_pointer(),
         true,
         true,
         &input_error,
@@ -1453,6 +1533,11 @@ pub(super) fn lower_io_read_line_helper(
     platform: &dyn CodegenPlatform,
     with_prompt: bool,
     app_mode: bool,
+    // `Some(term_state_offset)` for a console build that also uses `term::`
+    // (bug-149): `io::input`/`io::readLine` bracket their line read with a
+    // cooked-mode restore while TUI single-key mode is active. `None` in app
+    // mode (no tty) or when the program never uses `term::`.
+    console_term_state: Option<usize>,
 ) -> Result<
     (
         CodeFrame,
@@ -1563,6 +1648,23 @@ pub(super) fn lower_io_read_line_helper(
         )?;
         instructions.push(abi::label(&prompt_flush));
     }
+    // While console TUI single-key mode is active (`term::on`), stdin is in raw
+    // mode; restore the saved cooked line discipline so this read waits for
+    // Return and echoes (bug-149). A no-op otherwise. Must precede the read
+    // helper's own `emit_configure_stdin_terminal` so its `tcgetattr` snapshots
+    // the cooked flags.
+    if let Some(term_state_offset) = console_term_state {
+        emit_console_raw_line_mode(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            term_state_offset,
+            true,
+            false,
+        )?;
+    }
     if !with_prompt {
         emit_configure_stdin_terminal(
             symbol,
@@ -1571,6 +1673,7 @@ pub(super) fn lower_io_read_line_helper(
             &mut instructions,
             &mut relocations,
             &terminal_slots,
+            abi::stack_pointer(),
             true,
             false,
             &input_error,
@@ -1997,6 +2100,22 @@ pub(super) fn lower_io_read_line_helper(
             &mut instructions,
             &mut relocations,
             &terminal_slots,
+        )?;
+    }
+    // Re-apply raw single-key mode after the line read so a `pollInput` +
+    // `readChar` TUI loop resumes seeing bare keypresses (bug-149). Guarded by
+    // the raw-active flag and preserves the staged `Result` registers across the
+    // `tcsetattr` call. A no-op outside console TUI mode.
+    if let Some(term_state_offset) = console_term_state {
+        emit_console_raw_line_mode(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            term_state_offset,
+            false,
+            true,
         )?;
     }
     instructions.push(abi::return_());

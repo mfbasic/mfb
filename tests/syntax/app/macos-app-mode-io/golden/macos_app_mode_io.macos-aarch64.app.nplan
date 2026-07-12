@@ -20,6 +20,7 @@
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_input" },
   { "library": "libSystem", "symbol": "_fsync", "requiredBy": "_mfb_rt_io_io_input" },
   { "library": "libSystem", "symbol": "___error", "requiredBy": "_mfb_rt_io_io_input" },
+  { "library": "libSystem", "symbol": "_tcsetattr", "requiredBy": "_mfb_rt_io_io_input" },
   { "library": "libSystem", "symbol": "_read", "requiredBy": "_mfb_rt_io_io_readLine" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_readLine" },
   { "library": "libSystem", "symbol": "_tcgetattr", "requiredBy": "_mfb_rt_io_io_readLine" },

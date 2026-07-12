@@ -81,3 +81,13 @@ Apply the same mode change to both keyDown IMPs — the transcript view
 (`_mfb_macapp_key_down`) and the TUI TermView (`_mfb_macapp_term_keyDown`) — and
 to the `linux_gtk` app backend, whose keyDown/key-press path has the same
 line-vs-raw structure.
+
+---
+## Resolution (2026-07-11) — FIXED
+`term::on()` (app backend) now sets `INPUT_MODE_KEY = RAW_NO_ECHO (2)` the moment
+TUI mode is entered (macOS: both keyDown IMPs read this; GTK: the key-press
+handler reads `ST_INPUT_MODE`), so the first keypress is delivered immediately —
+no initial Enter. `term::off()` sets LINE_ECHO. `io::input`/`io::readLine` keep
+LINE_ECHO for their read. App-mode not headlessly remote-verifiable; builds/links
+and the keyDown mode dispatch is conclusive. Residual follow-up: full console-style
+"re-enter raw after io::input mid-TUI" symmetry in app mode (out of scope here).

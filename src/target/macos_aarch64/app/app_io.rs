@@ -534,6 +534,15 @@ pub(crate) fn emit_app_term_on_helper(
         "1",
     );
 
+    // bug-150: entering TUI mode flips the window into immediate single-key
+    // delivery once, from the moment `term::on` runs — set INPUT_MODE_KEY =
+    // RAW_NO_ECHO so both keyDown IMPs (transcript `_mfb_macapp_key_down` and TUI
+    // `_mfb_macapp_term_keyDown`) route each keystroke straight to the input pipe
+    // instead of buffering until Return. The initial mode is nil (0) at startup;
+    // this is the one-time flip. `io::input`/`io::readLine` still switch to
+    // LINE_ECHO for their own read (emit_app_io_input_helper).
+    emit_set_input_mode_instructions(&mut asm, INPUT_MODE_RAW_NO_ECHO);
+
     // app = [NSApplication sharedApplication]
     asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
@@ -679,6 +688,10 @@ pub(crate) fn emit_app_term_off_helper(
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
     asm.push(abi::label("term_off_inactive"));
+    // bug-150: leaving TUI mode returns the window to line input so subsequent
+    // reads commit on Return again (symmetric with the console `term::off`
+    // cooked-mode restore).
+    emit_set_input_mode_instructions(&mut asm, INPUT_MODE_LINE_ECHO);
     store_term_state(
         &mut asm,
         term_state_offset,

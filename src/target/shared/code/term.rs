@@ -440,6 +440,47 @@ fn emit_on(
         instructions,
         relocations,
     )?;
+    // bug-149: entering interactive TUI mode also puts the console tty into
+    // single-key (cbreak) mode once — `~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0` — so a
+    // `pollInput` + `readChar` loop registers bare keypresses without waiting for
+    // Return. The saved cooked discipline is parked in the term-state region (off
+    // `ARENA_STATE_REGISTER`), from which `term::off` and `io::input`/
+    // `io::readLine` restore it. When stdin is not a tty (piped input,
+    // acceptance harness) `emit_configure_stdin_terminal` leaves the raw-active
+    // flag at 0 and this is inert. A `tcgetattr`/`tcsetattr` failure branches to
+    // `raw_failed`, which clears the flag — a terminal-setup failure must not make
+    // the reads think raw mode is live (term setters are best-effort, §4.2.1).
+    let raw_failed = format!("{symbol}_raw_failed");
+    let raw_done = format!("{symbol}_raw_done");
+    let raw_slots = TerminalModeSlots {
+        active: term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+        saved_tag: term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+        saved_value: term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+        saved_message: term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+        original: term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
+        modified: term_state_offset + TERM_STATE_RAW_TERMIOS_OFFSET,
+    };
+    emit_configure_stdin_terminal(
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        &raw_slots,
+        ARENA_STATE_REGISTER,
+        true,
+        true,
+        &raw_failed,
+    )?;
+    instructions.push(abi::branch(&raw_done));
+    instructions.push(abi::label(&raw_failed));
+    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
+    instructions.push(abi::store_u64(
+        "%v9",
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+    ));
+    instructions.push(abi::label(&raw_done));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -460,6 +501,32 @@ fn emit_off(
 ) -> Result<(), String> {
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // bug-149: leaving TUI mode restores the saved cooked line discipline that
+    // `term::on` captured, so the terminal returns to canonical/echoing input.
+    // A no-op when the raw-active flag is 0 (stdin was never put into raw mode).
+    let raw_restore_skip = format!("{symbol}_raw_restore_skip");
+    instructions.push(abi::load_u64(
+        "%v9",
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+    ));
+    instructions.push(abi::compare_immediate("%v9", "0"));
+    instructions.push(abi::branch_eq(&raw_restore_skip));
+    instructions.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    instructions.push(abi::add_immediate(
+        abi::ARG[2],
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
+    ));
+    platform.emit_libc_call("tcsetattr", symbol, platform_imports, instructions, relocations)?;
+    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
+    instructions.push(abi::store_u64(
+        "%v9",
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+    ));
+    instructions.push(abi::label(&raw_restore_skip));
     emit_write_const(
         symbol,
         ESC_OFF_SYMBOL,

@@ -124,6 +124,10 @@ impl NativePlanPlatform for Platform {
                     // libc call, so it is not imported here (bug-79.4).
                     imports.push(self.libc_import("fsync", spec.symbol));
                     imports.push(self.libc_import("__errno_location", spec.symbol));
+                    // bug-149: with `term::` active, `io::input` restores cooked
+                    // mode for its read then re-enters raw via `tcsetattr` (a libc
+                    // call on x86, unlike `write`).
+                    imports.push(self.libc_import("tcsetattr", spec.symbol));
                 } else {
                     imports.push(self.libc_import("isatty", spec.symbol));
                     imports.push(self.libc_import("tcgetattr", spec.symbol));
@@ -142,10 +146,20 @@ impl NativePlanPlatform for Platform {
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![self.libc_import("isatty", spec.symbol)]
             }
-            // `term::` console helpers that emit ANSI escape sequences write to
+            // `term::on` drives stdin into single-key (cbreak) mode and
+            // `term::off` restores the saved cooked discipline (bug-149); the
+            // `isatty`/`tcgetattr`/`tcsetattr` terminal-control calls are libc
+            // calls even on x86 (only `write` is a raw syscall, bug-79.4).
+            "term.on" => vec![
+                self.libc_import("isatty", spec.symbol),
+                self.libc_import("tcgetattr", spec.symbol),
+                self.libc_import("tcsetattr", spec.symbol),
+            ],
+            "term.off" => vec![self.libc_import("tcsetattr", spec.symbol)],
+            // The remaining `term::` console helpers emit ANSI escape sequences to
             // stdout (plan-01-term.md §6.1) via the raw `write` syscall, so they
             // import nothing (bug-79.4).
-            "term.on" | "term.off" | "term.setForeground" | "term.setBackground"
+            "term.setForeground" | "term.setBackground"
             | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
             | "term.clear" | "term.moveTo" => Vec::new(),
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],

@@ -216,6 +216,13 @@ fn emit_app_term_on(
     ] {
         asm.push(abi::store_u64("x10", ARENA_REG, tso + field));
     }
+    // bug-150: entering TUI mode flips the transcript into immediate single-key
+    // delivery (MODE_RAW) once, so the key-press handler routes each keystroke
+    // straight to the input pipe from the moment `term::on` runs instead of
+    // buffering until Return. `io::input`/`io::readLine` still switch to
+    // MODE_LINE_ECHO for their own read (emit_app_io_input_helper).
+    asm.push(abi::move_immediate("x10", "Integer", MODE_RAW));
+    asm.store_state("x10", ST_INPUT_MODE);
     asm.local_address("x0", TERM_SHOW_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");
@@ -246,6 +253,11 @@ fn emit_app_term_off(
         ARENA_REG,
         tso + code::TERM_STATE_ACTIVE_OFFSET,
     ));
+    // bug-150: leaving TUI mode returns the transcript to line input so
+    // subsequent reads commit on Return again (symmetric with the console
+    // `term::off` cooked-mode restore).
+    asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
+    asm.store_state("x10", ST_INPUT_MODE);
     asm.local_address("x0", TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");

@@ -135,17 +135,36 @@ pub(crate) const CLOSURE_OFFSET_ENV: usize = 8;
 pub(crate) const ENTRY_STACK_SIZE: usize = ENTRY_SEED_SCRATCH_OFFSET + 8;
 pub(crate) const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
 /// `term::` TUI-mode state slots reserved in the program-entry frame just past
-/// the program globals and `LINK` slots (plan-01-term.md §6.2). Eight `u64`
-/// slots: active, packed foreground, packed background, bold, underline,
-/// cursor-visible, and two reserved for the app backend. Zero-initialized by the
-/// entry's global-slot clear, which is the inert (TUI-off) default.
-pub(crate) const TERM_STATE_SLOTS: usize = 8;
+/// the program globals and `LINK` slots (plan-01-term.md §6.2). The first eight
+/// `u64` slots hold: active, packed foreground, packed background, bold,
+/// underline, cursor-visible, and two reserved for the app backend. The
+/// remaining slots (bug-149) hold the console single-key-mode state: a flag that
+/// records whether `term::on` put the console tty into raw/cbreak mode, plus two
+/// persistent `termios` save buffers (the saved cooked line-discipline restored
+/// by `term::off` and by `io::input`/`io::readLine` for their own read, and the
+/// raw discipline re-applied afterward). Zero-initialized by the entry's
+/// global-slot clear, which is the inert (TUI-off, raw-inactive) default.
 pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
 pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;
 pub(crate) const TERM_STATE_BG_OFFSET: usize = 16;
 pub(crate) const TERM_STATE_BOLD_OFFSET: usize = 24;
 pub(crate) const TERM_STATE_UNDERLINE_OFFSET: usize = 32;
 pub(crate) const TERM_STATE_CURSOR_VISIBLE_OFFSET: usize = 40;
+/// Console single-key (raw/cbreak) mode: set to 1 by `term::on` once it has put
+/// stdin into `~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0` (bug-149); 0 while the tty is
+/// in its saved line discipline (never a tty, or `term::off` already restored
+/// it). `io::input`/`io::readLine` consult it to decide whether to bracket their
+/// read with a cooked-mode restore. App backends do not use it.
+pub(crate) const TERM_STATE_RAW_ACTIVE_OFFSET: usize = 64;
+/// Persistent save buffer for the tty's cooked/line `termios` (captured by
+/// `term::on`, restored by `term::off` and temporarily by `io::input`/
+/// `io::readLine`). Sized for the largest supported `termios` (macOS = 72 bytes).
+pub(crate) const TERM_STATE_COOKED_TERMIOS_OFFSET: usize = 72;
+/// Persistent save buffer for the derived raw/cbreak `termios` (built by
+/// `term::on`, re-applied by `io::input`/`io::readLine` after their line read).
+pub(crate) const TERM_STATE_RAW_TERMIOS_OFFSET: usize = 144;
+/// Total reserved slots: through the raw `termios` buffer (144 + 72 = 216 bytes).
+pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) / 8;
 pub(crate) const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
 pub(crate) const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
 pub(crate) const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;

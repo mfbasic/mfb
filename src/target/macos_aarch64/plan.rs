@@ -247,6 +247,14 @@ impl plan::NativePlanPlatform for Platform {
                             symbol: "___error".to_string(),
                             required_by: spec.symbol.to_string(),
                         },
+                        // bug-149: with `term::` active, `io::input` restores
+                        // cooked mode for its read then re-enters raw via
+                        // `tcsetattr` (a no-op when TUI single-key mode is off).
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_tcsetattr".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
                     ]);
                 } else {
                     imports.extend([
@@ -290,9 +298,28 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: spec.symbol.to_string(),
                 }]
             }
+            // `term::on` also drives stdin into single-key (cbreak) mode and
+            // `term::off` restores the saved cooked discipline (bug-149), so both
+            // pull in the terminal-control libSystem symbols on top of `_write`.
+            "term.on" => ["_write", "_isatty", "_tcgetattr", "_tcsetattr"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: spec.symbol.to_string(),
+                })
+                .collect(),
+            "term.off" => ["_write", "_tcsetattr"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: spec.symbol.to_string(),
+                })
+                .collect(),
             // `term::` console helpers that emit ANSI escape sequences write to
             // stdout (plan-01-term.md §6.1).
-            "term.on" | "term.off" | "term.setForeground" | "term.setBackground"
+            "term.setForeground" | "term.setBackground"
             | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
             | "term.clear" | "term.moveTo" => vec![PlatformImport {
                 library: "libSystem".to_string(),

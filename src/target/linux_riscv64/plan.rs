@@ -116,6 +116,9 @@ impl plan::NativePlanPlatform for Platform {
                     imports.push(self.libc_import("write", spec.symbol));
                     imports.push(self.libc_import("fsync", spec.symbol));
                     imports.push(self.libc_import("__errno_location", spec.symbol));
+                    // bug-149: with `term::` active, `io::input` restores cooked
+                    // mode for its read then re-enters raw via `tcsetattr`.
+                    imports.push(self.libc_import("tcsetattr", spec.symbol));
                 } else {
                     imports.push(self.libc_import("isatty", spec.symbol));
                     imports.push(self.libc_import("tcgetattr", spec.symbol));
@@ -132,9 +135,21 @@ impl plan::NativePlanPlatform for Platform {
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![self.libc_import("isatty", spec.symbol)]
             }
+            // `term::on` also drives stdin into single-key (cbreak) mode and
+            // `term::off` restores the saved cooked discipline (bug-149).
+            "term.on" => vec![
+                self.libc_import("write", spec.symbol),
+                self.libc_import("isatty", spec.symbol),
+                self.libc_import("tcgetattr", spec.symbol),
+                self.libc_import("tcsetattr", spec.symbol),
+            ],
+            "term.off" => vec![
+                self.libc_import("write", spec.symbol),
+                self.libc_import("tcsetattr", spec.symbol),
+            ],
             // `term::` console helpers that emit ANSI escape sequences write to
             // stdout (plan-01-term.md §6.1).
-            "term.on" | "term.off" | "term.setForeground" | "term.setBackground"
+            "term.setForeground" | "term.setBackground"
             | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
             | "term.clear" | "term.moveTo" => vec![self.libc_import("write", spec.symbol)],
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],

@@ -82,3 +82,14 @@ that call `readChar` without `term::on`.
 It currently ships with an inline-`TRAP` + terminal guard workaround for an
 *unrelated* crash ([bug-148](bug-148-loop-error-propagation-nulls-error-message.md));
 neither the guard nor the trap affects this input behavior.
+
+---
+## Resolution (2026-07-11) — FIXED
+`term::on()` now flips the console tty into cbreak/single-key mode
+(`~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0`, saving the cooked termios in the per-program
+term-state region); `term::off()` restores it. `io::input`/`io::readLine`
+temporarily restore the cooked buffer for their read (so they still wait for
+Return + echo) and re-apply raw after. `readChar`/`readByte` keep their per-read
+toggle as the no-`term::on` fallback. All gated behind the §4.2.1 inactive gate.
+Verified via PTY on ALL FOUR remotes (aarch64/x86_64 musl+libc/riscv64): raw
+`abc` keypresses (no Enter) → `GOT:a GOT:b GOT:c`.

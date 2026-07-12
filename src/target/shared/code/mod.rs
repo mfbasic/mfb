@@ -1394,6 +1394,9 @@ fn lower_runtime_helper(
                         platform,
                         spec.call == "io.input",
                         app_mode,
+                        // bug-149: only a console build that also uses `term::`
+                        // brackets the line read with a cooked-mode restore.
+                        if app_mode { None } else { term_state_offset },
                     )?
                 };
             Ok(CodeFunction {

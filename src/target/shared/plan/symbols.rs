@@ -38,6 +38,18 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             }
         }
     }
+    // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
+    // even when the program never calls it explicitly, so the object plan must
+    // define that code unit whenever any `term::` helper is used. Mirrors the
+    // code layer's unconditional `term::off` emission in `target::shared::code`.
+    if symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
+    {
+        if let Some(spec) = runtime::spec_for_call("term.off") {
+            push_unique(&mut symbols, spec.symbol.to_string());
+        }
+    }
     symbols
 }
 
@@ -94,6 +106,20 @@ pub(super) fn platform_imports(
     }
     if module_has_thread_owner(module) {
         for import in platform_imports_for_runtime_call(platform, "thread.drop") {
+            push_platform_import(&mut imports, import);
+        }
+    }
+    // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
+    // even when the program never calls it explicitly. `term::off` now drives a
+    // `tcsetattr` to restore the saved cooked line discipline (bug-149), whose
+    // import the function-body scan above cannot see (the body has no
+    // `term.off` call). Pull it in whenever the module uses any `term::` helper,
+    // mirroring the code layer's unconditional `term::off` emission.
+    if runtime_symbols(module)
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
+    {
+        for import in platform_imports_for_runtime_call(platform, "term.off") {
             push_platform_import(&mut imports, import);
         }
     }
