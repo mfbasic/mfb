@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 3,
     "visibility": "public",
-    "name": "Money",
+    "name": "Cash",
     "fields": [
     { "visibility": null, "line": 4, "name": "cents", "type": "Integer" }
     ]
@@ -20,12 +20,12 @@
   ],
   "functions": [
   {
-    "name": "toInt$Money",
+    "name": "toInt$Cash",
     "line": 7,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "m", "line": 7, "type": "Money", "default": null }
+    { "name": "m", "line": 7, "type": "Cash", "default": null }
     ],
     "returns": "Integer",
     "body": [
@@ -41,8 +41,8 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "m", "type": "Money", "value": { "kind": "constructor", "type": "Money", "args": [{ "kind": "const", "type": "Integer", "value": "1995" }] } },
-    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt$Money", "args": [{ "kind": "local", "name": "m" }] }] }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "m", "type": "Cash", "value": { "kind": "constructor", "type": "Cash", "args": [{ "kind": "const", "type": "Integer", "value": "1995" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt$Cash", "args": [{ "kind": "local", "name": "m" }] }] }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "7" }] }] }] } },
     { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]

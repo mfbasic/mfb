@@ -10,7 +10,7 @@
     {
       "kind": "type",
       "visibility": "public",
-      "name": "Money",
+      "name": "Cash",
       "line": 3,
       "fields": [
       { "visibility": null, "name": "cents", "type": "Integer", "line": 4 }
@@ -22,7 +22,7 @@
       "name": "toInt",
       "line": 7,
       "params": [
-      { "name": "m", "type": "Money", "default": null }
+      { "name": "m", "type": "Cash", "default": null }
       ],
       "returnType": "Integer",
       "body": [
@@ -38,7 +38,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "m", "type": "Money", "value": { "kind": "constructor", "type": "Money", "arguments": [{ "kind": "number", "value": "1995" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Cash", "value": { "kind": "constructor", "type": "Cash", "arguments": [{ "kind": "number", "value": "1995" }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "m" }] }] }] }, "line": 13 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "string", "value": "7" }] }] }] }, "line": 14 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
