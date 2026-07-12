@@ -109,9 +109,10 @@ noted, not separately re-filed.
   set-specific component). Regression: `tests/rt-behavior/collections/bug147_set_error_path_leak`.
   The sole residual `set` window is a mid-operation OOM (arena already exhausted),
   equally present before and terminal anyway.
-- 147.5(b) thread-send copied-message leak — DEFERRED (architecturally blocked; a
-  spot free would be a data race / use-after-free, CONFIRMED by code audit
-  2026-07-11). `emit_thread_send_runtime_helper_call` (builder_emit_helpers.rs:397-421)
+- 147.5(b) thread-send copied-message leak — FIXED (commit 8fb7d59a) via the
+  dest-drain pending-free list designed below; verified suite-wide runtime-identical
+  and correct on all four remotes (thread-bounded-queues push+drain, 3 runs each).
+  Original analysis retained: `emit_thread_send_runtime_helper_call` (builder_emit_helpers.rs:397-421)
   switches `ARENA_STATE` to the DESTINATION thread's arena and copies the message
   there BEFORE calling the send helper, so on failure the copy is orphaned in the
   destination arena. The send helper (`runtime_helpers_thread.rs:733-908`) fails on
@@ -152,10 +153,12 @@ noted, not separately re-filed.
     teardown), so it is not an unbounded process leak; it only accumulates within a
     long-lived worker that never receives again after failed sends.
 
-  Not implemented here: the five coordinated raw-helper/queue-layout/caller changes
-  are deferred to a focused threading session rather than landed at the tail of the
-  error-leak work, where a subtle queue-layout mistake would corrupt message
-  passing. Everything above is implementation-ready.
+  IMPLEMENTED (commit 8fb7d59a): the five coordinated changes above — queue-block
+  field + growth (240->248), zero-init, size arg 3 from the caller (0 for
+  non-recoverable-size types), failure-path push, and the read-helper drain. The
+  size is passed only for a flat block type whose `copy_flat_block` size is exactly
+  recoverable; resources / scalars pass 0 and keep the (bounded) pre-existing
+  behavior instead of risking a wrong-size free.
 - Separately discovered while validating 147.5(a): a **general Error-object-per-trap
   leak** — every taken `TRAP(e)` leaks the caught `Error` block (`e` is bound at a
   function-level slot in `function_lowering.rs:688` / `builder_control.rs:772` but
