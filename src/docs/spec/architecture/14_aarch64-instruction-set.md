@@ -4,7 +4,7 @@ Native codegen does not emit textual assembly. It builds a list of
 `CodeInstruction` values — one abstract op plus named string fields — and the
 AArch64 backend turns each into one or more fixed 32-bit little-endian words.
 The op repertoire is the closed `CodeOp` enum; the backend rejects any op it
-cannot encode. [[src/arch/aarch64/ops.rs:CodeOp]] This topic specifies that
+cannot encode. [[src/arch/ops.rs:CodeOp]] This topic specifies that
 repertoire and its encodings. The register set, ABI, and which physical
 registers each op may name are canonical in
 `./mfb spec memory native-calling-convention`; the relocations that patch

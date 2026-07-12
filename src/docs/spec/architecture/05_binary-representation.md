@@ -2,7 +2,7 @@
 
 The Binary Representation: the IR exposed as a versioned on-disk contract, and the MFP package container.
 
-Binary Representation generation is implemented in `src/binary_repr.rs`.
+Binary Representation generation is implemented in `src/binary_repr/`.
 MFP package wrapping is implemented in `src/target/package_mfp/mod.rs`.
 
 ## What the Binary Representation Is
@@ -13,7 +13,7 @@ interface.** The in-memory IR (see the `ir` topic — `IrProject` / `IrFunction`
 free to change between builds. The Binary Representation is a defined, versioned
 binary *serialization* of that model: control flow stays nested, expressions stay
 as trees, and the structure is preserved faithfully — there is no lowering to a
-flat opcode/register machine. `src/binary_repr.rs` encodes IR → Binary
+flat opcode/register machine. `src/binary_repr/` encodes IR → Binary
 Representation and decodes Binary Representation → IR.
 
 The two are related but **not the same thing**, and the distinction is the whole
@@ -51,7 +51,7 @@ This is the canonical description of how a native executable build folds its
 installed `.mfp` dependencies back into IR. Because the Binary Representation is
 a faithful, structure-preserving serialization of IR, an executable build does
 **not** keep package bodies as external symbols: `nir::merge_packages`
-(`src/target/shared/nir.rs`) decodes each installed package's binary
+(`src/target/shared/nir/`) decodes each installed package's binary
 representation back into IR (`binary_repr::read_package_ir_with_identity`),
 prefixes every package symbol with a per-package identity
 (`ir::prefix_package_symbols`), merges the functions, types, globals, and
@@ -106,10 +106,10 @@ accepts both forms; the on-disk signature-header byte encoding is owned by
 Every user-visible `Error` carries an `ErrorLoc source` recording where it
 originated. The location flows through every layer:
 
-- **AST** (`src/ast.rs`): `Expression::Call`/`Binary`/`Unary` and `Statement::For`
+- **AST** (`src/ast/`): `Expression::Call`/`Binary`/`Unary` and `Statement::For`
   carry an internal `(line, column)`; the source file is the enclosing `AstFile`.
   These are not serialized to the `.ast` JSON.
-- **IR** (`src/ir.rs`): every `IrOp`, `IrMatchCase`, and declaration node
+- **IR** (`src/ir/`): every `IrOp`, `IrMatchCase`, and declaration node
   (`IrFunction`/`IrParam`/`IrType`/`IrField`/`IrVariant`/`IrBinding`) carries an
   `IrSourceLoc { line, column }`, and computed value nodes carry their result
   type; each `IrFunction` also carries its source `file` and `resource_owners`,
@@ -122,7 +122,7 @@ originated. The location flows through every layer:
   `.ir` JSON debug dump but **are** encoded into the Binary Representation, so
   an imported package's functions retain their own source locations and stay
   checkable without re-inference.
-- **NIR** (`src/target/shared/nir.rs`): mirrors the IR fields (`NirSourceLoc`,
+- **NIR** (`src/target/shared/nir/`): mirrors the IR fields (`NirSourceLoc`,
   `NirFunction::file`).
 - **Native runtime** (`src/target/shared/code`): the code generator tracks the
   current function file and the current node location and builds a real

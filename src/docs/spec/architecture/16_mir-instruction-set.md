@@ -5,13 +5,10 @@ builder and the backend: a single ISA-independent op vocabulary the backend
 lowers *to* and selects *from*. It is the layer every backend plugs into, and
 the `-mir` dump is its observable form. [[src/target/shared/code/mir.rs:MirOp]]
 
-> **Status: this layer is under active construction.** MIR is being introduced
-> one op-family at a time (the `plan-00-*` series in `planning/mir.md`), and the
-> op set, mnemonics, and grouping below track the code *as it is today* — they
-> will keep moving as more of the backend is neutralized. Treat the catalog as a
-> current snapshot, not a frozen contract. The NIR the code builder derives from
-> is `./mfb spec architecture native-ir`; how a backend realizes each MIR op as
-> concrete instructions is the backend's own concern (for the in-tree backend,
+> The op set, mnemonics, and grouping below catalogue the MIR vocabulary. The NIR
+> the code builder derives from is `./mfb spec architecture native-ir`; how a
+> backend realizes each MIR op as concrete instructions is the backend's own
+> concern (for the AArch64 backend,
 > `./mfb spec architecture aarch64-instruction-set`).
 
 ## Design contract: identity round trip
@@ -23,13 +20,9 @@ emitted byte. The raise/lower round trip `select ∘ lower_to_mir` is the
 sequence the builders emit today. [[src/target/shared/code/mir.rs:lower_to_mir]]
 [[src/arch/aarch64/select.rs:select_aarch64]]
 
-The MIR is now the **sole** code path: plan-00-G flipped it on by default and
-deleted the legacy `direct` (no-MIR) AArch64 backend. During plans A–F the round
-trip was kept the identity and proven byte-identical against the `direct` path
-(a differential self-diff) before each op family was neutralized; that gate has
-been retired with the `direct` path. A coverage gap is still a *compile* error,
-not a test miss — `from_code`/`to_code` are exhaustive matches over the backend
-op set, so a missing variant fails the build.
+The MIR is the **sole** code path; there is no no-MIR (`direct`) backend. A
+coverage gap is a *compile* error, not a test miss — `from_code`/`to_code` are
+exhaustive matches over the backend op set, so a missing variant fails the build.
 [[src/target/shared/code/mir.rs:from_code]] [[src/target/shared/code/mir.rs:to_code]]
 
 ## Instruction model
@@ -79,6 +72,7 @@ byte-identical; only the `-mir` mnemonic changes.
 |--------------|---------|
 | `mulhi_s` / `mulhi_u` | signed / unsigned 64×64 → high 64 |
 | `addc` | add with carry in/out |
+| `subc` | subtract with borrow in/out |
 | `rotr` / `rotr_w` | variable rotate-right (64 / 32-bit) |
 | `bswap` / `bswap_w` | byte reverse (64 / 32-bit) |
 | `f2i_trunc` | f64→i64 toward zero |
@@ -202,10 +196,11 @@ carry the same fields as the shape they rename.
 | `v128.dup_from_gpr` | `dst`, `src` | broadcast a GPR into all lanes |
 | `v128.umov_to_gpr` | `dst`, `src`, `index` | extract lane `index` to a GPR |
 
-The carry/borrow family (signed/unsigned add-with-carry) is mid-reshape from a
-flag-based form to explicit `carry_in`/`carry_out` operands and is **not stable**
-in the MIR vocabulary yet — author against it only once the `plan-00-*` work
-settles. [[src/arch/aarch64/ops.rs:CodeOp]]
+The carry/borrow family (`addc`/`subc`) carries the carry as an explicit
+`carry_in`/`carry_out` operand **value** (0/1), never through a flags register;
+`carry_in`/`carry_out` may be `xzr` (no carry-in / carry-out discarded). Each
+backend realizes it in its own flag-local form (AArch64 `cmp; adcs; cset`,
+x86 `adc`, rv64 `add`+`sltu`). [[src/arch/ops.rs:AddCarry]]
 
 ### Fused-op layout
 
@@ -234,7 +229,7 @@ The `cond` field carries the branch condition as one of these values:
 
 Signed orderings use `b.ge`/`b.lt`/`b.gt`/`b.le`; unsigned use
 `b.hi`/`b.lo`/`b.ls`; `b.vs`/`b.vc` test overflow (set/clear) for `add_ovf`/
-`sub_ovf` and the syscall error check. [[src/arch/aarch64/ops.rs:CodeOp]]
+`sub_ovf` and the syscall error check. [[src/arch/ops.rs:CodeOp]]
 
 ## The `-mir` dump (`mfb build -mir`)
 

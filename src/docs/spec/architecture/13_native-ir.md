@@ -127,7 +127,7 @@ The one semantically interesting rewrite happens in `lower_value` for
    [[src/target/shared/runtime/usage.rs:is_native_direct_call]]
 2. Otherwise `helper_for_call(target)` -> if it returns a `RuntimeHelper`,
    rewrite to `NirValue::RuntimeCall { helper, target, args, loc }`. The helper
-   is one of `Crypto`, `Datetime`, `Fs`, `General`, `Io`, `Math`, `Net`,
+   is one of `Crypto`, `Datetime`, `Fs`, `General`, `Io`, `Math`, `Net`, `Os`,
    `Strings`, `Term`, `Thread`, `Tls`; the symbol the backend calls is
    `_mfb_rt_<helper>_<sanitized-target>` (`./mfb spec memory runtime-helper-abi`).
    [[src/target/shared/runtime/mod.rs:helper_for_call]]

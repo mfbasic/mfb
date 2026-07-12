@@ -47,7 +47,7 @@ built-in files are lexed with it set (`AstFile::internal`). When the flag is set
 each identifier whose value begins with `__` is passed through `internalize`,
 which strips the `__` prefix and prepends the sigil. The rewrite happens after
 keyword classification (keywords never carry a `__` prefix) and `DOC`/`REM`
-handling, so it only ever affects names. [[src/lexer.rs:lex_with]] [[src/lexer.rs:410]]
+handling, so it only ever affects names. [[src/lexer.rs:lex_with]] [[src/lexer.rs:752]]
 
 ```text
 internalize("__json_parse")        -> "#json_parse"

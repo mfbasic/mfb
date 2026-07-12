@@ -4,7 +4,7 @@ The shared front end: manifest loading, source discovery, name resolution, monom
 
 Every build — executable or package — runs the same front end, from reading
 `project.json` through source-syntax checking, before the pipeline splits at IR.
-(The bulk of semantic validation now runs *after* lowering, on the typed IR —
+(The bulk of semantic validation runs *after* lowering, on the typed IR —
 see "Semantic Checking" below.)
 
 ## Project Manifest Loading
@@ -12,7 +12,7 @@ see "Semantic Checking" below.)
 The project manifest is `project.json` in the build location. The manifest is
 read and validated by `validate_project_manifest` in `src/manifest/mod.rs`.
 
-The current implementation requires these string fields:
+The manifest requires these string fields:
 
 - `name`
 - `version`
@@ -24,8 +24,8 @@ it is expected to be `"executable"` or `"package"`, and unknown kinds are
 diagnosed (the validator continues after that diagnostic). Optional `entry`,
 `author`, and `url` fields must be strings when present.
 
-The current implementation does not enforce every field of the project manifest
-format. In particular, it primarily consumes:
+Not every field of the project manifest format is enforced. The build
+primarily consumes:
 
 - `name`
 - `version`
@@ -43,7 +43,7 @@ build behavior in the compiler code reviewed here.[[src/manifest/mod.rs:validate
 
 ## Source Discovery and Parsing
 
-Source parsing is implemented in `src/ast.rs`.
+Source parsing is implemented in `src/ast/`.
 
 `ast::parse_project` receives the validated project name, project directory,
 and manifest. It reads `sources[*].root`, joins each root to the project
@@ -66,7 +66,7 @@ Current discovery behavior:
 - If a source root is a directory, all nested `.mfb` files are included.
 - Empty source roots are compile-time errors.
 - Per-root `include`/`exclude` glob patterns are applied by the source collector
-  (`matches_source_patterns` in `src/ast.rs`). When unspecified, `include`
+  (`matches_source_patterns` in `src/ast/`). When unspecified, `include`
   defaults to `["**/*.mfb"]` and `exclude` defaults to empty, so every nested
   `.mfb` file is collected by default.[[src/ast/manifest.rs:matches_source_patterns]]
 
@@ -126,7 +126,7 @@ reaches the `Resolver` is the cumulative result of the whole chain. (The
 
 ## Name Resolution
 
-Name resolution is implemented in `src/resolver.rs`.
+Name resolution is implemented in `src/resolver/`.
 
 The resolver has two jobs:
 
@@ -134,7 +134,7 @@ The resolver has two jobs:
 2. Validate references inside imports, type declarations, function bodies, and
    expressions.
 
-The resolver knows the built-in type names in `BUILTIN_TYPES` (`src/resolver.rs`):
+The resolver knows the built-in type names in `BUILTIN_TYPES` (`src/resolver/`):
 `Boolean`, `Byte`, `Error`, `ErrorLoc`, `Fixed`, `Float`, `Integer`, `Json`,
 `Nothing`, `Result`, `String`, plus the resource and record types contributed by
 built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
@@ -168,7 +168,7 @@ symbol rules.[[src/monomorph/mod.rs:monomorphize_project]]
 
 ## Monomorphization
 
-The monomorphization pass (`src/monomorph.rs`) expands template/generic
+The monomorphization pass (`src/monomorph/`) expands template/generic
 declarations into concrete declarations between the two resolution passes; see
 `./mfb spec architecture monomorphization`.
 
@@ -210,7 +210,7 @@ program accepts command-line arguments.
 
 ## Semantic Checking (two passes, one source of truth)
 
-Semantic validation is **split by where the rule can be seen** (plan-20). The
+Semantic validation is **split by where the rule can be seen**. The
 authoritative checker for every *semantic* rule is `ir::verify`
 (`src/ir/verify/`), which runs on the typed IR. It is the sole rejecter for
 those rules on **both** paths: the freshly lowered IR of the program being
@@ -219,7 +219,7 @@ never passed any source check, so running the same checker over its IR is what
 keeps type-confused IR out of a victim's binary (see
 `./mfb spec package verifier-rules`).
 
-The front-end checker `src/syntaxcheck/` (formerly `typecheck`) retains only the
+The front-end checker `src/syntaxcheck/` retains only the
 rules about **source syntax** — constructs that total lowering *erases*, so they
 can never appear in IR or in a package: named-argument call binding
 (`f(x := …)` duplicate/unknown names and the post-normalization arity/argument

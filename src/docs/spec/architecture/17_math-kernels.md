@@ -32,7 +32,7 @@ reduction-order ambiguity, no libm version skew, and no last-ULP platform drift.
 
 This extends to the x86_64 and riscv64 backends, and to ordinary user-level
 `Float` `a*b±c` expressions, because scalar fused multiply-add is decided in
-target-neutral MIR lowering (plan-02) and IEEE-754 FMA is a correctly-rounded,
+target-neutral MIR lowering and IEEE-754 FMA is a correctly-rounded,
 deterministic operation — so every FMA-capable IEEE target fuses the same
 expression to the same bits. Note the distinction in strength: `Fixed`
 cross-target bit-identity is a **contractual guarantee** (Q32.32 integer math);

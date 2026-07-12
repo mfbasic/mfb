@@ -1,6 +1,6 @@
 # Monomorphization
 
-The monomorphizer (`src/monomorph.rs`) takes the parsed, initially-resolved AST
+The monomorphizer (`src/monomorph/`) takes the parsed, initially-resolved AST
 and produces a fully **concrete** AST: every template type and template function
 is expanded into a concrete declaration per instantiation, every overloaded call
 is rewritten to a single mangled callee symbol, and every `collections::` call is

@@ -36,8 +36,8 @@ The CLI supports these build-related commands:
   runtime — AppKit on macOS, GTK4 on Linux. Shared lowering treats both uniformly
   (`NativeBuildMode::is_app`); the target OS selects the toolkit. `-app` is valid
   only for executable projects and only when `-target` resolves to a native target
-  that supports app mode (`macos-aarch64` or `linux-aarch64`); it is rejected
-  otherwise. App mode is recorded as the `buildMode` field in `-nir`, `-nplan`,
+  that supports app mode (`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`);
+  it is rejected otherwise. App mode is recorded as the `buildMode` field in `-nir`, `-nplan`,
   and `-ncode` output (`"console"`, `"macos-app"`, or `"linux-app"`).[[src/target.rs:is_app]]
 
 The output flags are mutually exclusive. If no output flag is supplied,

@@ -6,15 +6,15 @@ A map of the compiler's source modules and their responsibilities.
 | --- | --- |
 | `src/main.rs` | CLI, manifest validation, project orchestration, package commands. |
 | `src/lexer.rs` | Source tokenization. |
-| `src/ast.rs` | Parser, AST model, source discovery, AST JSON output. |
-| `src/resolver.rs` | Name resolution and import/package symbol checks. |
-| `src/monomorph.rs` | Template/generic expansion into concrete AST. |
+| `src/ast/` | Parser, AST model, source discovery, AST JSON output. |
+| `src/resolver/` | Name resolution and import/package symbol checks. |
+| `src/monomorph/` | Template/generic expansion into concrete AST. |
 | `src/syntaxcheck/*` | Source-syntax checking only (named-argument binding, EXIT/inline-TRAP boundaries, lambda capture escape, package metadata). All semantic rules live in `src/ir/verify/*`. |
 | `src/ir/verify/*` | IR semantic verification — the single source of truth for every semantic rule, run on both source-lowered IR and decoded-package IR. |
 | `src/escape.rs` | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
-| `src/ir.rs` | Shared compiler IR and AST-to-IR lowering. |
+| `src/ir/` | Shared compiler IR and AST-to-IR lowering. |
 | `src/internal_name.rs` | Compiler-internal sigil symbol naming for injected source packages. |
-| `src/binary_repr.rs` | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
+| `src/binary_repr/` | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
 | `src/fmt.rs` | Lexical source formatter for `mfb fmt`. |
 | `src/doc.rs` | Documentation model and HTML renderer for `mfb doc` / `mfb pkg doc`. |
 | `src/audit/*` | `mfb audit`: fallible-call/cleanup/permission/dependency reporting (collect/json/text/report). |
@@ -41,25 +41,27 @@ A map of the compiler's source modules and their responsibilities.
 | `src/unicode_runtime_tables.rs` | Compile-time Unicode lookup tables embedded in generated code. |
 | `src/target.rs` | Target parsing, backend registry, backend dispatch. |
 | `src/target/shared/lower.rs` | Shared IR-to-NIR entry: merges installed packages into IR, then lowers. |
-| `src/target/shared/nir.rs` | Native IR and import/runtime-call lowering. |
-| `src/target/shared/runtime.rs` | Runtime helper discovery and helper ABI metadata. |
+| `src/target/shared/nir/` | Native IR and import/runtime-call lowering. |
+| `src/target/shared/runtime/` | Runtime helper discovery and helper ABI metadata. |
 | `src/target/shared/validate.rs` | Native target, NIR, capability, and plan validation. |
-| `src/target/shared/plan.rs` | Shared native plan lowering. |
+| `src/target/shared/plan/` | Shared native plan lowering. |
 | `src/target/shared/code/` | Shared native code-plan lowering (directory module with builder submodules). |
-| `src/target/macos_aarch64/*` | macOS aarch64 backend wrappers and platform behavior (`app.rs` = AppKit app mode). |
+| `src/target/macos_aarch64/*` | macOS aarch64 backend wrappers and platform behavior (`app/` = AppKit app mode). |
 | `src/target/linux_aarch64/*` | Linux aarch64 backend wrappers and platform behavior. |
 | `src/target/linux_x86_64/*` | Linux x86-64 backend wrappers and platform behavior. |
+| `src/target/linux_riscv64/*` | Linux RISC-V 64 backend wrappers and platform behavior. |
 | `src/target/linux_gtk/*` | Shared GTK4 app-mode backend for the Linux targets. |
 | `src/target/package_mfp` | MFP package container writer. |
 | `src/arch/aarch64/*` | AArch64 ABI, operations, and binary instruction encoding. |
 | `src/arch/x86_64/*` | x86-64 ABI, operations, and binary instruction encoding. |
+| `src/arch/riscv64/*` | RISC-V 64 ABI, operations, and binary instruction encoding. |
 | `src/os/macos/*` | Mach-O object planning and executable writing. |
 | `src/os/linux/flavor.rs` | Linux flavor enumeration (glibc/musl) and suffix/interpreter selection. |
-| `src/os/linux/link.rs` | ELF object planning and executable writing. |
+| `src/os/linux/link/` | ELF object planning and executable writing. |
 | `src/os/linux/object.rs` | ELF container layout planning. |
 | `src/docs/man/*` | Built-in package/function help text. |
 | `src/docs/spec/*` | Embedded language/architecture specification (`mfb spec`). |
-| `src/rules.rs` | Diagnostic display support. |
+| `src/rules/` | Diagnostic display support. |
 | `src/numeric.rs` | Numeric parsing and representation helpers. |
 
 ## See Also

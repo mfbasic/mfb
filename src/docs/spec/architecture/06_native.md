@@ -10,6 +10,7 @@ The active native backend registry is in `src/target.rs`:[[src/target.rs:NativeB
 - `macos-aarch64`
 - `linux-aarch64`
 - `linux-x86_64`
+- `linux-riscv64`
 
 Each backend implements the `NativeBackend` trait. The trait exposes
 capabilities and methods for executable and intermediate artifact emission.
@@ -19,21 +20,21 @@ The native executable pipeline is:
 ```text
 IR
   -> target/shared/lower.rs
-  -> target/shared/nir.rs
+  -> target/shared/nir/
   -> target/shared/validate.rs
-  -> target/<os>_aarch64/plan.rs
-  -> target/shared/plan.rs
+  -> target/<os>_<arch>/plan.rs
+  -> target/shared/plan/
   -> os/<os>/object.rs
-  -> target/<os>_aarch64/code.rs
+  -> target/<os>_<arch>/code.rs
   -> target/shared/code/ (directory module: mod.rs + builder_*.rs submodules)
-  -> arch/aarch64/encode.rs
-  -> os/<os>/link.rs
+  -> arch/<arch>/encode/
+  -> os/<os>/link/
   -> <project>.out
 ```
 
 ## Native IR
 
-Native IR, or NIR, is defined in `src/target/shared/nir.rs`.
+Native IR, or NIR, is defined in `src/target/shared/nir/`.
 
 NIR is close to the shared IR but adds native build concerns:
 
@@ -49,7 +50,7 @@ also rewrites supported built-in calls into runtime-call forms where needed.
 
 ## Runtime Helper Selection
 
-Runtime-helper detection is implemented in `src/target/shared/runtime.rs`.
+Runtime-helper detection is implemented in `src/target/shared/runtime/`.
 
 The compiler scans IR values for calls into built-in packages. It records
 which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
@@ -61,6 +62,7 @@ which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[sr
 - `io`
 - `math`
 - `net`
+- `os`
 - `strings`
 - `term`
 - `thread`
@@ -68,11 +70,13 @@ which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[sr
 
 `validate_capabilities` rejects native builds that require runtime calls not
 listed in the backend capability set.[[src/target/shared/validate.rs:validate_capabilities]]
-The `macos-aarch64`, `linux-aarch64`, and `linux-x86_64` backends currently
-declare the same set of supported native runtime calls:
+All four backends declare the same set of supported native runtime calls:
 
 - `crypto.*` calls: `crypto.randomBytes` plus the P-256/384/521 key-generation,
   signing, and verification calls
+- All `os.*` calls: `os.getEnv`, `os.getEnvOr`, `os.hasEnv`, `os.setEnv`,
+  `os.unsetEnv`, `os.environ`, `os.args`, `os.pid`, `os.executablePath`,
+  `os.name`, `os.arch`, `os.hostName`, `os.userName`, `os.cpuCount`
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.isBuffered`,
   `io.setBuffered`, `io.printError`, `io.writeError`, `io.input`, `io.readLine`,
   `io.readChar`, `io.readByte`, `io.pollInput`, `io.isInputTerminal`,
@@ -111,9 +115,8 @@ external runtime helpers. The `RuntimeHelper::General` variant exists, but
 neither backend's `runtime_calls` contains any `general.*` call — `general.*`
 built-ins (like `math`/`strings`) are inline-codegen'd, not a gated runtime-call
 family.[[src/builtins/general.rs:is_general_call]] The complete, authoritative
-capability set is the `runtime_calls` declaration in each backend
-(`src/target/macos_aarch64/mod.rs`, `src/target/linux_aarch64/mod.rs`); both
-backends currently declare the same set.[[src/target/macos_aarch64/mod.rs:runtime_calls]]
+capability set is the `runtime_calls` declaration in each backend; all four
+backends declare the same set.[[src/target/macos_aarch64/mod.rs:runtime_calls]]
 
 ### Helper Requirement Analysis
 
@@ -173,10 +176,10 @@ It validates:
 - Backend runtime-call capability support.
 - Native-plan and native-code-plan structural invariants.
 
-Important current limitation: `validate_project` in this module is currently a
-no-op. Validation is therefore distributed across the front-end passes, NIR
-validation, plan validation, code-plan validation, and OS/linker checks rather
-than centralized in target project validation.
+Target-level `validate_project` is a no-op. Validation is therefore distributed
+across the front-end passes, NIR validation, plan validation, code-plan
+validation, and OS/linker checks rather than centralized in target project
+validation.
 
 ## Native Plan
 
@@ -185,7 +188,7 @@ Native planning is implemented by platform-specific wrappers in:
 - `src/target/macos_aarch64/plan.rs`
 - `src/target/linux_aarch64/plan.rs`
 
-Both use the shared planner in `src/target/shared/plan.rs`.
+Both use the shared planner in `src/target/shared/plan/`.
 
 The native plan records:
 
@@ -238,7 +241,7 @@ Native code planning is implemented by platform-specific wrappers in:
 - `src/target/macos_aarch64/code.rs`
 - `src/target/linux_aarch64/code.rs`
 
-Both use the shared code generator in `src/target/shared/code.rs`.
+Both use the shared code generator in `src/target/shared/code/`.
 
 The native code plan records:
 
@@ -269,7 +272,7 @@ The code generator also adds:
 Lowerings do not name physical temporary registers directly. `allocate_register`
 mints an integer **virtual register**, carried in the instruction stream as the
 sentinel `%vN`; `allocate_fp_register` mints a floating-point virtual register
-`%fN` (plan-03 Stage C). After a function is fully lowered, a coloring pass
+`%fN`. After a function is fully lowered, a coloring pass
 (`src/target/shared/code/regalloc`) rewrites every virtual register to a physical
 register, before the peephole pass and `finalize_frame` (which expect physical
 names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
@@ -278,12 +281,12 @@ The integer and FP/SIMD classes have separate physical files that never
 interfere, so each is colored by an independent linear-scan pass over its own
 operands.
 
-A `Float` value is **`d`-register-native** (plan-01 float-dnative): its canonical
+A `Float` value is **`d`-register-native**: its canonical
 home is a `d`-register, not a general-purpose register holding the bit pattern. A
 float arithmetic result, a unary negation, and a `Float` local/global load all
 carry their FP virtual register (`%fN`) directly in the value, so chained
 arithmetic (`fadd d, d, d`), `fcmp` comparisons, the FP-domain finiteness check
-(plan-17), and a `Float` local store/load (`str d`/`ldr d`) all stay in the FP
+and a `Float` local store/load (`str d`/`ldr d`) all stay in the FP
 domain with no `fmov`-to-GPR shuttle and no stack traffic as integer bits. A GPR
 copy is materialized **lazily**, through a single choke point, only at the
 consumers that genuinely need the raw bits: integer/bitwise reinterpretation,
@@ -298,12 +301,12 @@ dedicated scalar kernels — their FP working set is allocator-placed virtual
 registers plus the fixed `d0`–`d7` input/scratch bank — and stay GP-native too.)
 
 A single-use `Float` `a*b±c` chain is **fused** into one single-rounded fused
-multiply-add before register allocation (plan-02): `a*b+c`→`fmadd_d`,
+multiply-add before register allocation: `a*b+c`→`fmadd_d`,
 `a*b-c`→`fmsub_d`, `c-a*b`→`fnmsub_d`. The rewrite is decided on the neutral MIR
 stream, so it fires identically on every backend, and applies only when the
 product's FP virtual register is used exactly once — a product the program
 observes (a named binding, a store, a second reader) keeps its own `fmul_d` and is
-checked at that boundary like any other value (plan-17). Fusion rounds the product
+checked at that boundary like any other value. Fusion rounds the product
 once instead of twice, so a fused result is `≤1` ULP and no worse than the discrete
 form; the intermediate product is not a named `Float` and does not independently
 trap, so `a*b+c` can be finite even where `a*b` alone would overflow.
@@ -316,7 +319,7 @@ iteration, and stored back once on exit, so the per-iteration slot round-trip
 disappears. A local whose address is taken, or that is touched inside a nested
 loop, is never promoted (its slot stays authoritative).
 
-The allocator is split into two layers so a future x86_64 backend reuses the
+The allocator is split into two layers so every backend reuses the
 core:
 
 - **ISA-neutral core** (`src/target/shared/code/regalloc`): the virtual-register
@@ -409,8 +412,8 @@ native code plan.
 
 ## Linking and Executable Writing
 
-The final OS-specific executable writers are `src/os/macos/link.rs` and
-`src/os/linux/link.rs`. Both patch relocations in the encoded text, resolve the
+The final OS-specific executable writers are `src/os/macos/link/` and
+`src/os/linux/link/`. Both patch relocations in the encoded text, resolve the
 entry symbol to a text offset, encode the OS executable container, and write the
 output. macOS emits a single Mach-O `<project>.out`; Linux emits one ELF per
 flavor (`<project>-glibc.out`, `<project>-musl.out`) and chooses static vs.

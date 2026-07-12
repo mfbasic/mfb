@@ -2,12 +2,12 @@
 
 How installed `.mfp` package dependencies are added, verified, and linked into a build.
 
-Package dependency handling is split between `src/main.rs`, `src/binary_repr.rs`,
-and `src/target/shared/nir.rs`.
+Package dependency handling is split between `src/main.rs`, `src/binary_repr/`,
+and `src/target/shared/nir/`.
 
 ## Installing Packages
 
-`mfb pkg add <url>` currently supports `file://` URLs that point to absolute
+`mfb pkg add <url>` supports `file://` URLs that point to absolute
 `.mfp` files. The command:
 
 1. Reads and validates the MFP header.
@@ -62,9 +62,11 @@ Version matching is **exact string** comparison: an expected version matches
 only when it is empty (no constraint) or byte-for-byte equal to the installed
 version. Range syntax such as `^1.2.3` or `~1.2.3` is treated as a literal
 string and therefore never matches a concrete version like `1.9.0` — it yields
-`NeedsUpdate`.[[src/cli/pkg.rs:package_version_matches]] The `pin` flag does not
-change this verification result: pinned and unpinned dependencies are checked
-with the same exact-string version comparison.
+`NeedsUpdate`.[[src/cli/pkg.rs:package_version_matches]] For a non-empty declared
+version the `pin` flag does not change the result. The two paths diverge only for
+an *empty* declared version: unpinned, an empty version is "no constraint" and
+matches (`Ok`); pinned, an empty version can never equal an installed one and so
+yields `NeedsUpdate`.[[src/cli/pkg.rs:package_dependency_status]]
 
 The `pin` flag is enforced separately, during the build's binary-representation
 merge of compiled packages. There, a pinned dependency whose `version` differs

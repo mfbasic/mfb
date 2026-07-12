@@ -14,13 +14,13 @@ from AArch64. The register set and ABI are canonical in
 
 ## The op vocabulary is shared, not separate
 
-x86-64 reuses the **same closed `CodeOp` enum** defined in `src/arch/aarch64/ops.rs`
+x86-64 reuses the **same closed `CodeOp` enum** defined in `src/arch/ops.rs`
 (imported as `crate::arch::ops::CodeOp` throughout the x86 backend). There
 is one neutral op set for both ISAs; the x86 encoder dispatches on
 `instruction.op.mnemonic()`. The only x86-specific additions to the shared enum
 are the branch variants `X86Jae`, `X86Jp`, `X86Jnp`, `X86Ja`, `X86Jb`, `X86Jbe`,
 `X86Je`, `X86Jne` (never emitted for AArch64 — see *Float branches* below).
-[[src/arch/x86_64/select.rs:1]] [[src/arch/aarch64/ops.rs:CodeOp]] The encoder
+[[src/arch/x86_64/select.rs:1]] [[src/arch/ops.rs:CodeOp]] The encoder
 rejects any op it cannot yet encode with a clear `Err`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 
 The backend lives under `src/arch/x86_64/`: `backend.rs` (the `X86_64_BACKEND`
@@ -45,7 +45,7 @@ structural conversion, reached through `Backend::select`. [[src/arch/x86_64/sele
 
 **The hard part of selection is ABI remapping.** Shared lowering names its
 call-boundary registers by role token (`%arg`/`%ret`/`%sysnr`/`%sysarg`/`%sysret`/
-`%closure_env`, plan-34-B Phase 3b), which a seam (`abi::realize_abi_token`)
+`%closure_env`), which a seam (`abi::realize_abi_token`)
 translates back to the AArch64 spelling (`%arg3` → `x3`, `%sysnr` → `x8`, …) before
 selection. A selected stream then still carries residual AArch64 physical registers
 (the ABI regs `x0`–`x8`, `sp`, `x31`/`xzr`, link reg `x30`, and leftover scratch
@@ -65,17 +65,15 @@ control-flow graph:
 - A forward CFG dataflow distinguishes call arguments from call results and
   handles the runtime's 4-register error-`Result` convention.
 
-> **Why the inference still exists.** plan-34-B Phase 4 tried to delete this pass
-> and map role tokens straight to SysV homes, on the premise that the tokens
-> already carry each register's role. That held for the package-generating builders
-> but NOT for the entry stub and runtime-helper bodies, which stage call/syscall
-> arguments through result-accessors (`return_register()` = `%ret0`,
-> `string_data/length_register` = `x1`/`x2`) — byte-identical on AArch64 (where
-> `%ret0` and `%arg0` are both `x0`) but wrong on x86 (`%ret0` → `rax`, an argument
-> needs `rdi`). The inference is the only thing that distinguishes them by context,
-> so Phase 4 was reverted; re-deleting it needs those sites audited to use
-> `%arg`/`%sysarg` tokens, verified against the full-executable inference oracle
-> (bug-85).
+> **Why the inference is needed.** Mapping role tokens straight to System V homes
+> is not sufficient on x86: the entry stub and runtime-helper bodies stage
+> call/syscall arguments through result-accessor registers (`%ret0`, and `x1`/`x2`
+> for string data/length) rather than `%arg` tokens. On AArch64 that is
+> byte-identical (both `%ret0` and `%arg0` realize `x0`), but on x86 the roles
+> diverge (`%ret0` → `rax`, an argument needs `rdi`). The forward-CFG inference is
+> what distinguishes an argument from a result by its nearest call/syscall/`ret`
+> boundary, so it cannot be dropped without those sites naming `%arg`/`%sysarg`
+> tokens explicitly.
 
 [[src/arch/x86_64/select.rs:remap_x86_abi]] [[src/arch/x86_64/select.rs:map_abi_register]] [[src/arch/x86_64/select.rs:map_scratch_register]]
 
@@ -98,8 +96,9 @@ Encoding primitives: [[src/arch/x86_64/encode/emitter.rs:rex]]
 
 Register numbering is architectural: `rax=0, rcx=1, rdx=2, rbx=3, rsp=4, rbp=5,
 rsi=6, rdi=7, r8..r15=8..15` (with `r8`–`r15` setting the REX.B/R/X bit). A
-synthetic zero token (`xzr`/`x31`) decodes to the pinned zero register (see
-below). `xmm0`–`xmm15` are decoded by `fp_reg`. [[src/arch/x86_64/encode/operand.rs:reg]] [[src/arch/x86_64/encode/operand.rs:fp_reg]]
+synthetic zero token (`xzr`/`x31`) decodes to the sentinel `16` ("no register"),
+used by explicit-carry ops for a "no carry-in" operand. `xmm0`–`xmm15` are
+decoded by `fp_reg`. [[src/arch/x86_64/encode/operand.rs:reg]] [[src/arch/x86_64/encode/operand.rs:fp_reg]]
 
 **Encoding correctness gate.** `src/arch/x86_64/encode/tests.rs` asserts each op's
 exact byte sequence (for example `mov rax,rbx` = `48 89 D8`). Unlike AArch64's
@@ -113,16 +112,14 @@ allocator asks. [[src/arch/x86_64/regmodel.rs:X86_64RegisterModel]]
 
 - **16 GPRs** in the integer class: `rax rbx rcx rdx rsi rdi rbp rsp r8..r15`.
 - **The allocatable integer set is tight — only four:** `r10, r11, r12, r14`
-  (AArch64 has 19). The allocator spills freely under this pressure; this is a
-  correctness-first bring-up choice.
+  (AArch64 has 19). The allocator spills freely under this pressure.
 - **Reserved / non-allocatable, and why:** `rax`/`rdx` (mul/div implicit, plus
   return), `rcx` (variable shift/rotate count), `rsi`/`rdi`/`r8`/`r9` (System V
   argument registers placed by selection at ABI boundaries), `rsp` (stack
-  pointer), `rbp` (frame register), `r15` (pinned `arena_base` — the analog of
-  AArch64's pinned `x19`), and `r14` (pinned **zero register** — x86 has no `xzr`,
-  so `select_x86` realizes `xzr`/`x31` as `r14`, which the entry zeroes once with
-  `xor r14,r14` and every function preserves because it is callee-saved and never
-  allocated).
+  pointer), `rbp` (frame register), and `r15` (pinned `arena_base` — the analog of
+  AArch64's pinned `x19`). x86 has no `xzr`, so the residual `xzr`/`x31` selection
+  path realizes as `r14`; but a zero *store* encodes an immediate `0` directly, so
+  `r14` needs no pinning and stays allocatable.
 - **Caller-saved (volatile):** `rax rcx rdx rsi rdi r8 r9 r10 r11`.
   **Callee-saved:** `rbx rbp r12 r13 r14 r15`.
 
@@ -225,21 +222,21 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_x86_64/
   already produces. A lane shift above 64 is rejected.
   [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 
-## Deferred / not yet implemented on x86-64
+## Unsupported ops on x86-64
 
-The x86-64 backend is a live bring-up. The encoder rejects unimplemented ops with
-an explicit `Err` (`x86 encode: unsupported op {op}`) rather than miscompiling.
+The encoder rejects ops it does not encode with an explicit `Err`
+(`x86 encode: unsupported op {op}`) rather than miscompiling.
 [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 
 - **Unsupported SIMD ops:** `fcvtas_v` (nearest ties-away vector), `sshl_v`,
   `ushl_v` (per-lane variable shifts). The `sshl_v` rejection is pinned by the
   `unsupported_op_errors` test. [[src/arch/x86_64/encode/tests.rs:unsupported_op_errors]]
-- **`str_u16` is unsupported** (returns an `Err`).
-- **`arena_base` pinned on `r15`** is a bring-up compromise under the tight 5-register
-  integer pressure; the plan is to move it to a TLS slot to recover the register.
-- Known remaining gaps (consistent with the deferred-op set): heavy-spill-at-scale
-  corruption in a handful of transcendental / regex / slerp programs, the thread
-  trampoline, and TLS (OpenSSL).
+- **`arena_base` is pinned on `r15`** (the analog of AArch64's pinned `x19`),
+  narrowing the integer allocatable set accordingly.
+
+There is no `str_u16` op in the shared op vocabulary — a U16 store is never
+emitted — so the encoder's `str_u16` error arm is unreachable through normal
+dispatch. [[src/arch/ops.rs:CodeOp]]
 
 ## See Also
 

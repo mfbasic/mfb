@@ -32,7 +32,7 @@ project.json
   -> IR semantic verification (ir::verify)
 ```
 
-Semantic validation is split by where the rule can be seen (plan-20): the source
+Semantic validation is split by where the rule can be seen: the source
 front end (`syntaxcheck`) checks only source-*syntax* rules — constructs lowering
 erases — while `ir::verify` is the single source of truth for every *semantic*
 rule, running on the typed IR of both the program being built and every decoded
