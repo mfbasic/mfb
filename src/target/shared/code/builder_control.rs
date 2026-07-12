@@ -756,11 +756,28 @@ impl CodeBuilder<'_> {
                         self.lower_for_each(name, type_, iterable, body)?;
                     }
                     NirOp::Trap { body, .. } => {
-                        let label = self
+                        let (label, trap_name, trap_offset) = self
                             .trap
                             .as_ref()
-                            .map(|trap| trap.label.clone())
+                            .map(|trap| {
+                                (trap.label.clone(), trap.name.clone(), trap.stack_offset)
+                            })
                             .expect("trap op requires trap state");
+                        // Re-pin the trap error local to its function-level slot: an
+                        // inline `TRAP(e)` in the body reuses the shared name `e` and
+                        // leaves `self.locals[e]` pointing at that inline handler's
+                        // slot, so the function-level handler would resolve `e` (and
+                        // read `e.message`) from the wrong slot — a null `Error`
+                        // pointer → segfault (bug-148).
+                        self.locals.insert(
+                            trap_name,
+                            LocalValue {
+                                type_: "Error".to_string(),
+                                stack_offset: trap_offset,
+                                constant: None,
+                                by_ref: false,
+                            },
+                        );
                         self.emit(abi::label(&label));
                         if let Some(trap) = &mut self.trap {
                             trap.in_trap_body = true;

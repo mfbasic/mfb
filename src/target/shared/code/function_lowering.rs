@@ -700,6 +700,7 @@ pub(super) fn lower_function(
             name,
             label,
             in_trap_body: false,
+            stack_offset,
         });
     }
     // Pre-allocate the capacity shadow slot for every in-place string self-append

@@ -1008,14 +1008,13 @@ impl CodeBuilder<'_> {
                 error.type_
             ));
         }
+        // Pinned trap-local slot from `TrapState` (see `route_current_result_to_trap`):
+        // an inline `TRAP(e)` rebinds the shared name `e`, so `self.locals[name]`
+        // is not a reliable source for the function-level trap slot (bug-148).
         let (stack_offset, label) = self
             .trap
             .as_ref()
-            .and_then(|trap| {
-                self.locals
-                    .get(&trap.name)
-                    .map(|local| (local.stack_offset, trap.label.clone()))
-            })
+            .map(|trap| (trap.stack_offset, trap.label.clone()))
             .ok_or_else(|| "trap routing requires bound trap local".to_string())?;
         self.emit(abi::store_u64(
             &error.location,
@@ -1957,14 +1956,15 @@ impl CodeBuilder<'_> {
         let code_slot = self.allocate_stack_object("trap_error_code", 8);
         let message_slot = self.allocate_stack_object("trap_error_message", 8);
         let source_slot = self.allocate_stack_object("trap_error_source", 8);
+        // The function-level trap local's slot is pinned in `TrapState`, not read
+        // from `self.locals[name]`: an inline `TRAP(e)` in the body rebinds the
+        // shared name `e` to a different slot, so a `self.locals` lookup here would
+        // store the built `Error` to whichever slot was last bound, desyncing it
+        // from the handler's read of the pinned slot (bug-148).
         let (stack_offset, label) = self
             .trap
             .as_ref()
-            .and_then(|trap| {
-                self.locals
-                    .get(&trap.name)
-                    .map(|local| (local.stack_offset, trap.label.clone()))
-            })
+            .map(|trap| (trap.stack_offset, trap.label.clone()))
             .ok_or_else(|| "trap routing requires bound trap local".to_string())?;
 
         self.emit(abi::store_u64(

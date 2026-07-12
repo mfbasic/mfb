@@ -211,6 +211,14 @@ struct TrapState {
     name: String,
     label: String,
     in_trap_body: bool,
+    /// The function-level trap error local's fixed stack slot, captured when the
+    /// local is allocated (`function_lowering`). Every error route stores the
+    /// built `Error` here and the handler reads `e` from here — resolved from
+    /// this pinned offset, NOT `self.locals[name]`, because an inline `TRAP(e)`
+    /// in the body reuses the shared name `e` and rebinds `self.locals[name]` to
+    /// a different slot, which would otherwise desync the route store from the
+    /// handler read (bug-148).
+    stack_offset: usize,
 }
 
 #[derive(Clone)]
