@@ -16,7 +16,7 @@ tests/syntax/math/func_math_round_invalid/src/main.mfb:4 error[2-203-0043 TYPE_U
    5 |   LET integerArg AS Integer = math::round(1)
      | ^
 tests/syntax/math/func_math_round_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `math.round` has argument type(s) (Integer), expected Float | Fixed.
+               Call to `math.round` has argument type(s) (Integer), expected Float | Fixed | Money.
    3 | FUNC main AS Integer
    4 |   LET missing AS Integer = math::round()
    5 |   LET integerArg AS Integer = math::round(1)
@@ -28,7 +28,7 @@ tests/syntax/math/func_math_round_invalid/src/main.mfb:5 error[2-203-0043 TYPE_U
    6 |   LET wrongType AS Integer = math::round("x")
      | ^
 tests/syntax/math/func_math_round_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `math.round` has argument type(s) (String), expected Float | Fixed.
+               Call to `math.round` has argument type(s) (String), expected Float | Fixed | Money.
    4 |   LET missing AS Integer = math::round()
    5 |   LET integerArg AS Integer = math::round(1)
    6 |   LET wrongType AS Integer = math::round("x")

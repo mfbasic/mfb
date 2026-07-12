@@ -16,7 +16,7 @@ tests/syntax/math/func_math_ceil_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UN
    5 |   LET integerArg AS Integer = math::ceil(1)
      | ^
 tests/syntax/math/func_math_ceil_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `math.ceil` has argument type(s) (Integer), expected Float | Fixed.
+               Call to `math.ceil` has argument type(s) (Integer), expected Float | Fixed | Money.
    3 | FUNC main AS Integer
    4 |   LET missing AS Integer = math::ceil()
    5 |   LET integerArg AS Integer = math::ceil(1)
@@ -28,7 +28,7 @@ tests/syntax/math/func_math_ceil_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UN
    6 |   LET wrongType AS Integer = math::ceil(TRUE)
      | ^
 tests/syntax/math/func_math_ceil_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `math.ceil` has argument type(s) (Boolean), expected Float | Fixed.
+               Call to `math.ceil` has argument type(s) (Boolean), expected Float | Fixed | Money.
    4 |   LET missing AS Integer = math::ceil()
    5 |   LET integerArg AS Integer = math::ceil(1)
    6 |   LET wrongType AS Integer = math::ceil(TRUE)

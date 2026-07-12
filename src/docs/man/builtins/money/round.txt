@@ -1,0 +1,64 @@
+NAME
+  money::round - settle a Money to a given number of decimal places
+
+SYNOPSIS
+  money::round(value AS Money, decimals AS Integer) AS Money
+
+PACKAGE
+  money
+
+IMPORTS
+  IMPORT money
+
+DESCRIPTION
+  money::round explicitly settles a Money amount to decimals fractional places
+  under the current rounding mode (see money::setRounding), returning a Money.
+  This is the "compute at five places, book at two" operation: intermediate Money
+  arithmetic keeps the full five decimal places, and money::round settles a line
+  item or allocation remainder to whole cents (decimals = 2) or another scale when
+  it is time to record it.
+
+  Rounding follows the current mode: Commercial rounds a half away from zero,
+  Banker rounds a half to even. money::round therefore differs from
+  toString(Money), whose presentation rounding is a fixed half-away-from-zero rule
+  independent of the mode, and from math::round(Money), which exits the Money
+  dimension to the dimensionless whole-unit Integer count.
+
+  decimals must be in the range 0 through 5. decimals = 5 is the identity (Money
+  already carries five decimal places); decimals = 0 settles to whole currency
+  units while staying a Money.
+
+PARAMETERS
+  value AS Money
+    The amount to settle.
+
+  decimals AS Integer
+    The number of fractional decimal places to keep, 0 through 5.
+
+RETURN VALUE
+  AS Money
+    value rounded to decimals places under the current mode, still a Money.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when decimals is outside the range 0 through 5.
+
+TYPE CHECKING
+  The arguments must be a Money and an Integer. Any other types are a compile-time
+  error.
+
+EXAMPLES
+  Book an intermediate amount to whole cents:
+
+    LET line AS Money = price * 1.0825F        ' tax at five places
+    LET booked AS Money = money::round(line, 2)
+
+  The tie 0.125 settles differently under each mode:
+
+    money::setRounding(Rounding.Commercial)
+    ' money::round(0.125m, 2) is 0.13
+    money::setRounding(Rounding.Banker)
+    ' money::round(0.125m, 2) is 0.12
+
+SEE ALSO
+  money::setRounding, money::getRounding, toMoney, math::round

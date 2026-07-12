@@ -50,6 +50,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("regex", "mfb man regex [function]"),
     ("term", "mfb man term [function]"),
     ("datetime", "mfb man datetime [function]"),
+    ("money", "mfb man money [function]"),
     ("net", "mfb man net [function]"),
     ("tls", "mfb man tls [function]"),
     ("http", "mfb man http [function]"),

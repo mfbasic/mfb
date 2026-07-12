@@ -127,4 +127,4 @@ EXAMPLES
     LET text AS String = toString(bytes)
 
 SEE ALSO
-  toInt, toFloat, toFixed, toByte, typeName, io::print, io::write
+  toInt, toFloat, toFixed, toByte, toMoney, typeName, io::print, io::write

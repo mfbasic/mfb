@@ -1,0 +1,41 @@
+NAME
+  money::getRounding - read the current Money arithmetic rounding mode
+
+SYNOPSIS
+  money::getRounding() AS Rounding
+
+PACKAGE
+  money
+
+IMPORTS
+  IMPORT money
+
+DESCRIPTION
+  money::getRounding returns the Money rounding mode currently in effect for this
+  execution context, as a money::Rounding value. The default at program (and
+  thread) start is Commercial (round half away from zero). The value reflects the
+  most recent money::setRounding call on the current thread, or the mode inherited
+  from the spawning thread if none has been set.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Rounding
+    money::Rounding.Commercial or money::Rounding.Banker.
+
+ERRORS
+  None.
+
+TYPE CHECKING
+  money::getRounding takes no arguments; passing any is a compile-time error.
+
+EXAMPLES
+  Branch on the current mode:
+
+    IF money::getRounding() = Rounding.Banker THEN
+      io::print("banker's rounding is active")
+    END IF
+
+SEE ALSO
+  money::setRounding, money::round

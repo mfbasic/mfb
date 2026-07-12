@@ -5,6 +5,7 @@ SYNOPSIS
   Integer
   Float
   Fixed
+  Money
   Byte
 
 DESCRIPTION
@@ -24,6 +25,21 @@ PRIMITIVE TABLE
     64-bit deterministic binary fixed-point value with a signed 32/32 split.
     The range is approximately -2147483648.0 through 2147483647.9999999998,
     with resolution 1 / 2^32.
+
+  Money
+    64-bit exact base-10 fixed-point value scaled to five decimal places, for
+    auditable financial amounts. The range is -92233720368547.75808 through
+    92233720368547.75807 and every decimal amount within range is represented
+    exactly. Money is a DIMENSIONED numeric with a restricted algebra: you may add
+    two amounts, scale an amount by a dimensionless number (Integer, Byte, Float,
+    Fixed), take the ratio of two amounts (Money / Money is Float), and take a
+    remainder (Money MOD Money), but adding a bare number to an amount,
+    multiplying two amounts, comparing an amount to a bare number, or raising an
+    amount to a power are compile-time errors. Crossing into or out of Money is an
+    explicit toMoney / to* call — there is no implicit conversion. Money literals
+    use an m or M suffix (1.25m) or an expected Money type. Arithmetic rounding
+    follows a runtime mode (money::setRounding); see mfb man money and
+    mfb man general toMoney.
 
   Boolean
     TRUE or FALSE. Boolean is a primitive type, but it is not numeric and does

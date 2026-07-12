@@ -1,0 +1,115 @@
+NAME
+  toMoney - convert text, Integer, Float, Fixed, or Byte to Money
+
+SYNOPSIS
+  toMoney(value AS String) AS Money
+  toMoney(value AS Integer) AS Money
+  toMoney(value AS Float) AS Money
+  toMoney(value AS Fixed) AS Money
+  toMoney(value AS Byte) AS Money
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are always available without an IMPORT statement.
+
+DESCRIPTION
+  toMoney converts a supported value to Money, MFBASIC's exact base-10
+  fixed-point financial type. A Money value is a signed 64-bit integer scaled to
+  five decimal places, so its representable range is -92233720368547.75808
+  through 92233720368547.75807 and every decimal amount within range is
+  represented exactly. Because MFBASIC has no implicit conversions, toMoney is
+  the only way to cross into the Money dimension from another numeric type.
+
+  The String overload parses decimal text. An optional leading minus sign is
+  accepted, followed by digits and an optional fractional part; the whole string
+  must form a single well-formed decimal number, so surrounding whitespace and
+  stray characters are rejected. A value with more than five fractional digits is
+  rounded to five places, and a magnitude too large for the Money range fails
+  rather than wrapping.
+
+  The Integer and Byte overloads multiply the value by 100000 to place it at the
+  Money scale exactly. A Byte is always in range; an Integer whose scaled value
+  exceeds the Money range fails.
+
+  The Float overload converts a finite Float to Money, rounding to five decimal
+  places under the current Money rounding mode (see money::setRounding). The
+  Float must be finite: NaN and infinity are rejected, and a finite value whose
+  magnitude lies outside the Money range also fails. Because Float is inexact,
+  the result reflects the nearest five-place amount to the Float's approximate
+  value.
+
+  The Fixed overload rescales the binary Q32.32 value to the base-10 Money scale
+  exactly (via a 128-bit intermediate), rounding to five places; a Fixed whose
+  magnitude exceeds the Money range fails.
+
+  toMoney has no side effects beyond producing the result Money value.
+
+OVERLOADS
+  toMoney(value AS String) AS Money
+    Parses decimal text and rounds to five decimal places.
+
+  toMoney(value AS Integer) AS Money
+    Scales a signed 64-bit Integer to the Money scale (value * 100000).
+
+  toMoney(value AS Float) AS Money
+    Converts a finite Float, rounding to five places under the current mode.
+
+  toMoney(value AS Fixed) AS Money
+    Rescales a binary Fixed to the exact base-10 Money scale.
+
+  toMoney(value AS Byte) AS Money
+    Scales an unsigned 8-bit Byte to the Money scale (always in range).
+
+PARAMETERS
+  value AS String
+    Text holding a decimal number, optionally prefixed with a minus sign and
+    including an optional fractional part. The whole string must be valid.
+
+  value AS Integer
+    A signed 64-bit whole-currency-unit amount. Its scaled value must fall
+    within the Money range.
+
+  value AS Float
+    A finite Float amount. NaN and infinity are not accepted.
+
+  value AS Fixed
+    A binary fixed-point amount within the Money range.
+
+  value AS Byte
+    An unsigned 8-bit whole-currency-unit amount (0 through 255).
+
+RETURN VALUE
+  AS Money
+    The Money equivalent of value. Integer, Byte, and Fixed input within range
+    convert exactly; String rounds excess precision to five places; Float input
+    is inexact and rounded under the current mode.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  Raised when a String value is not well-formed decimal text, or when a Float
+  value is NaN or infinity.
+
+  77050010 (ErrOverflow)
+  Raised when the value is outside the representable Money range.
+
+TYPE CHECKING
+  toMoney accepts only String, Integer, Float, Fixed, and Byte values. Calling
+  it with any other type is a compile-time error.
+
+EXAMPLES
+  Parse decimal text:
+
+    LET price AS Money = toMoney("3.50")
+
+  Convert a whole-unit Integer:
+
+    LET total AS Money = toMoney(4)
+
+  Convert a Float rate result:
+
+    LET amount AS Money = toMoney(1.5)
+
+SEE ALSO
+  toInt, toFloat, toFixed, toByte, toString, money::round, money::setRounding

@@ -5,6 +5,7 @@ SYNOPSIS
   toFloat(value AS String) AS Float
   toFloat(value AS Integer) AS Float
   toFloat(value AS Fixed) AS Float
+  toFloat(value AS Money) AS Float
 
 PACKAGE
   general
@@ -70,7 +71,7 @@ ERRORS
   and would round to infinity.
 
 TYPE CHECKING
-  toFloat accepts only String, Integer, and Fixed values. Calling it with any
+  toFloat accepts only String, Integer, Fixed, and Money values. Calling it with any
   other type is a compile-time error; convert such values explicitly first.
 
 EXAMPLES
@@ -88,4 +89,4 @@ EXAMPLES
     LET value AS Float = toFloat(fixed)
 
 SEE ALSO
-  toInt, toFixed, toByte, isNumeric
+  toInt, toFixed, toByte, toMoney, isNumeric

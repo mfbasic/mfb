@@ -5,6 +5,7 @@ SYNOPSIS
   toFixed(value AS String) AS Fixed
   toFixed(value AS Integer) AS Fixed
   toFixed(value AS Float) AS Fixed
+  toFixed(value AS Money) AS Fixed
 
 PACKAGE
   general
@@ -83,7 +84,7 @@ ERRORS
   2147483647.
 
 TYPE CHECKING
-  toFixed accepts only String, Integer, and Float values. Calling it with any
+  toFixed accepts only String, Integer, Float, and Money values. Calling it with any
   other type is a compile-time error; convert such values explicitly first.
 
 EXAMPLES

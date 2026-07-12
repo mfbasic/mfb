@@ -3,6 +3,7 @@ NAME
 
 SYNOPSIS
   toByte(value AS Integer) AS Byte
+  toByte(value AS Money) AS Byte
 
 PACKAGE
   general
@@ -46,7 +47,7 @@ ERRORS
   represented as an 8-bit Byte.
 
 TYPE CHECKING
-  toByte accepts only Integer values. Calling it with any other type is a
+  toByte accepts only Integer and Money values. Calling it with any other type is a
   compile-time error; convert such values to Integer explicitly first.
 
 EXAMPLES

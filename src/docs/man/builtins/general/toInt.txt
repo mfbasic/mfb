@@ -7,6 +7,7 @@ SYNOPSIS
   toInt(value AS Byte) AS Integer
   toInt(value AS Float) AS Integer
   toInt(value AS Fixed) AS Integer
+  toInt(value AS Money) AS Integer
 
 PACKAGE
   general
@@ -97,7 +98,7 @@ ERRORS
   the Integer range.
 
 TYPE CHECKING
-  toInt accepts only String, Byte, Float, and Fixed values. Calling it with any
+  toInt accepts only String, Byte, Float, Fixed, and Money values. Calling it with any
   other type is a compile-time error; convert such values explicitly first.
 
 EXAMPLES
