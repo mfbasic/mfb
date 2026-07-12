@@ -1,0 +1,105 @@
+IMPORT money
+IMPORT math
+
+' plan-29: the Money type end-to-end — literals, dimensional arithmetic, scaling,
+' ratio/MOD/DIV, comparisons, conversions, toString, money::round with the
+' rounding-mode switch, and the math:: overloads. Assertions compare either raw
+' Money values (via the generic expect on two Money) or their rendered strings.
+
+FUNC settle(v AS Money, d AS Integer) AS Money
+  RETURN money::round(v, d)
+END FUNC
+
+TESTING
+  TGROUP "Builtin: money"
+    TGROUP "literals and toString"
+      TCASE "decimal literal and m suffix"
+        LET p5 AS Byte = 5
+        expectString(toString(1.25m), "1.25")
+        expectString(toString(1.25m, p5), "1.25000")
+        expectEqual(1.25m, toMoney("1.25"))
+        expectString(toString(-1.25m), "-1.25")
+      END TCASE
+      TCASE "toString rounds presentation half-away, independent of mode"
+        money::setRounding(Rounding.Banker)
+        expectString(toString(0.125m), "0.13")
+        money::setRounding(Rounding.Commercial)
+        expectString(toString(0.125m), "0.13")
+      END TCASE
+    END TGROUP
+
+    TGROUP "dimensional arithmetic"
+      TCASE "add subtract negate"
+        expectEqual(1.25m + 2.50m, 3.75m)
+        expectEqual(2.50m - 1.25m, 1.25m)
+        expectEqual(-1.25m, 0.00m - 1.25m)
+      END TCASE
+      TCASE "scalar scaling"
+        expectEqual(2.50m * 3, 7.50m)
+        expectEqual(3 * 2.50m, 7.50m)
+        expectEqual(9.99m * 1.08F, 10.7892m)
+        expectEqual(10.00m / 4, 2.50m)
+      END TCASE
+      TCASE "ratio MOD DIV"
+        expectFloat(10.00m / 4.00m, 2.5)
+        expectEqual(7.00m MOD 3.00m, 1.00m)
+        expectFloat(10.00m DIV 4.00m, 2.5)
+      END TCASE
+      TCASE "comparisons"
+        expectEqual(1.25m < 2.50m, true)
+        expectEqual(1.25m = 1.25m, true)
+        expectEqual(2.50m >= 2.50m, true)
+      END TCASE
+    END TGROUP
+
+    TGROUP "conversions"
+      TCASE "out of Money"
+        expectInteger(toInt(2.99m), 2)
+        expectFloat(toFloat(1.25m), 1.25)
+        expectString(toString(toByte(2.00m)), "2")
+        expectFixed(toFixed(1.25m), 1.25F)
+      END TCASE
+      TCASE "into Money"
+        expectEqual(toMoney(4), 4.00m)
+        expectEqual(toMoney("3.50"), 3.50m)
+        expectEqual(toMoney(1.5), 1.50m)
+      END TCASE
+    END TGROUP
+
+    TGROUP "rounding mode"
+      TCASE "money::round ties differ by mode"
+        money::setRounding(Rounding.Commercial)
+        expectEqual(settle(0.125m, 2), 0.13m)
+        money::setRounding(Rounding.Banker)
+        expectEqual(settle(0.125m, 2), 0.12m)
+        expectEqual(settle(0.135m, 2), 0.14m)
+        money::setRounding(Rounding.Commercial)
+      END TCASE
+      TCASE "getRounding reflects the mode"
+        money::setRounding(Rounding.Banker)
+        expectEqual(money::getRounding() = Rounding.Banker, true)
+        money::setRounding(Rounding.Commercial)
+        expectEqual(money::getRounding() = Rounding.Commercial, true)
+      END TCASE
+    END TGROUP
+
+    TGROUP "math surface"
+      TCASE "abs min max clamp stay Money"
+        expectEqual(math::abs(-3.75m), 3.75m)
+        expectEqual(math::min(1.25m, 2.50m), 1.25m)
+        expectEqual(math::max(1.25m, 2.50m), 2.50m)
+        expectEqual(math::clamp(2.50m, 1.00m, 2.00m), 2.00m)
+      END TCASE
+      TCASE "floor ceil round exit to Integer"
+        expectInteger(math::floor(3.75m), 3)
+        expectInteger(math::ceil(3.25m), 4)
+        expectInteger(math::round(3.5m), 4)
+        expectInteger(math::floor(-1.25m), -2)
+      END TCASE
+      TCASE "rand stays in range"
+        LET r AS Money = math::rand(1.00m, 10.00m)
+        expectEqual(r >= 1.00m AND r <= 10.00m, true)
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING

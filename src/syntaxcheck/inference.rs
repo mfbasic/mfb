@@ -1072,6 +1072,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::Integer
             | Type::Float
             | Type::Fixed
+            | Type::Money
             | Type::Boolean
             | Type::String
             | Type::Byte
