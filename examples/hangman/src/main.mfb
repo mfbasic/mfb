@@ -101,6 +101,11 @@ SUB drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Int
   io::write(message)
 
   term::setForeground(255, 255, 255)
+
+  ' Present the composed frame (plan-35): drawing mutated the in-memory cell grid;
+  ' term::sync() emits only the cells that changed since the last frame. Nothing
+  ' is displayed until this call (mandatory present).
+  term::sync()
 END SUB
 
 FUNC main AS Integer

@@ -17,7 +17,7 @@ diverge and are flagged.
 
 | Call | GUI behaviour | Headless / no-window fallback |
 |------|---------------|-------------------------------|
-| `io::write` / `io::print` | Append the UTF-8 text to the transcript (and a newline for `print`). When TUI mode is active, route into the term surface instead. | `write(1, bytes, len)` (+ `'\n'`) |
+| `io::write` / `io::print` | Append the UTF-8 text to the transcript (and a newline for `print`). When TUI mode is active, route into the term surface instead. | `write(1, bytes, len)` (+ `'\n'`) — but when TUI mode is active the text is stamped into the console shadow grid's back buffer and shown only on the next `term::sync` (plan-35; see *term-backend*), never written straight to fd 1. |
 | `io::writeError` / `io::printError` | Same, prefixed with `"[stderr] "` to visually distinguish error output. | `write(2, bytes, len)` (+ `'\n'`) |
 | `io::flush` | No-op returning `OK`; transcript writes are already synchronous. | Same (no-op `OK`) |
 | `io::input` | Switch to line-echo mode, render the prompt via the `io::write` helper, then read one committed line via the console `io::readLine` helper (reads fd 0). | Same; reads fd 0 (the pipe) |

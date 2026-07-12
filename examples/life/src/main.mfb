@@ -312,6 +312,12 @@ FUNC main AS Integer
     drawGrid(grid, gridW, gridH)
     drawStatus(gridW, gridH, size.columns, countLive(grid, gridW, gridH), gen, choice, startNanos, paused)
 
+    ' Present the fully-composed frame (plan-35): drawing mutated the in-memory
+    ' cell grid; term::sync() emits only the cells that changed since the last
+    ' frame, so a steady simulation flickers not at all and writes O(changed
+    ' cells) per frame. Without this call nothing would appear (mandatory present).
+    term::sync()
+
     ' Wait up to one frame for a key; if none arrives, advance the simulation.
     IF io::pollInput(frameDelayMs()) THEN
       LET key AS String = readKey()

@@ -16,20 +16,14 @@
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_term_term_on" },
   { "library": "libSystem", "symbol": "_tcgetattr", "requiredBy": "_mfb_rt_term_term_on" },
   { "library": "libSystem", "symbol": "_tcsetattr", "requiredBy": "_mfb_rt_term_term_on" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_clear" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_setForeground" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_setBackground" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_setBold" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_setUnderline" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_showCursor" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_hideCursor" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_moveTo" },
+  { "library": "libSystem", "symbol": "_ioctl", "requiredBy": "_mfb_rt_term_term_on" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_write" },
   { "library": "libSystem", "symbol": "_ioctl", "requiredBy": "_mfb_rt_term_term_terminalSize" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_off" },
   { "library": "libSystem", "symbol": "_tcsetattr", "requiredBy": "_mfb_rt_term_term_off" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_objc_msgSendSuper", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_autoreleasePoolPush", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_autoreleasePoolPop", "requiredBy": "_main" },
@@ -71,7 +65,9 @@
   { "library": "libSystem", "symbol": "_strlen", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_calloc", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_bzero", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_memmove", "requiredBy": "_main" }
+  { "library": "libSystem", "symbol": "_memmove", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_memcpy", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_free", "requiredBy": "_main" }
   ],
   "functions": [
   {
