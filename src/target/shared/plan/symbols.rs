@@ -40,14 +40,20 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     }
     // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
     // even when the program never calls it explicitly, so the object plan must
-    // define that code unit whenever any `term::` helper is used. Mirrors the
-    // code layer's unconditional `term::off` emission in `target::shared::code`.
+    // define that code unit whenever any `term::` helper is used. `term::off` in
+    // turn presents the final frame through the `term::sync` helper and the
+    // shutdown teardown frees the grid (plan-35-C), so the present helper must
+    // also be defined whenever `term::` is used even if the program never calls
+    // `sync`. Mirrors the code layer's unconditional `term::off`/`term::sync`
+    // emission in `target::shared::code`.
     if symbols
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
     {
-        if let Some(spec) = runtime::spec_for_call("term.off") {
-            push_unique(&mut symbols, spec.symbol.to_string());
+        for call in ["term.off", "term.sync"] {
+            if let Some(spec) = runtime::spec_for_call(call) {
+                push_unique(&mut symbols, spec.symbol.to_string());
+            }
         }
     }
     symbols
@@ -111,16 +117,21 @@ pub(super) fn platform_imports(
     }
     // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
     // even when the program never calls it explicitly. `term::off` now drives a
-    // `tcsetattr` to restore the saved cooked line discipline (bug-149), whose
-    // import the function-body scan above cannot see (the body has no
-    // `term.off` call). Pull it in whenever the module uses any `term::` helper,
-    // mirroring the code layer's unconditional `term::off` emission.
+    // `tcsetattr` to restore the saved cooked line discipline (bug-149) and
+    // presents the final frame through the `term::sync` helper, which re-reads the
+    // terminal size via the TIOCGWINSZ `ioctl` (plan-35-C). Neither import is
+    // visible to the function-body scan above (the body has no `term.off`/
+    // `term.sync` call), so pull both helper import sets in whenever the module
+    // uses any `term::` helper, mirroring the code layer's unconditional
+    // `term::off`/`term::sync` emission.
     if runtime_symbols(module)
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
     {
-        for import in platform_imports_for_runtime_call(platform, "term.off") {
-            push_platform_import(&mut imports, import);
+        for call in ["term.off", "term.sync"] {
+            for import in platform_imports_for_runtime_call(platform, call) {
+                push_platform_import(&mut imports, import);
+            }
         }
     }
     // The `os::` env/pwd helpers serialize their libc-global access behind a
