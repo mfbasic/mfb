@@ -35,7 +35,7 @@ The three `Thread`/`ThreadWorker OF …` spellings — `<Msg> TO <Out>`,
 `<Msg> RES <Res> TO <Out>`, and resource-only `RES <Res> TO <Out>` (with `Msg`
 defaulting to `Nothing`) — are documented by `./mfb spec language threads`. The
 compiler parses them with `split_thread_types` in `builtins/thread.rs`, producing
-the internal structural view `(kind, message, resource, output)` where `resource`
+the internal structural view `(message, resource, output)` where `resource`
 is an `Option`. `thread::start` derives the parent `Thread` type from the worker's
 `ThreadWorker` first parameter, preserving the `RES` clause. [[src/builtins/thread.rs:split_thread_types]]
 

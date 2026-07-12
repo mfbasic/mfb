@@ -35,7 +35,11 @@ arena at send time, then the reader just dequeues the already-materialized value
 - Worker→parent (`thread.emit`) loads the parent arena state from control-block
   offset 88 and copies the message into it.
 - Parent→worker (`thread.send`) and all reads use the worker arena state at
-  offset 80. [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]]
+  offset 80.
+
+The message copy is emitted at the send site (the builder points the arena-state
+register at the receiver's state, then copies); the queue-write helper only stores
+the already-copied pointer into the queue slot. [[src/target/shared/code/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
 Resource handles move as scalar handles through the resource queues without the
 flat-block deep copy used for data-plane values.
@@ -60,8 +64,8 @@ enqueue success:
   the error handler, where it remains owned by the sender and can be released. The
   syntaxchecker treats the argument at index 1 of `thread.start`, `thread.send`, and
   `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
-  transferred, rejected on the IR by `ir::verify` with `TYPE_RESOURCE_BORROW_INVALIDATE`
-  ("a borrowed resource cannot be closed, returned, or transferred"). [[src/ir/verify/mod.rs:2142]]
+  transferred, rejected on the IR with `TYPE_RESOURCE_BORROW_INVALIDATE`
+  ("Binding `<name>` is a borrowed resource; only its owner may close, `RETURN`, or transfer it."). [[src/ir/verify/mod.rs:check_resource_moves]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal
@@ -79,7 +83,7 @@ Cancellation is cooperative:
 
 Cancellation points are built-in operations whose implementations can safely
 return an error without abandoning partially moved values or held runtime locks.
-The current runtime cancellation points are indefinitely blocking or timed waits
+The runtime cancellation points are indefinitely blocking or timed waits
 in the worker-side channel ops — `thread::receive`, `thread::send`,
 `thread::accept`, and `thread::transfer` on a `ThreadWorker`. If cancellation is
 already requested before a worker enters one of these operations, the operation

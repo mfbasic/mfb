@@ -2,7 +2,7 @@
 
 Thread support is not validated by compiler output alone. A complete
 implementation must include runtime tests that execute generated native
-programs. Runtime tests live under `tests/<name>/` with a `golden/<name>.run`
+programs. Runtime tests live under a category root (`tests/{acceptance,syntax,rt-error,rt-behavior}/…/<name>/`) with a `golden/<name>.run`
 golden capturing observable behavior; compile-only tests (type-checking,
 diagnostics) omit the `.run` file. Worker packages used by the tests are built
 from sources under `tools/thread-package-sources/`. The runner is

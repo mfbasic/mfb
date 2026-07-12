@@ -35,7 +35,7 @@ The source API has only four channel verbs — `thread::send`, `thread::receive`
 `thread::transfer`, `thread::accept` (plus `thread::poll`) — but each lowers to a
 *different* helper depending on whether the handle is a parent `Thread` or a
 worker `ThreadWorker`, because the two ends use different queues. The split is
-applied in `builder_values.rs`: [[src/target/shared/code/builder_values.rs:1351]]
+applied when the runtime call is lowered: [[src/target/shared/code/builder_values.rs:1607]]
 
 | Source op                 | On a parent `Thread`      | On a worker `ThreadWorker` |
 | ------------------------- | ------------------------- | -------------------------- |

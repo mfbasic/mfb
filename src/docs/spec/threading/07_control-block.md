@@ -1,7 +1,7 @@
 # Control Block
 
-The native thread handle points to a runtime control block. The current native
-layout is an implementation ABI between helper lowering and generated code. The
+The native thread handle points to a runtime control block. The native layout
+is an implementation ABI between helper lowering and generated code. The
 block is 120 bytes (`THREAD_BLOCK_SIZE`):
 
 ```text

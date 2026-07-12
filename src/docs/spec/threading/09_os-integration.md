@@ -7,7 +7,8 @@ Threads are real native OS threads.
 The macOS backend starts MFBASIC workers through libSystem pthreads:
 
 ```text
-pthread_create(&controlBlock.osHandle, NULL, _mfb_rt_thread_trampoline, controlBlock)
+pthread_create(&controlBlock.osHandle, attr, _mfb_rt_thread_trampoline, controlBlock)
+  ; attr = a pthread_attr_t initialized with an 8 MiB stack (pthread_attr_setstacksize)
 ```
 
 The trampoline is a normal pthread start routine. The runtime must not start
@@ -37,7 +38,8 @@ exact interpreter paths and soname list are owned by
 `thread::start` calls `pthread_create` with:
 
 ```text
-pthread_create(&controlBlock.osHandle, NULL, _mfb_rt_thread_trampoline, controlBlock)
+pthread_create(&controlBlock.osHandle, attr, _mfb_rt_thread_trampoline, controlBlock)
+  ; attr = a pthread_attr_t initialized with an 8 MiB stack (pthread_attr_setstacksize)
 ```
 
 The Linux trampoline is a normal pthread start routine. It preserves the
@@ -53,7 +55,7 @@ the OS reclaim the arena instead.
 
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
-the current Linux backend. They may be used by libc internally, but generated
+the Linux backend. They may be used by libc internally, but generated
 thread helpers must call the libc/pthread interface. [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## See Also

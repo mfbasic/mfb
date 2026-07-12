@@ -5,7 +5,6 @@ The authoritative source-level API reference is the built-in `thread` package
 (`./mfb man thread`); this document describes the implementation contract behind
 it. See the See Also section for the related specs.
 
-Last updated: 2026-06-26
 
 ## Goals
 
