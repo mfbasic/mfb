@@ -1,3 +1,4 @@
+pub(crate) mod icon;
 mod link;
 mod object;
 
@@ -33,13 +34,16 @@ pub(crate) fn write_linked_executable(
 }
 
 /// Link `image` and write it as a macOS app-mode `.app` bundle (Info.plist +
-/// `Contents/MacOS/<name>`), returning the path to the `.app` directory.
+/// `Contents/MacOS/<name>` + `Contents/Resources/AppIcon.icns`), returning the
+/// path to the `.app` directory. `app_icon` is the resolved project `icon` source
+/// (plan-22-A); `None` uses the compiler's embedded default icon (plan-22-B).
 pub(crate) fn write_linked_app_bundle(
     project_dir: &Path,
     project_name: &str,
     image: &EncodedImage,
+    app_icon: Option<&Path>,
 ) -> Result<PathBuf, String> {
-    link::write_app_bundle(project_dir, project_name, image)
+    link::write_app_bundle(project_dir, project_name, image, app_icon)
 }
 
 #[cfg(test)]
@@ -133,9 +137,11 @@ mod tests {
     #[test]
     fn writes_linked_app_bundle_layout() {
         let dir = tempfile::tempdir().unwrap();
-        let bundle = write_linked_app_bundle(dir.path(), "windowed", &image()).expect("bundle");
+        let bundle =
+            write_linked_app_bundle(dir.path(), "windowed", &image(), None).expect("bundle");
         assert_eq!(bundle, dir.path().join("windowed.app"));
         assert!(bundle.join("Contents/MacOS/windowed").is_file());
         assert!(bundle.join("Contents/Info.plist").is_file());
+        assert!(bundle.join("Contents/Resources/AppIcon.icns").is_file());
     }
 }

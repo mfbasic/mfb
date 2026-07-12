@@ -31,6 +31,8 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `mfb` | string | yes | toolchain/manifest schema version (`"1.0"`); non-empty after trim |
 | `sources` | array of objects | yes | source roots (see *Source Entries*); non-empty |
 | `kind` | string | yes¹ | `"executable"` or `"package"` |
+| `mode` | string | no | `"console"` (default) or `"app"`; `"app"` is equivalent to passing `-app` (see ²) |
+| `icon` | string | no | project-relative path to a 1024×1024 PNG source for the macOS app icon (see ³) |
 | `entry` | string | no | entry-point function name; defaults to `"main"` |
 | `author` | string | no | package author metadata |
 | `url` | string | no | package homepage/source URL |
@@ -49,8 +51,24 @@ value that is *neither* `executable` nor `package` only **warns**
 (`PROJECT_JSON_UNKNOWN_KIND`) and validation continues; a missing or non-string
 `kind` is a hard error. [[src/manifest/mod.rs:validate_kind]]
 
-Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url` (optional
-strings), `kind`, and `sources` are *validated* by the manifest validator. The
+² `mode` composes with the `-app` CLI flag: app mode is requested if **either**
+is set (`-app` is additive, never subtractive). Like `kind`, a present-and-string
+`mode` that is neither `console` nor `app` only **warns**
+(`PROJECT_JSON_UNKNOWN_MODE`) and continues; a non-string `mode` is a hard error.
+App mode still requires `kind: "executable"` and an app-capable target (macOS/Linux).
+[[src/manifest/mod.rs:validate_mode]] [[src/manifest/mod.rs:build_mode_is_app]]
+
+³ `icon` is resolved and existence-checked only when app mode is active; a path
+that does not resolve to a readable file is a hard error
+(`PROJECT_JSON_ICON_MISSING`). The macOS backend renders it (or, when absent, the
+compiler's embedded default) into `Contents/Resources/AppIcon.icns`; a provided
+image that is not decodable or not exactly 1024×1024 fails the build. `icon` is
+macOS-only — a Linux/GTK app build ignores it.
+[[src/manifest/mod.rs:icon_path]] [[src/os/macos/icon.rs:build_icns]]
+
+Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url`/`icon`
+(optional strings), `kind`, `mode`, and `sources` are *validated* by the manifest
+validator. The
 remaining fields (`ident`, `packages`, `targets`, and the per-source `role`)
 are read lazily by later stages — `package_metadata`, `package_dependencies`,
 and the source selector — and are **not** schema-checked here; an absent or

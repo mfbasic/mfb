@@ -45,6 +45,7 @@ pub(crate) fn write_app_bundle(
     project_dir: &Path,
     project_name: &str,
     image: &EncodedImage,
+    app_icon: Option<&Path>,
 ) -> Result<PathBuf, String> {
     let bytes = encode_executable_bytes(project_name, image)?;
     let bundle_path = project_dir.join(format!("{project_name}.app"));
@@ -55,6 +56,16 @@ pub(crate) fn write_app_bundle(
 
     let executable_path = macos_dir.join(project_name);
     write_executable_file(&executable_path, &bytes)?;
+
+    // Render the app icon (plan-22-B §4.4): the resolved project `icon` source or
+    // the compiler's embedded default, packaged as a multi-resolution `.icns`.
+    let resources_dir = contents_dir.join("Resources");
+    fs::create_dir_all(&resources_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", resources_dir.display()))?;
+    let icns = crate::os::macos::icon::build_icns(app_icon)?;
+    let icns_path = resources_dir.join("AppIcon.icns");
+    fs::write(&icns_path, icns)
+        .map_err(|err| format!("failed to write '{}': {err}", icns_path.display()))?;
 
     let plist_path = contents_dir.join("Info.plist");
     fs::write(&plist_path, app_info_plist(project_name))
@@ -167,6 +178,8 @@ fn app_info_plist(project_name: &str) -> String {
             "  <string>dev.mfbasic.{name}</string>\n",
             "  <key>CFBundlePackageType</key>\n",
             "  <string>APPL</string>\n",
+            "  <key>CFBundleIconFile</key>\n",
+            "  <string>AppIcon</string>\n",
             "  <key>NSPrincipalClass</key>\n",
             "  <string>NSApplication</string>\n",
             "</dict>\n",

@@ -18,6 +18,10 @@ use crate::target::shared::code::{
     RelocIntent,
 };
 
+/// Embedded default application icon (1024×1024 PNG), consumed by the macOS
+/// `.icns` generator (`crate::os::macos::icon`) when a project sets no `icon`.
+pub(crate) mod icon;
+
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_macapp_worker";
 

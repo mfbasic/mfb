@@ -715,12 +715,19 @@ fn writes_and_launches_app_bundle() {
     let dir = std::env::temp_dir().join(format!("mfb_appbundle_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
 
-    let bundle = write_app_bundle(&dir, "windowed", &image).expect("write app bundle");
+    let bundle = write_app_bundle(&dir, "windowed", &image, None).expect("write app bundle");
     assert_eq!(bundle, dir.join("windowed.app"));
     let exe = bundle.join("Contents/MacOS/windowed");
     let plist = bundle.join("Contents/Info.plist");
+    let icns = bundle.join("Contents/Resources/AppIcon.icns");
     assert!(exe.is_file(), "bundle executable must exist");
     assert!(plist.is_file(), "Info.plist must exist");
+    assert!(icns.is_file(), "AppIcon.icns must exist");
+    assert_eq!(
+        &std::fs::read(&icns).unwrap()[0..4],
+        b"icns",
+        "AppIcon.icns must begin with the icns magic"
+    );
 
     // The bundled binary must be byte-identical to the console `.out`.
     let out = write_executable(&dir, "windowed", &image).expect("write console executable");
@@ -814,7 +821,7 @@ fn links_and_launches_app_bundle_importing_libobjc() {
     };
     let dir = std::env::temp_dir().join(format!("mfb_objclink_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let bundle = write_app_bundle(&dir, "objcapp", &image).expect("write libobjc app bundle");
+    let bundle = write_app_bundle(&dir, "objcapp", &image, None).expect("write libobjc app bundle");
     let exe = bundle.join("Contents/MacOS/objcapp");
     let status = std::process::Command::new(&exe)
         .status()
@@ -942,17 +949,25 @@ fn write_app_bundle_creates_layout_and_plist_host_neutral() {
         signing_metadata: None,
     };
     let dir = tempfile::tempdir().unwrap();
-    let bundle = write_app_bundle(dir.path(), "demo", &image).expect("write app bundle");
+    let bundle = write_app_bundle(dir.path(), "demo", &image, None).expect("write app bundle");
     assert_eq!(bundle, dir.path().join("demo.app"));
 
     let exe = bundle.join("Contents/MacOS/demo");
     let plist = bundle.join("Contents/Info.plist");
+    let icns = bundle.join("Contents/Resources/AppIcon.icns");
     assert!(exe.is_file(), "bundle executable must exist");
     assert!(plist.is_file(), "Info.plist must exist");
+    assert!(icns.is_file(), "AppIcon.icns must exist");
+    assert_eq!(
+        &std::fs::read(&icns).unwrap()[0..4],
+        b"icns",
+        "AppIcon.icns must begin with the icns magic"
+    );
 
     let plist_text = std::fs::read_to_string(&plist).unwrap();
     assert!(plist_text.contains("<key>CFBundleExecutable</key>\n  <string>demo</string>"));
     assert!(plist_text.contains("dev.mfbasic.demo"));
+    assert!(plist_text.contains("<key>CFBundleIconFile</key>\n  <string>AppIcon</string>"));
 
     let exe_bytes = std::fs::read(&exe).unwrap();
     assert_eq!(&exe_bytes[..4], &[0xCF, 0xFA, 0xED, 0xFE]);

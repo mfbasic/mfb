@@ -182,6 +182,7 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
+        app_icon: Option<&Path>,
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
             project_dir,
@@ -190,6 +191,7 @@ impl NativeBackend for Backend {
             packages,
             signing_metadata,
             build_mode,
+            app_icon,
         )
     }
 
@@ -251,6 +253,7 @@ fn write_executable(
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
+    app_icon: Option<&Path>,
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
@@ -267,9 +270,14 @@ fn write_executable(
     match build_mode {
         // App mode (plan-04-macos-app.md §5.2) emits a `.app` bundle whose AppKit
         // `_main` bootstrap targets a window; console mode emits a plain `.out`.
-        NativeBuildMode::MacApp => {
-            os::macos::write_linked_app_bundle(project_dir, &ir.name, &image).map(|path| vec![path])
-        }
+        // The optional `app_icon` (plan-22-A/B) renders into `AppIcon.icns`.
+        NativeBuildMode::MacApp => os::macos::write_linked_app_bundle(
+            project_dir,
+            &ir.name,
+            &image,
+            app_icon,
+        )
+        .map(|path| vec![path]),
         NativeBuildMode::Console => {
             os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
         }

@@ -240,10 +240,11 @@ severity is `error`.
 
 ### `2-200` — `project.json` validation & build orchestration
 
-The low block (`0001`-`0011`) validates `project.json`; the high block
+The low block (`0001`-`0013`) validates `project.json`; the high block
 (`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
-registry's only `info`, and `2-200-0009` one of exactly five `warn` rules
-(with `2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
+registry's only `info`, and `2-200-0009` one of exactly six `warn` rules
+(with `2-200-0012 PROJECT_JSON_UNKNOWN_MODE`,
+`2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
 `2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`,
 `2-203-0108 TYPE_MONEY_LITERAL_PRECISION`, and
 `2-203-0109 MONEY_INEXACT_FLOAT_LITERAL`); every other rule is `error`.
@@ -262,6 +263,8 @@ registry's only `info`, and `2-200-0009` one of exactly five `warn` rules
 | `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | project.json kind is not recognized |
 | `2-200-0010` | `PROJECT_JSON_VALID` | info | project.json passed validation |
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | project entry point is invalid |
+| `2-200-0012` | `PROJECT_JSON_UNKNOWN_MODE` | warn | project.json mode is not recognized |
+| `2-200-0013` | `PROJECT_JSON_ICON_MISSING` | error | project.json icon path does not resolve to a readable file |
 | `2-200-0100` | `BUILD_FAILED` | error | build failed for an unclassified orchestration reason |
 | `2-200-0101` | `FMT_CHECK_FAILED` | error | one or more source files are not formatted (mfb fmt --check) |
 

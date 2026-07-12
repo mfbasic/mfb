@@ -105,15 +105,29 @@ carries MFBASIC's own executable signing metadata when the build supplies it.
 <project>.app/
   Contents/
     Info.plist
-    MacOS/<project>      (the Mach-O executable, byte-identical to <project>.out)
+    MacOS/<project>            (the Mach-O executable, byte-identical to <project>.out)
+    Resources/AppIcon.icns     (multi-resolution app icon)
 ```
 
 `Info.plist` sets `CFBundleName`, `CFBundleExecutable`, `CFBundleIdentifier`
-(`dev.mfbasic.<project>`), `CFBundlePackageType` `APPL`, and `NSPrincipalClass`
-`NSApplication`. In app mode `_main` is an AppKit bootstrap that creates the
-window and spawns a worker thread running the language entry; console mode uses
-`_main` as the ordinary program entry. The worker bootstrap's runtime mechanics
-are owned by ./mfb spec threading os-integration.
+(`dev.mfbasic.<project>`), `CFBundlePackageType` `APPL`, `CFBundleIconFile`
+(`AppIcon`), and `NSPrincipalClass` `NSApplication`. In app mode `_main` is an
+AppKit bootstrap that creates the window and spawns a worker thread running the
+language entry; console mode uses `_main` as the ordinary program entry. The
+worker bootstrap's runtime mechanics are owned by ./mfb spec threading
+os-integration.
+
+### App icon
+
+`Contents/Resources/AppIcon.icns` is a complete multi-resolution icon family (16,
+32, 128, 256, 512 at @1x and @2x) generated for every app build. The source is
+the project's `mode`/`icon` manifest field (`./mfb spec tooling project-manifest`)
+when set — required to be a decodable 1024×1024 PNG — otherwise the compiler's
+embedded default icon. The source is scaled into the Big Sur content area (824 on
+a 1024 grid) and squircle-masked, so an arbitrary square image reads as a native
+macOS icon; every `.icns` entry is downsampled from that single shaped 1024
+canvas. `image`/`icns` are compiler build-time dependencies only.
+[[src/os/macos/icon.rs:build_icns]]
 
 ### Bundle generation contract
 
@@ -122,9 +136,10 @@ The bundle writer recreates the directory tree under the project directory:
 intermediate `Contents` directory is materialized too). The Mach-O is encoded by
 the same `encode_executable_bytes` helper the console `<project>.out` path uses,
 so the executable written to `Contents/MacOS/<project>` is byte-identical to the
-console output for the same image — only the on-disk layout and the
-`Info.plist` differ. The executable file is then chmod'd to `0o755` (the
-`Info.plist` is written with default permissions, not marked executable).
+console output for the same image — only the on-disk layout, the `Info.plist`,
+and the `Resources/AppIcon.icns` sidecar differ. The executable file is then
+chmod'd to `0o755` (the `Info.plist` and `AppIcon.icns` are written with default
+permissions, not marked executable).
 [[src/os/macos/link/mod.rs:write_app_bundle]] [[src/os/macos/link/mod.rs:write_executable_file]]
 
 The project name is substituted into every `Info.plist` string field

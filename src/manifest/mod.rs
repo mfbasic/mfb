@@ -95,7 +95,15 @@ pub(crate) fn validate_project_manifest(
         valid = false;
     }
 
+    if !validate_optional_string(manifest, project_path, &contents, "icon") {
+        valid = false;
+    }
+
     if !validate_kind(manifest, project_path, &contents) {
+        valid = false;
+    }
+
+    if !validate_mode(manifest, project_path, &contents) {
         valid = false;
     }
 
@@ -335,6 +343,65 @@ fn validate_kind(
     true
 }
 
+/// Validate the optional `mode` field (plan-22-A §4.1). Absent → ok. Present but
+/// not a string → `PROJECT_JSON_FIELD_TYPE` (hard). A string other than
+/// `console`/`app` → soft `PROJECT_JSON_UNKNOWN_MODE` (validation continues,
+/// mirroring `validate_kind`).
+fn validate_mode(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let Some(value) = manifest.get("mode") else {
+        return true;
+    };
+
+    let (line, column) = field_position(contents, "mode");
+    let Some(mode) = value.get::<String>() else {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            "Field `mode` must be a string when present.",
+            project_path,
+            line,
+            column,
+            column + "\"mode\"".len(),
+        );
+        return false;
+    };
+
+    if !matches!(mode.as_str(), "console" | "app") {
+        rules::show_diagnostic(
+            "PROJECT_JSON_UNKNOWN_MODE",
+            "Expected `console` or `app`; continuing validation.",
+            project_path,
+            line,
+            column,
+            column + "\"mode\"".len(),
+        );
+    }
+
+    true
+}
+
+/// Whether the manifest requests app mode via `"mode": "app"` (plan-22-A §4.1).
+/// Composed with the `-app` CLI flag in `build_project`.
+pub(crate) fn build_mode_is_app(manifest: &HashMap<String, JsonValue>) -> bool {
+    manifest
+        .get("mode")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+        == Some("app")
+}
+
+/// The project-relative `icon` path (plan-22-A §4.3), if present. Resolution and
+/// existence checking happen in `build_project` when app mode is active.
+pub(crate) fn icon_path(manifest: &HashMap<String, JsonValue>) -> Option<&str> {
+    manifest
+        .get("icon")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+}
+
 pub(crate) fn project_kind(manifest: &HashMap<String, JsonValue>) -> &str {
     manifest
         .get("kind")
@@ -526,6 +593,68 @@ mod tests {
             "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"library\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
         );
         assert!(validate_project_manifest(&path).is_ok());
+    }
+
+    #[test]
+    fn mode_app_validates_and_is_detected() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"executable\",\n  \"mode\": \"app\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        let manifest = validate_project_manifest(&path).expect("valid");
+        assert!(build_mode_is_app(&manifest));
+    }
+
+    #[test]
+    fn mode_console_is_not_app() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"executable\",\n  \"mode\": \"console\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        let manifest = validate_project_manifest(&path).expect("valid");
+        assert!(!build_mode_is_app(&manifest));
+    }
+
+    #[test]
+    fn absent_mode_is_not_app() {
+        let (_dir, path) = write_manifest(VALID);
+        let manifest = validate_project_manifest(&path).expect("valid");
+        assert!(!build_mode_is_app(&manifest));
+    }
+
+    #[test]
+    fn unknown_mode_still_validates_ok() {
+        // An unknown mode only warns (like kind); validation succeeds.
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"executable\",\n  \"mode\": \"kiosk\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        let manifest = validate_project_manifest(&path).expect("valid");
+        // An unrecognized mode is not treated as app.
+        assert!(!build_mode_is_app(&manifest));
+    }
+
+    #[test]
+    fn non_string_mode_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"executable\",\n  \"mode\": 3,\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn non_string_icon_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"executable\",\n  \"icon\": 7,\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn icon_path_accessor_reads_field() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"executable\",\n  \"icon\": \"art/icon.png\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        let manifest = validate_project_manifest(&path).expect("valid");
+        assert_eq!(icon_path(&manifest), Some("art/icon.png"));
+        assert_eq!(icon_path(&validate_project_manifest(&write_manifest(VALID).1).unwrap()), None);
     }
 
     #[test]

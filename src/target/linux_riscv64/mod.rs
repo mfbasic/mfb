@@ -192,7 +192,10 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
+        app_icon: Option<&Path>,
     ) -> Result<Vec<PathBuf>, String> {
+        // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
+        let _ = app_icon;
         write_executable(
             project_dir,
             ir,

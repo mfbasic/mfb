@@ -929,6 +929,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "project entry point is invalid",
     },
     Rule {
+        code: "2-200-0012",
+        name: "PROJECT_JSON_UNKNOWN_MODE",
+        severity: Severity::Warn,
+        message: "project.json mode is not recognized",
+    },
+    Rule {
+        code: "2-200-0013",
+        name: "PROJECT_JSON_ICON_MISSING",
+        severity: Severity::Error,
+        message: "project.json icon path does not resolve to a readable file",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

@@ -14,6 +14,7 @@ use crate::manifest::package::{
 };
 use crate::manifest::project_kind;
 use crate::manifest::validate_project_manifest;
+use crate::manifest::{build_mode_is_app, icon_path};
 use crate::monomorph;
 use crate::resolver;
 use crate::rules;
@@ -155,18 +156,23 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // disallowed unsigned one) hard-fails the build with a non-zero exit.
     verify_and_report_packages(&options.location, &manifest, options.allow_unsigned)?;
 
+    // App mode is requested by either the `-app` CLI flag or `"mode": "app"` in
+    // the manifest (plan-22-A §4.2); `-app` is additive, never subtractive, so the
+    // two compose without double-erroring.
+    let app_mode = options.app_mode || build_mode_is_app(&manifest);
+
     // `mfb build -app` (plan-04-macos-app.md §5.1, plan-05-linux-app.md §5.1) is an
     // executable-only build flag supported on app-capable native targets (macOS via
     // AppKit, Linux via GTK4). Reject incompatible combinations up front, before any
-    // lowering.
-    if options.app_mode {
+    // lowering. The `"mode": "app"` manifest field is gated identically.
+    if app_mode {
         if project_kind != "executable" {
-            eprintln!("error: mfb build -app requires an executable project");
+            eprintln!("error: app mode requires an executable project");
             return Err(());
         }
         if !target::target_supports_app_mode(&target) {
             eprintln!(
-                "error: mfb build -app requires a macOS or Linux target (got {})",
+                "error: app mode requires a macOS or Linux target (got {})",
                 target.name()
             );
             return Err(());
@@ -174,13 +180,43 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     }
     // The target OS selects the app toolkit and therefore the build mode. The CLI
     // has already verified the target supports app mode at this point.
-    let build_mode = if options.app_mode {
+    let build_mode = if app_mode {
         match target.os.as_str() {
             "linux" => target::NativeBuildMode::LinuxApp,
             _ => target::NativeBuildMode::MacApp,
         }
     } else {
         target::NativeBuildMode::Console
+    };
+
+    // The `icon` field (plan-22-A §4.3) is a project-relative source image
+    // consumed by the macOS backend (plan-22-B renders it into `AppIcon.icns`).
+    // Resolve and existence-check it only when app mode is active; a typo path
+    // fails fast here without pulling in an image decoder. Deep validation
+    // (decodable, exactly 1024×1024) happens in the backend.
+    let app_icon: Option<PathBuf> = if app_mode {
+        match icon_path(&manifest) {
+            Some(rel) => {
+                let resolved = options.location.join(rel);
+                if !resolved.is_file() {
+                    let contents = std::fs::read_to_string(&project_path).unwrap_or_default();
+                    let (line, column) = crate::manifest::field_position(&contents, "icon");
+                    rules::show_diagnostic(
+                        "PROJECT_JSON_ICON_MISSING",
+                        &format!("icon `{rel}` does not resolve to a readable file."),
+                        &project_path,
+                        line,
+                        column,
+                        column + "\"icon\"".len(),
+                    );
+                    return Err(());
+                }
+                Some(resolved)
+            }
+            None => None,
+        }
+    } else {
+        None
     };
 
     let project_name = manifest
@@ -352,6 +388,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     .as_ref()
                     .map(|signing| signing.executable_metadata.as_slice()),
                 build_mode,
+                app_icon.as_deref(),
             )
             .map_err(|err| {
                 eprintln!("error: {err}");

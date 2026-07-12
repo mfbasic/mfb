@@ -106,6 +106,7 @@ pub(crate) trait NativeBackend: Sync {
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
+        app_icon: Option<&Path>,
     ) -> Result<Vec<PathBuf>, String>;
     fn write_nir(
         &self,
@@ -183,6 +184,7 @@ pub fn write_executable(
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
+    app_icon: Option<&Path>,
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().executable {
@@ -192,7 +194,7 @@ pub fn write_executable(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_executable(project_dir, ir, packages, signing_metadata, build_mode)
+    backend.write_executable(project_dir, ir, packages, signing_metadata, build_mode, app_icon)
 }
 
 pub fn write_nir(
