@@ -43,3 +43,13 @@ double-adds; a shared cond other than `b.vs/b.vc` also panics in
 `overflow_branch_cond`. No builder emits two flag branches after one `adds`
 today; latent. Fix: cache the fused result instead of re-expanding for the
 shared consumer.
+
+---
+## Resolution (2026-07-11)
+- 126.1 (FRintnV ties-to-even + integral/non-finite guard) — FIXED, verified rv64.
+- 126.2 (stale bare-compare rhs: pending-clear on Label / rhs redef) — FIXED.
+- 126.3 (non-idempotent shared fused arithmetic setter re-expansion) — FIXED with a
+  loud guard: a shared `adds`/`subs` (which writes dst) now fails the build instead
+  of double-applying its add/sub for the second flag-less-RISC-V branch. Compares
+  (idempotent) still re-emit. Byte-identical (0 golden changes) — no builder emits a
+  shared arithmetic setter today. Cluster closed.

@@ -436,9 +436,24 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             continue;
         }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {
-            // A shared branch re-emits the whole compare (RISC-V has no flags to
-            // reuse); otherwise expand the setter + branch into the native form.
-            let _ = is_shared(&instruction.fields);
+            // A shared branch re-emits the whole setter (RISC-V has no flags to
+            // reuse). That is correct and cheap for a COMPARE (idempotent — it
+            // does not write its operands), but an arithmetic overflow setter
+            // (`adds`/`subs`) writes `dst`, so re-emitting it for a second consumer
+            // with `dst` aliasing `lhs` would double-apply the add/sub (bug-126).
+            // No builder emits a shared arithmetic setter today; fail loud rather
+            // than silently miscompile if one ever does (the correct handling would
+            // materialize the result + overflow word once and reuse them).
+            if is_shared(&instruction.fields)
+                && matches!(setter_op, CodeOp::Adds | CodeOp::Subs)
+            {
+                panic!(
+                    "rv64: shared fused arithmetic setter '{}' would re-apply its \
+                     add/subtract for the second branch; the flag-less RISC-V \
+                     expansion is only idempotent for compares",
+                    setter_op.mnemonic()
+                );
+            }
             out.extend(expand_fused(instruction.op, setter_op, &instruction.fields));
             continue;
         }
