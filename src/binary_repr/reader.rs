@@ -788,6 +788,7 @@ pub(super) fn primitive_type_name(id: u32) -> Option<&'static str> {
         TYPE_INTEGER => Some("Integer"),
         TYPE_FLOAT => Some("Float"),
         TYPE_FIXED => Some("Fixed"),
+        TYPE_MONEY => Some("Money"),
         TYPE_STRING => Some("String"),
         TYPE_BYTE => Some("Byte"),
         TYPE_ERROR => Some("Error"),

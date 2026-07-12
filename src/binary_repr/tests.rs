@@ -650,6 +650,7 @@ mod sections_tests {
         assert_eq!(types.type_id(&mut strings, "Integer"), TYPE_INTEGER);
         assert_eq!(types.type_id(&mut strings, "Float"), TYPE_FLOAT);
         assert_eq!(types.type_id(&mut strings, "Fixed"), TYPE_FIXED);
+        assert_eq!(types.type_id(&mut strings, "Money"), TYPE_MONEY);
         assert_eq!(types.type_id(&mut strings, "String"), TYPE_STRING);
         assert_eq!(types.type_id(&mut strings, "Byte"), TYPE_BYTE);
         assert_eq!(types.type_id(&mut strings, "File"), TYPE_FILE_HANDLE);
@@ -753,6 +754,7 @@ mod sections_tests {
             ("Fixed", "1.25"),
             ("Boolean", "true"),
             ("Byte", "255"),
+            ("Money", "1.25"),
         ];
         for (type_, value) in kinds {
             pool.add(
@@ -772,6 +774,11 @@ mod sections_tests {
         assert_eq!(int_entry.kind, 3);
         let raw = i64::from_le_bytes(int_entry.payload.clone().try_into().unwrap());
         assert_eq!(raw, -42);
+        // Money `1.25` stores under wire id TYPE_MONEY with raw 125000 (5 places).
+        let money_entry = decoded.entries.last().unwrap();
+        assert_eq!(money_entry.kind, TYPE_MONEY as u16);
+        let money_raw = i64::from_le_bytes(money_entry.payload.clone().try_into().unwrap());
+        assert_eq!(money_raw, 125_000);
     }
 
     #[test]
@@ -1173,6 +1180,7 @@ mod reader_tests {
     #[test]
     fn primitive_type_name_and_type_name_resolution() {
         assert_eq!(primitive_type_name(TYPE_INTEGER), Some("Integer"));
+        assert_eq!(primitive_type_name(TYPE_MONEY), Some("Money"));
         assert_eq!(primitive_type_name(TYPE_FILE_HANDLE), Some("File"));
         assert_eq!(primitive_type_name(999_999), None);
         let empty = std::collections::HashMap::new();
@@ -3179,9 +3187,10 @@ mod reader_gap_tests {
 
     #[test]
     fn abi_serializer_rejects_reserved_type_ids_without_overflow() {
-        // Ids 0 and 9 are neither primitives nor table ids (>= 10). A tampered
-        // package can carry them; the serializer must report them cleanly on
-        // every profile rather than underflowing `id - FIRST_TABLE_TYPE_ID`.
+        // Id 0 is neither a primitive nor a table id (>= 10) — a tampered package
+        // can carry it; the serializer must report it cleanly rather than
+        // underflowing `id - FIRST_TABLE_TYPE_ID`. (Id 9 is now `TYPE_MONEY`, a
+        // valid primitive, so it serializes; only id 0 stays reserved-low.)
         let strings: Vec<String> = Vec::new();
         let mut types = TypeTable::new();
         types.entries.push(TypeEntry {
@@ -3192,13 +3201,18 @@ mod reader_gap_tests {
             payload: Vec::new(),
         });
         let constants = ConstPool::new();
-        for id in [0u32, 9] {
+        for id in [0u32] {
             let mut serializer = AbiSerializer::new(&strings, &types, &constants);
             let err = serializer
                 .serialize_type(id)
                 .expect_err("reserved type id must not serialize");
             assert_eq!(err, format!("unknown type id {id}"));
         }
+        // The reused low slot id 9 now serializes as the Money primitive.
+        let mut serializer = AbiSerializer::new(&strings, &types, &constants);
+        serializer
+            .serialize_type(TYPE_MONEY)
+            .expect("Money primitive serializes");
     }
 
     #[test]

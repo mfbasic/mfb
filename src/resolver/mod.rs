@@ -20,6 +20,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Float",
     "Integer",
     "Json",
+    "Money",
     "Nothing",
     "Result",
     "String",

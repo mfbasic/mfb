@@ -143,6 +143,7 @@ impl TypeTable {
                 }
             }
             "Byte" => TYPE_BYTE,
+            "Money" => TYPE_MONEY,
             "Error" => {
                 strings.intern("code");
                 strings.intern("message");
@@ -373,6 +374,14 @@ impl ConstPool {
                 "Fixed" => ConstEntry {
                     kind: 5,
                     payload: fixed_raw_from_decimal(value)?.to_le_bytes().to_vec(),
+                },
+                // Money's `kind` is its wire type id (`TYPE_MONEY` = 9); the raw
+                // is the exact base-10 scaled i64 (plan-29-B §4.3).
+                "Money" => ConstEntry {
+                    kind: TYPE_MONEY as u16,
+                    payload: crate::numeric::money_raw_from_decimal(value)?
+                        .to_le_bytes()
+                        .to_vec(),
                 },
                 "Boolean" => ConstEntry {
                     kind: 2,

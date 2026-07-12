@@ -1610,6 +1610,7 @@ impl<'a> Monomorphizer<'a> {
                     crate::numeric::LiteralType::Integer => "Integer",
                     crate::numeric::LiteralType::Float => "Float",
                     crate::numeric::LiteralType::Fixed => "Fixed",
+                    crate::numeric::LiteralType::Money => "Money",
                 }
                 .to_string(),
             ),

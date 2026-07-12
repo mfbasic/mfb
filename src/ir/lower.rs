@@ -2035,6 +2035,7 @@ fn expression_type(
                 numeric::LiteralType::Integer => "Integer",
                 numeric::LiteralType::Float => "Float",
                 numeric::LiteralType::Fixed => "Fixed",
+                numeric::LiteralType::Money => "Money",
             }
             .to_string(),
         ),
@@ -2686,10 +2687,14 @@ fn lower_expression_with_expected(
             // type wins there (the pre-existing rule). In plan-28-A no suffix or
             // exponent is lexed yet, so this is byte-identical to the previous
             // expected-first behavior.
-            let is_suffixed = value.ends_with('f') || value.ends_with('F');
+            let is_suffixed = value.ends_with('f')
+                || value.ends_with('F')
+                || value.ends_with('m')
+                || value.ends_with('M');
             let type_ = if is_suffixed {
                 match literal_type {
                     numeric::LiteralType::Fixed => "Fixed",
+                    numeric::LiteralType::Money => "Money",
                     _ => "Float",
                 }
                 .to_string()
@@ -2697,10 +2702,16 @@ fn lower_expression_with_expected(
                 "Fixed".to_string()
             } else if expected == Some("Byte") {
                 "Byte".to_string()
+            } else if expected == Some("Money") {
+                // An unsuffixed decimal literal coerces to a Money slot
+                // (`LET a AS Money = 1.25`), mirroring the Fixed/Byte paths
+                // (plan-29-A §4.4).
+                "Money".to_string()
             } else {
                 match literal_type {
                     numeric::LiteralType::Float => "Float",
                     numeric::LiteralType::Fixed => "Fixed",
+                    numeric::LiteralType::Money => "Money",
                     numeric::LiteralType::Integer => "Integer",
                 }
                 .to_string()
@@ -3344,6 +3355,18 @@ fn lower_expression_with_expected(
                             value: format!("-{value}"),
                         };
                     }
+                    // The same fold for the most-negative Money
+                    // (`-92233720368547.75808`), whose positive magnitude
+                    // overflows the i64 raw (plan-29-B §4.2).
+                    if type_ == "Money"
+                        && numeric::money_raw_from_decimal(value).is_err()
+                        && numeric::money_raw_from_decimal(&format!("-{value}")).is_ok()
+                    {
+                        return IrValue::Const {
+                            type_: "Money".to_string(),
+                            value: format!("-{value}"),
+                        };
+                    }
                 }
             }
             IrValue::Unary {
@@ -3583,6 +3606,7 @@ fn literal_expression_type(expression: &Expression) -> Option<String> {
                 numeric::LiteralType::Integer => "Integer",
                 numeric::LiteralType::Float => "Float",
                 numeric::LiteralType::Fixed => "Fixed",
+                numeric::LiteralType::Money => "Money",
             }
             .to_string(),
         ),

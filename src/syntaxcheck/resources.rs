@@ -190,6 +190,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Fixed
             | Type::Float
             | Type::Integer
+            | Type::Money
             | Type::Nothing
             | Type::String
             | Type::Unknown => true,
@@ -248,6 +249,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Fixed
             | Type::Float
             | Type::Integer
+            | Type::Money
             | Type::Nothing
             | Type::String
             | Type::Unknown => true,

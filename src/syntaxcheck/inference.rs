@@ -35,6 +35,7 @@ impl<'a> SyntaxChecker<'a> {
                 numeric::LiteralType::Integer => Type::Integer,
                 numeric::LiteralType::Float => Type::Float,
                 numeric::LiteralType::Fixed => Type::Fixed,
+                numeric::LiteralType::Money => Type::Money,
             },
             Expression::Identifier(name) if name == "NOTHING" => Type::Nothing,
             Expression::Identifier(name) => {
@@ -182,11 +183,13 @@ impl<'a> SyntaxChecker<'a> {
                 if operator == "-" {
                     if let Expression::Number(value) = operand.as_ref() {
                         // A negated numeric literal keeps the operand's literal
-                        // type: `-5` Integer, `-1.5`/`-1e3`/`-2f` Float, `-2F` Fixed.
+                        // type: `-5` Integer, `-1.5`/`-1e3`/`-2f` Float, `-2F`
+                        // Fixed, `-2m` Money.
                         return match numeric::classify_literal(value).1 {
                             numeric::LiteralType::Integer => Type::Integer,
                             numeric::LiteralType::Float => Type::Float,
                             numeric::LiteralType::Fixed => Type::Fixed,
+                            numeric::LiteralType::Money => Type::Money,
                         };
                     }
                 }

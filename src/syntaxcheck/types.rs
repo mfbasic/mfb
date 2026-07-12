@@ -63,6 +63,7 @@ impl<'a> SyntaxChecker<'a> {
             "Fixed" => Type::Fixed,
             "Float" => Type::Float,
             "Integer" => Type::Integer,
+            "Money" => Type::Money,
             "Nothing" => Type::Nothing,
             "String" => Type::String,
             "Unknown" => Type::Unknown,
@@ -227,6 +228,17 @@ impl<'a> SyntaxChecker<'a> {
                     operator, operand, ..
                 }),
             ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
+            // A decimal literal acquires type Money from a Money expectation
+            // (`LET a AS Money = 1.25`), mirroring the Fixed path (plan-29-A §4.4).
+            // The exact range is checked in ir::verify.
+            (Type::Money, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            (
+                Type::Money,
+                Type::Integer | Type::Float,
+                Some(Expression::Unary {
+                    operator, operand, ..
+                }),
+            ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
             (
                 Type::List(expected_element),
                 Type::List(_),
@@ -244,7 +256,7 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn is_numeric(&self, type_: &Type) -> bool {
         matches!(
             type_,
-            Type::Byte | Type::Fixed | Type::Float | Type::Integer | Type::Unknown
+            Type::Byte | Type::Fixed | Type::Float | Type::Integer | Type::Money | Type::Unknown
         )
     }
 
@@ -268,6 +280,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Fixed
             | Type::Float
             | Type::Integer
+            | Type::Money
             | Type::Nothing
             | Type::String
             | Type::Unknown => true,

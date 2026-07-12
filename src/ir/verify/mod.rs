@@ -1593,7 +1593,7 @@ impl TypeEnv {
         // Only a *numeric* literal can overflow a numeric range; a non-numeric
         // Const in a numeric position (e.g. a String arg where Integer is
         // expected) is an argument/assignment mismatch, not a literal overflow.
-        let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed");
+        let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money");
         match value {
             IrValue::Const { type_, value } if numeric(type_) => {
                 self.check_const_literal(expected, value)
@@ -1648,6 +1648,21 @@ impl TypeEnv {
                     }
                 }
             }
+            // Money is exact base-10: range and excess-precision are decided by the
+            // exact converter, not an `f64` bound (plan-29-A §4.4, plan-29-B).
+            "Money" => match crate::numeric::money_conversion_from_decimal(value) {
+                Ok(converted) if converted.lost_precision => self.emit(
+                    "TYPE_MONEY_LITERAL_PRECISION",
+                    format!(
+                        "Money literal `{value}` has more than 5 fractional digits; the value beyond the 5th is rounded away."
+                    ),
+                ),
+                Ok(_) => {}
+                Err(_) => self.emit(
+                    "TYPE_MONEY_LITERAL_OVERFLOW",
+                    format!("Numeric literal `{value}` is outside the Money range."),
+                ),
+            },
             _ => {}
         }
     }
@@ -1679,6 +1694,22 @@ impl TypeEnv {
                     }
                 }
             }
+            // The most-negative Money (`-92233720368547.75808`) has no
+            // positive-magnitude literal, so the negated path checks the exact
+            // converter on the signed text (plan-29-B §4.2).
+            "Money" => match crate::numeric::money_conversion_from_decimal(&format!("-{value}")) {
+                Ok(converted) if converted.lost_precision => self.emit(
+                    "TYPE_MONEY_LITERAL_PRECISION",
+                    format!(
+                        "Money literal `-{value}` has more than 5 fractional digits; the value beyond the 5th is rounded away."
+                    ),
+                ),
+                Ok(_) => {}
+                Err(_) => self.emit(
+                    "TYPE_MONEY_LITERAL_UNDERFLOW",
+                    format!("Numeric literal `-{value}` is outside the Money range."),
+                ),
+            },
             "Float" => {
                 if let Ok(f) = value.parse::<f64>() {
                     if !(-f).is_finite() {
@@ -1793,6 +1824,14 @@ impl TypeEnv {
         ) else {
             return; // an operand type is unknown → skip (no false reject)
         };
+        // Money is a *dimensioned* numeric: any operator with a Money operand
+        // obeys the dimensional lattice and the Money-only comparison rule
+        // (plan-29-A §4.2/§4.3), not the ordinary numeric acceptance. `Unknown`
+        // on either side stays permissive (no false reject).
+        if (lt == "Money" || rt == "Money") && lt != "Unknown" && rt != "Unknown" {
+            self.check_money_operands(op, &lt, &rt);
+            return;
+        }
         let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Unknown");
         let string = |t: &str| matches!(t, "String" | "Unknown");
         let boolean = |t: &str| matches!(t, "Boolean" | "Unknown");
@@ -1850,6 +1889,47 @@ impl TypeEnv {
         }
     }
 
+    /// Enforce the Money dimensional algebra for a binary operator that has at
+    /// least one Money operand (plan-29-A §4.2/§4.3). Same-dimension add/subtract,
+    /// scalar scaling, `M/M` ratio, `M MOD M`, and Money-only comparison are
+    /// accepted; every other pairing emits `TYPE_MONEY_OPERATION_INVALID` with a
+    /// message that explains *why*.
+    fn check_money_operands(&self, op: &str, lt: &str, rt: &str) {
+        let l_money = lt == "Money";
+        let r_money = rt == "Money";
+        if matches!(op, "=" | "<>" | "<" | ">" | "<=" | ">=") {
+            // Money compares only with Money (both operands, both directions).
+            if l_money != r_money {
+                self.emit(
+                    "TYPE_MONEY_OPERATION_INVALID",
+                    format!(
+                        "Operator `{op}` requires both operands to be Money; got {lt} and {rt}. Compare a Money only with a Money (use `toMoney(...)` to convert)."
+                    ),
+                );
+            }
+            return;
+        }
+        if crate::numeric::money_result_type(op, l_money, r_money).is_some() {
+            return;
+        }
+        // Craft an explanation for the specific invalid pairing.
+        let reason = match op {
+            "+" | "-" | "MOD" => {
+                "requires both operands to be Money (a Money and a non-Money value cannot be combined)"
+            }
+            "*" if l_money && r_money => "cannot multiply two Money values (money² is not Money)",
+            "/" if r_money && !l_money => {
+                "cannot divide a non-Money value by a Money value"
+            }
+            "^" => "does not support exponentiation of a Money value",
+            _ => "is not valid for Money operands",
+        };
+        self.emit(
+            "TYPE_MONEY_OPERATION_INVALID",
+            format!("Operator `{op}` {reason}; got {lt} and {rt}."),
+        );
+    }
+
     /// Whether a value of type `type_` can be compared for equality
     /// (`syntaxcheck::is_comparable`): primitives/enums yes; collections,
     /// functions, results, resources, and unions no; a record only if every
@@ -1895,7 +1975,7 @@ impl TypeEnv {
 
     fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
         match type_ {
-            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
+            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer" | "Money"
             | "Nothing" | "String" | "Unknown" => return true,
             _ => {}
         }
@@ -2300,7 +2380,7 @@ impl TypeEnv {
     /// recurse (cycle-guarded).
     fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
         match type_ {
-            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
+            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer" | "Money"
             | "Nothing" | "String" | "Unknown" => return true,
             _ => {}
         }
@@ -3009,7 +3089,7 @@ impl TypeEnv {
             "-" => {
                 if !matches!(
                     t.as_str(),
-                    "Integer" | "Byte" | "Float" | "Fixed" | "Unknown"
+                    "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown"
                 ) {
                     self.emit(
                         "TYPE_UNARY_OPERATOR_MISMATCH",

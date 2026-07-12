@@ -542,12 +542,13 @@ impl Lexer<'_> {
             }
         }
 
-        // Type suffix (plan-28-B §4.2): a single trailing `f` (Float) or `F`
-        // (Fixed), only when not followed by an identifier-continue char (so
-        // `1foo` is `1` then `foo`, but `1f` is a suffixed literal). The suffix
-        // stays in the token value; `classify_literal` reads and strips it.
+        // Type suffix (plan-28-B §4.2, plan-29-A §4.4): a single trailing `f`
+        // (Float), `F` (Fixed), or `m`/`M` (Money), only when not followed by an
+        // identifier-continue char (so `1foo` is `1` then `foo`, but `1f` is a
+        // suffixed literal). The suffix stays in the token value; `classify_literal`
+        // reads and strips it.
         if !self.is_at_end()
-            && (self.peek() == 'f' || self.peek() == 'F')
+            && matches!(self.peek(), 'f' | 'F' | 'm' | 'M')
             && self
                 .peek_next()
                 .is_none_or(|ch| !is_identifier_continue(ch))
@@ -1424,6 +1425,11 @@ mod tests {
             ("1.5f", "1.5f"),
             ("1e3F", "1e3F"),
             ("2.5e2f", "2.5e2f"),
+            // `m`/`M` (Money, plan-29-A §4.4) are kept just like `f`/`F`.
+            ("2m", "2m"),
+            ("2M", "2M"),
+            ("1.25m", "1.25m"),
+            ("1.25M", "1.25M"),
         ] {
             let tokens = lex(Path::new("main.mfb"), &format!("{source}\n")).expect("lex source");
             assert_eq!(
@@ -1436,6 +1442,11 @@ mod tests {
         let tokens = lex(Path::new("main.mfb"), "1foo\n").expect("lex source");
         assert_eq!(tokens[0].kind, TokenKind::Number("1".to_string()));
         assert_eq!(tokens[1].kind, TokenKind::Identifier("foo".to_string()));
+        // `1motorcar` is `1` then identifier — the `m` is only a suffix when no
+        // identifier-continue char follows.
+        let tokens = lex(Path::new("main.mfb"), "1motorcar\n").expect("lex source");
+        assert_eq!(tokens[0].kind, TokenKind::Number("1".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Identifier("motorcar".to_string()));
     }
 
     #[test]

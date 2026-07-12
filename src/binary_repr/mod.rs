@@ -52,9 +52,13 @@ pub(crate) const TYPE_FIXED: u32 = 5;
 pub(crate) const TYPE_STRING: u32 = 6;
 pub(crate) const TYPE_BYTE: u32 = 7;
 pub(crate) const TYPE_ERROR: u32 = 8;
+// `Money` (plan-29-B): an 8-byte base-10 fixed-point scalar. It takes the last
+// freed low primitive slot, id 9 (the removed `TerminalSize`) — a primitive, so
+// it belongs in the low range, not the high reserved handle range.
+pub(crate) const TYPE_MONEY: u32 = 9;
 // `term::` builtin record types live in the high reserved id range alongside the
-// handle types (File/Socket/Listener), not the low primitive range: the only
-// freed low slot is id 9 (the removed `TerminalSize`), and ids at/above
+// handle types (File/Socket/Listener), not the low primitive range: id 9 (the
+// removed `TerminalSize`) is now `TYPE_MONEY`, and ids at/above
 // `FIRST_TABLE_TYPE_ID` (10) would collide with per-package user/table type ids,
 // silently hijacking another package's first table type in the signature hash.
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;

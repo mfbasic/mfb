@@ -243,6 +243,7 @@ pub(super) fn numeric_literal_type(expression: &Expression) -> Option<Type> {
             numeric::LiteralType::Integer => Type::Integer,
             numeric::LiteralType::Float => Type::Float,
             numeric::LiteralType::Fixed => Type::Fixed,
+            numeric::LiteralType::Money => Type::Money,
         }),
         Expression::Unary {
             operator, operand, ..
@@ -288,6 +289,7 @@ pub(super) fn type_from_numeric_name(type_name: &str) -> Type {
         numeric::TYPE_INTEGER => Type::Integer,
         numeric::TYPE_FIXED => Type::Fixed,
         numeric::TYPE_FLOAT => Type::Float,
+        numeric::TYPE_MONEY => Type::Money,
         _ => Type::Unknown,
     }
 }
@@ -304,6 +306,7 @@ pub(super) fn numeric_binary_result_type(operator: &str, left: &Type, right: &Ty
         Some("Fixed") => Type::Fixed,
         Some("Float") => Type::Float,
         Some("Integer") => Type::Integer,
+        Some("Money") => Type::Money,
         _ => Type::Unknown,
     }
 }
@@ -314,6 +317,7 @@ pub(super) fn numeric_type_name(type_: &Type) -> Option<&'static str> {
         Type::Fixed => Some(numeric::TYPE_FIXED),
         Type::Float => Some(numeric::TYPE_FLOAT),
         Type::Integer => Some(numeric::TYPE_INTEGER),
+        Type::Money => Some(numeric::TYPE_MONEY),
         _ => None,
     }
 }

@@ -713,6 +713,30 @@ pub(super) const RULES: &[Rule] = &[
         message: "EXPORT is only valid in a package project; use PUBLIC (the default) in an executable",
     },
     Rule {
+        code: "2-203-0105",
+        name: "TYPE_MONEY_LITERAL_OVERFLOW",
+        severity: Severity::Error,
+        message: "numeric literal is outside the Money range",
+    },
+    Rule {
+        code: "2-203-0106",
+        name: "TYPE_MONEY_LITERAL_UNDERFLOW",
+        severity: Severity::Error,
+        message: "numeric literal is outside the Money range",
+    },
+    Rule {
+        code: "2-203-0107",
+        name: "TYPE_MONEY_OPERATION_INVALID",
+        severity: Severity::Error,
+        message: "operation is not valid for Money operands",
+    },
+    Rule {
+        code: "2-203-0108",
+        name: "TYPE_MONEY_LITERAL_PRECISION",
+        severity: Severity::Warn,
+        message: "Money literal has more than 5 fractional digits and is rounded",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

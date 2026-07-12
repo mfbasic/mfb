@@ -31,6 +31,9 @@ enum Type {
     Fixed,
     Float,
     Integer,
+    /// `Money`: an 8-byte base-10 fixed-point financial scalar (plan-29-A). A
+    /// dimensioned numeric with a restricted algebra — see `numeric::money_result_type`.
+    Money,
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
     /// A `RES`-marked collection element (`List OF RES File`, `Map ... TO RES
@@ -932,6 +935,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Fixed
             | Type::Float
             | Type::Integer
+            | Type::Money
             | Type::Nothing
             | Type::String
             | Type::Unknown => {}
@@ -1887,6 +1891,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Fixed
             | Type::Float
             | Type::Integer
+            | Type::Money
             | Type::Nothing
             | Type::String
             | Type::Unknown => {}
@@ -1902,6 +1907,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::Fixed => "Fixed".to_string(),
             Type::Float => "Float".to_string(),
             Type::Integer => "Integer".to_string(),
+            Type::Money => "Money".to_string(),
             Type::List(element) => format!("List OF {}", self.type_name(element)),
             Type::Map(key, value) => {
                 format!(

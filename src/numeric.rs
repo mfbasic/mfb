@@ -2,15 +2,26 @@ pub(crate) const TYPE_BYTE: &str = "Byte";
 pub(crate) const TYPE_FIXED: &str = "Fixed";
 pub(crate) const TYPE_FLOAT: &str = "Float";
 pub(crate) const TYPE_INTEGER: &str = "Integer";
+/// `Money`: a 64-bit signed integer carrier interpreted as a base-10 fixed-point
+/// value scaled to 5 decimal places (SCALE = 100000). One unit = 0.00001;
+/// `1.00000` is raw i64 `100000` (plan-29-A). It is a *dimensioned* numeric —
+/// same-dimension add/subtract, scalar scaling, `M/M` ratio — with every
+/// dimensionally-invalid pairing rejected at compile time (see `money_result_type`).
+pub(crate) const TYPE_MONEY: &str = "Money";
+
+/// The base-10 scale of a `Money` raw i64: the value is `raw / MONEY_SCALE`, so
+/// `1.00000` is `100000` and `0.00001` is `1` (plan-29-B).
+pub(crate) const MONEY_SCALE: i64 = 100_000;
 
 /// The literal type a numeric-literal string classifies to. Distinct from the
 /// runtime numeric-type constants above: this is only the *literal* lattice
-/// (`Integer`/`Float`/`Fixed`) that `classify_literal` decides.
+/// (`Integer`/`Float`/`Fixed`/`Money`) that `classify_literal` decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LiteralType {
     Integer,
     Float,
     Fixed,
+    Money,
 }
 
 /// Classify a *canonical* numeric-literal string (as emitted by the lexer:
@@ -30,6 +41,14 @@ pub(crate) fn classify_literal(text: &str) -> (String, LiteralType) {
     }
     if let Some(stripped) = text.strip_suffix('F') {
         return (stripped.to_string(), LiteralType::Fixed);
+    }
+    // `m`/`M` forces `Money` (plan-29-A §4.4). There is only one money type, so —
+    // unlike `f`/`F` — the case is not load-bearing; both map to `Money`.
+    if let Some(stripped) = text.strip_suffix('m') {
+        return (stripped.to_string(), LiteralType::Money);
+    }
+    if let Some(stripped) = text.strip_suffix('M') {
+        return (stripped.to_string(), LiteralType::Money);
     }
     if text.contains('.') || text.contains('e') || text.contains('E') {
         (text.to_string(), LiteralType::Float)
@@ -193,9 +212,114 @@ pub(crate) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
     i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
 }
 
+/// The outcome of converting a decimal `Money` literal to its raw i64: the raw
+/// value plus whether digits beyond the 5th fractional place changed it (which
+/// drives the `TYPE_MONEY_LITERAL_PRECISION` warning, plan-29-B §Open Decisions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MoneyConversion {
+    pub raw: i64,
+    /// `true` when rounding at the 6th fractional digit changed the stored value
+    /// (`1.234567` → `1.23457`); `false` when the literal was exactly representable
+    /// (`1.250000`), so the warning stays silent.
+    pub lost_precision: bool,
+}
+
+/// Convert a decimal `Money` literal string into its scaled raw `i64`
+/// (SCALE = 100000, round-half-away-from-zero beyond 5 fractional digits, exact
+/// integer arithmetic — no `f64`). This is the single source of truth for Money
+/// constant lowering, shared by IR lowering, native immediate emission, and
+/// `.mfp` encoding (plan-29-B). `Err` when the value is malformed or outside the
+/// i64 raw range. Handles a leading `-` and scientific notation.
+pub(crate) fn money_raw_from_decimal(value: &str) -> Result<i64, String> {
+    Ok(money_conversion_from_decimal(value)?.raw)
+}
+
+/// Like [`money_raw_from_decimal`] but also reports whether excess fractional
+/// precision was rounded away, for the literal-precision diagnostic.
+pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversion, String> {
+    const SCALE: i128 = MONEY_SCALE as i128; // 5 decimal places
+    const FRAC_DIGITS: usize = 5;
+
+    let expanded = expand_scientific_notation(value);
+    // An unexpanded exponent marker means the magnitude is far outside the Money
+    // range (the zero mantissa having been folded) — reject in O(1) (bug-11).
+    if expanded.contains(['e', 'E']) {
+        return Err(format!("Money constant `{value}` is out of range"));
+    }
+    let value = expanded.as_str();
+    let (negative, digits) = value
+        .strip_prefix('-')
+        .map(|rest| (true, rest))
+        .unwrap_or((false, value));
+    let (whole, fractional) = digits.split_once('.').unwrap_or((digits, ""));
+    if whole.is_empty() && fractional.is_empty() {
+        return Err(format!("invalid Money constant `{value}`"));
+    }
+    let whole_value = if whole.is_empty() {
+        0_i128
+    } else {
+        whole
+            .parse::<i128>()
+            .map_err(|_| format!("invalid Money constant `{value}`"))?
+    };
+    // Validate every fractional digit is a decimal digit (both the significant
+    // prefix and the below-scale tail must be well-formed).
+    for digit in fractional.bytes() {
+        if !digit.is_ascii_digit() {
+            return Err(format!("invalid Money constant `{value}`"));
+        }
+    }
+    // The first 5 fractional digits, zero-padded on the right to exactly 5.
+    let mut fractional_value = 0_i128;
+    for index in 0..FRAC_DIGITS {
+        let digit = fractional
+            .as_bytes()
+            .get(index)
+            .map(|byte| (byte - b'0') as i128)
+            .unwrap_or(0);
+        fractional_value = fractional_value * 10 + digit;
+    }
+    // The 6th fractional digit (if present) drives round-half-away-from-zero; any
+    // nonzero digit at or past the 6th place means the literal was not exactly
+    // representable at 5 places.
+    let mut lost_precision = false;
+    let sixth = fractional
+        .as_bytes()
+        .get(FRAC_DIGITS)
+        .map(|byte| byte - b'0')
+        .unwrap_or(0);
+    if fractional.len() > FRAC_DIGITS && fractional.as_bytes()[FRAC_DIGITS..].iter().any(|b| *b != b'0')
+    {
+        lost_precision = true;
+    }
+    let mut whole_value = whole_value;
+    if sixth >= 5 {
+        fractional_value += 1;
+        if fractional_value == SCALE {
+            whole_value += 1;
+            fractional_value = 0;
+        }
+    }
+    let raw = whole_value
+        .checked_mul(SCALE)
+        .and_then(|current| current.checked_add(fractional_value))
+        .ok_or_else(|| format!("Money constant `{value}` is out of range"))?;
+    let raw = if negative { -raw } else { raw };
+    let raw =
+        i64::try_from(raw).map_err(|_| format!("Money constant `{value}` is out of range"))?;
+    Ok(MoneyConversion { raw, lost_precision })
+}
+
 pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
     if !is_numeric_type(left) || !is_numeric_type(right) {
         return None;
+    }
+    // Money is a *dimensioned* numeric: any pairing that includes it obeys the
+    // dimensional lattice (plan-29-A §4.2), not the ordinary promotion rules.
+    let l_money = left == TYPE_MONEY;
+    let r_money = right == TYPE_MONEY;
+    if l_money || r_money {
+        return money_result_type(operator, l_money, r_money);
     }
     if operator == "DIV" {
         Some(TYPE_FLOAT)
@@ -210,8 +334,59 @@ pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Opt
     }
 }
 
-fn is_numeric_type(type_: &str) -> bool {
-    matches!(type_, TYPE_BYTE | TYPE_FIXED | TYPE_FLOAT | TYPE_INTEGER)
+/// The dimensional algebra for a binary operator with at least one `Money`
+/// operand (plan-29-A §1). `k` denotes a dimensionless numeric (`Integer`,
+/// `Byte`, `Float`, `Fixed`); `M` denotes `Money`. Any pairing not listed here
+/// returns `None` and is rejected by the front end as `TYPE_MONEY_OPERATION_INVALID`.
+///
+/// | op | valid forms → result | rejected |
+/// |----|----------------------|----------|
+/// | `+` `-`   | `M,M → M`            | `M,k` `k,M` |
+/// | `*`       | `M,k → M` `k,M → M`  | `M,M`       |
+/// | `/`       | `M,k → M` `M,M → Float` | `k,M`    |
+/// | `DIV`     | `M,M → Float` `M,k → Float` | `k,M` |
+/// | `MOD`     | `M,M → M`            | `M,k` `k,M` |
+/// | `^`       | —                    | any `M`     |
+pub(crate) fn money_result_type(
+    operator: &str,
+    l_money: bool,
+    r_money: bool,
+) -> Option<&'static str> {
+    match operator {
+        "+" | "-" => (l_money && r_money).then_some(TYPE_MONEY),
+        "*" => {
+            if l_money && r_money {
+                None
+            } else {
+                Some(TYPE_MONEY)
+            }
+        }
+        "/" => {
+            if l_money && r_money {
+                Some(TYPE_FLOAT)
+            } else if l_money {
+                Some(TYPE_MONEY)
+            } else {
+                None
+            }
+        }
+        "DIV" => {
+            if l_money {
+                Some(TYPE_FLOAT)
+            } else {
+                None
+            }
+        }
+        "MOD" => (l_money && r_money).then_some(TYPE_MONEY),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_numeric_type(type_: &str) -> bool {
+    matches!(
+        type_,
+        TYPE_BYTE | TYPE_FIXED | TYPE_FLOAT | TYPE_INTEGER | TYPE_MONEY
+    )
 }
 
 #[cfg(test)]
@@ -464,12 +639,143 @@ mod tests {
     }
 
     #[test]
-    fn is_numeric_type_accepts_only_the_four_numerics() {
-        for t in [TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER] {
+    fn is_numeric_type_accepts_only_the_five_numerics() {
+        for t in [TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER, TYPE_MONEY] {
             assert!(is_numeric_type(t), "{t} should be numeric");
         }
         for t in ["String", "Boolean", "Nothing", ""] {
             assert!(!is_numeric_type(t), "{t} should not be numeric");
         }
+    }
+
+    #[test]
+    fn classify_literal_types_money_suffix() {
+        // `m`/`M` both force Money; the value string is left parse-ready.
+        assert_eq!(
+            classify_literal("1.25m"),
+            ("1.25".to_string(), LiteralType::Money)
+        );
+        assert_eq!(
+            classify_literal("1.25M"),
+            ("1.25".to_string(), LiteralType::Money)
+        );
+        assert_eq!(
+            classify_literal("42m"),
+            ("42".to_string(), LiteralType::Money)
+        );
+        // A Money suffix wins even with an exponent.
+        assert_eq!(
+            classify_literal("1e3m"),
+            ("1e3".to_string(), LiteralType::Money)
+        );
+    }
+
+    #[test]
+    fn money_raw_from_decimal_scales_and_rounds() {
+        assert_eq!(money_raw_from_decimal("1.25").unwrap(), 125_000);
+        assert_eq!(money_raw_from_decimal("0").unwrap(), 0);
+        assert_eq!(money_raw_from_decimal("-0.00001").unwrap(), -1);
+        assert_eq!(money_raw_from_decimal("1.00000").unwrap(), 100_000);
+        // Round-half-away at the 6th fractional digit.
+        assert_eq!(money_raw_from_decimal("1.234565").unwrap(), 123_457);
+        assert_eq!(money_raw_from_decimal("1.234564").unwrap(), 123_456);
+        // Negative rounds away from zero too (magnitude rounds up).
+        assert_eq!(money_raw_from_decimal("-1.234565").unwrap(), -123_457);
+        // Rounding carries into the whole part.
+        assert_eq!(money_raw_from_decimal("0.999995").unwrap(), 100_000);
+        // Scientific notation expands exactly.
+        assert_eq!(money_raw_from_decimal("1.5e2").unwrap(), 15_000_000);
+    }
+
+    #[test]
+    fn money_raw_from_decimal_covers_the_full_i64_range() {
+        assert_eq!(money_raw_from_decimal("92233720368547.75807").unwrap(), i64::MAX);
+        assert!(money_raw_from_decimal("92233720368547.75808")
+            .unwrap_err()
+            .contains("is out of range"));
+        // The min Money is representable only as a negated literal (bug-07 shape).
+        assert_eq!(money_raw_from_decimal("-92233720368547.75808").unwrap(), i64::MIN);
+        assert!(money_raw_from_decimal("-92233720368547.75809")
+            .unwrap_err()
+            .contains("is out of range"));
+    }
+
+    #[test]
+    fn money_raw_from_decimal_rejects_malformed_values() {
+        assert!(money_raw_from_decimal(".")
+            .unwrap_err()
+            .contains("invalid Money constant"));
+        assert!(money_raw_from_decimal("1.5x")
+            .unwrap_err()
+            .contains("invalid Money constant"));
+        let huge_whole = format!("1{}", "0".repeat(39));
+        assert!(money_raw_from_decimal(&huge_whole)
+            .unwrap_err()
+            .contains("invalid Money constant"));
+    }
+
+    #[test]
+    fn money_conversion_reports_lost_precision() {
+        // Digits beyond the 5th that change the value flag lost precision.
+        let converted = money_conversion_from_decimal("1.234567").unwrap();
+        assert_eq!(converted.raw, 123_457);
+        assert!(converted.lost_precision);
+        // Exactly representable at 5 places -> silent.
+        let exact = money_conversion_from_decimal("1.250000").unwrap();
+        assert_eq!(exact.raw, 125_000);
+        assert!(!exact.lost_precision);
+        // Trailing zeros past the 5th place are not a loss.
+        let padded = money_conversion_from_decimal("1.2500000000").unwrap();
+        assert!(!padded.lost_precision);
+        // A 6th digit that rounds but is nonzero counts as a loss even when it
+        // rounds down.
+        let rounded_down = money_conversion_from_decimal("1.2500004").unwrap();
+        assert_eq!(rounded_down.raw, 125_000);
+        assert!(rounded_down.lost_precision);
+    }
+
+    /// Exhaustively assert the plan-29-A §1 dimensional-lattice table for every
+    /// operator, both operand orders, and each dimensionless scalar `k`.
+    #[test]
+    fn money_dimensional_lattice_table() {
+        let scalars = [TYPE_INTEGER, TYPE_BYTE, TYPE_FLOAT, TYPE_FIXED];
+
+        // M , M
+        assert_eq!(binary_result_type("+", TYPE_MONEY, TYPE_MONEY), Some(TYPE_MONEY));
+        assert_eq!(binary_result_type("-", TYPE_MONEY, TYPE_MONEY), Some(TYPE_MONEY));
+        assert_eq!(binary_result_type("*", TYPE_MONEY, TYPE_MONEY), None);
+        assert_eq!(binary_result_type("/", TYPE_MONEY, TYPE_MONEY), Some(TYPE_FLOAT));
+        assert_eq!(binary_result_type("DIV", TYPE_MONEY, TYPE_MONEY), Some(TYPE_FLOAT));
+        assert_eq!(binary_result_type("MOD", TYPE_MONEY, TYPE_MONEY), Some(TYPE_MONEY));
+        assert_eq!(binary_result_type("^", TYPE_MONEY, TYPE_MONEY), None);
+
+        for k in scalars {
+            // M , k
+            assert_eq!(binary_result_type("+", TYPE_MONEY, k), None, "M+{k}");
+            assert_eq!(binary_result_type("-", TYPE_MONEY, k), None, "M-{k}");
+            assert_eq!(binary_result_type("*", TYPE_MONEY, k), Some(TYPE_MONEY), "M*{k}");
+            assert_eq!(binary_result_type("/", TYPE_MONEY, k), Some(TYPE_MONEY), "M/{k}");
+            assert_eq!(binary_result_type("DIV", TYPE_MONEY, k), Some(TYPE_FLOAT), "M DIV {k}");
+            assert_eq!(binary_result_type("MOD", TYPE_MONEY, k), None, "M MOD {k}");
+            assert_eq!(binary_result_type("^", TYPE_MONEY, k), None, "M^{k}");
+
+            // k , M
+            assert_eq!(binary_result_type("+", k, TYPE_MONEY), None, "{k}+M");
+            assert_eq!(binary_result_type("-", k, TYPE_MONEY), None, "{k}-M");
+            assert_eq!(binary_result_type("*", k, TYPE_MONEY), Some(TYPE_MONEY), "{k}*M");
+            assert_eq!(binary_result_type("/", k, TYPE_MONEY), None, "{k}/M");
+            assert_eq!(binary_result_type("DIV", k, TYPE_MONEY), None, "{k} DIV M");
+            assert_eq!(binary_result_type("MOD", k, TYPE_MONEY), None, "{k} MOD M");
+            assert_eq!(binary_result_type("^", k, TYPE_MONEY), None, "{k}^M");
+        }
+    }
+
+    #[test]
+    fn non_money_lattice_is_unchanged_by_money_rules() {
+        // The Money guard must not perturb any all-non-Money pairing.
+        assert_eq!(binary_result_type("+", TYPE_FIXED, TYPE_INTEGER), Some(TYPE_FIXED));
+        assert_eq!(binary_result_type("*", TYPE_FLOAT, TYPE_BYTE), Some(TYPE_FLOAT));
+        assert_eq!(binary_result_type("+", TYPE_BYTE, TYPE_BYTE), Some(TYPE_BYTE));
+        assert_eq!(binary_result_type("DIV", TYPE_INTEGER, TYPE_INTEGER), Some(TYPE_FLOAT));
     }
 }
