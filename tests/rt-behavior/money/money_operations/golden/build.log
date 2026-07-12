@@ -1,8 +1,20 @@
 $ mfb build -ast -ir tests/rt-behavior/money/money_operations
+  25 |   io::print(toString(a * 3))        ' 3.75
+  26 |   io::print(toString(9.99m * 1.08F, p5)) ' 10.79920
+  27 |   io::print(toString(9.99m * 1.08))      ' 10.79 (Float rate, rounded to 2)
+     | ^
+tests/rt-behavior/money/money_operations/src/main.mfb:27 warn[2-203-0109 MONEY_INEXACT_FLOAT_LITERAL]: scaling Money by a bare decimal literal uses inexact Float arithmetic
+               scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional.
 Wrote AST to tests/rt-behavior/money/money_operations/money_operations.ast
 Wrote IR to tests/rt-behavior/money/money_operations/money_operations.ir
 [exit 0]
 $ mfb build tests/rt-behavior/money/money_operations
+  25 |   io::print(toString(a * 3))        ' 3.75
+  26 |   io::print(toString(9.99m * 1.08F, p5)) ' 10.79920
+  27 |   io::print(toString(9.99m * 1.08))      ' 10.79 (Float rate, rounded to 2)
+     | ^
+tests/rt-behavior/money/money_operations/src/main.mfb:27 warn[2-203-0109 MONEY_INEXACT_FLOAT_LITERAL]: scaling Money by a bare decimal literal uses inexact Float arithmetic
+               scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional.
 Wrote executable to tests/rt-behavior/money/money_operations/money_operations.out
 [exit 0]
 $ tests/rt-behavior/money/money_operations/money_operations.out
