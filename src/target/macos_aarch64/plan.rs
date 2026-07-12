@@ -85,6 +85,8 @@ impl plan::NativePlanPlatform for Platform {
         // Foundation. pthread/getenv come from libSystem.
         [
             ("libobjc", "_objc_msgSend"),
+            // plan-35-D: `setFrameSize:` calls `super` to actually resize the view.
+            ("libobjc", "_objc_msgSendSuper"),
             ("libobjc", "_sel_registerName"),
             ("libobjc", "_objc_autoreleasePoolPush"),
             ("libobjc", "_objc_autoreleasePoolPop"),
@@ -128,6 +130,10 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_calloc"),
             ("libSystem", "_bzero"),
             ("libSystem", "_memmove"),
+            // plan-35-D: the `setFrameSize:` grid realloc copies the overlap and
+            // frees the old buffer.
+            ("libSystem", "_memcpy"),
+            ("libSystem", "_free"),
         ]
         .iter()
         .map(|(library, symbol)| PlatformImport {

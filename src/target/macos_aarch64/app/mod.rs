@@ -277,6 +277,15 @@ const SEL_NUMBER_WITH_DOUBLE: (&str, &str) =
 const NS_UNDERLINE_STYLE_ATTRIBUTE_NAME: &str = "_NSUnderlineStyleAttributeName";
 const NS_STROKE_WIDTH_ATTRIBUTE_NAME: &str = "_NSStrokeWidthAttributeName";
 const SEL_SET_NEEDS_DISPLAY: (&str, &str) = ("_mfb_macapp_sel_setNeedsDisplay", "setNeedsDisplay:");
+/// `display` — force the TermView to draw synchronously (marks the whole view
+/// dirty and redraws immediately). Used for `term::off`'s final present so the
+/// last drawn frame is shown before the content view is swapped back to the
+/// transcript (plan-35-D §3).
+const SEL_DISPLAY: (&str, &str) = ("_mfb_macapp_sel_display", "display");
+/// `setFrameSize:` — overridden on the synthesized TermView so live window
+/// resizes recompute the grid geometry (rows/cols) and realloc the cell buffer
+/// (plan-35-D Phase 2).
+const SEL_SET_FRAME_SIZE: (&str, &str) = ("_mfb_macapp_sel_setFrameSize", "setFrameSize:");
 const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "mfbWriteString:");
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
@@ -309,6 +318,10 @@ const STR_TERMVIEW_CLASS_NAME: (&str, &str) = ("_mfb_macapp_str_termviewClassNam
 /// `isFlipped` is `BOOL (id, SEL)`.
 const STR_DRAW_RECT_TYPES: (&str, &str) = ("_mfb_macapp_str_drawRectTypes", "v@:{CGRect=dddd}");
 const STR_IS_FLIPPED_TYPES: (&str, &str) = ("_mfb_macapp_str_isFlippedTypes", "c@:");
+/// Obj-C method type encoding for `void (id, SEL, NSSize)` — the `setFrameSize:`
+/// resize hook (NSSize = two doubles).
+const STR_SET_FRAME_SIZE_TYPES: (&str, &str) =
+    ("_mfb_macapp_str_setFrameSizeTypes", "v@:{CGSize=dd}");
 
 /// Associated-object keys (their unique addresses) under which the bootstrap
 /// stashes the window, the transcript scroll view, and the TermView on NSApp so
@@ -374,6 +387,8 @@ const TERM_VIEW_IS_FLIPPED_SYMBOL: &str = "_mfb_macapp_term_isFlipped";
 const TERM_INIT_SYMBOL: &str = "_mfb_macapp_term_init";
 const TERM_CLEAR_SYMBOL: &str = "_mfb_macapp_term_clear";
 const TERM_SCROLL_SYMBOL: &str = "_mfb_macapp_term_scroll";
+/// IMP for the TermView `setFrameSize:` override (grid resize on window resize).
+const TERM_SET_FRAME_SIZE_SYMBOL: &str = "_mfb_macapp_term_setFrameSize";
 
 const CLASS_NS_OBJECT: &str = "_OBJC_CLASS_$_NSObject";
 const CLASS_NS_APPLICATION: &str = "_OBJC_CLASS_$_NSApplication";
@@ -537,6 +552,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_write_string_helper(),
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
+        emit_term_set_frame_size_helper(),
     ])
 }
 
@@ -653,11 +669,14 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_NUMBER_WITH_INT,
         SEL_NUMBER_WITH_DOUBLE,
         SEL_SET_NEEDS_DISPLAY,
+        SEL_DISPLAY,
+        SEL_SET_FRAME_SIZE,
         SEL_MFB_WRITE_STRING,
         SEL_ACCEPTS_FIRST_RESPONDER,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,
         STR_IS_FLIPPED_TYPES,
+        STR_SET_FRAME_SIZE_TYPES,
         STR_WRITE_STRING_TYPES,
     ]
     .iter()

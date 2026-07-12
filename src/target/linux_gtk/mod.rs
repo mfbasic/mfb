@@ -18,7 +18,8 @@
 //!     is the only path exercised when no buffer is attached.
 //!   * `io::printError` is not yet visually distinguished with a `GtkTextTag`.
 //!   * the finish path hard-exits via `_exit` instead of keeping the window open
-//!     (§6.7) and `io::terminalSize` / interactive resize (§6, Phase 6) are absent.
+//!     (§6.7). (`io::terminalSize` and interactive resize are now wired — the grid
+//!     reflows on the drawing area's `resize` signal, plan-35-E.)
 //! These are completed-and-verified on-device in a later pass; until then the
 //! glibc executable links GTK and is structurally complete but unverified.
 
@@ -92,7 +93,17 @@ const ST_TERM_CELL_H: usize = ST_TERM_CELL_W + 8; // cell height in px
 const ST_TERM_CHARS: usize = ST_TERM_CELL_H + 8;
 const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS;
 const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
-const STATE_SIZE: usize = ST_TERM_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+// Draw-owned snapshot (front) copy of the three grid arrays (plan-35-E). The worker
+// mutates the live arrays above; a present (`term::sync`/`io::flush`/`off`) copies the
+// live arrays into this snapshot ON THE MAIN LOOP before `queue_draw`, and the draw
+// callback reads the snapshot — so a draw can never observe a half-written frame
+// (closing the former tearing caveat). Same fixed TERM_MAX_COLS×TERM_MAX_ROWS stride
+// and COLOR_SET/bold/underline bit-packing as the live arrays (a raw memcpy preserves
+// every packed bit).
+const ST_TERM_SNAP_CHARS: usize = ST_TERM_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const ST_TERM_SNAP_FG: usize = ST_TERM_SNAP_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS;
+const ST_TERM_SNAP_BG: usize = ST_TERM_SNAP_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const STATE_SIZE: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
 // convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
@@ -127,6 +138,10 @@ const TERM_SCROLL_SYMBOL: &str = "_mfb_gtkapp_term_scroll";
 /// Computes grid geometry from font metrics + content size; run once on the main
 /// thread at activate, before the worker can touch the grid.
 const TERM_INIT_SYMBOL: &str = "_mfb_gtkapp_term_init";
+/// `GtkDrawingArea::resize` handler (plan-35-E): recomputes the active cols/rows from
+/// the new allocation + cell metrics so `term::terminalSize` tracks the live window
+/// and forces a full redraw. Runs on the GTK main loop.
+const TERM_RESIZE_SYMBOL: &str = "_mfb_gtkapp_term_resize";
 /// Pinned arena-state base register (term helpers run on the worker thread, where
 /// x19 holds the arena base; the shared console term-state lives at tso + field).
 const ARENA_REG: &str = "x19";
@@ -157,6 +172,8 @@ const STR_TITLE: (&str, &str) = ("_mfb_gtkapp_str_title", "MFBASIC App");
 const STR_ACTIVATE: (&str, &str) = ("_mfb_gtkapp_str_activate", "activate");
 const STR_CLOSE_REQUEST: (&str, &str) = ("_mfb_gtkapp_str_close_request", "close-request");
 const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-pressed");
+/// `GtkDrawingArea::resize` signal name (plan-35-E grid reflow on window resize).
+const STR_RESIZE: (&str, &str) = ("_mfb_gtkapp_str_resize", "resize");
 /// Completion status line appended to the transcript when the program ends
 /// (matches macOS app.rs STR_EXIT_PREFIX): leading newline + "...code " + N + "\n".
 const STR_EXIT_PREFIX: (&str, &str) =
@@ -354,6 +371,7 @@ pub(crate) fn emit_app_program_entry(
         emit_term_write_helper(),
         emit_term_scroll_helper(),
         emit_term_init_helper(),
+        emit_term_resize_helper(),
     ])
 }
 
@@ -383,6 +401,7 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_write_helper(),
         emit_term_scroll_helper(),
         emit_term_init_helper(),
+        emit_term_resize_helper(),
     ];
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
@@ -729,6 +748,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_ACTIVATE,
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
+        STR_RESIZE,
         STR_EXIT_PREFIX,
         STR_STDERR_PREFIX,
         STR_MONOSPACE,

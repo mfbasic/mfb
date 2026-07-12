@@ -188,8 +188,25 @@ Cell address: `cells + (row*cols + col) * 16` (`lsl #4`). [[src/target/macos_aar
    bg/bold/underline default to 0.
 8. attach `state` via `TVSTATE_KEY`.
 
-The grid is **not** resized on live window resize (the autoresizing mask scales
-the view, but cols/rows are fixed at init). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
+The initial size comes from the 900×640 frame; the grid **reflows** on live
+window resize via the `setFrameSize:` hook below. [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
+
+### `setFrameSize:` — grid resize on window resize
+
+`void setFrameSize:(NSSize newSize)` overrides `NSView`'s so a live window resize
+reflows the grid instead of clipping at the init dimensions (plan-35-D). It calls
+`super setFrameSize:` (via `objc_msgSendSuper`, `struct objc_super{receiver=self,
+super_class=NSView}`) to actually resize the view, then recomputes
+`cols = floor(w/cellW)`, `rows = floor(h/cellH)` (each clamped `>= 1`) from the
+cached `TV_CELL_W`/`TV_CELL_H`. When the geometry is unchanged it returns; otherwise
+it `calloc`s a new `TermCell[]`, copies the top-left overlap
+(`min(oldRows,newRows) × min(oldCols,newCols)` cells, row-by-row since strides
+differ), publishes `TV_CELLS`/`TV_ROWS`/`TV_COLS`, `free`s the old buffer, clamps
+the cursor into the new extent, and forces a full `setNeedsDisplay:`.
+`term::terminalSize` reads `TV_ROWS`/`TV_COLS`, so a program re-querying its size
+(as `life` does) sees the new extent. `setFrameSize:` runs on the main thread — the
+same thread as `drawRect:` and the marshaled grid writes — so the realloc cannot
+tear a concurrent draw. [[src/target/macos_aarch64/app/term_view.rs:emit_term_set_frame_size_helper]]
 
 ### `drawRect:` — the renderer
 
@@ -224,8 +241,8 @@ the `colorWith…` selector spilled, so no selector lookup clobbers the componen
 ### `mfbWriteString:` — grid writer
 
 `void mfbWriteString:(id self, SEL, NSString *str)`. Invoked on the main thread
-via `performSelectorOnMainThread:withObject:waitUntilDone:`, so grid mutation +
-redraw are serialized in program order with the other surface ops. Iterates
+via `performSelectorOnMainThread:withObject:waitUntilDone:`, so grid mutation is
+serialized in program order with the other surface ops. Iterates
 `[str characterAtIndex:i]`: [[src/target/macos_aarch64/app/term_view.rs:emit_term_write_string_helper]]
 
 - `\n` (10) → newline, `\r` (13) → carriage return, `\t` (9) → tab handling.
@@ -234,7 +251,10 @@ redraw are serialized in program order with the other surface ops. Iterates
   `cells + (row*cols+col)*16` — glyph (u32), fg/bg from `TV_CUR_FG`/`TV_CUR_BG`
   (u32), bold/underline from `TV_CUR_BOLD`/`TV_CUR_UNDERLINE` (u8); advance the
   cursor.
-- after the loop: `setNeedsDisplay:`.
+- the writer does **not** request a redraw. Redraw is **present-driven**
+  (plan-35-D): the surface repaints only on the next `term::sync`/`io::flush`, so a
+  program that draws without a following present shows nothing new (mandatory
+  present, plan-35 D1).
 
 ### `term_scroll` and `term_clear`
 
@@ -268,11 +288,16 @@ Returns `RESULT_OK_TAG` (0).
 `term::off` (`emit_app_term_off_helper`): no-op when already off (the gate
 reads `active` off `x19`). Otherwise, with a window attached: [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_off_helper]]
 
-1. `scroll = objc_getAssociatedObject(app, &SCROLLVIEW_KEY)`;
+1. Final present: `[termview performSelectorOnMainThread:@selector(display)
+   waitUntilDone:YES]` — force the TermView to draw its last frame synchronously
+   *before* the content-view swap, so a program that drew then `term::off`d
+   without a trailing `term::sync` still shows its final frame (the mandatory
+   present, plan-35-D). `display` marks the whole view dirty and repaints it now.
+2. `scroll = objc_getAssociatedObject(app, &SCROLLVIEW_KEY)`;
    `setContentView:scroll` on the main thread — restores the transcript.
-2. `transcript = objc_getAssociatedObject(app, &TEXTVIEW_KEY)`;
+3. `transcript = objc_getAssociatedObject(app, &TEXTVIEW_KEY)`;
    `makeFirstResponder:transcript` — window input returns to the transcript.
-3. Set the global `active = 0`.
+4. Set the global `active = 0`.
 
 Headless `term::off` skips the AppKit work and only clears `active`.
 
@@ -288,10 +313,13 @@ cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app
 
 The Linux backend is the analog of the macOS `TermView` but structurally
 different. The drawing area is created up front, held off-window by a ref, and
-swapped in as the window child on `term::on`. The Linux runtime carries a
-documented gap: `io::terminalSize` / interactive resize
-is absent. (Cursor rendering is implemented — a caret is drawn when the cursor is
-visible.) [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
+swapped in as the window child on `term::on`. Redraw is **present-driven**
+(plan-35-E): `term::sync` / `io::flush` / `term::off` schedule the single
+coalesced repaint; a program that draws without a following present shows nothing
+new. `io::terminalSize` and interactive resize are implemented — the drawing
+area's `resize` signal reflows the active `cols`/`rows`. Cursor rendering is
+implemented (a caret is drawn when the cursor is visible).
+[[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 
 ### Grid storage — one `_mfb_gtkapp_state` global, parallel static arrays
 
@@ -309,14 +337,17 @@ with a fixed stride, so storage is static (no per-resize realloc). [[src/target/
 | `ST_TERM_CURSOR_VISIBLE` | cursor visibility |
 | `ST_TERM_COLS` / `ST_TERM_ROWS` | active extent (derived from window size) |
 | `ST_TERM_CELL_W` / `ST_TERM_CELL_H` | cell px metrics |
-| `ST_TERM_CHARS` | `u8[160*48]` glyph bytes |
-| `ST_TERM_FG` | `u32[160*48]` fg |
-| `ST_TERM_BG` | `u32[160*48]` bg |
+| `ST_TERM_CHARS` | `u8[160*48]` glyph bytes (live/back) |
+| `ST_TERM_FG` | `u32[160*48]` fg (live/back) |
+| `ST_TERM_BG` | `u32[160*48]` bg (live/back) |
+| `ST_TERM_SNAP_CHARS` / `ST_TERM_SNAP_FG` / `ST_TERM_SNAP_BG` | draw-owned snapshot (front) copy of the three arrays |
 
 Backing stride is `TERM_MAX_COLS=160 × TERM_MAX_ROWS=48`; only the top-left
-`cols × rows` (derived from the 900×640 content area / monospace cell metrics) are
-active. The char array is 1 byte/cell (not a unichar) — ASCII-oriented, unlike
-the macOS u32 glyph.
+`cols × rows` (derived from the content area / monospace cell metrics — recomputed
+on window resize) are active. The char array is 1 byte/cell (not a unichar) —
+ASCII-oriented, unlike the macOS u32 glyph. The worker mutates the **live** arrays;
+a present copies them into the **snapshot** arrays on the GTK main loop before
+`queue_draw`, and the draw callback reads the snapshot (see Renderer + ops below).
 
 ### Cell colour/flag encoding
 
@@ -333,15 +364,24 @@ and treats `bg == 0` as "no background fill". [[src/target/linux_gtk/mod.rs:COLO
 callback: paint the whole area black (`cairo_paint`), then per active cell fill
 the bg rect (when COLOR_SET) and `cairo_show_text` the glyph using
 `cairo_select_font_face("monospace", …, weight)` at `TERM_FONT_SIZE=16`, in the
-cell's fg colour. `emit_cairo_color` divides each packed channel by 255 into
-`cairo_set_source_rgb`. [[src/target/linux_gtk/term_draw.rs:emit_term_draw_helper]] [[src/target/linux_gtk/term_draw.rs:emit_cairo_color]]
+cell's fg colour. It reads the **snapshot** arrays (never the worker's live arrays),
+using the live `cols`/`rows` extent + cursor. `emit_cairo_color` divides each packed
+channel by 255 into `cairo_set_source_rgb`. [[src/target/linux_gtk/term_draw.rs:emit_term_draw_helper]] [[src/target/linux_gtk/term_draw.rs:emit_cairo_color]]
 
-The surface swap and redraw run as main-loop idle callbacks (GTK calls must run
-on the main loop): `_mfb_gtkapp_term_show_idle` / `_hide_idle` / `_redraw_idle`.
-The worker-side writer `_mfb_gtkapp_term_write` mutates the grid arrays and
-`_mfb_gtkapp_term_scroll` shifts chars/fg/bg up one row at the bottom edge;
-`_mfb_gtkapp_term_init` derives the geometry once at activate before the worker
-touches the grid. [[src/target/linux_gtk/term_draw.rs:emit_term_show_idle_helper]] [[src/target/linux_gtk/term_draw.rs:emit_term_write_helper]]
+The surface swap and present run as main-loop idle callbacks (GTK calls must run on
+the main loop): `_mfb_gtkapp_term_show_idle` / `_hide_idle` / `_redraw_idle`. The
+present (`_redraw_idle`, scheduled by `term::sync` / `io::flush` / `term::off` /
+`clear` / cursor-visibility) marshals a consistent snapshot — three `memcpy`s of the
+live arrays into the snapshot arrays (preserving the COLOR_SET/bold/underline
+bit-packing) — then `queue_draw`. Because the draw only ever reads the snapshot and
+the snapshot is written solely on the main loop, a draw can **never** observe a
+half-written frame: the former worker/draw **tearing race is closed** (there is no
+per-write redraw). The worker-side writer `_mfb_gtkapp_term_write` mutates only the
+live grid arrays (no redraw), and `_mfb_gtkapp_term_scroll` shifts chars/fg/bg up one
+row at the bottom edge; `_mfb_gtkapp_term_init` derives the geometry at activate and
+`_mfb_gtkapp_term_resize` (the drawing area's `resize` signal) recomputes `cols`/`rows`
+from the new allocation and forces a full redraw, so `term::terminalSize` tracks the
+live window. [[src/target/linux_gtk/term_draw.rs:emit_term_show_idle_helper]] [[src/target/linux_gtk/term_draw.rs:emit_term_write_helper]]
 
 Like macOS, the Linux helpers update the shared console term-state global off the
 pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters

@@ -150,6 +150,17 @@ pub(super) fn emit_activate_handler() -> CodeFunction {
     // Derive the grid geometry from the monospace font metrics + content size and
     // blank the grid (main thread, before the worker can use it).
     asm.call_internal(TERM_INIT_SYMBOL);
+    // Reflow the grid when the drawing area is resized (plan-35-E): the "resize"
+    // handler recomputes the active cols/rows from the new allocation + cell metrics
+    // so term::terminalSize tracks the live window, then forces a full redraw.
+    //   g_signal_connect_data(term_area, "resize", on_resize, NULL, NULL, 0)
+    asm.load_state("x0", ST_TERM_AREA);
+    asm.local_address("x1", STR_RESIZE.0);
+    asm.local_address("x2", TERM_RESIZE_SYMBOL);
+    asm.push(abi::move_immediate("x3", "Integer", "0"));
+    asm.push(abi::move_immediate("x4", "Integer", "0"));
+    asm.push(abi::move_immediate("x5", "Integer", "0"));
+    asm.call_external("g_signal_connect_data");
 
     // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
     // left NON-focusable (like the working build): focusing a GtkTextView activates

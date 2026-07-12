@@ -243,6 +243,13 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") — the
+    // live-window-resize hook: recompute rows/cols and realloc the grid (plan-35-D).
+    asm.load_selector(SEL_SET_FRAME_SIZE.0);
+    asm.local_address("x2", TERM_SET_FRAME_SIZE_SYMBOL);
+    asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
     // objc_registerClassPair(cls)
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);

@@ -69,9 +69,13 @@ pub(super) fn emit_term_draw_helper() -> CodeFunction {
     // Normal-weight monospace at TERM_FONT_SIZE; lastBold tracks the selected weight.
     emit_term_select_font(&mut asm, "x19", false);
     asm.push(abi::move_immediate("x22", "Integer", "0"));
-    asm.state_array("x23", ST_TERM_CHARS);
-    asm.state_array("x24", ST_TERM_FG);
-    asm.state_array("x25", ST_TERM_BG);
+    // Render the draw-owned SNAPSHOT arrays (plan-35-E): a present copies the live
+    // worker arrays here on the main loop before queue_draw, so this callback never
+    // reads a half-written frame. The active extent (cols/rows) + cursor are read
+    // live — a torn single u64 there is benign and self-corrects next present.
+    asm.state_array("x23", ST_TERM_SNAP_CHARS);
+    asm.state_array("x24", ST_TERM_SNAP_FG);
+    asm.state_array("x25", ST_TERM_SNAP_BG);
     asm.load_state("x26", ST_TERM_COLS);
     asm.load_state("x27", ST_TERM_ROWS);
 
@@ -459,6 +463,9 @@ pub(super) fn emit_term_show_idle_helper() -> CodeFunction {
     asm.load_state("x0", ST_WINDOW);
     asm.load_state("x1", ST_TERM_AREA);
     asm.call_external("gtk_window_set_child");
+    // Present the initial (cleared) grid: snapshot the live arrays before drawing so
+    // the first frame after `term::on` matches the live grid (plan-35-E).
+    emit_term_snapshot_copy(&mut asm);
     asm.load_state("x0", ST_TERM_AREA);
     asm.call_external("gtk_widget_queue_draw");
     asm.push(abi::move_immediate("x0", "Boolean", FALSE)); // G_SOURCE_REMOVE
@@ -488,7 +495,41 @@ pub(super) fn emit_term_hide_idle_helper() -> CodeFunction {
     asm.finish(TERM_HIDE_IDLE_SYMBOL, "Boolean")
 }
 
-/// Main-thread idle: request a redraw of the term:: surface.
+/// Copy the live worker-written grid arrays (chars/fg/bg) into the draw-owned
+/// snapshot arrays with three `memcpy`s (plan-35-E). MUST run on the GTK main loop
+/// (it is only ever reached from an idle callback). A raw byte copy preserves the
+/// COLOR_SET/bold/underline bit-packing in the fg/bg words. Clobbers x0/x1/x2/x9.
+fn emit_term_snapshot_copy(asm: &mut Asm) {
+    // chars: 1 byte/cell.
+    asm.state_array("x0", ST_TERM_SNAP_CHARS);
+    asm.state_array("x1", ST_TERM_CHARS);
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_MAX_COLS * TERM_MAX_ROWS).to_string(),
+    ));
+    asm.call_external("memcpy");
+    // fg / bg: 4 bytes/cell (packed RGB | flags — copied verbatim).
+    for (snap, live) in [
+        (ST_TERM_SNAP_FG, ST_TERM_FG),
+        (ST_TERM_SNAP_BG, ST_TERM_BG),
+    ] {
+        asm.state_array("x0", snap);
+        asm.state_array("x1", live);
+        asm.push(abi::move_immediate(
+            "x2",
+            "Integer",
+            &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
+        ));
+        asm.call_external("memcpy");
+    }
+}
+
+/// Main-thread idle: PRESENT the term:: surface (plan-35-E). Marshal a consistent
+/// snapshot of the live grid on the main loop, then `queue_draw`. This is the single
+/// coalesced present scheduled by `term::sync` / `io::flush` / `term::off` (and the
+/// explicit terminal ops `clear` / cursor-visibility); the per-write redraw was
+/// removed so a program that draws without a following present shows nothing new.
 pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
@@ -498,6 +539,7 @@ pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
         abi::stack_pointer(),
         0,
     ));
+    emit_term_snapshot_copy(&mut asm);
     asm.load_state("x0", ST_TERM_AREA);
     asm.call_external("gtk_widget_queue_draw");
     asm.push(abi::move_immediate("x0", "Boolean", FALSE));
@@ -507,23 +549,63 @@ pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
     asm.finish(TERM_REDRAW_IDLE_SYMBOL, "Boolean")
 }
 
+/// `void _mfb_gtkapp_term_resize(GtkDrawingArea *area, int width /*x1*/,
+/// int height /*x2*/, gpointer user_data)` — the drawing area's `resize` signal
+/// handler (plan-35-E). Runs on the GTK main loop: recompute the active cols/rows
+/// from the new allocation and the (font-fixed) cell metrics, update the extent in
+/// `_mfb_gtkapp_state` so `term::terminalSize` tracks the live window, and force a
+/// full redraw. The backing arrays keep their fixed stride (no realloc); only the
+/// active top-left cols×rows change. Signal args arrive zero-extended in w1/w2.
+pub(super) fn emit_term_resize_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_RESIZE_SYMBOL);
+    // lr@0. width (x1) / height (x2) are consumed before the single queue_draw call,
+    // so no callee-saved parking is needed.
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    // Stage width/height in scratch registers BEFORE dividing (like emit_term_init):
+    // the x86 div lowering wants a renamable dividend, and x86 `div` clobbers the
+    // second arg register (rdx = x2 = height), so both must be captured up front.
+    asm.push(abi::move_register("x11", "x1")); // width
+    asm.push(abi::move_register("x12", "x2")); // height
+    // cols = clamp(width / cell_w, 1, MAX_COLS).
+    asm.load_state("x10", ST_TERM_CELL_W);
+    asm.push(abi::unsigned_divide_registers("x11", "x11", "x10"));
+    emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "rz_cols");
+    asm.store_state("x11", ST_TERM_COLS);
+    // rows = clamp(height / cell_h, 1, MAX_ROWS).
+    asm.load_state("x10", ST_TERM_CELL_H);
+    asm.push(abi::unsigned_divide_registers("x12", "x12", "x10"));
+    emit_clamp_range(&mut asm, "x12", 1, TERM_MAX_ROWS, "rz_rows");
+    asm.store_state("x12", ST_TERM_ROWS);
+    // Force a full redraw at the new extent.
+    asm.load_state("x0", ST_TERM_AREA);
+    asm.call_external("gtk_widget_queue_draw");
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    asm.finish(TERM_RESIZE_SYMBOL, "Nothing")
+}
+
 /// `void _mfb_gtkapp_term_write(string obj /*x0*/, gboolean newline /*x1*/)` — the
 /// worker-side grid writer the io write helpers call when term:: is active. It
-/// mutates the fixed grid arrays (chars/fg/bg) from the worker thread and then
-/// requests a main-thread redraw. Bytes advance the cursor; '\n' (and the
-/// trailing newline for print) move to the next row; when the cursor passes the
-/// last row the grid scrolls up one line.
+/// mutates the fixed grid arrays (chars/fg/bg) from the worker thread. Bytes advance
+/// the cursor; '\n' (and the trailing newline for print) move to the next row; when
+/// the cursor passes the last row the grid scrolls up one line.
 ///
-/// Concurrency (bug-117.3): these grid writes are NOT synchronized against the
-/// main-thread [`term_draw`](emit_term_draw_helper) render callback, so a queued
-/// draw can read a row mid-update and paint a torn cell. The race is benign —
-/// the grids are fixed-size static buffers (no reallocation, no dangling
-/// pointer, no memory unsafety), and the worst case is one stale/torn row for a
-/// single frame that the next redraw corrects. The full fix marshals grid writes
-/// to the main thread (as the macOS backend does); that larger app-mode change
-/// is deferred. Do not "fix" this with a lock held across the draw callback — a
-/// lock the worker holds during a write while the GTK main loop blocks on it can
-/// stall the UI.
+/// Concurrency (plan-35-E): the write does NOT schedule a redraw — it only touches
+/// the LIVE grid arrays. The render callback ([`emit_term_draw_helper`]) reads the
+/// separate draw-owned SNAPSHOT arrays, and a present (`term::sync`/`io::flush`/
+/// `term::off`) copies live→snapshot on the GTK main loop before `queue_draw`
+/// ([`emit_term_snapshot_copy`]). So a queued draw can no longer observe a
+/// half-written frame — the former worker/draw tearing race is closed. The grids are
+/// fixed-size static buffers (no reallocation, no dangling pointer, no memory
+/// unsafety). Do not reintroduce a per-write redraw or a lock the worker holds across
+/// the draw callback (either the mandatory-present contract breaks or the UI stalls).
 pub(super) fn emit_term_write_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,
@@ -644,10 +726,8 @@ pub(super) fn emit_term_write_helper() -> CodeFunction {
     asm.push(abi::label("tw_store"));
     asm.store_state("x25", ST_TERM_ROW);
     asm.store_state("x26", ST_TERM_COL);
-    // Request a redraw on the main thread.
-    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
-    asm.call_external("g_idle_add");
+    // plan-35-E: NO per-write redraw. Writing only mutates the live grid; a present
+    // (`term::sync`/`io::flush`/`term::off`) snapshots + queue_draws on the main loop.
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in [

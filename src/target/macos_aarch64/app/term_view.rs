@@ -825,9 +825,11 @@ pub(super) fn emit_term_scroll_helper() -> CodeFunction {
 /// IMP for `TermView mfbWriteString:` (`void mfbWriteString:(id self, SEL _cmd,
 /// NSString *str)`): write `str` into the grid at the cursor using the current
 /// attributes, honouring `\n`/`\r`/`\t`, wrapping at the right edge and scrolling
-/// at the bottom, then `setNeedsDisplay:` (plan-01-term.md §4.8). Main-thread only
-/// (invoked via performSelectorOnMainThread), so grid mutation and redraw are
-/// serialized in program order with the other surface ops (§6.4).
+/// at the bottom (plan-01-term.md §4.8). Main-thread only (invoked via
+/// performSelectorOnMainThread), so grid mutation is serialized in program order
+/// with the other surface ops (§6.4). The write does **not** request a redraw —
+/// the surface repaints only on the next present (`term::sync`/`io::flush`), so
+/// redraw is present-driven (plan-35-D §3, mandatory present).
 pub(super) fn emit_term_write_string_helper() -> CodeFunction {
     let mut asm = Asm::new(MFB_WRITE_STRING_SYMBOL);
     // Frame: lr@0, x19(self)@8, x20(str)@16, x21(state)@24, x22(cells)@32,
@@ -861,10 +863,10 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register("x21", "x0"));
     asm.push(abi::compare_immediate("x21", "0"));
-    asm.push(abi::branch_eq("w_redraw"));
+    asm.push(abi::branch_eq("w_done"));
     asm.push(abi::load_u64("x22", "x21", TV_CELLS_OFFSET)); // cells
     asm.push(abi::compare_immediate("x22", "0"));
-    asm.push(abi::branch_eq("w_redraw"));
+    asm.push(abi::branch_eq("w_done"));
     asm.push(abi::load_u64("x25", "x21", TV_COLS_OFFSET));
     asm.push(abi::load_u64("x26", "x21", TV_ROWS_OFFSET));
 
@@ -877,7 +879,7 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
 
     asm.push(abi::label("w_loop"));
     asm.push(abi::compare_registers("x23", "x24"));
-    asm.push(abi::branch_ge("w_redraw"));
+    asm.push(abi::branch_ge("w_done"));
     // c = [str characterAtIndex:i]
     asm.load_selector(SEL_CHAR_AT_INDEX.0);
     asm.push(abi::move_register("x2", "x23"));
@@ -979,11 +981,11 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
     asm.push(abi::add_immediate("x23", "x23", 1));
     asm.push(abi::branch("w_loop"));
 
-    asm.push(abi::label("w_redraw"));
-    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
-    asm.push(abi::move_immediate("x2", "Integer", "1")); // YES
-    asm.push(abi::move_register("x0", "x19"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // Grid mutation is complete. Redraw is present-driven (plan-35-D §3): the
+    // surface repaints only on the next `term::sync`/`io::flush`, never per write,
+    // so a program that draws without a following present shows nothing new
+    // (mandatory present, plan-35 D1).
+    asm.push(abi::label("w_done"));
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in [
@@ -1230,6 +1232,210 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     CodeFunction {
         name: "macapp.term.keyDown".to_string(),
         symbol: TERM_KEY_DOWN_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// IMP for TermView `setFrameSize:` (`void setFrameSize:(NSSize newSize)`; self
+/// x0, `_cmd` x1, width d0, height d1): the live-window-resize hook (plan-35-D
+/// Phase 2). Calls `super` to actually resize the view, then recomputes
+/// `cols = floor(w/cellW)` / `rows = floor(h/cellH)` from the cached cell
+/// metrics, reallocs the `TermCell[]` grid preserving the top-left overlap,
+/// updates `TVSTATE` rows/cols, clamps the cursor, and forces a full redraw.
+/// `term::terminalSize` reads `TV_ROWS`/`TV_COLS`, so a program re-querying its
+/// size sees the new extent. AppKit geometry changes run on the main thread, the
+/// same thread as `drawRect:` and the marshaled grid writes, so the realloc
+/// cannot tear a concurrent draw.
+pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_SET_FRAME_SIZE_SYMBOL);
+    // Frame: lr@0, x19(self)@8, x20(state)@16, x21(oldCells)@24, x22(oldRows)@32,
+    // x23(oldCols)@40, x24(newRows)@48, x25(newCols)@56, x26(newCells)@64,
+    // x27(loop r)@72, width bits@80, height bits@88, objc_super{receiver@96,
+    // super_class@104}, minRows@112, minCols@120.
+    let frame = 128;
+    let (off_w, off_h) = (80, 88);
+    let (off_super_recv, off_super_cls) = (96, 104);
+    let (off_min_rows, off_min_cols) = (112, 120);
+    let saved: [(&str, usize); 9] = [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+        ("x27", 72),
+    ];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    for (reg, off) in saved {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register("x19", "x0")); // self
+    // Spill the NSSize args (d0 = width, d1 = height); the super call clobbers them.
+    asm.push(abi::float_move_x_from_d("x9", "d0"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_x_from_d("x9", "d1"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_h));
+
+    // [super setFrameSize:newSize] — actually resize the NSView. Build the
+    // objc_super { receiver = self; super_class = NSView } record on the stack.
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), off_super_recv));
+    asm.external_data("x9", CLASS_NS_VIEW, LIB_APPKIT);
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_super_cls));
+    asm.load_selector(SEL_SET_FRAME_SIZE.0); // sel -> x1 (clobbers x0)
+    asm.push(abi::add_immediate("x0", abi::stack_pointer(), off_super_recv)); // &super
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x("d0", "x9"));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x("d1", "x9"));
+    asm.call_external("_objc_msgSendSuper", LIB_OBJC);
+
+    // state = objc_getAssociatedObject(self, &TVSTATE_KEY); nil -> no grid yet.
+    asm.push(abi::move_register("x0", "x19"));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0"));
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq("sfs_done"));
+
+    // newCols = floor(width / cellW); newRows = floor(height / cellH); each >= 1.
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x("d0", "x9"));
+    asm.push(abi::load_u64("x9", "x20", TV_CELL_W_OFFSET));
+    asm.push(abi::float_move_d_from_x("d1", "x9"));
+    asm.push(abi::float_divide_d("d0", "d0", "d1"));
+    asm.push(abi::float_floor_to_signed_x("x25", "d0")); // newCols
+    asm.push(abi::compare_immediate("x25", "1"));
+    asm.push(abi::branch_ge("sfs_cols_ok"));
+    asm.push(abi::move_immediate("x25", "Integer", "1"));
+    asm.push(abi::label("sfs_cols_ok"));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x("d0", "x9"));
+    asm.push(abi::load_u64("x9", "x20", TV_CELL_H_OFFSET));
+    asm.push(abi::float_move_d_from_x("d1", "x9"));
+    asm.push(abi::float_divide_d("d0", "d0", "d1"));
+    asm.push(abi::float_floor_to_signed_x("x24", "d0")); // newRows
+    asm.push(abi::compare_immediate("x24", "1"));
+    asm.push(abi::branch_ge("sfs_rows_ok"));
+    asm.push(abi::move_immediate("x24", "Integer", "1"));
+    asm.push(abi::label("sfs_rows_ok"));
+
+    // old geometry.
+    asm.push(abi::load_u64("x21", "x20", TV_CELLS_OFFSET)); // oldCells
+    asm.push(abi::load_u64("x22", "x20", TV_ROWS_OFFSET)); // oldRows
+    asm.push(abi::load_u64("x23", "x20", TV_COLS_OFFSET)); // oldCols
+
+    // Unchanged geometry -> nothing to do (AppKit already marks the resize dirty).
+    asm.push(abi::compare_registers("x24", "x22"));
+    asm.push(abi::branch_ne("sfs_resize"));
+    asm.push(abi::compare_registers("x25", "x23"));
+    asm.push(abi::branch_eq("sfs_done"));
+    asm.push(abi::label("sfs_resize"));
+
+    // newCells = calloc(newRows*newCols, CELL_SIZE); leave the grid intact on OOM.
+    asm.push(abi::multiply_registers("x0", "x24", "x25"));
+    asm.push(abi::move_immediate("x1", "Integer", &CELL_SIZE.to_string()));
+    asm.call_external("_calloc", LIB_SYSTEM);
+    asm.push(abi::move_register("x26", "x0")); // newCells
+    asm.push(abi::compare_immediate("x26", "0"));
+    asm.push(abi::branch_eq("sfs_done"));
+
+    // Preserve the top-left overlap: for r in 0..min(oldRows,newRows) copy
+    // min(oldCols,newCols) cells (row strides differ, so copy row by row).
+    asm.push(abi::move_register("x9", "x22")); // minRows = min(oldRows, newRows)
+    asm.push(abi::compare_registers("x22", "x24"));
+    asm.push(abi::branch_le("sfs_minrows"));
+    asm.push(abi::move_register("x9", "x24"));
+    asm.push(abi::label("sfs_minrows"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_min_rows));
+    asm.push(abi::move_register("x9", "x23")); // minCols = min(oldCols, newCols)
+    asm.push(abi::compare_registers("x23", "x25"));
+    asm.push(abi::branch_le("sfs_mincols"));
+    asm.push(abi::move_register("x9", "x25"));
+    asm.push(abi::label("sfs_mincols"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_min_cols));
+    // No old grid -> nothing to copy.
+    asm.push(abi::compare_immediate("x21", "0"));
+    asm.push(abi::branch_eq("sfs_copy_done"));
+
+    asm.push(abi::move_immediate("x27", "Integer", "0")); // r = 0
+    asm.push(abi::label("sfs_copy_loop"));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_min_rows));
+    asm.push(abi::compare_registers("x27", "x9"));
+    asm.push(abi::branch_ge("sfs_copy_done"));
+    // dst = newCells + (r*newCols)*CELL_SIZE
+    asm.push(abi::multiply_registers("x9", "x27", "x25"));
+    asm.push(abi::shift_left_immediate("x9", "x9", 4));
+    asm.push(abi::add_registers("x0", "x26", "x9"));
+    // src = oldCells + (r*oldCols)*CELL_SIZE
+    asm.push(abi::multiply_registers("x10", "x27", "x23"));
+    asm.push(abi::shift_left_immediate("x10", "x10", 4));
+    asm.push(abi::add_registers("x1", "x21", "x10"));
+    // len = minCols * CELL_SIZE
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_min_cols));
+    asm.push(abi::shift_left_immediate("x2", "x9", 4));
+    asm.call_external("_memcpy", LIB_SYSTEM);
+    asm.push(abi::add_immediate("x27", "x27", 1));
+    asm.push(abi::branch("sfs_copy_loop"));
+    asm.push(abi::label("sfs_copy_done"));
+
+    // Publish the new grid + geometry, then free the old buffer.
+    asm.push(abi::store_u64("x26", "x20", TV_CELLS_OFFSET));
+    asm.push(abi::store_u64("x24", "x20", TV_ROWS_OFFSET));
+    asm.push(abi::store_u64("x25", "x20", TV_COLS_OFFSET));
+    asm.push(abi::compare_immediate("x21", "0"));
+    asm.push(abi::branch_eq("sfs_freed"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_free", LIB_SYSTEM);
+    asm.push(abi::label("sfs_freed"));
+
+    // Clamp the cursor into the new extent.
+    asm.push(abi::load_u64("x9", "x20", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::compare_registers("x9", "x24"));
+    asm.push(abi::branch_lt("sfs_cur_row_ok"));
+    asm.push(abi::subtract_immediate("x9", "x24", 1));
+    asm.push(abi::store_u64("x9", "x20", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::label("sfs_cur_row_ok"));
+    asm.push(abi::load_u64("x9", "x20", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::compare_registers("x9", "x25"));
+    asm.push(abi::branch_lt("sfs_cur_col_ok"));
+    asm.push(abi::subtract_immediate("x9", "x25", 1));
+    asm.push(abi::store_u64("x9", "x20", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::label("sfs_cur_col_ok"));
+
+    // Full redraw of the resized surface. setFrameSize: runs on the main thread,
+    // so message the view directly (no marshaling needed).
+    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1")); // YES
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::label("sfs_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.setFrameSize".to_string(),
+        symbol: TERM_SET_FRAME_SIZE_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {

@@ -206,15 +206,24 @@ pub(crate) fn emit_app_io_write_helper(
     )
 }
 
-/// App-mode body for `io.flush`: transcript writes are already
-/// synchronous (see [`emit_append_helper`]), so flush just returns success.
+/// App-mode body for `io.flush`. Transcript writes are already synchronous (see
+/// [`emit_append_helper`]), but in TUI mode grid writes are retained and only
+/// presented on demand, so `io::flush` drives the same coalesced present as
+/// `term::sync` — a marshaled `setNeedsDisplay:` on the TermView (plan-35-D §3).
+/// Headless / no-surface runs skip the present and return OK.
 pub(crate) fn emit_app_io_flush_helper(
     symbol: &str,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
+    let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
     asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::return_());
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
+    emit_present_needs_display(&mut asm, "flush_done");
+    asm.push(abi::label("flush_done"));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8), ("x21", 16)]);
     (
         CodeFrame {
             stack_size: 0,
@@ -656,6 +665,28 @@ pub(crate) fn emit_app_term_off_helper(
     asm.push(abi::compare_immediate("x21", "0"));
     asm.push(abi::branch_eq("term_off_inactive"));
 
+    // Final present (plan-35-D §3): force the TermView to draw synchronously
+    // before the content-view swap, so the last drawn frame is shown (the
+    // mandatory-present contract — a program that draws then `term::off`s without
+    // a trailing `term::sync` still shows its final frame). `display` marks the
+    // whole view dirty and repaints it immediately; marshaled waitUntilDone:YES so
+    // it completes before the transcript swap below.
+    asm.push(abi::move_register("x0", "x20")); // app
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x22", "x0")); // termview or nil
+    asm.push(abi::compare_immediate("x22", "0"));
+    asm.push(abi::branch_eq("term_off_presented"));
+    asm.load_selector(SEL_DISPLAY.0);
+    asm.push(abi::move_register("x23", "x1")); // display sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // withObject: nil (display takes no arg)
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register("x0", "x22"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label("term_off_presented"));
+
     // scroll = objc_getAssociatedObject(app, &SCROLLVIEW_ASSOC_KEY)
     asm.push(abi::move_register("x0", "x20"));
     asm.local_address("x1", SCROLLVIEW_ASSOC_KEY);
@@ -756,7 +787,7 @@ pub(crate) fn emit_app_term_helper(
         ),
         "term.moveTo" => emit_app_move_to(symbol, term_state_offset),
         "term.clear" => emit_app_clear(symbol, term_state_offset),
-        "term.sync" => emit_app_term_sync(symbol),
+        "term.sync" => emit_app_term_sync(symbol, term_state_offset),
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
         "term.hideCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "0"),
         "term.terminalSize" => emit_app_terminal_size(symbol, term_state_offset),
@@ -765,16 +796,28 @@ pub(crate) fn emit_app_term_helper(
     Some(helper)
 }
 
-/// `term::sync()` app arm. plan-35-A scaffold: a present hook that returns OK
-/// without touching the surface. plan-35-D replaces this body with the coalesced
-/// `setNeedsDisplay:` present that drives the single redraw per frame.
-fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+/// `term::sync()` app arm (plan-35-D §3). The single present: marshal a
+/// `setNeedsDisplay:` onto the TermView so the coalesced frame is drawn once. A
+/// clean no-op while TUI mode is off (the active gate) or when no surface is
+/// attached (headless). This is the *only* redraw trigger for grid writes —
+/// `mfbWriteString:`/`clear` no longer request their own redraw (mandatory
+/// present, plan-35 D1).
+fn emit_app_term_sync(
+    symbol: &str,
+    term_state_offset: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
-    let frame = 16; // lr@0
+    let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
+    let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    emit_term_ok_return(&mut asm, frame, &[]);
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    emit_present_needs_display(&mut asm, &done);
+    asm.push(abi::label(&done));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8), ("x21", 16)]);
     (
         CodeFrame {
             stack_size: 0,
@@ -783,6 +826,36 @@ fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Cod
         asm.ins,
         asm.rel,
     )
+}
+
+/// Marshal a `setNeedsDisplay:` present onto the TermView on the main thread —
+/// the coalesced single redraw shared by `term::sync` and app-mode `io::flush`.
+/// Loads the TermView off NSApp; branches to `done` when no surface is attached
+/// (headless). Uses `x20` (termView) and `x21` (sel), which the caller must have
+/// spilled. Does not touch `x19` (the pinned arena-state base). The present is
+/// marshaled `waitUntilDone:YES` the same way grid writes are, so a `sync` cannot
+/// race ahead of the writes it should show (plan-35-D §3).
+fn emit_present_needs_display(asm: &mut Asm, done: &str) {
+    // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
+    asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // termView or nil
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq(done));
+    // [tv performSelectorOnMainThread:@selector(setNeedsDisplay:) withObject:tv
+    //  waitUntilDone:YES] — any non-nil withObject reads as BOOL YES.
+    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    asm.push(abi::move_register("x21", "x1"));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_register("x3", "x20"));
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 
 /// Branch to `done` when TUI mode is inactive (the §4.2.1 no-op gate). `x19` is
@@ -987,14 +1060,15 @@ fn emit_app_move_to(
     )
 }
 
-/// `term::clear` app body: clear the grid + home the cursor (worker side), then
-/// trigger a redraw on the main thread.
+/// `term::clear` app body: clear the grid + home the cursor (worker side). The
+/// surface is repainted only on the next present (`term::sync`/`io::flush`), not
+/// per clear — redraw is present-driven (plan-35-D §3, mandatory present).
 fn emit_app_clear(
     symbol: &str,
     term_state_offset: usize,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
-    let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
+    let frame = 16; // lr@0, x20(termView)@8
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -1004,7 +1078,6 @@ fn emit_app_clear(
         0,
     ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
-    asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
     asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
@@ -1016,21 +1089,11 @@ fn emit_app_clear(
     asm.push(abi::move_register("x20", "x0")); // termView or nil
     asm.push(abi::compare_immediate("x20", "0"));
     asm.push(abi::branch_eq(&done));
-    // clear the grid + cursor (our heap, worker-safe)
+    // clear the grid + cursor (our heap, worker-safe); no redraw — present-driven.
     asm.push(abi::move_register("x0", "x20"));
     asm.call_internal(TERM_CLEAR_SYMBOL);
-    // [tv performSelectorOnMainThread:@selector(setNeedsDisplay:) withObject:tv waitUntilDone:YES]
-    // (any non-nil withObject reads as BOOL YES).
-    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
-    asm.push(abi::move_register("x21", "x1"));
-    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
-    asm.push(abi::move_register("x2", "x21"));
-    asm.push(abi::move_register("x3", "x20"));
-    asm.push(abi::move_immediate("x4", "Integer", "1"));
-    asm.push(abi::move_register("x0", "x20"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label(&done));
-    emit_term_ok_return(&mut asm, frame, &[("x20", 8), ("x21", 16)]);
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8)]);
     (
         CodeFrame {
             stack_size: 0,

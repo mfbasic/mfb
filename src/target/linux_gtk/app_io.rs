@@ -41,14 +41,21 @@ pub(crate) fn emit_app_term_helper(
     Some(helper)
 }
 
-/// `term::sync()` app arm. plan-35-A scaffold: a present hook returning OK without
-/// touching the surface. plan-35-E replaces this body with the coalesced
-/// `queue_draw` present (and the main-loop snapshot that closes the tearing race).
+/// `term::sync()` app arm (plan-35-E): the single coalesced present. Schedules ONE
+/// main-loop present via the redraw-idle, which marshals a consistent snapshot of the
+/// live grid then `queue_draw`s (see [`term_draw::emit_term_redraw_idle_helper`]), so
+/// the draw never observes a torn frame. A clean no-op while TUI mode is off (the
+/// §4.2.1 gate), matching the console `term::sync` no-op.
 fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    emit_gtk_term_active_gate(&mut asm, "sync_inactive"); // no-op present while off
+    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+    asm.push(abi::label("sync_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -274,6 +281,12 @@ fn emit_app_term_off(
     // `term::off` cooked-mode restore).
     asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
     asm.store_state("x10", ST_INPUT_MODE);
+    // plan-35-E: schedule a final present (snapshot + queue_draw) BEFORE the hide
+    // idle, so the last drawn frame is marshaled before the surface is swapped back
+    // to the transcript. Idle sources drain FIFO, so the present runs first.
+    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
     asm.local_address("x0", TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");
@@ -507,15 +520,25 @@ pub(crate) fn emit_app_io_write_helper(
     )
 }
 
-/// App-mode `io.flush`: returns `OK` immediately. SCAFFOLD: real flush must
-/// drain the pending main-thread transcript update (§5.4) once
-/// marshaling lands.
+/// App-mode `io.flush` (plan-35-E): while TUI mode is active, flushing drives the
+/// same coalesced present as `term::sync` — one main-loop present via the redraw-idle
+/// (snapshot the live grid, then `queue_draw`). While TUI is off it is a no-op
+/// (transcript writes are already marshaled synchronously), returning `OK`.
 pub(crate) fn emit_app_io_flush_helper(
     symbol: &str,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    emit_gtk_term_active_gate(&mut asm, "flush_inactive"); // present only while TUI on
+    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+    asm.push(abi::label("flush_inactive"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
     (
         CodeFrame {
