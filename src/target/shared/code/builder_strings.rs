@@ -761,6 +761,15 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_float_to_string_value(&value_register, &precision)
             }
+            "Money" => {
+                let precision = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &precision,
+                    abi::stack_pointer(),
+                    precision_slot,
+                ));
+                self.emit_money_to_string_value(&value_register, &precision)
+            }
             other => Err(format!(
                 "native toString does not accept argument type '{other}'"
             )),
@@ -1408,6 +1417,233 @@ impl CodeBuilder<'_> {
             type_: "String".to_string(),
             location: result,
             text: "toString(Fixed)".to_string(),
+        })
+    }
+
+    /// `toString(Money [, precision])` (plan-29-G §4.1). Base-10 decimal
+    /// formatting of the scaled raw i64: `intpart = raw / 100000`, five fractional
+    /// digits from `|raw| % 100000`, rendered to `precision` places (default 2).
+    /// Presentation rounding is a **fixed** half-away-from-zero rule when
+    /// `precision < 5`, independent of the global rounding mode — so `toString` is
+    /// a pure function of `(raw, precision)`. Structurally mirrors
+    /// `emit_fixed_to_string_value` with the scale changed from `2^32` to `100000`
+    /// plus the half-away pre-round.
+    pub(super) fn emit_money_to_string_value(
+        &mut self,
+        source_register: &str,
+        precision_register: &str,
+    ) -> Result<ValueResult, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        let scratch15 = self.temporary_vreg();
+        let scratch16 = self.temporary_vreg();
+        let scratch17 = self.temporary_vreg();
+        let scratch20 = self.temporary_vreg();
+        let scratch21 = self.temporary_vreg();
+        let scratch22 = self.temporary_vreg();
+        let scratch23 = self.temporary_vreg();
+        let scratch24 = self.temporary_vreg();
+        let scratch25 = self.temporary_vreg();
+        let buffer_slot = self.allocate_stack_object("to_string_money_buffer", 48);
+        let integer_start_slot = self.allocate_stack_object("to_string_money_integer_start", 8);
+        let integer_len_slot = self.allocate_stack_object("to_string_money_integer_len", 8);
+        let total_len_slot = self.allocate_stack_object("to_string_money_total_len", 8);
+        let magnitude_slot = self.allocate_stack_object("to_string_money_magnitude", 8);
+        let precision_slot = self.allocate_stack_object("to_string_money_precision", 8);
+        let result_slot = self.allocate_stack_object("to_string_money_result", 8);
+
+        let raw = scratch8.as_str();
+        let negative = scratch9.as_str();
+        let int_part = scratch10.as_str();
+        let frac_part = scratch11.as_str();
+        let cursor = scratch12.as_str();
+        let length = scratch13.as_str();
+        let divisor = scratch14.as_str();
+        let quotient = scratch15.as_str();
+        let digit = scratch16.as_str();
+        let precision = scratch17.as_str();
+        let total_len = scratch20.as_str();
+        let dst = scratch21.as_str();
+        let counter = scratch22.as_str();
+        let scale = scratch23.as_str();
+        let exponent = scratch24.as_str();
+        let remainder = scratch25.as_str();
+
+        let nonnegative = self.label("money_string_nonnegative");
+        let round_skip = self.label("money_string_round_skip");
+        let round_pow_loop = self.label("money_string_round_pow_loop");
+        let round_pow_done = self.label("money_string_round_pow_done");
+        let round_no_bump = self.label("money_string_round_no_bump");
+        let integer_zero = self.label("money_string_integer_zero");
+        let integer_loop = self.label("money_string_integer_loop");
+        let integer_done = self.label("money_string_integer_done");
+        let sign_done = self.label("money_string_sign_done");
+        let no_fraction = self.label("money_string_no_fraction");
+        let alloc_ok = self.label("money_string_alloc_ok");
+        let copy_integer_loop = self.label("money_string_copy_integer_loop");
+        let copy_integer_done = self.label("money_string_copy_integer_done");
+        let fraction_loop = self.label("money_string_fraction_loop");
+        let fraction_done = self.label("money_string_fraction_done");
+
+        self.emit(abi::move_register(raw, source_register));
+        self.emit(abi::move_register(precision, precision_register));
+        self.emit(abi::store_u64(precision, abi::stack_pointer(), precision_slot));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::compare_immediate(raw, "0"));
+        self.emit(abi::branch_ge(&nonnegative));
+        self.emit(abi::subtract_registers(raw, abi::ZERO, raw));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::label(&nonnegative));
+
+        // Presentation pre-round (half-away-from-zero) when precision < 5: replace
+        // `raw` (the magnitude) with the value rounded to `precision` places but
+        // still expressed at the 5-place scale, so the truncating render below
+        // emits exactly the rounded digits. `precision >= 5` needs no rounding
+        // (the extra places render as trailing zeros).
+        self.emit(abi::compare_immediate(precision, "5"));
+        self.emit(abi::branch_ge(&round_skip));
+        // divisor = 10^(5 - precision), built by a bounded (<5) multiply loop.
+        self.emit(abi::move_immediate(exponent, "Integer", "5"));
+        self.emit(abi::subtract_registers(exponent, exponent, precision));
+        self.emit(abi::move_immediate(divisor, "Integer", "1"));
+        self.emit(abi::move_immediate(scale, "Integer", "10"));
+        self.emit(abi::label(&round_pow_loop));
+        self.emit(abi::compare_immediate(exponent, "0"));
+        self.emit(abi::branch_eq(&round_pow_done));
+        self.emit(abi::multiply_registers(divisor, divisor, scale));
+        self.emit(abi::subtract_immediate(exponent, exponent, 1));
+        self.emit(abi::branch(&round_pow_loop));
+        self.emit(abi::label(&round_pow_done));
+        // q = raw / divisor, r = raw - q*divisor; bump q when 2*r >= divisor.
+        self.emit(abi::unsigned_divide_registers(quotient, raw, divisor));
+        self.emit(abi::multiply_subtract_registers(remainder, quotient, divisor, raw));
+        self.emit(abi::add_registers(remainder, remainder, remainder)); // 2*r (no overflow: r<divisor<=1e5)
+        self.emit(abi::compare_registers(remainder, divisor));
+        self.emit(abi::branch_lt(&round_no_bump));
+        self.emit(abi::add_immediate(quotient, quotient, 1));
+        self.emit(abi::label(&round_no_bump));
+        self.emit(abi::multiply_registers(raw, quotient, divisor));
+        self.emit(abi::label(&round_skip));
+
+        self.emit(abi::store_u64(raw, abi::stack_pointer(), magnitude_slot));
+        // int_part = raw / 100000; frac_part = raw % 100000.
+        self.emit(abi::move_immediate(scale, "Integer", "100000"));
+        self.emit(abi::unsigned_divide_registers(int_part, raw, scale));
+        self.emit(abi::multiply_subtract_registers(frac_part, int_part, scale, raw));
+        self.emit(abi::move_immediate(length, "Integer", "0"));
+        self.emit(abi::add_immediate(cursor, abi::stack_pointer(), buffer_slot + 47));
+        self.emit(abi::compare_immediate(int_part, "0"));
+        self.emit(abi::branch_eq(&integer_zero));
+        self.emit(abi::move_immediate(divisor, "Integer", "10"));
+        self.emit(abi::label(&integer_loop));
+        self.emit(abi::compare_immediate(int_part, "0"));
+        self.emit(abi::branch_eq(&integer_done));
+        self.emit(abi::unsigned_divide_registers(quotient, int_part, divisor));
+        self.emit(abi::multiply_subtract_registers(digit, quotient, divisor, int_part));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::move_register(int_part, quotient));
+        self.emit(abi::branch(&integer_loop));
+
+        self.emit(abi::label(&integer_zero));
+        self.emit(abi::move_immediate(digit, "Integer", &(b'0' as u64).to_string()));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::move_immediate(length, "Integer", "1"));
+
+        self.emit(abi::label(&integer_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&sign_done));
+        self.emit(abi::move_immediate(digit, "Integer", &(b'-' as u64).to_string()));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::label(&sign_done));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::store_u64(cursor, abi::stack_pointer(), integer_start_slot));
+        self.emit(abi::store_u64(length, abi::stack_pointer(), integer_len_slot));
+        self.emit(abi::move_register(total_len, length));
+        self.emit(abi::compare_immediate(precision, "0"));
+        self.emit(abi::branch_eq(&no_fraction));
+        self.emit(abi::add_immediate(total_len, total_len, 1));
+        self.emit(abi::add_registers(total_len, total_len, precision));
+        self.emit(abi::label(&no_fraction));
+        self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_len_slot));
+
+        self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(total_len, abi::stack_pointer(), total_len_slot));
+        self.emit(abi::store_u64(total_len, abi::RET[1], 0));
+        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
+        self.emit(abi::load_u64(cursor, abi::stack_pointer(), integer_start_slot));
+        self.emit(abi::load_u64(length, abi::stack_pointer(), integer_len_slot));
+        self.emit(abi::label(&copy_integer_loop));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(&copy_integer_done));
+        self.emit(abi::load_u8(digit, cursor, 0));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::subtract_immediate(length, length, 1));
+        self.emit(abi::branch(&copy_integer_loop));
+        self.emit(abi::label(&copy_integer_done));
+
+        self.emit(abi::load_u64(precision, abi::stack_pointer(), precision_slot));
+        self.emit(abi::compare_immediate(precision, "0"));
+        self.emit(abi::branch_eq(&fraction_done));
+        self.emit(abi::move_immediate(digit, "Integer", &(b'.' as u64).to_string()));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        // frac_part = raw % 100000 (from the possibly-rounded magnitude); each
+        // rendered digit is `(frac_part * 10) / 100000`, exhausting to zeros past
+        // the 5th place so `precision > 5` pads with `0`.
+        self.emit(abi::load_u64(raw, abi::stack_pointer(), magnitude_slot));
+        self.emit(abi::move_immediate(scale, "Integer", "100000"));
+        self.emit(abi::unsigned_divide_registers(int_part, raw, scale));
+        self.emit(abi::multiply_subtract_registers(frac_part, int_part, scale, raw));
+        self.emit(abi::move_immediate(counter, "Integer", "0"));
+        self.emit(abi::move_immediate(divisor, "Integer", "10"));
+        self.emit(abi::label(&fraction_loop));
+        self.emit(abi::compare_registers(counter, precision));
+        self.emit(abi::branch_eq(&fraction_done));
+        self.emit(abi::multiply_registers(frac_part, frac_part, divisor));
+        self.emit(abi::unsigned_divide_registers(digit, frac_part, scale));
+        self.emit(abi::multiply_subtract_registers(frac_part, digit, scale, frac_part));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::add_immediate(counter, counter, 1));
+        self.emit(abi::branch(&fraction_loop));
+        self.emit(abi::label(&fraction_done));
+        self.emit(abi::move_immediate(digit, "Integer", "0"));
+        self.emit(abi::store_u8(digit, dst, 0));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "toString(Money)".to_string(),
         })
     }
 

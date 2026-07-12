@@ -83,7 +83,7 @@ impl CodeBuilder<'_> {
             // `emit_collection_payload*` and the documented map-literal key
             // semantics (0.0 != -0.0, NaN == NaN). Using `float_compare_d`
             // gave inconsistent FP semantics for record-field Floats.
-            "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" => {
+            "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" | "Money" => {
                 self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
                 self.emit(abi::compare_registers(lval, rval));
@@ -200,7 +200,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Integer" | "Float" | "Fixed" => {
+            "Integer" | "Float" | "Fixed" | "Money" => {
                 let candidate = self.allocate_register()?;
                 self.emit(abi::load_u64(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value));
@@ -300,7 +300,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Integer" | "Float" | "Fixed" => {
+            "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::load_u64(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value));
                 self.emit(abi::branch_eq(equal_label));
@@ -400,7 +400,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Integer" | "Float" | "Fixed" => {
+            "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::load_u64(lval, lcur, 0));
                 self.emit(abi::load_u64(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));

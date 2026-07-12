@@ -86,6 +86,10 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_FLOAT_LITERAL_UNDERFLOW",
     "TYPE_FIXED_LITERAL_OVERFLOW",
     "TYPE_FIXED_LITERAL_UNDERFLOW",
+    "TYPE_MONEY_LITERAL_OVERFLOW",
+    "TYPE_MONEY_LITERAL_UNDERFLOW",
+    "TYPE_MONEY_LITERAL_PRECISION",
+    "TYPE_MONEY_OPERATION_INVALID",
     "TYPE_UNARY_OPERATOR_UNKNOWN",
     "TYPE_UNION_INCLUDE_REQUIRES_UNION",
     "TYPE_UNION_MEMBER_REQUIRES_TYPE",
@@ -3543,11 +3547,13 @@ impl TypeEnv {
                     return value.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16);
                 }
                 ("Fixed", "Integer") | ("Fixed", "Float") => return true,
+                // A decimal literal coerces to a Money slot (plan-29-A §4.4).
+                ("Money", "Integer") | ("Money", "Float") => return true,
                 _ => {}
             }
         }
-        // Negated numeric literal into Fixed (`-1` etc.).
-        if expected == "Fixed" {
+        // Negated numeric literal into Fixed / Money (`-1`, `-1.25`).
+        if expected == "Fixed" || expected == "Money" {
             if let IrValue::Unary { op, operand, .. } = value {
                 if op == "-"
                     && matches!(operand.as_ref(), IrValue::Const { type_, .. } if type_ == "Integer" || type_ == "Float")
@@ -3964,6 +3970,13 @@ fn derived_binary_type(op: &str, left: Option<&str>, right: Option<&str>) -> Opt
         "AND" | "OR" | "XOR" | "<" | ">" | "<=" | ">=" | "=" | "<>" => Some("Boolean".to_string()),
         "&" => Some("String".to_string()),
         "+" | "-" | "*" | "/" | "MOD" | "^" => match (left, right) {
+            // Money's dimensional algebra is not the "same type in, same type out"
+            // heuristic (`M / M → Float`, `M * k → Money`), so consult the lattice
+            // whenever a Money operand is present (plan-29-A §4.2).
+            (Some(left), Some(right)) if left == "Money" || right == "Money" => {
+                crate::numeric::money_result_type(op, left == "Money", right == "Money")
+                    .map(str::to_string)
+            }
             (Some(left), Some(right)) if left == right => Some(left.to_string()),
             _ => None,
         },

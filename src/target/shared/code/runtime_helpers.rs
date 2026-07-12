@@ -448,6 +448,12 @@ fn lower_thread_start_helper(
         abi::branch_lo(&child_zero_loop),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         abi::store_u64(abi::RET[1], "%v9", THREAD_OFFSET_ARENA_STATE),
+        // Inherit the parent's Money rounding mode (plan-29-D): the child arena was
+        // just zeroed (= Commercial), so copy the spawning thread's mode field
+        // (`x19` is the parent arena here) into the child, which then diverges
+        // independently — consistent with per-thread RNG/state isolation.
+        abi::load_u64("%v11", abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
+        abi::store_u64("%v11", abi::RET[1], ARENA_ROUNDING_MODE_OFFSET),
     ]);
 
     if uses_rng {

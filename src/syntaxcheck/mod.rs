@@ -125,6 +125,7 @@ pub fn check_project_collect(
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
+    let augmented = builtins::money::augmented_project(&augmented)?;
     // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)?;
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).

@@ -157,6 +157,7 @@ impl StorageClass {
             StorageClass::Integer => "integer",
             StorageClass::Float => "float",
             StorageClass::Fixed => "fixed",
+            StorageClass::Money => "money",
             StorageClass::Boolean => "boolean",
             StorageClass::Reference => "reference",
         }

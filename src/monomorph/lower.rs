@@ -1588,6 +1588,7 @@ impl<'a> Monomorphizer<'a> {
         try_pkg!(builtins::csv::resolve_call(callee, &arg_types));
         try_pkg!(builtins::regex::resolve_call(callee, &arg_types));
         try_pkg!(builtins::datetime::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::money::resolve_call(callee, &arg_types));
         try_pkg!(builtins::net::resolve_call(callee, &arg_types));
         try_pkg!(builtins::os::resolve_call(callee, &arg_types));
         try_pkg!(builtins::http::resolve_call(callee, &arg_types));

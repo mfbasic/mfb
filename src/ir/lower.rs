@@ -174,6 +174,8 @@ pub fn lower_project_with_external_functions(
         .expect("built-in regex package source must parse");
     let augmented = builtins::datetime::augmented_project(&augmented)
         .expect("built-in datetime package source must parse");
+    let augmented = builtins::money::augmented_project(&augmented)
+        .expect("built-in money package source must parse");
     // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)
         .expect("built-in vector package source must parse");
@@ -3332,9 +3334,26 @@ fn lower_expression_with_expected(
             line,
             column,
         } => {
-            let result_type = expression_type(expression, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
-            let lowered_operand = lower_expression(operand, locals, context);
+            // A negated decimal literal in a Money slot (`LET a AS Money = -1.25`)
+            // must lower its operand as a Money const so the raw negate operates on
+            // the base-10 scaled i64, not an f64 bit pattern, and the node is
+            // annotated Money to match the binding (plan-29-A §4.4). Only the Money
+            // case propagates expected — Fixed/Byte keep their existing
+            // (Float/Integer-const) operand shape so their goldens are unchanged.
+            let money_literal_negation = operator == "-"
+                && expected == Some("Money")
+                && matches!(operand.as_ref(), Expression::Number(_));
+            let result_type = if money_literal_negation {
+                "Money".to_string()
+            } else {
+                expression_type(expression, locals, context)
+                    .unwrap_or_else(|| "Unknown".to_string())
+            };
+            let lowered_operand = if money_literal_negation {
+                lower_expression_with_expected(operand, expected, locals, context)
+            } else {
+                lower_expression(operand, locals, context)
+            };
             // bug-07: the minimum `Fixed` (`-2147483648.0`) parses as
             // `-(2147483648.0F)`, but the positive magnitude overflows the i64
             // raw (2^63), so the constant can never materialize on its own. Fold

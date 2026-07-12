@@ -48,6 +48,7 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "Fixed" => self.emit_fixed_to_int_value(&source),
             "Float" => self.emit_float_to_int_value(&source),
+            "Money" => self.emit_money_to_int_value(&source),
             "String" => match base_slot {
                 Some(slot) => self.emit_string_to_int_value_base(&source, slot),
                 None => self.emit_string_to_int_value(&source),
@@ -81,6 +82,23 @@ impl CodeBuilder<'_> {
             type_: "Integer".to_string(),
             location: result,
             text: "toInt(Fixed)".to_string(),
+        })
+    }
+
+    /// `toInt(Money)` — the whole-unit count, `raw / 100000` truncated toward
+    /// zero (plan-29-G §4.3). Always fits Integer.
+    pub(super) fn emit_money_to_int_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<ValueResult, String> {
+        let scale = self.allocate_register()?;
+        let result = self.allocate_register()?;
+        self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+        self.emit(abi::signed_divide_registers(&result, source_register, &scale));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "toInt(Money)".to_string(),
         })
     }
 
@@ -444,20 +462,31 @@ impl CodeBuilder<'_> {
 
     pub(super) fn lower_to_byte(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        if value.type_ != "Integer" {
+        if !matches!(value.type_.as_str(), "Integer" | "Money") {
             return Err(format!(
                 "native toByte does not accept argument type '{}'",
                 value.type_
             ));
         }
+        // `toByte(Money)` narrows the whole-unit part (`raw / 100000`), then
+        // range-checks it exactly like an Integer (plan-29-G §4.3).
+        let checked = if value.type_ == "Money" {
+            let scale = self.allocate_register()?;
+            let whole = self.allocate_register()?;
+            self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+            self.emit(abi::signed_divide_registers(&whole, &value.location, &scale));
+            whole
+        } else {
+            value.location.clone()
+        };
         let result = self.allocate_register()?;
         let overflow = self.label("to_byte_overflow");
         let ok = self.label("to_byte_ok");
-        self.emit(abi::compare_immediate(&value.location, "0"));
+        self.emit(abi::compare_immediate(&checked, "0"));
         self.emit(abi::branch_lt(&overflow));
-        self.emit(abi::compare_immediate(&value.location, "255"));
+        self.emit(abi::compare_immediate(&checked, "255"));
         self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::move_register(&result, &value.location));
+        self.emit(abi::move_register(&result, &checked));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&overflow));
         self.emit_overflow_return()?;
@@ -489,6 +518,16 @@ impl CodeBuilder<'_> {
             "Fixed" => {
                 let temp = ValueResult {
                     type_: "Fixed".to_string(),
+                    location: source,
+                    text: value.text.clone(),
+                };
+                self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
+                self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
+            }
+            // `toFloat(Money)` = `raw / 100000.0` (plan-29-G §4.3).
+            "Money" => {
+                let temp = ValueResult {
+                    type_: "Money".to_string(),
                     location: source,
                     text: value.text.clone(),
                 };
@@ -544,6 +583,14 @@ impl CodeBuilder<'_> {
             "Float" => {
                 self.emit_float_bits_to_fixed_value(&source, &result)?;
             }
+            // `toFixed(Money)` = `raw * 2^32 / 100000` — exactly `emit_fixed_divide`
+            // fed the Money raw and the base-10 scale; its range check traps a
+            // Money too large for Fixed's 32-bit integer part (plan-29-G §4.3).
+            "Money" => {
+                let scale = self.allocate_register()?;
+                self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+                self.emit_fixed_divide(&result, &source, &scale)?;
+            }
             "String" => {
                 let invalid = self.label("to_fixed_invalid");
                 let overflow = self.label("to_fixed_overflow");
@@ -571,6 +618,83 @@ impl CodeBuilder<'_> {
             type_: "Fixed".to_string(),
             location: result,
             text: format!("toFixed({})", value.text),
+        })
+    }
+
+    /// `toMoney(value)` — the explicit crossing *into* Money from every type
+    /// (plan-29-G §4.2). Integer/Byte scale by 100000; Fixed rescales exactly via
+    /// the 128-bit `emit_fixed_multiply`; Float and String go through f64 and the
+    /// mode-aware round, guarding finiteness and range.
+    pub(super) fn lower_to_money(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        // Read a `d`-native float's bits from a GPR for the Float conversion.
+        let value = self.materialize_float(value)?;
+        let value_slot = self.allocate_stack_object("to_money_value", 8);
+        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), value_slot));
+        self.reset_temporary_registers();
+        let source = self.allocate_register()?;
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
+        let result = self.allocate_register()?;
+        let scratch = self.temporary_vreg();
+        match value.type_.as_str() {
+            // Exact: `value * 100000`, overflow-checked for Integer (a Byte is
+            // always in range: 255 * 100000 fits i64).
+            "Integer" => {
+                let scale = self.allocate_register()?;
+                self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+                self.emit_checked_integer_multiply(&result, &source, &scale)?;
+            }
+            "Byte" => {
+                let scale = self.allocate_register()?;
+                self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+                self.emit(abi::multiply_registers(&result, &source, &scale));
+            }
+            // `fixed_raw * 100000 / 2^32` is exactly `emit_fixed_multiply(fixed_raw,
+            // 100000)`; its overflow check traps a Fixed too large for Money.
+            "Fixed" => {
+                let scale = self.allocate_register()?;
+                self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+                self.emit_fixed_multiply(&result, &source, &scale)?;
+            }
+            // Inexact: finiteness → ErrInvalidFormat, `value * 100000.0` rounded
+            // under the mode, range → ErrOverflow.
+            "Float" => {
+                let fval = self.allocate_fp_register()?;
+                self.emit(abi::float_move_d_from_x(&fval, &source));
+                self.emit_float_finite_or_invalid(&fval)?;
+                let scale = self.allocate_fp_register()?;
+                self.emit_f64_const(&scale, scratch.as_str(), 100_000.0);
+                let scaled = self.allocate_fp_register()?;
+                self.emit(abi::float_multiply_d(&scaled, &fval, &scale));
+                self.emit_round_double_to_money_raw(&scaled, &result)?;
+            }
+            // Mirror `toFixed(String)`: parse to f64, then scale + mode-round.
+            "String" => {
+                let invalid = self.label("to_money_invalid");
+                let done = self.label("to_money_done");
+                self.emit_parse_decimal_string_to_double(&source, &invalid)?;
+                let parsed = self.allocate_fp_register()?;
+                self.emit(abi::float_move_d_from_d(&parsed, abi::FP_SCRATCH[0]));
+                let scale = self.allocate_fp_register()?;
+                self.emit_f64_const(&scale, scratch.as_str(), 100_000.0);
+                let scaled = self.allocate_fp_register()?;
+                self.emit(abi::float_multiply_d(&scaled, &parsed, &scale));
+                self.emit_round_double_to_money_raw(&scaled, &result)?;
+                self.emit(abi::branch(&done));
+                self.emit(abi::label(&invalid));
+                self.emit_invalid_format_return()?;
+                self.emit(abi::label(&done));
+            }
+            other => {
+                return Err(format!(
+                    "native toMoney does not accept argument type '{other}'"
+                ))
+            }
+        }
+        Ok(ValueResult {
+            type_: "Money".to_string(),
+            location: result,
+            text: format!("toMoney({})", value.text),
         })
     }
 

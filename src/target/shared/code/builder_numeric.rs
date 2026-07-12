@@ -242,7 +242,19 @@ impl CodeBuilder<'_> {
                 }
             }
             "Float" => {
-                result_location = self.emit_float_binary(op, &left, &right, &register)?;
+                // A Money operand with a Float result is the `M / M` ratio or a
+                // `Money DIV …` — routed through the Money dispatcher, which
+                // produces the f64 result (plan-29-E §4.3/§4.5).
+                if left.type_ == "Money" || right.type_ == "Money" {
+                    result_location = self.emit_money_binary(op, &left, &right, &register)?;
+                } else {
+                    result_location = self.emit_float_binary(op, &left, &right, &register)?;
+                }
+            }
+            // A Money result (`M ± M`, `M * k`, `M / k`, `M MOD M`) is settled by
+            // the Money dispatcher (plan-29-C/E/F).
+            "Money" => {
+                result_location = self.emit_money_binary(op, &left, &right, &register)?;
             }
             other => {
                 return Err(format!(
@@ -312,6 +324,15 @@ impl CodeBuilder<'_> {
             }
             "Fixed" => {
                 self.emit_min_i64_negation_check(&operand.location, "fixed_unary")?;
+                let zero = self.allocate_register()?;
+                self.emit(abi::move_immediate(&zero, "Integer", "0"));
+                self.emit(abi::subtract_registers(&register, &zero, &operand.location));
+            }
+            // Money is a signed i64 raw, so negate is the Integer path with the
+            // same INT64_MIN check (raw `-9223372036854775808` = the min Money,
+            // `-92233720368547.75808`, cannot be negated) (plan-29-C §4.3).
+            "Money" => {
+                self.emit_min_i64_negation_check(&operand.location, "money_unary")?;
                 let zero = self.allocate_register()?;
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
@@ -408,7 +429,10 @@ impl CodeBuilder<'_> {
             };
             return self.lower_string_comparison_binary(op, &left, &right);
         }
-        if matches!(left.type_.as_str(), "Byte" | "Integer" | "Fixed" | "Float") {
+        if matches!(
+            left.type_.as_str(),
+            "Byte" | "Integer" | "Fixed" | "Float" | "Money"
+        ) {
             let right = self.lower_value(right)?;
             let right = self.materialize_float(right)?;
             let right_slot = self.allocate_stack_object("cmp_right", 8);
@@ -609,7 +633,9 @@ impl CodeBuilder<'_> {
         let done_label = self.label("cmp_done");
 
         match promoted.as_str() {
-            "Byte" | "Integer" => {
+            // Money compares as a signed i64 raw (same scale ⇒ raw order = value
+            // order); no promotion, no float path (plan-29-C §4.3).
+            "Byte" | "Integer" | "Money" => {
                 self.emit(abi::compare_registers(&left.location, &right.location));
             }
             "Fixed" => {
@@ -1561,6 +1587,14 @@ impl CodeBuilder<'_> {
             "Fixed" => {
                 self.emit(abi::signed_convert_to_float_d(dst, &value.location));
                 self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 4_294_967_296.0);
+                self.emit(abi::float_divide_d(dst, dst, abi::FP_SCRATCH[7]));
+            }
+            // Money's f64 value is its raw scaled i64 divided by the base-10 scale
+            // (the SCALE cancels in `M / M`; used by the ratio, DIV, and
+            // `toFloat(Money)` paths) (plan-29-E §4.3).
+            "Money" => {
+                self.emit(abi::signed_convert_to_float_d(dst, &value.location));
+                self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 100_000.0);
                 self.emit(abi::float_divide_d(dst, dst, abi::FP_SCRATCH[7]));
             }
             other => {

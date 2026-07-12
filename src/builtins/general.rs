@@ -8,6 +8,7 @@ const TO_INT: &str = "toInt";
 const TO_FLOAT: &str = "toFloat";
 const TO_FIXED: &str = "toFixed";
 const TO_BYTE: &str = "toByte";
+const TO_MONEY: &str = "toMoney";
 const IS_NUMERIC: &str = "isNumeric";
 const IS_EVEN: &str = "isEven";
 const IS_ODD: &str = "isOdd";
@@ -48,6 +49,7 @@ pub(crate) fn is_general_call(name: &str) -> bool {
             | TO_FLOAT
             | TO_FIXED
             | TO_BYTE
+            | TO_MONEY
             | IS_NUMERIC
             | IS_EVEN
             | IS_ODD
@@ -86,6 +88,7 @@ pub(crate) fn override_result_type(name: &str) -> Option<&'static str> {
         TO_FLOAT => Some("Float"),
         TO_FIXED => Some("Fixed"),
         TO_BYTE => Some("Byte"),
+        TO_MONEY => Some("Money"),
         IS_NUMERIC | IS_EVEN | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY
         | IS_NOT_EMPTY => Some("Boolean"),
         _ => None,
@@ -102,6 +105,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         TO_FLOAT => Some(&[&["value"]]),
         TO_FIXED => Some(&[&["value"]]),
         TO_BYTE => Some(&[&["value"]]),
+        TO_MONEY => Some(&[&["value"]]),
         IS_NUMERIC => Some(&[&["value"]]),
         IS_EVEN => Some(&[&["value"]]),
         IS_ODD => Some(&[&["value"]]),
@@ -120,6 +124,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         TO_FLOAT => Some("Float"),
         TO_FIXED => Some("Fixed"),
         TO_BYTE => Some("Byte"),
+        TO_MONEY => Some("Money"),
         _ => None,
     }
 }
@@ -197,7 +202,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         TO_STRING => {
             if arg_types.len() == 2
-                && matches!(arg_types[0].as_str(), "Float" | "Fixed")
+                && matches!(arg_types[0].as_str(), "Float" | "Fixed" | "Money")
                 && arg_types[1] == "Byte"
             {
                 ResolvedCall {
@@ -206,7 +211,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             } else if arg_types.len() == 1
                 && (matches!(
                     arg_types[0].as_str(),
-                    "Integer" | "Float" | "Fixed" | "Boolean" | "String" | "Byte"
+                    "Integer" | "Float" | "Fixed" | "Money" | "Boolean" | "String" | "Byte"
                 ) || arg_types[0] == "List OF Byte")
             {
                 ResolvedCall {
@@ -221,7 +226,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             // 2-arg: `toInt(text AS String, base AS Integer)` parses `text` in
             // `base` (plan-02-cleanup §5). The optional `base` is a second arity,
             // not a user-level default parameter, since `toInt` is overloaded.
-            if exact_one_of(arg_types, &["String", "Byte", "Float", "Fixed"])
+            if exact_one_of(arg_types, &["String", "Byte", "Float", "Fixed", "Money"])
                 || exact(arg_types, &["String", "Integer"])
             {
                 ResolvedCall {
@@ -232,7 +237,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_FLOAT => {
-            if exact_one_of(arg_types, &["String", "Integer", "Fixed"]) {
+            if exact_one_of(arg_types, &["String", "Integer", "Fixed", "Money"]) {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Float"),
                 }
@@ -241,7 +246,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_FIXED => {
-            if exact_one_of(arg_types, &["String", "Integer", "Float"]) {
+            if exact_one_of(arg_types, &["String", "Integer", "Float", "Money"]) {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Fixed"),
                 }
@@ -250,9 +255,19 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_BYTE => {
-            if exact(arg_types, &["Integer"]) {
+            if exact_one_of(arg_types, &["Integer", "Money"]) {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Byte"),
+                }
+            } else {
+                return None;
+            }
+        }
+        TO_MONEY => {
+            // Explicit crossing into Money from every scalar type (plan-29-G §4.2).
+            if exact_one_of(arg_types, &["String", "Integer", "Float", "Fixed", "Byte"]) {
+                ResolvedCall {
+                    return_type: Cow::Borrowed("Money"),
                 }
             } else {
                 return None;
@@ -310,10 +325,11 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         TO_STRING => {
             Some("Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, or List OF Byte")
         }
-        TO_INT => Some("String[, Integer], Byte, Float, or Fixed"),
-        TO_FLOAT => Some("String, Integer, or Fixed"),
-        TO_FIXED => Some("String, Integer, or Float"),
-        TO_BYTE => Some("Integer"),
+        TO_INT => Some("String[, Integer], Byte, Float, Fixed, or Money"),
+        TO_FLOAT => Some("String, Integer, Fixed, or Money"),
+        TO_FIXED => Some("String, Integer, Float, or Money"),
+        TO_BYTE => Some("Integer or Money"),
+        TO_MONEY => Some("String, Integer, Float, Fixed, or Byte"),
         IS_NUMERIC => Some("String"),
         IS_EVEN => Some("Integer"),
         IS_ODD => Some("Integer"),
@@ -325,8 +341,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        LEN | TYPE_NAME | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC | IS_EVEN | IS_ODD
-        | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => Some((1, 1)),
+        LEN | TYPE_NAME | TO_FLOAT | TO_FIXED | TO_BYTE | TO_MONEY | IS_NUMERIC | IS_EVEN
+        | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => Some((1, 1)),
         TO_STRING | TO_INT => Some((1, 2)),
         _ => None,
     }
@@ -623,6 +639,7 @@ mod tests {
         TO_FLOAT,
         TO_FIXED,
         TO_BYTE,
+        TO_MONEY,
         IS_NUMERIC,
         IS_EVEN,
         IS_ODD,

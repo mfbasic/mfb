@@ -11,6 +11,7 @@ pub(crate) mod http;
 pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;
+pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
 pub(crate) mod regex;
@@ -39,6 +40,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "io"
             | "json"
             | "math"
+            | "money"
             | "net"
             | "os"
             | "regex"
@@ -57,6 +59,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         || http::is_builtin_type(name)
         || io::is_builtin_type(name)
         || json::is_builtin_type(name)
+        || money::is_builtin_type(name)
         || net::is_builtin_type(name)
         || term::is_builtin_type(name)
         || thread::is_builtin_type(name)
@@ -95,6 +98,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
         "json" => json::is_builtin_type(member),
+        "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
@@ -291,6 +295,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| csv::call_return_type_name(name))
         .or_else(|| regex::call_return_type_name(name))
         .or_else(|| datetime::call_return_type_name(name))
+        .or_else(|| money::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
         .or_else(|| os::call_return_type_name(name))
         .or_else(|| http::call_return_type_name(name))
@@ -327,6 +332,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || csv::is_csv_call(name)
         || regex::is_regex_call(name)
         || datetime::is_datetime_call(name)
+        || money::is_money_call(name)
         || net::is_net_call(name)
         || os::is_os_call(name)
         || http::is_http_call(name)
@@ -460,6 +466,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| csv::call_param_names(name))
         .or_else(|| regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))
+        .or_else(|| money::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| os::call_param_names(name))
         .or_else(|| http::call_param_names(name))
@@ -694,6 +701,7 @@ mod tests {
             "io",
             "json",
             "math",
+            "money",
             "net",
             "regex",
             "strings",

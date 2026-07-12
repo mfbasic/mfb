@@ -208,7 +208,7 @@ impl CodeBuilder<'_> {
         source: &str,
     ) -> Result<String, String> {
         match type_ {
-            "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" => {
+            "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" => {
                 let result = self.allocate_register()?;
                 self.emit(abi::move_register(&result, source));
                 Ok(result)

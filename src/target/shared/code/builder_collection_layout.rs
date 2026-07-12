@@ -60,7 +60,7 @@ impl CodeBuilder<'_> {
     pub(super) fn collection_payload_alignment(&self, type_: &str) -> usize {
         match type_ {
             "Boolean" | "Byte" | "String" => 1,
-            "Integer" | "Float" | "Fixed" => 8,
+            "Integer" | "Float" | "Fixed" | "Money" => 8,
             // A function value is an 8-byte code/closure pointer (bug-73).
             other if is_function_type(other) => 8,
             other if self.is_pointer_collection_payload_type(other) => 8,
@@ -1505,7 +1505,7 @@ impl CodeBuilder<'_> {
             "Boolean" | "Byte" => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
             }
-            "Integer" | "Float" | "Fixed" => {
+            "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
             // A function value is a single 8-byte closure pointer, stored by
@@ -1608,7 +1608,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u8(&scratch12, &scratch10, 0));
             }
-            "Integer" | "Float" | "Fixed" => {
+            "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -1762,7 +1762,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u8(&result, &data, 0));
                 Ok(result)
             }
-            "Integer" | "Float" | "Fixed" => {
+            "Integer" | "Float" | "Fixed" | "Money" => {
                 let result = self.allocate_register()?;
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)

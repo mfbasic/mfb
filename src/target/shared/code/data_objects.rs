@@ -346,7 +346,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
 
 fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
     for value in [
-        "Boolean", "Byte", "Error", "Fixed", "Float", "Integer", "Nothing", "String",
+        "Boolean", "Byte", "Error", "Fixed", "Float", "Integer", "Money", "Nothing", "String",
     ] {
         push_string_value(values, value.to_string());
     }
@@ -1054,6 +1054,7 @@ pub(super) fn static_type_name_with_types(
             "toFloat" => Some("Float".to_string()),
             "toFixed" => Some("Fixed".to_string()),
             "toByte" => Some("Byte".to_string()),
+            "toMoney" => Some("Money".to_string()),
             "isNumeric" => Some("Boolean".to_string()),
             _ => None,
         },

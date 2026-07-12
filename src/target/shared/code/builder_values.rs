@@ -686,11 +686,17 @@ impl CodeBuilder<'_> {
                 if target == "toByte" && args.len() == 1 {
                     return self.lower_to_byte(&args[0]);
                 }
+                if target == "toMoney" && args.len() == 1 {
+                    return self.lower_to_money(&args[0]);
+                }
                 if target == "isNumeric" && args.len() == 1 {
                     return self.lower_is_numeric(&args[0]);
                 }
                 if let Some(function) = target.strip_prefix("math.") {
                     return self.lower_math_call(function, args);
+                }
+                if let Some(function) = target.strip_prefix("money.") {
+                    return self.lower_money_call(function, args);
                 }
                 if let Some(function) = target.strip_prefix("bits.") {
                     return self.lower_bits_call(function, args);
@@ -750,8 +756,10 @@ impl CodeBuilder<'_> {
                 // (`toInt`, `toFloat`, `toFixed`, `toByte`) traps the raw
                 // `Result`: lower the conversion inline but capture its error
                 // instead of auto-propagating, then materialize the `Result`.
-                if matches!(target.as_str(), "toInt" | "toFloat" | "toFixed" | "toByte")
-                    && (args.len() == 1 || (target == "toInt" && args.len() == 2))
+                if matches!(
+                    target.as_str(),
+                    "toInt" | "toFloat" | "toFixed" | "toByte" | "toMoney"
+                ) && (args.len() == 1 || (target == "toInt" && args.len() == 2))
                 {
                     return self.lower_inline_conversion_raw(target, args);
                 }
@@ -1346,7 +1354,7 @@ impl CodeBuilder<'_> {
                 if op == "-"
                     && matches!(
                         operand.type_.as_str(),
-                        "Byte" | "Integer" | "Fixed" | "Float"
+                        "Byte" | "Integer" | "Fixed" | "Float" | "Money"
                     )
                 {
                     return self.lower_numeric_unary_negation(operand);
@@ -1382,6 +1390,7 @@ impl CodeBuilder<'_> {
             "toFloat" => self.lower_to_float(&args[0]),
             "toFixed" => self.lower_to_fixed(&args[0]),
             "toByte" => self.lower_to_byte(&args[0]),
+            "toMoney" => self.lower_to_money(&args[0]),
             other => Err(format!("native raw conversion '{other}' is not supported")),
         };
         self.raw_result_capture = previous;

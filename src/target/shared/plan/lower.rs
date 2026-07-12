@@ -159,6 +159,8 @@ pub(super) fn storage_for_type(
         (StorageClass::Float, 8, 8)
     } else if type_ == "Fixed" {
         (StorageClass::Fixed, 8, 8)
+    } else if type_ == "Money" {
+        (StorageClass::Money, 8, 8)
     } else if is_reference_type(type_) {
         (StorageClass::Reference, 8, 8)
     } else if crate::builtins::is_resource_type(type_) {

@@ -1023,6 +1023,11 @@ pub(super) fn value_may_return_invalid_format(
             // base, or a digit invalid for the base (plan-02-cleanup §5).
             "toInt" if args.len() == 2 => true,
             "toFloat" | "toFixed" | "isNumeric" => true,
+            // `toMoney(String)` (malformed) and `toMoney(Float)` (NaN/Inf) FAIL
+            // with ErrInvalidFormat (plan-29-G §4.2). Register the message for any
+            // `toMoney` — the Integer/Byte/Fixed overloads simply never read the
+            // (harmlessly interned) data object.
+            "toMoney" if args.len() == 1 => true,
             _ => false,
         },
         _ => false,

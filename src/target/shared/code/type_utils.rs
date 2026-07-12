@@ -68,6 +68,7 @@ pub(super) fn collection_type_code(type_: &str) -> Option<usize> {
         "Integer" => Some(COLLECTION_TYPE_INTEGER),
         "Float" => Some(COLLECTION_TYPE_FLOAT),
         "Fixed" => Some(COLLECTION_TYPE_FIXED),
+        "Money" => Some(COLLECTION_TYPE_MONEY),
         "String" => Some(COLLECTION_TYPE_STRING),
         _ if type_.starts_with("List OF ") => Some(COLLECTION_TYPE_LIST),
         _ if type_.starts_with("Map OF ") => Some(COLLECTION_TYPE_MAP),
@@ -85,6 +86,7 @@ pub(super) fn collection_payload_alignment_for_code(code: usize) -> usize {
         COLLECTION_TYPE_INTEGER
         | COLLECTION_TYPE_FLOAT
         | COLLECTION_TYPE_FIXED
+        | COLLECTION_TYPE_MONEY
         | COLLECTION_TYPE_LIST
         | COLLECTION_TYPE_MAP
         | COLLECTION_TYPE_OBJECT => 8,
@@ -299,6 +301,10 @@ pub(super) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
         // raw this is identical to the signed decimal; it only matters for the
         // minimum `Fixed` (raw == i64::MIN), which bug-07's fold produces directly.
         "Fixed" => Ok((numeric::fixed_raw_from_decimal(value)? as u64).to_string()),
+        // Money materializes its base-10 scaled raw i64 as a u64 bit pattern, the
+        // same negative-safe treatment as Fixed (the min Money raw is i64::MIN,
+        // which the plan-29-B fold produces directly). (plan-29-C §4.2)
+        "Money" => Ok((numeric::money_raw_from_decimal(value)? as u64).to_string()),
         _ => Ok(value.to_string()),
     }
 }

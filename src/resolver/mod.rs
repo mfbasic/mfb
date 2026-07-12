@@ -69,6 +69,7 @@ pub fn resolve_project_with(
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
+    let augmented = builtins::money::augmented_project(&augmented)?;
     // `vector` imports only the intrinsic `math` package, so it has no source
     // ordering dependency (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)?;

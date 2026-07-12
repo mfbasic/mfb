@@ -1,0 +1,19 @@
+' ===========================================================================
+' Built-in `money::` package source (plan-29-D).
+'
+' Declares the `Rounding` enum that selects how Money *arithmetic* settles the
+' half case. The mode is per-execution-context state held in the arena-state
+' region; `money::setRounding` / `money::getRounding` (inline builtins) write and
+' read it, and `money::round(value, decimals)` (an inline kernel) settles an
+' amount to a given number of places under the current mode. Those three
+' callables are lowered directly in native codegen — this source only provides
+' the enum type so `money::Rounding.Commercial` / `.Banker` resolve.
+'
+' The enum discriminants are exactly the stored values: `Commercial = 0`
+' (round half away from zero, the default), `Banker = 1` (round half to even).
+' ===========================================================================
+
+EXPORT ENUM Rounding
+  Commercial      ' round half away from zero (default)
+  Banker          ' round half to even (banker's rounding)
+END ENUM

@@ -137,6 +137,10 @@ pub(crate) enum StorageClass {
     Integer,
     Float,
     Fixed,
+    /// `Money`: an 8-byte base-10 fixed-point i64 carrier (plan-29-C). A distinct
+    /// class (not a reuse of `Integer`) so the immediate/const-fold path selects
+    /// `money_raw_from_decimal` cleanly and future divergence stays localized.
+    Money,
     Boolean,
     Reference,
 }
@@ -362,6 +366,7 @@ impl StorageType {
             | StorageClass::Integer
             | StorageClass::Float
             | StorageClass::Fixed
+            | StorageClass::Money
             | StorageClass::Reference => {
                 if self.size == 0 || self.align == 0 {
                     return Err(format!(

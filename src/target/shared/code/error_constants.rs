@@ -196,6 +196,12 @@ pub(crate) const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
 /// so the historical 0..88 layout is unchanged for programs that never seed.
 pub(crate) const ARENA_RNG_STATE_LO_OFFSET: usize = 88;
 pub(crate) const ARENA_RNG_STATE_HI_OFFSET: usize = 96;
+/// Per-arena (per-thread) Money rounding mode (plan-29-D): `0 = Commercial`
+/// (round-half-away-from-zero, the default), `1 = Banker` (round-half-to-even).
+/// Stored in the reserved arena-state word at offset 56 so the zero-init clear
+/// gives the Commercial default with no extra init code; a child thread inherits
+/// the parent's mode at spawn (copied beside the RNG-seed derivation).
+pub(crate) const ARENA_ROUNDING_MODE_OFFSET: usize = 56;
 /// Dedicated per-arena memory-fill PCG64 state, reusing the two reserved
 /// arena-state words at offsets 16/24. This stream is **separate** from the
 /// language RNG at 88/96 (`math::rand`): it is seeded independently and its
@@ -504,6 +510,10 @@ pub(crate) const COLLECTION_TYPE_FLOAT: usize = 4;
 pub(crate) const COLLECTION_TYPE_FIXED: usize = 5;
 pub(crate) const COLLECTION_TYPE_STRING: usize = 6;
 pub(crate) const COLLECTION_TYPE_BYTE: usize = 7;
+/// `Money` collection element (plan-29-C): an 8-byte signed-i64 lane, compared
+/// as a signed integer (same scale ⇒ raw order = value order). Takes the free
+/// tag 8 between `Byte` (7) and `List` (20).
+pub(crate) const COLLECTION_TYPE_MONEY: usize = 8;
 pub(crate) const COLLECTION_TYPE_LIST: usize = 20;
 pub(crate) const COLLECTION_TYPE_MAP: usize = 21;
 pub(crate) const COLLECTION_TYPE_OBJECT: usize = 22;
