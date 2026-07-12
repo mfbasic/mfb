@@ -24,7 +24,7 @@ diverge and are flagged.
 | `io::readLine` | Unchanged console helper; reads fd 0 (the window input pipe). | Same |
 | `io::readChar` / `io::readByte` | Set raw mode (each keystroke's bytes are delivered immediately), then read fd 0 via the unchanged console helper. | Same; reads fd 0 |
 | `io::isInputTerminal` / `io::isOutputTerminal` / `io::isErrorTerminal` | Always `OK(TRUE)` — the window *is* the interactive console; no `isatty` probe. | Same (`OK(TRUE)`) |
-| `io::terminalSize` | Removed from `io::` (Phase 3). The transcript-viewport sizing helper was retargeted to the `term::` backend; see *term-backend*. | n/a |
+| `io::terminalSize` | Not part of `io::`. The transcript-viewport sizing helper was retargeted to the `term::` backend; see *term-backend*. | n/a |
 
 The read helpers (`readLine`/`readChar`/`readByte`/`input`) are **not** rewritten
 for app mode beyond the input-mode prelude — they remain the standard console
@@ -96,7 +96,7 @@ The handler dispatches on the current input mode and the key:
 - **Line modes**, Backspace/Delete (macOS `8` / `127`; Linux `GDK_KEY_BackSpace`):
   drop the last character from the line buffer (and, in line-echo mode on macOS,
   from the transcript text storage). The Linux transcript echo-delete is byte-
-  granular and ASCII-only (SCAFFOLD, plan-05). [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
+  granular and ASCII-only (transcript echo-delete). [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
 
 The macOS handler returns `Nothing`; the Linux handler returns `TRUE` for keys
 it consumes and `FALSE` otherwise (so window shortcuts still fire).

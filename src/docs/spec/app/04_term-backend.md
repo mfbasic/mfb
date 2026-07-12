@@ -210,7 +210,7 @@ safe from the worker thread. [[src/target/macos_aarch64/app/term_view.rs:emit_te
 
 Returns `RESULT_OK_TAG` (0).
 
-`term::off` (`emit_app_term_off_helper`): no-op when already off (the §4.2 gate
+`term::off` (`emit_app_term_off_helper`): no-op when already off (the gate
 reads `active` off `x19`). Otherwise, with a window attached: [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_off_helper]]
 
 1. `scroll = objc_getAssociatedObject(app, &SCROLLVIEW_KEY)`;
@@ -229,12 +229,12 @@ key's UTF-8 to the window input pipe immediately; line mode buffers until Return
 echoing typed characters into the surface. Runs on the main thread. The
 cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app/term_view.rs:emit_term_key_down_helper]]
 
-## Linux: `GtkDrawingArea` + Cairo (SCAFFOLD divergences)
+## Linux: `GtkDrawingArea` + Cairo
 
 The Linux backend is the analog of the macOS `TermView` but structurally
 different. The drawing area is created up front, held off-window by a ref, and
 swapped in as the window child on `term::on`. The Linux runtime carries a
-documented SCAFFOLD-status gap: `io::terminalSize` / interactive resize (Phase 6)
+documented gap: `io::terminalSize` / interactive resize
 is absent. (Cursor rendering is implemented — a caret is drawn when the cursor is
 visible.) [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 
@@ -295,7 +295,7 @@ agree across backends. [[src/target/linux_gtk/mod.rs:ARENA_REG]]
 ## See Also
 
 * ./mfb spec app macos-runtime — the AppKit `_main` bootstrap, transcript view, and associated-object state scheme
-* ./mfb spec app linux-runtime — the GTK4 bootstrap, `_mfb_gtkapp_state` global, and SCAFFOLD divergences
+* ./mfb spec app linux-runtime — the GTK4 bootstrap, `_mfb_gtkapp_state` global, and divergences
 * ./mfb spec app console-io — `io::write`/`input`/`terminalSize` over the window, and line vs raw key handling
 * ./mfb spec memory program-startup — where the term-state global lives in the program-entry frame
 * ./mfb spec unicode strings-model — the packed-RGB colour and glyph conventions shared with the console backend

@@ -11,14 +11,10 @@ names) is the linker's concern (`./mfb spec linker static-and-dynamic-output`).
 [[src/target/linux_gtk/mod.rs:emit_app_program_entry]]
 [[src/target/linux_aarch64/plan.rs:app_mode_imports]]
 
-> **SCAFFOLD STATUS — not on-device verified.** This backend mirrors the macOS
-> app structure and is code-plan-valid and ELF-encodable, but it has **not** been
-> run on a Linux+GTK aarch64 machine (the dev host is macOS, which cannot execute
-> the produced ELF). Several runtime-bound behaviors are intentionally simplified
-> and marked `TODO(plan-05)` in source; the documented divergences below are the
-> observable contract of the scaffold *as it stands*, not the eventual target
-> behavior. This status is itself part of the contract: callers must not assume
-> parity with the macOS runtime.
+> The Linux app backend mirrors the macOS app structure and is code-plan-valid
+> and ELF-encodable. Several runtime-bound behaviors are simplified relative to
+> the macOS runtime; the divergences documented below are the observable contract
+> of this backend, and callers must not assume parity with the macOS runtime.
 > [[src/target/linux_gtk/mod.rs:emit_app_program_entry]]
 
 ## Emitted functions
@@ -100,8 +96,8 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 
 `_mfb_gtkapp_worker(void *arg)` is the pthread start routine. It calls
 `code::MACAPP_PROGRAM_SYMBOL` (the standard program entry). If
-`spec.language_entry_accepts_args`, it passes `argc=0/argv=NULL` — argv plumbing
-is a `TODO(plan-05)` scaffold gap. The program normally ends via `FINISH_SYMBOL`,
+`spec.language_entry_accepts_args`, it passes `argc=0/argv=NULL`; argv is not
+plumbed through to the worker. The program normally ends via `FINISH_SYMBOL`,
 so the function tail (`return NULL`) is only reached defensively.
 [[src/target/linux_gtk/bootstrap.rs:emit_worker_shim]]
 
@@ -198,7 +194,7 @@ color (so 0 means "use default" and explicit black stays distinct). `BOLD_FLAG =
 (`io::readChar`/`readByte`). `_mfb_gtkapp_key_pressed` (main thread) handles
 RAW (write the key's UTF-8 bytes to the pipe immediately), LINE modes (accumulate
 into `ST_LINE_BUF`; Enter commits `line + '\n'`; Backspace drops the last byte,
-byte-granular ASCII-correct only per `TODO(plan-05)`; printable keys append and
+byte-granular and ASCII-only; printable keys append and
 echo in LINE_ECHO). Special keyvals: `GDK_KEY_BACKSPACE = 65288`,
 `GDK_KEY_RETURN = 65293`, `GDK_KEY_KP_ENTER = 65421`. Returns TRUE for consumed
 keys, FALSE otherwise. [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
@@ -260,35 +256,34 @@ string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
 end iter + auto-scroll via a temporary mark) and frees the chunk.
 `emit_app_io_input_helper` sets `MODE_LINE_ECHO`, writes the prompt via the io
 write helper, then reads a committed line via `_mfb_rt_io_io_readLine` (which reads
-fd 0). `emit_app_io_flush_helper` returns OK immediately (SCAFFOLD: no marshaled
-drain yet). The three `is*Terminal` helpers return `OK(TRUE)`.
+fd 0). The app-mode `io` flush helper returns OK immediately without a marshaled
+drain. The three `is*Terminal` helpers return `OK(TRUE)`.
 `emit_set_raw_input_mode` (inlined into readChar/readByte) sets `MODE_RAW`.
 [[src/target/linux_gtk/app_io.rs:emit_app_io_input_helper]]
 [[src/target/linux_gtk/app_io.rs:emit_set_raw_input_mode]]
 
 ## Documented divergences from macOS
 
-These are explicit, in-source scaffold simplifications — observable behavior that
-differs from the macOS app runtime:
+These are the observable behaviors of the Linux app backend that differ from the
+macOS app runtime:
 [[src/target/linux_gtk/app_io.rs:emit_app_io_write_helper]]
 
-- **No main-thread marshal in fact** for the transcript-active scaffold path: the
-  module doc records that the `g_idle_add`/condvar marshal §6.4 requires "is not
-  yet wired" and the fd fallback is the only path exercised when no buffer is
-  attached. The emitted code *does* build the `g_idle_add` chunk path, but it is
-  unverified; term:: grid writes mutate the `GtkTextBuffer`/grid directly from the
-  worker thread without the macOS-style main-thread hop for the grid itself.
-- **fd-fallback only is the verified path** (write to stdout/stderr); the GTK
-  transcript path is structurally present but not on-device verified.
+- **No main-thread marshal for the transcript-active path:** the fd fallback is
+  the path exercised when no buffer is attached. The emitted code builds the
+  `g_idle_add` chunk path, but term:: grid writes mutate the
+  `GtkTextBuffer`/grid directly from the worker thread without the macOS-style
+  main-thread hop for the grid itself.
+- **The fd fallback** writes to stdout/stderr; the GTK transcript path is
+  structurally present but not exercised on that path.
 - **`finish` hard-exits.** `_mfb_gtkapp_finish` takes the exit code in `x0`; with
   no transcript attached it `_exit(code)`s, and the GUI path parks the worker in
-  `pause()` (it must not `_exit` in GUI mode or the window dies). The module doc
-  flags the eventual "keep window open" path (§6.7) as not yet realized.
+  `pause()` (it must not `_exit` in GUI mode or the window dies). There is no
+  "keep window open" path.
   [[src/target/linux_gtk/bootstrap.rs:emit_finish_helper]]
 - **`io::printError` styling.** stderr runs *are* prefixed with `"[stderr] "`
-  (`STR_STDERR_PREFIX`) in the transcript chunk, but the module doc notes the
-  intended distinct `GtkTextTag` styling is not yet applied.
-- **`io::terminalSize` absent / no interactive resize** (Phase 6 `TODO(plan-05)`),
+  (`STR_STDERR_PREFIX`) in the transcript chunk; no distinct `GtkTextTag` styling
+  is applied.
+- **`io::terminalSize` absent / no interactive resize**,
   even though `term::terminalSize` is implemented.
 
 [[src/target/linux_gtk/mod.rs:STR_STDERR_PREFIX]]

@@ -39,7 +39,7 @@ role. [[repository/src/local.rs:keys_dir]]
 $MFB_HOME (or ~/.mfb)/<repo-hash>/
 ├── server.pub                  0600   base64url registry public key (pinned)
 ├── checkpoint                  0600   "<size> <root-hex>" last-seen log head
-├── root-pin                    0600   "<registry-id> <root-fingerprint>" (plan-10-C2)
+├── root-pin                    0600   "<registry-id> <root-fingerprint>"
 ├── snapshot-version            0600   highest snapshot version seen (rollback defense)
 ├── keys/                       0700
 │   ├── <owner>.auth.pub        0600   base64url auth public key (per machine)
@@ -54,7 +54,7 @@ $MFB_HOME (or ~/.mfb)/<repo-hash>/
 | --- | --- | --- |
 | `server.pub` | `server_key_path` | base64url 32-byte registry public key, pinned on first contact |
 | `checkpoint` | `checkpoint_path` | last-seen transparency-log head (`<size> <root-hex>`); rollback/fork detection anchor |
-| `root-pin` | `root_pin_path` | pinned signed-metadata root: `<registry-id> <root-fingerprint>` (plan-10-C2) |
+| `root-pin` | `root_pin_path` | pinned signed-metadata root: `<registry-id> <root-fingerprint>` |
 | `snapshot-version` | `snapshot_version_path` | highest snapshot version seen; metadata rollback defense |
 | `keys/<owner>.auth.pub` | `auth_public_key_path` | base64url 32-byte Ed25519 auth public key |
 | `keys/<owner>.auth.prv` | `auth_private_key_path` | base64url 32-byte Ed25519 auth private (seed) key |
@@ -90,7 +90,8 @@ Key material is stored as text, not raw bytes. Both `.pub` and `.prv` files hold
 the **base64url, no-padding** encoding of the raw key bytes
 (`URL_SAFE_NO_PAD`). On read, the file contents are trimmed of surrounding
 whitespace before decoding, so a trailing newline is tolerated; a decode failure
-yields `malformed local public key` / `malformed local private key`.
+yields a role-qualified message such as `malformed local auth public key` or
+`malformed local ident private key`.
 [[repository/src/crypto.rs:encode_bytes]]
 
 | key | raw length | on-disk form |

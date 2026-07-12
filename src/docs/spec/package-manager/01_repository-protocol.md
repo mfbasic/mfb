@@ -5,8 +5,8 @@ It backs five commands: `mfb repo register`, `mfb repo auth`, `mfb pkg publish`,
 `mfb build --sign`, and — for registry idents — `mfb pkg add`. `mfb pkg add`
 accepts either a `file://…​.mfp` URL (copied into `packages/` locally, no
 protocol) or an `<owner>#<package>[@version]` ident, which resolves `GET
-/index`, downloads `GET /blob/<hash>`, and runs the full plan-23 §3.5
-verification chain before installing.[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
+/index`, downloads `GET /blob/<hash>`, and runs the full verification chain before
+installing.[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
 The client side is the `mfb_repository` crate's `client`
 module; the reference server is the same crate's `server` module. This topic
 owns the HTTP surface (endpoints, methods, JSON bodies), the challenge-response
@@ -23,7 +23,7 @@ and key fingerprints are lowercase **hex**.
 
 The base URL comes from the `MFB_REPO_URL` environment variable, falling back to
 `DEFAULT_REPO_URL` = `http://127.0.0.1:7777`.[[repository/src/client.rs:repo_url_from_env]][[repository/src/lib.rs:DEFAULT_REPO_URL]]
-Every request URL is `format!("{base}{path}")` with a single trailing slash
+Every request URL is `format!("{base}{path}")` with any trailing slashes
 trimmed from the base, so `MFB_REPO_URL=https://repo.example/` and the path
 `/publish` produce `https://repo.example/publish`.[[repository/src/client.rs:post_json]]
 
@@ -115,7 +115,7 @@ key.[[repository/src/client.rs:ensure_server_key]][[repository/src/local.rs:pin_
 ## Operational Hardening
 
 Independent of the protocol, the reference server applies several operational
-safeguards (plan-10-D2):
+safeguards:
 
 - **SQLite WAL + busy timeout** — readers no longer block on the writer at the
   database level, and brief writer contention waits rather than failing, so
@@ -214,7 +214,7 @@ Response `ChallengeResponse`:[[repository/src/server.rs:ChallengeResponse]]
 The server first checks the owner exists (an unknown owner yields `400 unknown
 owner`, so the client's missing-key probe still works), then challenges the
 **specific machine's** auth key by fingerprint — an account holds one current
-auth key per linked machine (plan-23 §2), so auth-key resolution is always
+auth key per linked machine, so auth-key resolution is always
 fingerprint-scoped; no current key with that fingerprint yields `400
 mismatched local key fingerprint` (which is also what a **revoked** machine
 sees). The nonce is 32 random bytes and the challenge expires **300 seconds**
@@ -272,7 +272,7 @@ signature or expiry returns `expired or malformed session token`; an unknown
 
 ## Attestation Issuance — `POST /signing`
 
-Used by `build --sign` (plan-23 §3.3): an authenticated build pre-registers
+Used by `build --sign`: an authenticated build pre-registers
 its **one-off signing key** for one exact package+version and receives the
 server-signed **attestation** naming it. Requires a session
 token.[[repository/src/client.rs:request_attestation]]
@@ -308,7 +308,7 @@ to the session owner; `version` is 1–64 bytes; `signingFingerprint` is 64
 lowercase hex characters; the owner has a current ident key. The request is
 **recorded before the server signs** (`signing_requests`), so a stolen auth
 session requesting attestations always leaves a trace; the transparency log
-(plan-23-B) builds on this. The attestation JSON and signature domain are
+ builds on this. The attestation JSON and signature domain are
 specified in *signing*. The signature is made with the server's own keypair —
 the key served by `GET /ident`.[[repository/src/server.rs:signing]][[repository/src/store.rs:record_signing_request]]
 
@@ -320,7 +320,7 @@ holds.[[repository/src/client.rs:request_attestation]][[src/cli/build.rs:load_bu
 ## Transparency Log — `/log/*`
 
 The registry keeps an append-only, RFC 6962 Merkle-hashed record of every
-state change (plan-23 §7): **every forgery path that remains — a compromised
+state change: **every forgery path that remains — a compromised
 server mis-binding names, a stolen auth session requesting attestations — is
 forced to leave a signed entry in this log before the act.**
 
@@ -336,6 +336,12 @@ one** entry, inside the same transaction as the state change):
 | `revoke` | `/machines/revoke` |
 | `rotate` | `/keys/rotate` |
 | `reanchor` | `mfb-repo reanchor` (operator) |
+| `org-role` | org role grant/remove |
+| `token-issue` | token issue |
+| `token-revoke` | token revoke |
+| `transfer-offer` | package transfer offer |
+| `transfer-accept` | package transfer accept |
+| `release-state` | release-state change |
 
 [[repository/src/store.rs:append_log_tx]]
 
@@ -371,7 +377,7 @@ dependency's publish entry.
 
 ## Ident Rotation — `/keys/rotate` + `GET /idents/<owner>`
 
-Backs `mfb key rotate <owner>` (plan-23-B2, lost/stolen machine: the thief
+Backs `mfb key rotate <owner>` (lost/stolen machine: the thief
 holds a copy of the ident key, so revoke the machine's auth key **and**
 rotate the ident). The new ident is chained to the old by an **old-ident
 signature** over the rotation message, so consumers can follow the succession
@@ -449,7 +455,7 @@ re-verify and re-add.[[repository/src/store.rs:reanchor_ident]][[repository/src/
 
 ## Machine Link — `/machines/link` + `/machines/link/fetch`
 
-Backs `mfb repo link` (plan-23 §3.2). Linked machines are **full equals**:
+Backs `mfb repo link`. Linked machines are **full equals**:
 linking copies the account ident private key to the new machine, encrypted
 under a one-time pairing code the server never sees. The relay blob is
 single-use and short-TTL, and the server cannot read it.
@@ -472,7 +478,8 @@ ChaCha20-Poly1305 under an argon2id key derived from the code, and posts
 
 Response: `{"owner": "alice", "expiresAt": <unix>}`. The blob row lives **600
 seconds**, is deleted on first fetch, and expired rows are swept on insert. A
-pending pairing with the same lookup yields `409` (`already pending`). The
+pending pairing with the same lookup yields `400` (`already pending`; only
+`already in use` and `reused challenge` are elevated to `409`). The
 `lookup` is a one-way hash of the code, so the relaying server can neither
 read the blob nor derive its key.[[repository/src/store.rs:store_pairing_blob]]
 
@@ -504,7 +511,7 @@ the full build/sign/publish path with no involvement from the old machine.
 
 ## Auth-Key Revocation — `/machines/revoke`
 
-Backs `mfb machine revoke <owner> <auth-fingerprint>` (plan-23 §3.6, lost
+Backs `mfb machine revoke <owner> <auth-fingerprint>` (lost
 machine). Authority is the **ident key alone** — an auth session must not
 suffice (a thief with a stolen laptop has one), and no session is required (a
 lapsed session must not block a revocation). Two round trips:
@@ -541,9 +548,9 @@ current auth key yields `400`.[[repository/src/store.rs:revoke_auth_key]]
 
 ## Install Path — `/index` and `/blob`
 
-The install path (plan-10-A) makes a published package retrievable. `mfb pkg
+The install path makes a published package retrievable. `mfb pkg
 add <owner>#<package>[@version]` resolves the index, pins the ident, downloads
-the blob, and runs the plan-23 §3.5 verification chain — nothing is installed
+the blob, and runs the verification chain — nothing is installed
 until every link verifies.[[src/cli/pkg.rs:add_package_from_registry]]
 
 ### Package Index — `GET /index/<owner>#<package>`
@@ -576,9 +583,9 @@ owner || "\0" || identFingerprint` (signing domain
 The client verifies it under the pinned `server.pub`, cross-checks that
 `identFingerprint` is the fingerprint of `identKey`, and only then trusts the
 key as the anchor to pin.[[repository/src/client.rs:fetch_index]] `abiIndex` is
-an empty object until plan-10-B; release `state` values other than `available`
-arrive with plan-10-C. There are **no** key-rotation/window fields: one-off
-signing keys have no status (plan-23).
+currently an empty object; release `state` values other than `available` may
+appear in later revisions. There are **no** key-rotation/window fields: one-off
+signing keys have no status.
 
 The client picks the requested version (any non-`blocked`/`legal-tombstoned`
 state) or, for a floating add, the newest version whose state is `available`
@@ -608,7 +615,7 @@ failure.[[repository/src/server.rs:publish_package]][[repository/src/blobstore.r
 
 ## Release States — `POST /release-state`
 
-A maintainer moves a published version between release states (plan-10-C1).
+A maintainer moves a published version between release states.
 A state is registry metadata *about* a version — the blob and its signatures are
 never touched. The maintainer states are `available`, `deprecated`, and
 `yanked`; `blocked` and `legal-tombstoned` are registry-operator states and are
@@ -634,13 +641,13 @@ timestamp, and appends one `release-state` entry to the transparency log — all
 in one transaction. The response echoes `{ident, version, state, logEntry}`.
 
 `GET /index` serves the current state per version. Resolution eligibility
-(plan-10-B2): `available`/`deprecated` are install-eligible, `yanked` is
+: `available`/`deprecated` are install-eligible, `yanked` is
 selectable only by an exact pin, and `blocked`/`legal-tombstoned` are excluded
 entirely.[[src/cli/resolve.rs:select_node]][[src/cli/pkg.rs:select_index_version]]
 
 ## Accounts — Orgs, Publish Tokens, Transfers
 
-The accounts surface (plan-10-D1) obeys two invariants: **publishing always
+The accounts surface obeys two invariants: **publishing always
 requires the ident key** (no feature creates a credential that can publish
 without it), and **every account mutation is ident-authorized and logged** — an
 auth session alone may read and request attestations, never change account
@@ -648,7 +655,7 @@ state. Each endpoint below carries a live session (liveness) *and* an ident
 signature (authority).
 
 **Orgs.** An org is an account with its own ident keypair; its ident is shared
-among member machines via the plan-23 link flow, so an org package's proof is
+among member machines via the machine-link flow, so an org package's proof is
 org-ident-signed. `POST /orgs/members` grants or removes a member role
 (`owner`/`admin`/`publisher`), authorized by the grantor's ident signature over
 `org_role_message(org, member, role)`. The grantor must be the org itself (the
@@ -675,7 +682,7 @@ versions publish under the new owner's ident.[[repository/src/store.rs:accept_tr
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
 
-A TUF-like signed-metadata layer (plan-10-C2) sits on top of the plan-23
+A TUF-like signed-metadata layer sits on top of the
 pinned-server-key anchor. An **offline root key** delegates three online keys —
 the server (attestation) key, a snapshot key, and a timestamp key — so the
 server key can be renewed under root authority, and a mirror or MITM cannot
@@ -688,7 +695,7 @@ version, expires, serverKey, snapshotKey, timestampKey}`. The root private key
 is generated by an **operator ceremony** and never touches the serving host:
 `mfb-repo init-root --dbpath <db> --datapath <data> --registry-id <id>
 [--expires-days <n>]` generates the root + online keys, signs `root.json`, and
-prints the root private key for the operator to store offline. The plan-23
+prints the root private key for the operator to store offline. The
 `repoFingerprint` pin becomes "fingerprint of the server key **delegated by**
 the pinned root".[[repository/src/store.rs:init_registry_root]][[repository/src/main.rs:parse_init_root_args]]
 
@@ -749,7 +756,7 @@ fails `.mfp` parsing is reported the same way — `200` with `valid: false`, an
 **empty** `contentHash`, and the parse error as the sole diagnostic — not as an
 HTTP error.
 
-The checks run in the plan-23 §3.4 order, each with a distinct diagnostic:
+The checks run in the order, each with a distinct diagnostic:
 
 0. Wire integrity — request `contentHash`/`ident`/`version` match the parsed
    package, and request `identFingerprint`/`signingFingerprint` match the
@@ -778,7 +785,7 @@ The checks run in the plan-23 §3.4 order, each with a distinct diagnostic:
 Finally the `ident@version` must not already be
 published.[[repository/src/server.rs:validate_package_request]]
 
-The forgery property this enforces (plan-23 §2): producing a package that
+The forgery property this enforces: producing a package that
 passes requires the ident private key (step 6) **and** a live authenticated
 session (steps 2–5 — attestations are only issued to sessions). Either
 credential alone fails a step.
@@ -795,7 +802,8 @@ Returns `PublishPackageResponse`:[[repository/src/server.rs:PublishPackageRespon
   "publishedAt": 1700000000,
   "state": "available",
   "blobStored": true,
-  "logEntry": "publish:<uuid>"
+  "logEntry": { "index": <n>, "leafHash": "<hex>" },
+  "warnings": []
 }
 ```
 

@@ -120,7 +120,8 @@ After `after_show`, the bootstrap re-tests `REG_HEADLESS`:
   valid because `_main` blocks forever in `[NSApp run]`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 - **Headless**: there is no run loop or delegate callback, so the worker is spawned
   inline — `pthread_create(&tid, NULL, _mfb_macapp_worker, &argblock)` — and `_main`
-  spins (`branch_self`) while the worker runs the program and exits the process.
+  parks in a `pause()` loop (label `spin`) while the worker runs the program and
+  exits the process.
   [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 `applicationDidFinishLaunching:` (`_mfb_macapp_did_finish_launching`, main thread)

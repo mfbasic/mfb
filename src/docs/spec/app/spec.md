@@ -7,9 +7,8 @@ runtime contract a GUI MFBASIC program observes — distinct from the console-mo
 program-startup sequence (`./mfb spec memory program-startup`) and from the
 Mach-O/ELF container bytes (`./mfb spec linker`).
 
-App mode is dispatched through shared codegen hooks (`AppEntrySpec`, the
-`emit_app_*` builders, `emit_program_exit → FINISH_SYMBOL`) with the target OS
-selecting the toolkit: AppKit on macOS, GTK4 on Linux.
+App mode is dispatched through shared codegen hooks, with the target OS selecting
+the toolkit: AppKit on macOS, GTK4 on Linux. [[src/target/shared/code/types.rs:AppEntrySpec]]
 
 ## Reading order
 
@@ -18,7 +17,7 @@ selecting the toolkit: AppKit on macOS, GTK4 on Linux.
   associated-object per-process state scheme; plus the `MFB_MACAPP_HEADLESS`
   test path.
 - `linux-runtime` — the GTK4 bootstrap, the `_mfb_gtkapp_state` global, the
-  drawing-area term surface, and the documented SCAFFOLD-status divergences.
+  drawing-area term surface, and the documented divergences.
 - `console-io` — how `io::write`/`flush`/`input`/`isTerminal`/`terminalSize` are
   re-implemented over a window (the input pipe dup2'd onto fd 0, line vs raw key
   handling).

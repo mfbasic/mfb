@@ -5,11 +5,11 @@ The registry protocol and signing/trust workflow behind `mfb repo register`,
 the contract a compatible registry server or a reimplemented client must honor:
 the HTTP endpoints and wire shapes, the local key/session store, the Ed25519
 signing model and its domain strings, and the owner-name grammar. (`mfb pkg add`
-is registry-free today — it accepts only `file://` URLs and copies the `.mfp`
-locally; see `./mfb spec tooling cli-reference`.)[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
+accepts either a `file://…​.mfp` URL — copied into `packages/` locally with no
+protocol — or an `<owner>#<package>[@version]` registry ident, which is resolved
+and installed over this protocol; see `./mfb spec tooling cli-reference`.)[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
 
-This package owns the *protocol and crypto workflow* (implemented in the
-`repository/` crate). It is distinct from the `.mfp` byte format and its
+This package owns the *protocol and crypto workflow*. It is distinct from the `.mfp` byte format and its
 signature header (`./mfb spec package container-format`), the CLI command surface
 (`./mfb spec tooling cli-reference`), and the manifest fields that record an
 owner's fingerprints (`./mfb spec tooling project-manifest`).

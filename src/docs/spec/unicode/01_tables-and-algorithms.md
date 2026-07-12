@@ -30,8 +30,9 @@ contracts are owned by `mfb man`.
 All property and composition tables are parsed out of a single vendored C source
 file, `third_party/utf8proc/utf8proc_data.c`, included into the compiler at
 build time with `include_str!`. utf8proc is the Julia-project Unicode library
-(MIT/expat license), vendored at version 2.11.3 (`UTF8PROC_VERSION` in
-`utf8proc.h`); its embedded data tracks the corresponding Unicode release.
+(MIT/expat license), vendored at version 2.11.3 (the
+`UTF8PROC_VERSION_MAJOR`/`_MINOR`/`_PATCH` macros); its embedded data tracks the
+corresponding Unicode release.
 [[src/unicode_runtime_tables.rs:UTF8PROC_DATA]]
 
 The compiler does **not** link or call utf8proc. `parse_tables` scrapes the C
@@ -99,8 +100,8 @@ one `u16` of zero padding, producing a **24-byte** on-disk record (11 × 2 + 2).
 | 20  | `indic_conjunct_break` | 20                          | `UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK`=20|
 | 22  | (zero pad)             | —                           | —                                               |
 
-The brief's expected field set is largely correct, with one divergence worth
-noting: the `casefold`/`upper`/`lower` *seqindex* fields and the `decomp`
+One field-set nuance is worth noting: the `casefold`/`upper`/`lower` *seqindex*
+fields and the `decomp`
 fields are **present in `PackedProperty` and embedded**, but the runtime case
 and decomposition algorithms do **not** read them. Case mapping and NFD use the
 separate flattened mapping tables (below) instead; the seqindex fields are

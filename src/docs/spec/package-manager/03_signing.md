@@ -5,7 +5,7 @@ How publisher identity, package signatures, and the local-vs-repository key matc
 ## The four keys
 
 The trust model holds exactly four Ed25519 keypairs, distinguished by where the
-private half lives (plan-23). Whoever holds a private key can forge everything
+private half lives. Whoever holds a private key can forge everything
 that key vouches for, so each key's storage *is* its authority boundary.
 
 | Key | How many | Private key lives | Job |
@@ -107,7 +107,7 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 
 ## The proof and the attestation
 
-Every signed build carries two JSON statements (plan-23 §5), both pinning the
+Every signed build carries two JSON statements, both pinning the
 **exact** package (`ident` + `version`) and the exact one-off signing key, so a
 leaked one-off key plus its paperwork is worth exactly one already-published
 package — nothing. Neither carries an expiry: they are notarized statements of
@@ -154,7 +154,7 @@ role's message before recording the owner. [[repository/src/server.rs:register]]
 
 ## `build --sign`: the per-build signing flow
 
-`mfb build --sign <owner>` assembles the plan-23 §3.3 signing bundle through
+`mfb build --sign <owner>` assembles the signing bundle through
 `load_build_signing_info`, which is only honored for package and executable
 builds (validate output); other outputs error. The server must be reachable —
 every signed build fetches a fresh attestation. [[src/cli/build.rs:load_build_signing_info]]

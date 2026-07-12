@@ -129,9 +129,8 @@ ZWJ) are **not** `White_Space` and are never trimmed. [[src/target/shared/code/b
 ## `split` and the empty-delimiter error
 
 `split(value, delimiter)` splits on a **byte-exact** delimiter substring and
-returns the parts. An empty `delimiter` is rejected with the error
-`"delimiter must not be empty"` — there is no per-scalar or per-grapheme split
-mode. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_split]]
+returns the parts. An empty `delimiter` is rejected (raising `ErrInvalidArgument`
+before scanning) — there is no per-scalar or per-grapheme split mode. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_split]]
 
 Splitting delegates to `str::split`, so it follows Rust semantics: a leading or
 trailing delimiter yields an empty leading/trailing part, and N non-overlapping
