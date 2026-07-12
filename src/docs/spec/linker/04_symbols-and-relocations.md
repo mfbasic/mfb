@@ -78,7 +78,7 @@ to reach the GOT slot directly.
 
 ## Encoded import and initializer capabilities
 
-`EncodedImport` (`src/arch/aarch64/encode.rs`) carries, besides `library` and
+`EncodedImport` carries, besides `library` and
 `symbol`:
 
 - `kind`: `ImportKind::Function` (called through a stub) or `ImportKind::Data`
@@ -94,11 +94,11 @@ in order, before the program entry — materialized as ELF `DT_INIT_ARRAY` /
 Mach-O `__mod_init_func` (`S_MOD_INIT_FUNC_POINTERS`).
 
 The linkers fully implement `ImportKind::Data`, symbol versioning, and the
-initializer array. The current `encode` path, however, emits every import as
+initializer array, but the encode path emits every import as
 `Function`/unversioned and leaves `initializers` empty: the built-in surface is
 function-only, and the native `LINK` initializer is called from the entry
-bootstrap rather than through the initializer array. These capabilities are
-exercised by the linker tests and reserved for future consumers — symbol
+bootstrap rather than through the initializer array. The `Data`/versioning/
+initializer capabilities are exercised by the linker tests — symbol
 versioning is intended for versioned exports such as OpenSSL 3's
 `OPENSSL_3.0.0` (see `linux-aarch64`), and `ImportKind::Data` for data globals
 (`tls`, app-mode).

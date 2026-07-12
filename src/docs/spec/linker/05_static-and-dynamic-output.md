@@ -39,8 +39,8 @@ Independently of imports, if the image carries `initializers` they are emitted a
 a run-before-entry pointer array: Mach-O `__mod_init_func`
 (`S_MOD_INIT_FUNC_POINTERS`, rebased by dyld) or ELF `.init_array`
 (`DT_INIT_ARRAY`/`DT_INIT_ARRAYSZ`). On macOS this forces a `__DATA_CONST`
-segment even when there are no imports. The current encode path leaves
-`initializers` empty (see `symbols-and-relocations`).
+segment even when there are no imports. The encode path leaves `initializers`
+empty (see `symbols-and-relocations`).
 
 ## App-mode entry-bootstrap divergences
 
@@ -53,8 +53,8 @@ console signal handlers. The always-present entry imports (`_exit`,
 across modes. [[src/target/macos_aarch64/plan.rs:entry_imports]]
 
 Build modes are also platform-exclusive: the macOS backend rejects a `LinuxApp`
-build mode with an internal error, and the Linux backend rejects `MacApp` the
-same way. The CLI selects the build mode from the target OS, so neither cross
+build mode with an internal error, and the Linux backend rejects `MacApp` with a
+"Linux native targets do not support the … build mode" error. The CLI selects the build mode from the target OS, so neither cross
 combination is expected to reach a backend. [[src/target/macos_aarch64/mod.rs:write_executable]]
 
 ## No silent omission

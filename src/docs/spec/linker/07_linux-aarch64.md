@@ -34,7 +34,7 @@ PT_DYNAMIC   the .dynamic section
 A static image (no imports, `encode_static_elf`) has two `PT_LOAD`s — text (R+X)
 and a writable data segment page-aligned to the `data_vmaddr` the relocation
 patcher uses — and no `PT_INTERP`/`PT_DYNAMIC`. Every console build imports libc,
-so this shape is not emitted today.
+so no current console build produces a static image.
 
 ## Dynamic metadata
 
@@ -68,9 +68,9 @@ When any import carries a `version`, the linker additionally emits `.gnu.version
 (`DT_VERSYM`) and `.gnu.version_r` (`DT_VERNEED`/`DT_VERNEEDNUM`): one `Verneed`
 per library, one `Vernaux` per distinct `(library, version)` pair, with version
 indices starting at 2 (1 = unversioned global). This is intended for versioned
-exports such as OpenSSL 3's `OPENSSL_3.0.0`. The current encode path emits all
-imports unversioned, so production builds produce no `.gnu.version*` sections;
-the path is exercised by the linker tests (validated against the glibc
+exports such as OpenSSL 3's `OPENSSL_3.0.0`. The encode path emits all imports
+unversioned, so a console/app build produces no `.gnu.version*` sections; the
+versioning path is exercised by the linker tests (validated against the glibc
 `GLIBC_2.17` aarch64 baseline). [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 ## Initializers

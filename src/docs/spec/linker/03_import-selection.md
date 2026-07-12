@@ -123,7 +123,7 @@ AppKit/Foundation call goes through `objc_msgSend` rather than a direct C
 import. The set is:
 
 - libobjc runtime functions: `_objc_msgSend`, `_sel_registerName`,
-  `_objc_autoreleasePoolPush`, `_objc_setAssociatedObject`,
+  `_objc_autoreleasePoolPush`, `_objc_autoreleasePoolPop`, `_objc_setAssociatedObject`,
   `_objc_getAssociatedObject`, `_objc_allocateClassPair`, `_class_addMethod`,
   `_objc_registerClassPair`.
 - `_OBJC_CLASS_$_*` class symbols, referenced as external **data** read through
@@ -141,7 +141,7 @@ import. The set is:
   `AppKit`).
 - libSystem support: `_pthread_create`, `_pthread_attr_init`,
   `_pthread_attr_setstacksize`, `_pause`, `_getenv`, `_write`, `_pipe`,
-  `_dup2`, `_strlen`, `_calloc`, `_bzero`, `_memmove`.
+  `_dup2`, `_fcntl`, `_strlen`, `_calloc`, `_bzero`, `_memmove`.
 
 All names carry the Darwin leading underscore. See `macos-runtime` for how the
 bootstrap consumes these (NSApplication/window setup, the worker thread, and the
@@ -159,9 +159,9 @@ window lifecycle, the scrolled `GtkTextView` transcript, key input controllers,
 the `GtkDrawingArea` + Cairo `term::` surface, and GObject signal/idle wiring.
 
 It also adds the worker-thread and window-input-pipe primitives from
-libc/libpthread (`pthread_create`, `pthread_detach`, `pipe`, `dup2`, `getenv`,
-`setenv`, `write`, `malloc`, `free`, `memcpy`, `memset`, `memmove`, `pause`),
-and `__libc_start_main`. Because the entry cannot link `crt1.o`, the bootstrap
+libc/libpthread (`pthread_create`, `pthread_detach`, `pipe`, `dup2`, `close`,
+`setenv`, `write`, `fcntl`, `_exit`, `malloc`, `free`, `memcpy`, `memset`,
+`memmove`, `pause`), and `__libc_start_main`. Because the entry cannot link `crt1.o`, the bootstrap
 calls `__libc_start_main` directly so the C runtime and shared-library
 constructors — the GLib/GObject type system — run before the real `main`. See
 `linux-runtime` for the bootstrap detail.

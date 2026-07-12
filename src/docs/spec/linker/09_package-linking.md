@@ -44,7 +44,9 @@ linkage.
   before `main`.
 * `link_thunk_symbol(alias, name)` produces one marshaling thunk per `LINK`
   function, named `_mfb_linker_<alias>_<name>` (each `alias`/`name` component is
-  sanitized so non-alphanumeric, non-`_` characters become `_`).
+  escaped so **every** byte that is not `[A-Za-z0-9]` — including `_` itself —
+  becomes a `_XX` two-hex-digit escape, so an interior `_` cannot collide with
+  the joining separator).
 
 [[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]] [[src/target/shared/nir/mod.rs:link_thunk_symbol]]
 

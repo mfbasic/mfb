@@ -56,8 +56,7 @@ relocations       from/to/kind/section records
 
 The JSON form is tagged `"mfb-native-object-plan"`, version 2. A call's
 `CallKind` maps to an object-plan relocation kind: `Local` and `Runtime` become
-`internalCall`, and `Import` becomes `packageCall` (a legacy label for native
-`LINK` thunk calls). An `Indirect` call produces *no relocation*: it dispatches
+`internalCall`, and `Import` becomes `packageCall` (native `LINK` thunk calls). An `Indirect` call produces *no relocation*: it dispatches
 through a `FUNC`-typed runtime value (a local, parameter, or lambda binding) and
 has no linker symbol, so its plan-call record carries an empty `symbol` and the
 machine-code path emits a genuine indirect branch through the callable value.
