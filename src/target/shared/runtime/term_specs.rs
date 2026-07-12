@@ -149,6 +149,17 @@ pub(crate) const TERM_CLEAR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+pub(crate) const TERM_SYNC_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.sync",
+    symbol: "_mfb_rt_term_term_sync",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const TERM_MOVE_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Term,
     call: "term.moveTo",

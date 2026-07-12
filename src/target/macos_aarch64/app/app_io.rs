@@ -756,12 +756,33 @@ pub(crate) fn emit_app_term_helper(
         ),
         "term.moveTo" => emit_app_move_to(symbol, term_state_offset),
         "term.clear" => emit_app_clear(symbol, term_state_offset),
+        "term.sync" => emit_app_term_sync(symbol),
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
         "term.hideCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "0"),
         "term.terminalSize" => emit_app_terminal_size(symbol, term_state_offset),
         _ => return None,
     };
     Some(helper)
+}
+
+/// `term::sync()` app arm. plan-35-A scaffold: a present hook that returns OK
+/// without touching the surface. plan-35-D replaces this body with the coalesced
+/// `setNeedsDisplay:` present that drives the single redraw per frame.
+fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    let frame = 16; // lr@0
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    emit_term_ok_return(&mut asm, frame, &[]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
 }
 
 /// Branch to `done` when TUI mode is inactive (the §4.2.1 no-op gate). `x19` is

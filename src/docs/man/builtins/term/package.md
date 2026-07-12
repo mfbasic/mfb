@@ -10,6 +10,7 @@ term::on()
 term::moveTo(row, column)
 term::setForeground(r, g, b)
 term::clear()
+term::sync()
 term::off()
 ```
 
@@ -31,6 +32,18 @@ while TUI mode is off, so a program must call `term::on` before any cursor,
 color, attribute, or clear call takes effect, and `term::off` later leaves TUI
 mode and restores the user's previous screen. `term::isOn` reports whether TUI
 mode is currently on and works whether or not it is. [[src/builtins/term.rs:ON]]
+
+While TUI mode is on the surface is **retained** and **double-buffered**: drawing
+calls (including `io::print`/`io::write`) mutate an in-memory cell grid rather
+than the terminal, and nothing appears until the program calls `term::sync`, the
+one operation that presents a frame. The console backend presents by writing only
+the cells that changed since the previous frame, so a program that repaints every
+frame shows no flicker and emits output proportional to what actually changed; in
+app mode `term::sync` coalesces the frame into a single redraw. `term::off`
+performs a final `term::sync` before restoring the screen, so the last frame is
+always shown. A program that draws without a following `term::sync` displays
+nothing - the canonical shape is to compose a whole frame, call `term::sync`
+once, then read input. [[src/builtins/term.rs:SYNC]]
 
 Coordinates are zero-based and measured from the top-left corner of the surface:
 row 0 is the topmost line and column 0 is the leftmost column, so (0, 0) is the

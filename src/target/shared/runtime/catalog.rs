@@ -40,6 +40,7 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         TERM_SHOW_CURSOR_SPEC,
         TERM_HIDE_CURSOR_SPEC,
         TERM_CLEAR_SPEC,
+        TERM_SYNC_SPEC,
         TERM_MOVE_TO_SPEC,
         TERM_GET_FOREGROUND_SPEC,
         TERM_GET_BACKGROUND_SPEC,

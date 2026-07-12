@@ -1,0 +1,82 @@
+NAME
+  sync - present the drawn frame to the terminal surface
+
+SYNOPSIS
+  term::sync() AS Nothing
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Presents the current frame. While TUI mode is on, drawing calls -
+  io::print/io::write and term::moveTo/setForeground/setBackground/setBold/
+  setUnderline/clear/showCursor/hideCursor - no longer touch the terminal
+  directly; they mutate an in-memory cell grid (glyph, foreground, background,
+  bold, and underline per cell) plus a shadow cursor and current-attribute set.
+  Nothing appears on screen until the program calls term::sync, which is the one
+  and only operation that presents a frame.
+
+  This is the retained-mode contract: draw the whole frame, then call term::sync
+  once to display it. On the console backend term::sync compares the frame just
+  drawn against the last presented frame and writes only the cells that changed
+  (a minimal set of cursor moves, color/attribute changes, and glyphs), so a
+  full-screen program that repaints every frame shows no flicker and emits output
+  proportional to how much actually changed rather than repainting the whole
+  screen. In app mode (mfb build -app) term::sync coalesces the frame into a
+  single redraw of the terminal view. term::off performs a final term::sync
+  automatically before it restores the user's previous screen, so the last frame
+  a program draws is always shown.
+
+  A program that draws without a following term::sync shows nothing - this is the
+  most common porting mistake when moving to the retained-mode surface. Place one
+  term::sync at the end of each frame, after all of that frame's drawing and
+  before reading input.
+
+  Like the rest of the term:: surface other than term::on and term::isOn,
+  term::sync is gated behind TUI mode: it is a clean no-op while TUI mode is off,
+  so calling it before term::on or after term::off does nothing and is harmless.
+
+  The function takes no arguments and has no return value; its only effect is to
+  present the current frame.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. The function is invoked for its side effect of presenting
+    the drawn frame to the terminal surface.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Draw a frame and present it once:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    term::clear()
+    term::moveTo(0, 0)
+    io::print("hello")
+    term::sync()
+    term::off()
+
+  The canonical per-frame render loop composes the whole frame, then presents:
+
+    term::on()
+    MUT running AS Boolean = TRUE
+    WHILE running
+      term::clear()
+      drawScene()
+      term::sync()
+      running = handleInput()
+    END WHILE
+    term::off()
+
+SEE ALSO
+  term::on, term::off, term::clear, term::moveTo

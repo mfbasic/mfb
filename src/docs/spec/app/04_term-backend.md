@@ -30,7 +30,8 @@ Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/sh
 | bold | 24 | bold flag |
 | underline | 32 | underline flag |
 | cursorVisible | 40 | cursor-visible flag |
-| (reserved) | 48, 56 | two reserved slots for the app backend |
+| gridHeader | 48 | console shadow-grid header pointer (plan-35 D2; 0 while off) |
+| (reserved) | 56 | one reserved slot (future: scroll region / damage rect) |
 
 The GUI `term::on`/`off`/`setForeground`/`setBackground`/`setBold`/
 `setUnderline`/`showCursor`/`hideCursor`/`moveTo`/`clear` helpers update these
@@ -41,6 +42,60 @@ the setters maintain. [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_hel
 
 `store_term_state` is the one-line writer: `mov x9, #value; str x9, [x19,
 term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
+
+## Retained double-buffered surface + mandatory present (plan-35)
+
+While TUI mode is on, `term::` is a **retained, double-buffered** surface with one
+programming model across the console and app backends. Drawing calls —
+`io::print`/`io::write` and `term::moveTo`/`setForeground`/`setBackground`/
+`setBold`/`setUnderline`/`clear`/`showCursor`/`hideCursor` — do **not** touch the
+terminal; each mutates an in-memory **cell grid** plus a **shadow cursor** and a
+**current-attribute set**. A single builtin, **`term::sync()`**, is the *only*
+operation that presents a frame: on the console it diffs the just-drawn back buffer
+against the last-presented front buffer and writes only the changed cells (minimal
+cursor moves + coalesced SGR runs + glyphs); in app mode it coalesces the frame
+into one surface redraw. `term::off` performs a final `term::sync` before restoring
+the user's screen, so the last drawn frame is always shown. **A program that draws
+without a following `term::sync()` displays nothing** — the mandatory-present
+contract (plan-35 D1). `term::sync` is a clean no-op while TUI mode is off.
+
+### Shared cell model
+
+A **cell** is the union of what both backends store: `glyph` (u32 unichar; 0 or
+32/space = blank), `fg` and `bg` (packed `r | g<<8 | b<<16`), `bold`, and
+`underline`. The **shadow cursor** `(row, col)` is zero-based from the top-left;
+the **current-attribute set** is exactly the existing fg/bg/bold/underline term-
+state slots (offsets 8/16/24/32) — reused, not duplicated. `moveTo` sets the
+cursor (clamped `>= 0`; app mode also clamps to the last cell); writing a glyph
+stamps the cell at the cursor with the current attributes, advances the cursor,
+wraps at the right edge, and scrolls at the bottom. Writing never emits — it only
+mutates cells. The macOS `TermCell` (16 B) already has this shape; GTK packs the
+same fields into its parallel arrays. Byte layout is per-backend; the *semantics*
+are shared.
+
+### Console shadow-grid header block (D2)
+
+The console has no view to hold a grid, so `term::on` allocates one arena block
+(`ARENA_ALLOC_SYMBOL`) sized to `term::terminalSize()` and stores its base pointer
+in term-state slot **48** (0 while TUI mode is off). Layout:
+
+```text
+offset            field
+  0   rows       u64
+  8   cols       u64
+ 16   cursorRow  u64
+ 24   cursorCol  u64
+ 32   dirty      u64   (1 forces a full repaint: first present after on/resize)
+ 40   back cells   rows*cols cells   (the frame being drawn)
+ ...  front cells  rows*cols cells   (the last presented frame)
+```
+
+`term::off` runs the final present, frees the block, and zeroes slot 48;
+`_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames
+the present reallocs the block and forces a full repaint (`life` re-queries the
+size each loop). Slot 56 stays reserved. The console grid writer + diff presenter
+are emitted as neutral `abi::` codegen (plan-35 D3), so one implementation is
+shared across aarch64/x86/riscv and stays byte-deterministic (bug-87).
 
 ## macOS: `TermView : NSView`
 

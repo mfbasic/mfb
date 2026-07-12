@@ -16,6 +16,7 @@ pub(crate) fn emit_app_term_helper(
         "term.off" => emit_app_term_off(symbol, tso),
         "term.isOn" => emit_app_term_is_on(symbol),
         "term.clear" => emit_app_term_clear(symbol),
+        "term.sync" => emit_app_term_sync(symbol),
         "term.moveTo" => emit_app_term_move_to(symbol),
         "term.setForeground" => {
             emit_app_term_set_color(symbol, ST_TERM_CUR_FG, tso, code::TERM_STATE_FG_OFFSET)
@@ -38,6 +39,21 @@ pub(crate) fn emit_app_term_helper(
         _ => return None,
     };
     Some(helper)
+}
+
+/// `term::sync()` app arm. plan-35-A scaffold: a present hook returning OK without
+/// touching the surface. plan-35-E replaces this body with the coalesced
+/// `queue_draw` present (and the main-loop snapshot that closes the tearing race).
+fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
 }
 
 /// The plan-01-term §4.2.1 no-op gate: branch to `inactive` when TUI mode is off

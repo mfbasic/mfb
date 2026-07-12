@@ -96,14 +96,15 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 36 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 37 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 38 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 39 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.hideCursor", "arguments": [] }, "line": 40 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.showCursor", "arguments": [] }, "line": 41 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 42 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBackground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 43 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBold", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 44 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setUnderline", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 45 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.hideCursor", "arguments": [] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.showCursor", "arguments": [] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBackground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBold", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setUnderline", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 47 }
       ]
     }
     ]

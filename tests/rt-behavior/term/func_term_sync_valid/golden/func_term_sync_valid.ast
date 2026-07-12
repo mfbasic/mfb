@@ -1,0 +1,30 @@
+{
+  "project": "func_term_sync_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "term", "line": 7 },
+    { "module": "io", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "after" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

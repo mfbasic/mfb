@@ -346,6 +346,16 @@ pub(super) fn lower_term_helper(
             &mut instructions,
             &mut relocations,
         )?,
+        "term.sync" => {
+            // plan-35-A: `term::sync()` is the present hook. In this scaffold it is
+            // a no-op on the console (returns OK whether TUI mode is on or off);
+            // plan-35-C replaces this arm with the front/back-buffer diff presenter.
+            instructions.push(abi::move_immediate(
+                RESULT_TAG_REGISTER,
+                "Integer",
+                RESULT_OK_TAG,
+            ));
+        }
         "term.moveTo" => emit_move_to(
             symbol,
             term_state_offset,

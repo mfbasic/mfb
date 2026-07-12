@@ -26,6 +26,7 @@ pub(crate) const SET_UNDERLINE: &str = "term.setUnderline";
 pub(crate) const SHOW_CURSOR: &str = "term.showCursor";
 pub(crate) const HIDE_CURSOR: &str = "term.hideCursor";
 pub(crate) const CLEAR: &str = "term.clear";
+pub(crate) const SYNC: &str = "term.sync";
 pub(crate) const MOVE_TO: &str = "term.moveTo";
 pub(crate) const GET_FOREGROUND: &str = "term.getForeground";
 pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
@@ -50,6 +51,7 @@ pub(crate) fn is_term_call(name: &str) -> bool {
             | SHOW_CURSOR
             | HIDE_CURSOR
             | CLEAR
+            | SYNC
             | MOVE_TO
             | GET_FOREGROUND
             | GET_BACKGROUND
@@ -73,8 +75,8 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
-        ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | GET_FOREGROUND | GET_BACKGROUND
-        | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
+        ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
+        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
         SET_FOREGROUND | SET_BACKGROUND => Some(&[&["r"], &["g"], &["b"]]),
         SET_BOLD | SET_UNDERLINE => Some(&[&["enabled"]]),
         MOVE_TO => Some(&[&["row"], &["column"]]),
@@ -86,8 +88,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 /// (with the usual integer-literal-to-`Byte` coercion).
 pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
     match name {
-        ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | GET_FOREGROUND | GET_BACKGROUND
-        | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
+        ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
+        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
         SET_FOREGROUND | SET_BACKGROUND => Some(&["Byte", "Byte", "Byte"]),
         SET_BOLD | SET_UNDERLINE => Some(&["Boolean"]),
         MOVE_TO => Some(&["Integer", "Integer"]),
@@ -98,7 +100,7 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         ON | OFF | SET_FOREGROUND | SET_BACKGROUND | SET_BOLD | SET_UNDERLINE | SHOW_CURSOR
-        | HIDE_CURSOR | CLEAR | MOVE_TO => Some("Nothing"),
+        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO => Some("Nothing"),
         IS_ON | GET_BOLD | GET_UNDERLINE => Some("Boolean"),
         GET_FOREGROUND | GET_BACKGROUND => Some(TERM_COLOR_TYPE),
         TERMINAL_SIZE => Some(TERM_SIZE_TYPE),
@@ -142,6 +144,7 @@ mod tests {
         SHOW_CURSOR,
         HIDE_CURSOR,
         CLEAR,
+        SYNC,
         MOVE_TO,
         GET_FOREGROUND,
         GET_BACKGROUND,
@@ -157,6 +160,7 @@ mod tests {
         SHOW_CURSOR,
         HIDE_CURSOR,
         CLEAR,
+        SYNC,
         GET_FOREGROUND,
         GET_BACKGROUND,
         GET_BOLD,
@@ -265,6 +269,7 @@ mod tests {
             SHOW_CURSOR,
             HIDE_CURSOR,
             CLEAR,
+            SYNC,
             MOVE_TO,
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");

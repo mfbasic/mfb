@@ -36,6 +36,7 @@ FUNC main AS Integer
   term::on()
   term::off()
   term::clear()
+  term::sync()
   term::moveTo(0, 0)
   term::hideCursor()
   term::showCursor()

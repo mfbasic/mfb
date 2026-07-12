@@ -90,6 +90,7 @@ impl NativeBackend for Backend {
                 "term.showCursor",
                 "term.hideCursor",
                 "term.clear",
+                "term.sync",
                 "term.moveTo",
                 "term.getForeground",
                 "term.getBackground",

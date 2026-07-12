@@ -1,0 +1,17 @@
+' plan-35-A: `term::sync()` is the present hook. In the Phase A scaffold it is a
+' clean no-op. This fixture proves the new builtin is emitted, dispatched, and
+' returns cleanly at runtime on every backend: calling it while TUI mode is off
+' does nothing and is harmless, and the program exits 0. (The escape-emitting
+' `term::on`/`term::off` path is compile-covered by tests/syntax/term/term-valid
+' and gains its runtime present coverage in plan-35-C.)
+IMPORT term
+IMPORT io
+
+FUNC main AS Integer
+  io::print("before")
+  ' No-op while TUI mode is off — nothing is presented.
+  term::sync()
+  term::sync()
+  io::print("after")
+  RETURN 0
+END FUNC

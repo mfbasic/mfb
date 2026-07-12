@@ -99,14 +99,15 @@
     { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "term.on", "args": [] } },
     { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "term.off", "args": [] } },
     { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "term.clear", "args": [] } },
-    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "term.hideCursor", "args": [] } },
-    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "term.showCursor", "args": [] } },
-    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "term.setForeground", "args": [{ "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "term.setBackground", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "term.setBold", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "term.setUnderline", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
-    { "op": "return", "line": 46, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "term.sync", "args": [] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "term.hideCursor", "args": [] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "term.showCursor", "args": [] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "term.setForeground", "args": [{ "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "term.setBackground", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "term.setBold", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "term.setUnderline", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "return", "line": 47, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]
