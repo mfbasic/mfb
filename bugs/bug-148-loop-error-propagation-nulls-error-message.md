@@ -83,6 +83,26 @@ code shifts register allocation and masks or unmasks it — exactly the
 layout-sensitivity `.ai/compiler.md` warns about and that bug-86 exhibits. A
 passing acceptance run therefore does **not** prove a fix.
 
+## Investigation findings (2026-07-11, session)
+Confirmed under lldb on the repro: the crash is `ldr x9, [x8,#8]` with `x8 = 0`,
+where `x8 = [sp+0x1188] = e.message` — the built `Error`'s message FIELD is null,
+so `route_current_result_to_trap` assembled the trap `Error` with a null message
+(`RESULT_ERROR_MESSAGE`/x2 was 0 at the route). Traced every seam and they are all
+register-safe by construction: `emit_terminal_size` returns a valid static message
+pointer in x2; the runtime-helper propagate path (`emit_runtime_helper_call`) →
+`emit_stamp_current_error_source` (spills/reloads the message around its arena
+alloc) → `emit_current_result_exit` (`store_pending`/`load_pending` cover
+message+source) → `route_current_result_to_trap` (spills immediately). A targeted
+fix (spill x2 right after the call, reload right before the exit) did NOT resolve
+it, so the clobber is deeper than these seams. It only manifests at a scale that
+forces SPILLING — `-regalloc bump` (the fixed-pool, no-spill oracle) cannot even
+compile the program (exhausts registers), so the bug lives in the linear-scan
+spill/eviction interaction with the fixed error-result register (x2) lifetime,
+possibly related to the eviction path (cf. bug-127.2) using x2 as a scratch while
+it holds the live message. Needs an lldb hardware-watchpoint on the
+`[sp+0x1188]`-equivalent slot at life scale to catch the exact write of 0.
+Workaround shipped; not a correctness regression from this session's work.
+
 ## Fix direction (deferred — needs a layout-sensitive audit)
 On the auto-propagate path from a failing call to the enclosing function-level
 `TRAP`, spill the `Error` payload registers (`RESULT_ERROR_MESSAGE` /
