@@ -129,6 +129,19 @@ pub(crate) const CLOSURE_ENV_REGISTER: &str = crate::target::shared::abi::CLOSUR
 pub(crate) const CLOSURE_OBJECT_SIZE: usize = 16;
 pub(crate) const CLOSURE_OFFSET_CODE: usize = 0;
 pub(crate) const CLOSURE_OFFSET_ENV: usize = 8;
+
+/// The static closure-descriptor data symbol for a function referenced as a
+/// no-capture function value. One `{code, env=0}` descriptor per function, in
+/// BSS, its `code` word populated once at startup — so a `FunctionRef` loads this
+/// address instead of arena-allocating a fresh descriptor on every evaluation
+/// (bug-78). `func_symbol` is already a valid symbol, so concatenation is unique.
+pub(crate) fn closure_descriptor_symbol(func_symbol: &str) -> String {
+    format!("_mfb_closure_desc_{func_symbol}")
+}
+
+/// The startup function that populates every static closure descriptor's `code`
+/// word (bug-78). Run once from the entry before `main`.
+pub(crate) const CLOSURE_DESC_INIT_SYMBOL: &str = "_mfb_closure_desc_init";
 /// Entry-frame prefix: the arena state plus the one seed-scratch word after it.
 /// Derived from `ARENA_STATE_SIZE` so the frame tracks arena-state growth
 /// (e.g. the allocator-01 quick bins) automatically.

@@ -1,0 +1,30 @@
+IMPORT io
+IMPORT collections
+
+FUNC add1(x AS Integer) AS Integer
+  RETURN x + 1
+END FUNC
+FUNC dbl(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+FUNC apply(f AS FUNC(Integer) AS Integer, v AS Integer) AS Integer
+  RETURN f(v)
+END FUNC
+
+' bug-78: a no-capture function value is a STATIC closure descriptor, so a
+' FunctionRef in a loop no longer arena-allocates per evaluation (RSS stays flat).
+' Verify indirect calls, a function value stored in a collection (bug-73), and a
+' loop of FunctionRefs all compute correctly.
+FUNC main AS Integer
+  LET g AS FUNC(Integer) AS Integer = add1
+  io::print(toString(apply(g, 41)))
+  LET fns AS List OF FUNC(Integer) AS Integer = [add1, dbl]
+  io::print(toString(apply(collections::get(fns, 0), 10)) & "," & toString(apply(collections::get(fns, 1), 10)))
+  MUT sum AS Integer = 0
+  FOR i = 1 TO 10000
+    LET h AS FUNC(Integer) AS Integer = add1
+    sum = sum + apply(h, 0)
+  NEXT
+  io::print(toString(sum))
+  RETURN 0
+END FUNC

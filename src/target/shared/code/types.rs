@@ -541,6 +541,10 @@ pub(crate) struct ProgramEntrySpec<'a> {
     pub(crate) language_entry_accepts_args: bool,
     pub(crate) global_initializer_symbol: Option<&'a str>,
     pub(crate) link_init_symbol: Option<&'a str>,
+    /// The static-closure-descriptor initializer run once at startup: populates
+    /// each no-capture function value's descriptor `code` word with `&func`
+    /// (bug-78). `None` when the module has no `FunctionRef`. Cannot fail.
+    pub(crate) closure_init_symbol: Option<&'a str>,
     pub(crate) entry_stack_size: usize,
     pub(crate) global_slot_count: usize,
     pub(crate) emit_cleanup_failure_audit: bool,

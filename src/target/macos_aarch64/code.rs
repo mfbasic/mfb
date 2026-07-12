@@ -100,6 +100,7 @@ impl code::CodegenPlatform for Platform {
             spec.language_entry_accepts_args,
             spec.global_initializer_symbol,
             spec.link_init_symbol,
+            spec.closure_init_symbol,
             spec.entry_stack_size,
             spec.global_slot_count,
             platform_imports,

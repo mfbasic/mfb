@@ -355,71 +355,38 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::FunctionRef { name, type_ } => {
+                // A no-capture function value is the address of a STATIC closure
+                // descriptor (`{code = &func, env = 0}`) — one per function, in BSS,
+                // populated once at startup (see `collect_function_value_refs` +
+                // the entry). Load its address instead of arena-allocating a fresh
+                // descriptor on every evaluation, so a lambda in a loop no longer
+                // grows the arena (bug-78). All indirect-call/env-access consumers
+                // read `{code, env}` off this pointer exactly as before.
                 let symbol = builtin_function_symbol_for_type(name, type_)
                     .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
-                let function_register = self.allocate_register()?;
-                self.emit(abi::load_page_address(&function_register, &symbol));
+                let desc_symbol = closure_descriptor_symbol(&symbol);
+                let closure_register = self.allocate_register()?;
+                self.emit(abi::load_page_address(&closure_register, &desc_symbol));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
-                    to: symbol.clone(),
+                    to: desc_symbol.clone(),
                     kind: RelocIntent::DataAddrHi,
                     binding: "data".to_string(),
                     library: None,
                 });
                 self.emit(abi::add_page_offset(
-                    &function_register,
-                    &function_register,
-                    &symbol,
+                    &closure_register,
+                    &closure_register,
+                    &desc_symbol,
                 ));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
-                    to: symbol,
+                    to: desc_symbol,
                     kind: RelocIntent::DataAddrLo,
                     binding: "data".to_string(),
                     library: None,
                 });
-                let function_slot = self.allocate_stack_object("function_ref_code", 8);
-                self.emit(abi::store_u64(
-                    &function_register,
-                    abi::stack_pointer(),
-                    function_slot,
-                ));
-                let closure_register = self.allocate_register()?;
-                let alloc_ok = self.label("function_ref_alloc_ok");
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    &CLOSURE_OBJECT_SIZE.to_string(),
-                ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                self.relocations.push(CodeRelocation {
-                    from: self.current_symbol.clone(),
-                    to: ARENA_ALLOC_SYMBOL.to_string(),
-                    kind: RelocIntent::Call,
-                    binding: "internal".to_string(),
-                    library: None,
-                });
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::load_u64(
-                    &function_register,
-                    abi::stack_pointer(),
-                    function_slot,
-                ));
-                self.emit(abi::store_u64(
-                    &function_register,
-                    abi::RET[1],
-                    CLOSURE_OFFSET_CODE,
-                ));
-                self.emit(abi::store_u64(abi::ZERO, abi::RET[1], CLOSURE_OFFSET_ENV));
-                self.emit(abi::move_register(&closure_register, abi::RET[1]));
                 Ok(ValueResult {
                     type_: type_.clone(),
                     location: closure_register,

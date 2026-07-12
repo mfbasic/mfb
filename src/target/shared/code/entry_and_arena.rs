@@ -8,6 +8,7 @@ pub(crate) fn lower_program_entry(
     language_entry_accepts_args: bool,
     global_initializer_symbol: Option<&str>,
     link_init_symbol: Option<&str>,
+    closure_init_symbol: Option<&str>,
     entry_stack_size: usize,
     global_slot_count: usize,
     platform_imports: &HashMap<String, String>,
@@ -258,6 +259,19 @@ pub(crate) fn lower_program_entry(
         abi::move_register(abi::ARG[1], abi::SCRATCH[18]),
     ]);
     relocations.push(internal_branch(entry_symbol, ARENA_FILL_SEED_SYMBOL));
+    // Populate the static closure descriptors (bug-78): write each no-capture
+    // function value's `code` word with `&func`. Runs once, before `main` and
+    // before any thread is spawned, and cannot fail — no tag check.
+    if let Some(symbol) = closure_init_symbol {
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(CodeRelocation {
+            from: entry_symbol.to_string(),
+            to: symbol.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+    }
     // Resolve native `LINK` bindings (dlopen/dlsym) before anything runs; a load
     // failure aborts before `main` through the standard error path
     // (plan-linker.md §12.1).
@@ -1811,6 +1825,35 @@ pub(super) fn lower_signal_handler(platform: &dyn CodegenPlatform) -> Result<Cod
 /// 128-bit state held in (`lo`, `hi`). The limbs are read at the start and
 /// rewritten in place; `x11`-`x16` are used as scratch (caller-saved, so these
 /// leaf helpers need not preserve them).
+/// Populate every static closure descriptor's `code` word with `&func` at startup
+/// (bug-78). A leaf function, run once from the entry before `main` and before any
+/// thread is spawned; `env` stays 0 (the descriptor is BSS). Cannot fail — it only
+/// materializes internal addresses and stores them, so the entry runs it with no
+/// tag check.
+pub(super) fn lower_closure_descriptor_initializer(func_symbols: &[String]) -> CodeFunction {
+    let symbol = CLOSURE_DESC_INIT_SYMBOL;
+    let mut vregs = Vregs::new();
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    for func_symbol in func_symbols {
+        let desc_symbol = closure_descriptor_symbol(func_symbol);
+        let func_reg = vregs.next();
+        let desc_reg = vregs.next();
+        // func_reg = &func ; desc_reg = &descriptor ; descriptor.code = &func.
+        push_symbol_address(symbol, func_symbol, &func_reg, &mut instructions, &mut relocations);
+        push_symbol_address(symbol, &desc_symbol, &desc_reg, &mut instructions, &mut relocations);
+        instructions.push(abi::store_u64(&func_reg, &desc_reg, CLOSURE_OFFSET_CODE));
+    }
+    instructions.push(abi::return_());
+    finalize_vreg_helper(
+        "closure_descriptor_init",
+        symbol,
+        "Nothing",
+        instructions,
+        relocations,
+    )
+}
+
 /// A monotonic virtual-register name generator for a hand-written vreg helper
 /// (plan-00-G Phase 2): each call yields a fresh `%vN` the shared allocator
 /// colors. Lets the PCG64 / arena helpers be written in target-neutral MIR (no

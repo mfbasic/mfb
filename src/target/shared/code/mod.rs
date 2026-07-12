@@ -637,6 +637,42 @@ pub(crate) fn lower_module_for_platform(
     } else {
         None
     };
+    // bug-78: one STATIC closure descriptor per function referenced as a no-capture
+    // function value, so a `FunctionRef` loads its address instead of arena-
+    // allocating a fresh `{code, env=0}` descriptor on every evaluation. Emit the
+    // descriptors as zeroed data objects and a startup initializer that writes each
+    // `code` word with `&func`; the entry runs it once before `main`.
+    let closure_descriptor_func_symbols: Vec<String> = {
+        let mut symbols: Vec<String> = module_analysis::collect_function_value_refs(module)
+            .into_iter()
+            .map(|(name, type_)| {
+                data_objects::builtin_function_symbol_for_type(&name, &type_)
+                    .or_else(|| function_symbols.get(&name).cloned())
+                    .unwrap_or(name)
+            })
+            .collect();
+        symbols.sort();
+        symbols.dedup();
+        symbols
+    };
+    let closure_init_symbol = if closure_descriptor_func_symbols.is_empty() {
+        None
+    } else {
+        for func_symbol in &closure_descriptor_func_symbols {
+            data_objects.push(CodeDataObject {
+                symbol: closure_descriptor_symbol(func_symbol),
+                kind: "raw".to_string(),
+                layout: "mfb.runtime.closure_descriptor.v1 { u64 code; u64 env }".to_string(),
+                align: 8,
+                size: CLOSURE_OBJECT_SIZE,
+                value: "0".repeat(2 * CLOSURE_OBJECT_SIZE),
+            });
+        }
+        code_functions.push(lower_closure_descriptor_initializer(
+            &closure_descriptor_func_symbols,
+        ));
+        Some(CLOSURE_DESC_INIT_SYMBOL)
+    };
     // Install SIGINT/SIGTERM handlers for console programs only. App-mode builds
     // keep their window-driven finish path (the worker has no Ctrl-C semantics),
     // but still share `_mfb_shutdown` for their normal-exit cleanup.
@@ -684,6 +720,7 @@ pub(crate) fn lower_module_for_platform(
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
+                    closure_init_symbol,
                     entry_stack_size,
                     global_slot_count: entry_global_slots,
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
@@ -704,6 +741,7 @@ pub(crate) fn lower_module_for_platform(
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
+                    closure_init_symbol,
                     entry_stack_size,
                     global_slot_count: entry_global_slots,
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),

@@ -155,3 +155,29 @@ bug-73's guarantee that a collection never frees a closure it merely points at.
 Every lambda evaluation allocates an arena descriptor that is never freed, so a
 lambda in a loop grows memory without bound — even one that captures nothing and
 should be a bare code pointer.
+
+---
+## Resolution (2026-07-11) — FIXED (full allocation-free redesign)
+A no-capture function value is now the address of a STATIC closure descriptor
+(`{code = &func, env = 0}`) — one per referenced function, in BSS — instead of a
+fresh arena descriptor allocated on every `FunctionRef` evaluation. A lambda /
+function value in a loop no longer grows the arena.
+
+Implementation:
+- `module_analysis::collect_function_value_refs` exhaustively walks the NIR module
+  and collects every `FunctionRef` (name, type_); resolved to symbols in `mod.rs`.
+- One zeroed `_mfb_closure_desc_<funcsym>` data object per referenced function.
+- `lower_closure_descriptor_initializer` (`_mfb_closure_desc_init`) writes each
+  descriptor's `code` word with `&func` (text-section `adrp;add`) at startup; the
+  entry runs it once before `main` (a new `closure_init_symbol` hook, modeled on
+  `link_init`), before any thread is spawned, so the descriptors are read-only
+  thereafter (thread-safe).
+- `FunctionRef` lowering (`builder_values.rs`) loads the descriptor's address
+  (no arena alloc). All indirect-call / env-access consumers read `{code, env}`
+  off the pointer exactly as before — bug-72/73 semantics unchanged.
+
+Verified on ALL FOUR remotes (aarch64/x86_64 musl+libc/riscv64): indirect call
+(`apply(add1,41)=42`), function values in a collection (bug-73: `11,20`), and a
+loop of FunctionRefs (`loopsum` correct); host RSS stays ~1 MB for 500k FunctionRef
+evaluations (vs ~8 MB if it still allocated per-eval). Thread-worker FunctionRefs
+(func_thread_result_valid) still pass. Full acceptance (897) + cargo test green.

@@ -1,0 +1,84 @@
+{
+  "project": "bug78_function_ref_static_descriptor",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "add1",
+      "line": 4,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "1" } }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "dbl",
+      "line": 7,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "2" } }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "apply",
+      "line": 10,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null },
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "v" }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "g", "type": "FUNC(Integer) AS Integer", "value": { "kind": "identifier", "value": "add1" }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "apply", "arguments": [{ "kind": "identifier", "value": "g" }, { "kind": "number", "value": "41" }] }] }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "fns", "type": "List OF FUNC(Integer) AS Integer", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "add1" }, { "kind": "identifier", "value": "dbl" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "apply", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "fns" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "10" }] }] }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "apply", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "fns" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "10" }] }] } }] }, "line": 22 },
+      { "kind": "binding", "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 23 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "10000" },
+        "step": null,
+        "line": 24,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "h", "type": "FUNC(Integer) AS Integer", "value": { "kind": "identifier", "value": "add1" }, "line": 25 },
+        { "kind": "assignment", "name": "sum", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sum" }, "right": { "kind": "call", "callee": "apply", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "number", "value": "0" }] } }, "line": 26 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sum" }] }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
+      ]
+    }
+    ]
+  }
+  ]
+}
