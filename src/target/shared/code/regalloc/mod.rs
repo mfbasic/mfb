@@ -252,9 +252,20 @@ pub(crate) fn allocate(
             // AArch64/x86, so the call-clobber masks are ISA-specific (plan-99).
             // The arena-base register identifies the ISA (`s11` on rv64).
             let is_riscv = model.arena_base() == crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER;
+            // The `%scratch`/`%sysnr` occupancy indices in `int_physical_index` are
+            // AArch64 realizations; on x86/riscv those tokens realize elsewhere (and
+            // are lowered to concrete names before allocation), so pick the variant
+            // that omits the AArch64 scratch arms off-target (bug-127).
+            let is_aarch64 =
+                model.arena_base() == crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
+            let int_physical_index = if is_aarch64 {
+                analysis::int_physical_index
+            } else {
+                analysis::int_physical_index_non_aarch64
+            };
             let int_model = ClassModel {
                 parse_vreg,
-                physical_index: analysis::int_physical_index,
+                physical_index: int_physical_index,
                 is_fp: false,
                 is_riscv,
             };

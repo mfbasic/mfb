@@ -47,3 +47,15 @@ the realization map.
 
 `src/arch/aarch64/ops.rs` carries x86/rv-only CodeOp variants misfiled under
 aarch64 — **dup of bug-82** (open).
+
+---
+## Resolution (2026-07-11)
+- 127.1 (duplicate-label guard on aarch64 + riscv) — FIXED.
+- 127.2 (eviction "more operands than registers" ICE) — FIXED (surfaced as a
+  RunResult error / centralized panic with an actionable message).
+- 127.3 (per-ISA %scratch/%sysnr occupancy) — FIXED: split the AArch64-indexed
+  scratch arms out of int_physical_index; x86/riscv use int_physical_index_non_aarch64
+  (concrete-register lookup only), since those tokens realize to different per-ISA
+  registers and are lowered to concrete names before regalloc. Byte-identical (0
+  golden changes); guaranteed-unreachable per plan-34-D, so purely defensive
+  correctness. Cluster closed.

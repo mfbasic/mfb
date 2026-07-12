@@ -154,14 +154,31 @@ pub(super) fn call_clobber_mask(
 /// function is single-ISA, so the two name spaces never collide. Excludes
 /// `x31`/`xzr`, `sp`/`rsp`, and FP registers.
 pub(super) fn int_physical_index(name: &str) -> Option<u32> {
-    // Int tokens whose realizations sit INSIDE the allocatable file occupy the
-    // same index the literal they replaced did (plan-34-D), so coloring is
-    // byte-identical: `%scratch0`–`%scratch9` realize `x9`–`x18`,
-    // `%scratch10`–`%scratch18` realize `x20`–`x28`, `%sysnr` realizes `x8`,
-    // and `%sysnr_darwin` realizes `x16`. The role banks (`%arg`/`%ret`/
-    // `%sysarg`/`%sysret`, realizations `x0`–`x7`) are deliberately unparsed —
-    // their realizations are below every allocatable file, so their occupancy
-    // is moot, exactly as it was for the literals.
+    // AArch64 variant: the `%scratch`/`%sysnr` tokens realize INSIDE the AArch64
+    // allocatable file at these indices, so their occupancy is modeled here.
+    if let Some(idx) = aarch64_scratch_occupancy_index(name) {
+        return Some(idx);
+    }
+    int_concrete_physical_index(name)
+}
+
+/// Non-AArch64 (x86-64 / rv64) integer physical-register index. The
+/// `%scratch`/`%sysnr` tokens realize to *different* per-ISA registers on these
+/// targets (via each backend's `map_scratch_register` / syscall-nr register) and
+/// are lowered to concrete register names before `regalloc::allocate` sees them
+/// (plan-34-D), so returning the AArch64-indexed scratch occupancy here would
+/// mis-model a non-AArch64 stream. Skip the AArch64 scratch arms entirely; the
+/// concrete-register lookup is ISA-neutral (bug-127).
+pub(super) fn int_physical_index_non_aarch64(name: &str) -> Option<u32> {
+    int_concrete_physical_index(name)
+}
+
+/// The AArch64 occupancy index of a `%scratch`/`%sysnr` token, or `None` for any
+/// other name. `%scratch0`–`%scratch9` realize `x9`–`x18`, `%scratch10`–`%scratch18`
+/// realize `x20`–`x28`, `%sysnr` realizes `x8`, `%sysnr_darwin` realizes `x16`
+/// (plan-34-D). The role banks (`%arg`/`%ret`/`%sysarg`/`%sysret`, realizations
+/// `x0`–`x7`) are deliberately unparsed — below every allocatable file, so moot.
+fn aarch64_scratch_occupancy_index(name: &str) -> Option<u32> {
     if let Some(rest) = name.strip_prefix("%scratch") {
         if let Ok(n) = rest.parse::<u32>() {
             return match n {
@@ -171,12 +188,17 @@ pub(super) fn int_physical_index(name: &str) -> Option<u32> {
             };
         }
     }
-    if name == "%sysnr" {
-        return Some(8);
+    match name {
+        "%sysnr" => Some(8),
+        "%sysnr_darwin" => Some(16),
+        _ => None,
     }
-    if name == "%sysnr_darwin" {
-        return Some(16);
-    }
+}
+
+/// The concrete integer physical-register index (AArch64 `x0`–`x30`, x86-64 GPRs,
+/// or rv64 lp64d ABI names), or `None`. ISA-neutral: a function is single-ISA and
+/// the three name spaces never collide.
+fn int_concrete_physical_index(name: &str) -> Option<u32> {
     if let Some(rest) = name.strip_prefix('x') {
         if let Ok(n) = rest.parse::<u32>() {
             return (n <= 30).then_some(n);
