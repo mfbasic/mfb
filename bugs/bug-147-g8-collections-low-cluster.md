@@ -123,6 +123,39 @@ noted, not separately re-filed.
   commits, so the only correct fix is to defer the copy until AFTER the state check
   passes, inside the helper under the queue lock (copy-on-commit) — a thread-send
   protocol restructure, not a caller-side free.
+
+  Design finalized (2026-07-11) after ruling out every simpler approach:
+  * **Caller-side free on failure** — cross-thread `arena_free` of the dest arena:
+    race (timeout: dest alive) / UAF (closed: dest torn down). REJECTED.
+  * **Copy-on-commit inside the raw helper** — the helper is type-agnostic, but a
+    collection message needs the type-aware shrink-to-fit relayout
+    (`copy_collection_tight`), NOT a raw memcpy (a size-based memcpy truncates the
+    data region past the tight size), and the free needs the type-derived size. A
+    generic helper cannot do either. REJECTED.
+  * **Two-phase reserve/commit** — TOCTOU between reserve and the (unlocked) copy,
+    plus reserved-but-uncommitted slots a dead sender leaves for the dest to read.
+    Needs full concurrent-queue slot bookkeeping. HIGH RISK.
+  * **CHOSEN: dest-drain pending-free list.** Keep the caller's type-aware copy into
+    the dest arena. Add `THREAD_QUEUE_PENDING_FREE_OFFSET` to the queue block
+    (mutex-protected). On each send-failure path (still under the queue mutex),
+    push the orphaned copy onto that list using the dead block's own first two
+    words as `{next, size}` (the caller passes the copy size to the write helper).
+    In `thread_queue_read_helper`, right after taking the mutex, DRAIN the list —
+    `arena_free(ptr, size)` for each — in the DEST thread's own arena. All frees run
+    on the owning thread; all list ops are serialized by the queue mutex the send
+    and receive paths already hold, so it is correct-by-construction (no cross-thread
+    free, deterministic — functionally testable, not a race). Fixes the realistic
+    scenario (full-queue send failures with an active consumer, which is exactly
+    when the dest keeps calling receive and thus drains).
+  * **Severity: the leak is BOUNDED** — the orphaned copies live in the dest
+    worker's arena and are bulk-reclaimed when that thread is dropped (arena
+    teardown), so it is not an unbounded process leak; it only accumulates within a
+    long-lived worker that never receives again after failed sends.
+
+  Not implemented here: the five coordinated raw-helper/queue-layout/caller changes
+  are deferred to a focused threading session rather than landed at the tail of the
+  error-leak work, where a subtle queue-layout mistake would corrupt message
+  passing. Everything above is implementation-ready.
 - Separately discovered while validating 147.5(a): a **general Error-object-per-trap
   leak** — every taken `TRAP(e)` leaks the caught `Error` block (`e` is bound at a
   function-level slot in `function_lowering.rs:688` / `builder_control.rs:772` but

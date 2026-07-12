@@ -41,10 +41,27 @@ returned error code, not a codegen defect).
   exit. Discovered while validating 147.5(a); it dominated the 147.5 leak
   measurement. Verified 4 remotes (RSS flat, `RETURN e`/`FAIL e`/`e.message` correct,
   no double-free). Moved to completed-bugs.
-- **bug-152** — FILED: `FAIL e` re-raise leaks the deep-copied propagation transient
-  (a pre-existing error-Result-ABI issue, not a bug-151 regression; no double-free;
-  the common catch-and-handle path is fully fixed). Needs an error-Result-ABI redesign
-  (propagate an owned block pointer), same block-lifetime family as 147.5(b).
+- **bug-152** — FIXED (commits 14de6012 + 549e1d25), verified RSS-flat + correct on
+  all 4 remotes; moved to completed-bugs. Solved WITHOUT the feared 140-site
+  error-ABI sweep: (1) design-b "error-block-in-slot" — a propagating error travels
+  as one owned flat block parked in a per-thread slot and ADOPTED by the catcher
+  (dual-tag, only owned-block producers touched); (2) freeing consumed nested-record
+  arg blocks at construction (the `ErrorLoc` orphan — a separate, general cross-call
+  propagation leak that also predated design b). Self-caught / cross-call / re-raise
+  error loops now all hold flat.
+
+## Wave 5 addendum (error-block-in-slot / design b)
+- **bug-152 FIXED** as above. Plan: planning/plan-error-block-in-slot.md (Stages 1-4
+  = adopt; the constructor self-containment fix completes the leak elimination).
+- **bug-147.5(b)** — still open. Design finalized + implementation-ready in the
+  bug-147 doc: a mutex-protected **dest-drain pending-free list** (the dest thread
+  frees the orphaned failed-send copies in its own arena on its next receive). Every
+  simpler approach ruled out (cross-thread free = race/UAF; copy-on-commit-in-helper
+  can't type-aware-copy collections or size the free; two-phase reserve = TOCTOU).
+  The leak is BOUNDED (reclaimed at worker teardown). Deferred from the tail of the
+  error-leak work — the five coordinated raw-helper/queue-layout changes belong in a
+  focused threading session with its own 4-remote validation, not landed where a
+  subtle queue-layout slip would corrupt message passing.
 
 **Discovered (filed separately, pre-existing, out of scope):** x86-glibc
 `math::rand` with a fixed seed is non-deterministic (present at HEAD before this
