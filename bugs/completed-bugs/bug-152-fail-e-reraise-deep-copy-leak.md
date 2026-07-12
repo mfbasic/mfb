@@ -1,5 +1,28 @@
 # bug-152 — `FAIL e` re-raise leaks the deep-copied Error transient
 
+**FIXED 2026-07-11** (commits 14de6012 "error-block-in-slot / design b" +
+549e1d25 "free consumed nested-record arg blocks"). Verified RSS-flat and correct
+on all four remotes (Kali aarch64, Alpine x86_64 musl, Ubuntu x86_64 glibc, Alpine
+riscv64 musl): a two-level `FAIL e` re-raise loop holds ~1 MB flat at 40k/160k
+iterations with the propagated code/message intact. Regression:
+`tests/rt-behavior/trap/bug152_reraise_adopt`.
+
+Fixed by two complementary changes rather than the once-feared 140-site ABI sweep:
+1. **Design "b" adopt** — a propagating error travels as ONE owned flat Error block
+   parked in a new per-thread `ARENA_CURRENT_ERROR_OFFSET` slot (tag
+   `RESULT_ERR_BLOCK_TAG`); the catching trap route ADOPTS that block (freed once)
+   instead of rebuilding a fresh one and orphaning the source. Only the FAIL/return
+   producers that hold an owned block set the slot; the ~140 loose-register
+   producers are untouched (dual-tag → catcher rebuilds for them), so it is not a
+   140-site change. This removed the re-raise deep-copy orphan.
+2. **Constructor self-containment** — the `ErrorLoc` block that `error(...)` builds
+   and byte-inlines into the Error was orphaned on the FAIL control transfer (which
+   clears, not frees, pending temps); freeing consumed nested-record temps at
+   construction closed that (a separate, general cross-call propagation leak that
+   also predated design b).
+
+Historical description follows.
+
 Discovered 2026-07-11 while fixing bug-151 (the general caught-`Error` leak). Once
 bug-151 registers the caught `e` for scope-drop, re-raising it with `FAIL e` from a
 handler leaks a *different* block — the deep copy made on the way out — so a
