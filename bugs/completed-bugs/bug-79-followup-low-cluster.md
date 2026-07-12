@@ -88,3 +88,14 @@ A returned function value must be bound to a local first.
 - [ ] (4) Prune the x86 `write` import; reconcile the `getentropy` spec pin.
 - [ ] (5) Decide, then extend the call grammar.
 - [ ] `scripts/test-accept.sh` after each.
+
+---
+## Resolution (2026-07-11)
+- 79.1 (macOS TLS sec_protocol_options leak) — FIXED as bug-116.
+- 79.2 (link_thunk shared label counter) — FIXED.
+- 79.3 (pathNormalize `a/..` -> `.`) — FIXED.
+- 79.4 (x86 dead `write` imports) — FIXED.
+- 79.5 (`pick()(4)`: call a returned function value) — LEFT as a parse error per the
+  user's decision (deliberate language limitation, not a defect). Reopen if the
+  grammar extension is wanted later.
+Closing: every defect is fixed; 79.5 is an intentional language restriction.
