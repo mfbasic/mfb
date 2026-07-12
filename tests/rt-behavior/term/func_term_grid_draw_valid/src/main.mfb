@@ -1,0 +1,35 @@
+' plan-35-B/C: drawing calls mutate the shadow grid with the current attributes;
+' term::clear blanks the back buffer + homes the cursor; term::moveTo clamps
+' negative coordinates to 0. The present renders it all on term::sync. Runs under
+' the non-tty harness (24x80 fallback), so the escape stream is deterministic.
+IMPORT term
+IMPORT io
+
+FUNC main AS Integer
+  term::on()
+  term::setForeground(0, 255, 0)
+  term::setBold(TRUE)
+  term::moveTo(0, 0)
+  io::write("bold-green")
+  term::setBold(FALSE)
+  term::setUnderline(TRUE)
+  term::setBackground(0, 0, 128)
+  term::moveTo(1, 0)
+  io::write("under-navy")
+
+  ' Blank the whole surface, then draw fresh from home.
+  term::clear()
+  term::setForeground(255, 255, 255)
+  term::setBackground(0, 0, 0)
+  term::setUnderline(FALSE)
+  term::moveTo(2, 3)
+  io::write("fresh")
+
+  ' Negative coordinates clamp to (0, 0).
+  term::moveTo(-4, -9)
+  io::write("Z")
+
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC

@@ -1,0 +1,24 @@
+' plan-35-B/C: the console shadow grid is retained and double-buffered. Drawing
+' calls mutate an in-memory cell grid; term::sync() presents by writing only the
+' cells that changed since the last present. The first sync after term::on is a
+' full repaint (every cell); the SECOND sync, after changing a single cell, must
+' emit only that one changed cell — the plan's minimal-diff outcome. This runs
+' under the acceptance harness with stdout piped (not a tty), so the grid is the
+' 24x80 fallback and the captured escape stream is deterministic.
+IMPORT term
+IMPORT io
+
+FUNC main AS Integer
+  term::on()
+  term::moveTo(0, 0)
+  io::write("AAA")
+  term::sync()
+
+  ' Change exactly one cell: overwrite column 1 (the middle 'A') with 'X'.
+  term::moveTo(0, 1)
+  io::write("X")
+  term::sync()
+
+  term::off()
+  RETURN 0
+END FUNC
