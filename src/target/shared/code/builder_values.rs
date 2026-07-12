@@ -932,6 +932,16 @@ impl CodeBuilder<'_> {
                         return Ok(self.make_vector_native(type_, lanes));
                     }
                 }
+                // A fresh nested owned block passed as a field (e.g. the `ErrorLoc`
+                // inside `error(...)`) is registered as a pending temp while lowering
+                // the arg, then byte-INLINED (copied) into this record — so the
+                // standalone arg block is dead the moment the record is built. On a
+                // normal statement it is reclaimed by the statement-scope drop, but a
+                // `FAIL` (and other control transfers) CLEARS pending temps instead of
+                // freeing them, orphaning it (a per-caught-error leak). Free those
+                // consumed arg temps right here so the record is self-contained on
+                // every path (plan-25 comment: a record temp is a single arena_free).
+                let arg_temp_watermark = self.pending_temp_frees.len();
                 let mut arg_values = Vec::new();
                 let mut arg_slots = Vec::new();
                 for arg in args {
@@ -952,9 +962,19 @@ impl CodeBuilder<'_> {
                     // region (the slot holds a block-relative offset); scalar and
                     // pointer fields stay inline at `8*index` (plan-02 §4.2).
                     let register = self.emit_build_inlined_record(type_, &arg_slots)?;
+                    // The record now owns byte-inlined copies of every field, so the
+                    // consumed nested arg blocks are dead — free them (the record
+                    // register is live across these frees and preserved by the vreg
+                    // allocator). Spill/reload the record pointer so the `arena_free`
+                    // calls cannot clobber it.
+                    let result_slot = self.allocate_stack_object("constructor_result", 8);
+                    self.emit(abi::store_u64(&register, abi::stack_pointer(), result_slot));
+                    self.drop_pending_temps_to(arg_temp_watermark)?;
+                    let result = self.temporary_vreg();
+                    self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
                         type_: type_.clone(),
-                        location: register,
+                        location: result,
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
