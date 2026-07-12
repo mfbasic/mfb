@@ -19,7 +19,8 @@ The following boundaries are important when extending the compiler:
 - Packages may be emitted signed (`mfb build --sign owner`, ed25519) or, by
   default, unsigned; the reader accepts both. The on-disk signature-header
   encoding is owned by `./mfb spec package container-format`.
-- `mfb pkg add` supports only absolute `file://` package URLs.
+- `mfb pkg add` accepts an absolute `file://` package URL or an
+  `<owner>#<package>[@version]` registry ident.
 - Linux builds emit two output files per build (`-glibc.out` and `-musl.out`),
   one per libc flavor; macOS emits a single Mach-O. The per-flavor library and
   `DT_NEEDED` selection and the macOS import sets (console `libSystem`, TLS, and

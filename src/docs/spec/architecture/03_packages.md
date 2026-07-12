@@ -7,8 +7,10 @@ and `src/target/shared/nir/`.
 
 ## Installing Packages
 
-`mfb pkg add <url>` supports `file://` URLs that point to absolute
-`.mfp` files. The command:
+`mfb pkg add <target>` accepts either a `file://` URL pointing to an absolute
+`.mfp` file or an `<owner>#<package>[@version]` registry ident (resolved and
+downloaded over the repository protocol, `./mfb spec package-manager repository-protocol`).
+For the `file://` form the command:
 
 1. Reads and validates the MFP header.
 2. Copies the package to `packages/<name>.mfp`.
