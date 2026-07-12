@@ -9,7 +9,7 @@ TypeEntry[typeCount]
 
 ## Built-in type IDs
 
-These IDs are reserved and do not need table entries (`primitive_type_name` / `TypeTable::type_id` in `src/binary_repr.rs`): [[src/binary_repr/reader.rs:primitive_type_name]]
+These IDs are reserved and do not need table entries: [[src/binary_repr/reader.rs:primitive_type_name]] [[src/binary_repr/sections.rs:type_id]]
 
 ```text
 1          = Nothing
@@ -75,7 +75,7 @@ fieldCount      u32
 repeated fieldCount times:
   fieldName     stringId
   fieldType     typeId
-  flags         u32
+  visibility    u32     ; 0 = default, 1 = private, 2 = package, 3 = export
 ```
 
 ## Union payload

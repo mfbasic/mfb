@@ -25,11 +25,11 @@ Current compiler source of truth:
 
 The import-time reader does **not** verify the cryptographic signature, proof, attestation, or `packageBinaryHash`; that is the package manager's build-time verification chain (below). It also does not validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
 
-### Build-time trust verification (the plan-23 chain)
+### Build-time trust verification
 
 Before any declared dependency is decoded, merged, or lowered, the build gate
 (`verify_and_report_packages` → `classify_installed_package`,
-audit-1 PKG-01 + plan-23 §3.5) classifies every installed `.mfp` and prints
+the installed-package classifier) classifies every installed `.mfp` and prints
 `uses <name> - [Verified|Unsigned|Tampered]`. The anchors are the `identKey`
 pinned in the importing project's `project.json` (never the file-embedded key)
 and the registry key pinned as `server.pub` (see *package-manager key-store*).
@@ -68,9 +68,9 @@ opt-in. [[src/cli/build.rs:classify_installed_package]]
 
 ## Merge-time semantic verification (enforced before native lowering)
 
-Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to native code when it is *merged* into a consuming build (`merge_packages`, `src/target/shared/nir/lower.rs`). At that point — after every imported package's IR and the importer's own IR are merged into one project, and before any code is emitted — the **complete semantic verifier** runs over the merged IR (`ir::verify_semantics`, `src/ir/verify/`). A crafted `.mfp` carries hand-serialized IR that never passed any source check, so this pass re-establishes the semantic invariants codegen would otherwise trust (audit-1 finding **PKG-02**). A failure aborts the build with a `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` error; the invalid IR is never lowered. [[src/target/shared/nir/lower.rs:merge_packages]]
+Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to native code when it is *merged* into a consuming build. At that point — after every imported package's IR and the importer's own IR are merged into one project, and before any code is emitted — the **complete semantic verifier** runs over the merged IR. A crafted `.mfp` carries hand-serialized IR that never passed any source check, so this pass re-establishes the semantic invariants codegen would otherwise trust. A failure aborts the build with a `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` error; the invalid IR is never lowered. [[src/target/shared/nir/lower.rs:merge_packages]] [[src/ir/verify/mod.rs:check]]
 
-`ir::verify` is the **single source of truth for every semantic rule** — it is the sole rejecter of those rules on *both* the source-lowered IR and decoded package IR (plan-20). The decoded package payload is fully typed (every value node carries its result type; §"Expressions" of the IR-section page) and carries the declaration-fidelity fields (`explicit_type`, `file`) the rules need, so the checker resolves each node's type from the node itself rather than re-inferring the whole expression tree.
+`ir::verify` is the **single source of truth for every semantic rule** — it is the sole rejecter of those rules on *both* the source-lowered IR and decoded package IR. The decoded package payload is fully typed (every value node carries its result type; §"Expressions" of the IR-section page) and carries the declaration-fidelity fields (`explicit_type`, `file`) the rules need, so the checker resolves each node's type from the node itself rather than re-inferring the whole expression tree.
 
 Those annotations are **attacker-controlled**, though, so a computed node's self-reported type is never taken on faith: each is reconciled against an independent source of truth, and a disagreement is a `PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE` rejection. A `Call`/`CallResult` node must agree with the callee's declared return type; a `MemberAccess` with the declared type of the field it reads; a `Binary`/`Unary` node with the type its operands produce (`Boolean` for comparisons and logical operators, `String` for `&`, the shared operand type for arithmetic). Without this, a `String`-returning call annotated as a record made a member read typecheck against a foreign layout, and one annotated `Integer` made `result - 5` emit an integer subtract over a string pointer. A type that genuinely cannot be derived, or an `Unknown` marker on either side, is left unchecked and never rejects. [[src/ir/verify/mod.rs:check_call_result_type]]
 
@@ -103,8 +103,8 @@ The full semantic model these rules enforce is specified in `./mfb spec language
 
 The format anticipates these, but the current reader does **not** check them. An implementer should be aware they are gaps, not guarantees:
 
-* Section ranges may overlap. (A duplicate `sectionId`, by contrast, **is** rejected — `duplicate MFPC section id <n>`, PKG-06.)
-* At *import/read* time the reader does not re-check the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). As of plan-20 that pass is the **complete** semantic checker — it re-derives flow-sensitive resource linearity (cross-branch use-after-move, borrow invalidation), match exhaustiveness, the full type system, literal ranges, visibility, and the `LINK` ABI. The only rules it does not re-derive are the source-syntax ones that cannot appear in a package at all (see "Compile-time guarantees" above).
+* Section ranges may overlap. (A duplicate `sectionId`, by contrast, **is** rejected — `duplicate MFPC section id <n>`.)
+* At *import/read* time the reader does not re-check the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). That pass is the **complete** semantic checker — it re-derives flow-sensitive resource linearity (cross-branch use-after-move, borrow invalidation), match exhaustiveness, the full type system, literal ranges, visibility, and the `LINK` ABI. The only rules it does not re-derive are the source-syntax ones that cannot appear in a package at all (see "Compile-time guarantees" above).
 * No native-binding verifier — there is no `NATIVE_LINK_TABLE` section to validate; native `LINK` metadata is carried in the IR payload trailer and validated, if at all, when that IR is merged and lowered.
 * No standalone signature verification in the reader (delegated to the package manager).
 

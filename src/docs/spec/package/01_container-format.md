@@ -1,7 +1,7 @@
 # Container Format
 
 The `.mfp` container wraps the package binary representation with a header that
-carries package identity, the plan-23 trust chain (ident key, one-off signing
+carries package identity, the trust chain (ident key, one-off signing
 key, ident-signed proof, server-signed attestation), a payload hash that welds
 the header to the payload, and a prefix signature over every header byte.
 
@@ -218,7 +218,7 @@ The current container readers (`mfp_binary_repr_payload` in `src/binary_repr/rea
 
 * The file is shorter than the 20-byte fixed prefix. The current compiler reports this as `package is too small to be a valid .mfp package`.
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
-* `containerMajor.containerMinor` is not exactly `1.0`. The current compiler reports this as `unsupported MFP container version <maj>.<min> (expected 1.0)`. This check is hard: there is no backwards compatibility with pre-plan-23 layouts.
+* `containerMajor.containerMinor` is not exactly `1.0`. The current compiler reports this as `unsupported MFP container version <maj>.<min> (expected 1.0)`. This check is hard: there is no backwards compatibility with earlier layouts.
 * Any length-prefixed field exceeds its limit or runs past the end of the file (`.mfp <field> exceeds the <limit> byte limit` / `truncated .mfp <field>`).
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
 * `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[src/binary_repr/reader.rs:validate_mfp_signature_header]]

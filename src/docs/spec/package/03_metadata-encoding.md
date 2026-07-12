@@ -45,7 +45,7 @@ entryFunction     functionId or 0xFFFFFFFF
 entryFlags        u32
 ```
 
-The manifest repeats the container header identity (plan-23): `packageName`,
+The manifest repeats the container header identity: `packageName`,
 `packageIdent`, `packageVersion`, and `identKey` must equal the header's
 `name`, `ident`, `version`, and `identKey`, and the manifest
 `identFingerprint`/`signingFingerprint` must equal the SHA-256 fingerprints

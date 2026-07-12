@@ -19,7 +19,7 @@ linkAliases     vec<(alias str, target str)>
 
 ## `IrLinkFunction`
 
-Each `IrLinkFunction` (`encode_link_function` in `src/ir.rs`) is encoded in this exact field order: [[src/ir/binary.rs:encode_link_function]]
+Each `IrLinkFunction` is encoded in this exact field order: [[src/ir/binary.rs:encode_link_function]]
 
 ```text
 alias            str          MFBASIC-facing wrapper name as exported
@@ -85,7 +85,7 @@ bit 2 = sendable to thread
 bit 3 = close may fail
 ```
 
-`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). This is exactly how `read_resource_table`'s decode distinguishes the two. [[src/binary_repr/reader.rs:read_resource_table]]
+`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). The native-vs-standard distinction is drawn when the resource exports are built, not in the raw table decode. [[src/binary_repr/builder.rs:package_resource_exports]] [[src/binary_repr/builder.rs:resolve_resource_close_name]]
 
 The current compiler's flag assignment:
 
