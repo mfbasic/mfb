@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT money
+
+' plan-29-D: money::getRounding defaults to Commercial; setRounding switches it;
+' money::round settles under the current mode; the tie 0.125 -> 0.13 (Commercial)
+' vs 0.12 (Banker) proves the mode is consulted. decimals 0 and 5 boundaries.
+FUNC modeName(m AS money::Rounding) AS String
+  IF m = Rounding.Banker THEN
+    RETURN "Banker"
+  END IF
+  RETURN "Commercial"
+END FUNC
+
+FUNC main() AS Integer
+  LET p5 AS Byte = 5
+  io::print(modeName(money::getRounding()))       ' Commercial (default)
+  io::print(toString(money::round(0.125m, 2)))     ' 0.13
+  io::print(toString(money::round(-0.125m, 2)))    ' -0.13
+  io::print(toString(money::round(1.23456m, 5), p5)) ' identity at 5
+
+  money::setRounding(Rounding.Banker)
+  io::print(modeName(money::getRounding()))       ' Banker
+  io::print(toString(money::round(0.125m, 2)))     ' 0.12
+  io::print(toString(money::round(0.135m, 2)))     ' 0.14
+  io::print(toString(money::round(2.7m, 0)))       ' 3.00 (settle to whole units)
+  RETURN 0
+END FUNC

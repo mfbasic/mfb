@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/money/money_package_invalid
+   2 | ' plan-29-D: money:: callables reject wrong argument types and arities.
+   3 | FUNC main() AS Integer
+   4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.setRounding` has argument type(s) (Integer), expected Rounding.
+   3 | FUNC main() AS Integer
+   4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
+   5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.round` has argument type(s) (String, Integer), expected Money, Integer.
+   3 | FUNC main() AS Integer
+   4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
+   5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
+   5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)
+   6 |   LET b = money::round(1.00m)       ' round arity (needs 2 args)
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `money.round` has 1 argument(s), expected 2.
+   4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
+   5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)
+   6 |   LET b = money::round(1.00m)       ' round arity (needs 2 args)
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)
+   6 |   LET b = money::round(1.00m)       ' round arity (needs 2 args)
+   7 |   LET c = money::getRounding(1)     ' getRounding takes no args
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `money.getRounding` has 1 argument(s), expected 0.
+   5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)
+   6 |   LET b = money::round(1.00m)       ' round arity (needs 2 args)
+   7 |   LET c = money::getRounding(1)     ' getRounding takes no args
+     | ^
+tests/syntax/money/money_package_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+[exit 1]

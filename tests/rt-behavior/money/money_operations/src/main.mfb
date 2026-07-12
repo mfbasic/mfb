@@ -1,0 +1,66 @@
+IMPORT io
+IMPORT money
+IMPORT math
+
+' plan-29: the full Money surface — literals, dimensional arithmetic, scaling,
+' the ratio/MOD/DIV, comparisons, conversions, toString, money::round with the
+' rounding-mode switch, and the math:: overloads.
+FUNC main() AS Integer
+  LET p5 AS Byte = 5
+  LET a AS Money = 1.25
+  LET b = 2.50m
+  LET neg AS Money = -1.25
+
+  ' literals + toString (default 2 places, and 5 places)
+  io::print(toString(a))            ' 1.25
+  io::print(toString(b, p5))        ' 2.50000
+  io::print(toString(neg))          ' -1.25
+
+  ' same-dimension add / subtract / negate
+  io::print(toString(a + b))        ' 3.75
+  io::print(toString(b - a))        ' 1.25
+  io::print(toString(-a))           ' -1.25
+
+  ' scalar scaling (Integer, Fixed exact, Float inexact-but-rounded)
+  io::print(toString(a * 3))        ' 3.75
+  io::print(toString(9.99m * 1.08F, p5)) ' 10.79920
+  io::print(toString(9.99m * 1.08))      ' 10.79 (Float rate, rounded to 2)
+
+  ' division: Money/scalar (rounded), Money/Money ratio (Float), MOD, DIV
+  io::print(toString(10.00m / 4))   ' 2.50
+  io::print(toString(1.00m / 3, p5)) ' 0.33333
+  io::print(toString(10.00m / 4.00m)) ' 2.5 -> Float toString default 2 = 2.50
+  io::print(toString(7.00m MOD 3.00m)) ' 1.00
+  io::print(toString(10.00m DIV 4.00m)) ' 2.5 -> 2.50 (Float)
+
+  ' comparisons (Money vs Money only)
+  io::print(toString(a = b))        ' FALSE
+  io::print(toString(a < b))        ' TRUE
+  io::print(toString(a <= a))       ' TRUE
+
+  ' conversions out of / into Money
+  io::print(toString(toInt(2.99m)))    ' 2
+  io::print(toString(toFloat(1.25m)))  ' 1.25
+  io::print(toString(toByte(2.00m)))   ' 2
+  io::print(toString(toFixed(1.25m)))  ' 1.25
+  io::print(toString(toMoney(4)))      ' 4.00
+  io::print(toString(toMoney(1.5)))    ' 1.50
+  io::print(toString(toMoney("3.50"))) ' 3.50
+
+  ' money::round + rounding mode switch (Commercial vs Banker on a 0.5 tie)
+  io::print(toString(money::round(0.125m, 2)))  ' 0.13 (Commercial default)
+  money::setRounding(Rounding.Banker)
+  io::print(toString(money::round(0.125m, 2)))  ' 0.12 (Banker)
+  io::print(toString(money::round(0.135m, 2)))  ' 0.14 (Banker rounds to even)
+  money::setRounding(Rounding.Commercial)
+
+  ' math:: Money surface
+  io::print(toString(math::abs(neg)))                 ' 1.25
+  io::print(toString(math::min(a, b)))                ' 1.25
+  io::print(toString(math::max(a, b)))                ' 2.50
+  io::print(toString(math::clamp(b, 1.00m, 2.00m)))   ' 2.00
+  io::print(toString(math::floor(3.75m)))             ' 3
+  io::print(toString(math::ceil(3.25m)))              ' 4
+  io::print(toString(math::round(3.5m)))              ' 4
+  RETURN 0
+END FUNC

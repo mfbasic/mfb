@@ -1,0 +1,98 @@
+$ mfb build -ast -ir tests/syntax/money/money_invalid
+   4 |   LET a AS Money = 1.25
+   5 |   LET b AS Money = 2.00
+   6 |   LET e1 = a + 5          ' Money + scalar
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e1` does not have a known type.
+   5 |   LET b AS Money = 2.00
+   6 |   LET e1 = a + 5          ' Money + scalar
+   7 |   LET e2 = 5 + a          ' scalar + Money
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e2` does not have a known type.
+   6 |   LET e1 = a + 5          ' Money + scalar
+   7 |   LET e2 = 5 + a          ' scalar + Money
+   8 |   LET e3 = a * b          ' Money * Money
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e3` does not have a known type.
+   7 |   LET e2 = 5 + a          ' scalar + Money
+   8 |   LET e3 = a * b          ' Money * Money
+   9 |   LET e4 = 5 / a          ' scalar / Money
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e4` does not have a known type.
+   8 |   LET e3 = a * b          ' Money * Money
+   9 |   LET e4 = 5 / a          ' scalar / Money
+  10 |   LET e5 = a MOD 3        ' Money MOD scalar
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e5` does not have a known type.
+   9 |   LET e4 = 5 / a          ' scalar / Money
+  10 |   LET e5 = a MOD 3        ' Money MOD scalar
+  11 |   LET e6 = a ^ 2          ' Money exponentiation
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e6` does not have a known type.
+   4 |   LET a AS Money = 1.25
+   5 |   LET b AS Money = 2.00
+   6 |   LET e1 = a + 5          ' Money + scalar
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:6 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `+` requires both operands to be Money (a Money and a non-Money value cannot be combined); got Money and Integer.
+   5 |   LET b AS Money = 2.00
+   6 |   LET e1 = a + 5          ' Money + scalar
+   7 |   LET e2 = 5 + a          ' scalar + Money
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:7 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `+` requires both operands to be Money (a Money and a non-Money value cannot be combined); got Integer and Money.
+   6 |   LET e1 = a + 5          ' Money + scalar
+   7 |   LET e2 = 5 + a          ' scalar + Money
+   8 |   LET e3 = a * b          ' Money * Money
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:8 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `*` cannot multiply two Money values (money² is not Money); got Money and Money.
+   7 |   LET e2 = 5 + a          ' scalar + Money
+   8 |   LET e3 = a * b          ' Money * Money
+   9 |   LET e4 = 5 / a          ' scalar / Money
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:9 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `/` cannot divide a non-Money value by a Money value; got Integer and Money.
+   8 |   LET e3 = a * b          ' Money * Money
+   9 |   LET e4 = 5 / a          ' scalar / Money
+  10 |   LET e5 = a MOD 3        ' Money MOD scalar
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:10 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `MOD` requires both operands to be Money (a Money and a non-Money value cannot be combined); got Money and Integer.
+   9 |   LET e4 = 5 / a          ' scalar / Money
+  10 |   LET e5 = a MOD 3        ' Money MOD scalar
+  11 |   LET e6 = a ^ 2          ' Money exponentiation
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:11 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `^` does not support exponentiation of a Money value; got Money and Integer.
+  10 |   LET e5 = a MOD 3        ' Money MOD scalar
+  11 |   LET e6 = a ^ 2          ' Money exponentiation
+  12 |   LET e7 AS Boolean = a < 5    ' Money vs scalar ordering
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:12 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `<` requires both operands to be Money; got Money and Integer. Compare a Money only with a Money (use `toMoney(...)` to convert).
+  11 |   LET e6 = a ^ 2          ' Money exponentiation
+  12 |   LET e7 AS Boolean = a < 5    ' Money vs scalar ordering
+  13 |   LET e8 AS Boolean = a = 5    ' Money vs scalar equality
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:13 error[2-203-0107 TYPE_MONEY_OPERATION_INVALID]: operation is not valid for Money operands
+               Operator `=` requires both operands to be Money; got Money and Integer. Compare a Money only with a Money (use `toMoney(...)` to convert).
+  12 |   LET e7 AS Boolean = a < 5    ' Money vs scalar ordering
+  13 |   LET e8 AS Boolean = a = 5    ' Money vs scalar equality
+  14 |   LET e9 AS Money = 92233720368547.75808m   ' literal overflow
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:14 error[2-203-0105 TYPE_MONEY_LITERAL_OVERFLOW]: numeric literal is outside the Money range
+               Numeric literal `92233720368547.75808` is outside the Money range.
+  13 |   LET e8 AS Boolean = a = 5    ' Money vs scalar equality
+  14 |   LET e9 AS Money = 92233720368547.75808m   ' literal overflow
+  15 |   LET e10 AS Money = -92233720368547.75809m  ' literal underflow
+     | ^
+tests/syntax/money/money_invalid/src/main.mfb:15 error[2-203-0106 TYPE_MONEY_LITERAL_UNDERFLOW]: numeric literal is outside the Money range
+               Numeric literal `-92233720368547.75809` is outside the Money range.
+[exit 1]

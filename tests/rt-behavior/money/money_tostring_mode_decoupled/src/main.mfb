@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT money
+
+' plan-29-G §4.1: toString presentation rounding is a FIXED half-away rule,
+' independent of the global rounding mode. The same Money prints the same string
+' under Commercial and Banker — while an *arithmetic* op (money::round) differs.
+FUNC main() AS Integer
+  LET v AS Money = 0.125
+  ' toString(v, 2) rounds 0.125 -> 0.13 (half-away) regardless of mode.
+  io::print(toString(v))                         ' Commercial: 0.13
+  io::print(toString(money::round(v, 2)))        ' arithmetic: 0.13 (Commercial)
+  money::setRounding(Rounding.Banker)
+  io::print(toString(v))                         ' Banker: STILL 0.13 (presentation)
+  io::print(toString(money::round(v, 2)))        ' arithmetic: 0.12 (Banker differs)
+  RETURN 0
+END FUNC

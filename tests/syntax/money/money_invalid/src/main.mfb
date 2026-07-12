@@ -1,0 +1,17 @@
+' plan-29-A: every dimensionally-invalid Money pairing is a compile error
+' (TYPE_MONEY_OPERATION_INVALID), plus the Money literal range/precision rules.
+FUNC main() AS Integer
+  LET a AS Money = 1.25
+  LET b AS Money = 2.00
+  LET e1 = a + 5          ' Money + scalar
+  LET e2 = 5 + a          ' scalar + Money
+  LET e3 = a * b          ' Money * Money
+  LET e4 = 5 / a          ' scalar / Money
+  LET e5 = a MOD 3        ' Money MOD scalar
+  LET e6 = a ^ 2          ' Money exponentiation
+  LET e7 AS Boolean = a < 5    ' Money vs scalar ordering
+  LET e8 AS Boolean = a = 5    ' Money vs scalar equality
+  LET e9 AS Money = 92233720368547.75808m   ' literal overflow
+  LET e10 AS Money = -92233720368547.75809m  ' literal underflow
+  RETURN 0
+END FUNC

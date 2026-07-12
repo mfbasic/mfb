@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "money_round_bad_decimals",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 16,
+    "visibility": "export",
+    "name": "Rounding",
+    "members": [
+    { "name": "Commercial" },
+    { "name": "Banker" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 2,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 3, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "const", "type": "Money", "value": "1.00" }, { "kind": "const", "type": "Integer", "value": "9" }] }] } }
+    ]
+  }
+  ]
+}

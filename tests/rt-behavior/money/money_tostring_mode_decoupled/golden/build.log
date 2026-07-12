@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/money/money_tostring_mode_decoupled
+Wrote AST to tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled.ast
+Wrote IR to tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled.ir
+[exit 0]
+$ mfb build tests/rt-behavior/money/money_tostring_mode_decoupled
+Wrote executable to tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled.out
+[exit 0]
+$ tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled.out
+0.13
+0.13
+0.13
+0.12
+[exit 0]

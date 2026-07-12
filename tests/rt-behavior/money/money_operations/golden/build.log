@@ -1,0 +1,43 @@
+$ mfb build -ast -ir tests/rt-behavior/money/money_operations
+Wrote AST to tests/rt-behavior/money/money_operations/money_operations.ast
+Wrote IR to tests/rt-behavior/money/money_operations/money_operations.ir
+[exit 0]
+$ mfb build tests/rt-behavior/money/money_operations
+Wrote executable to tests/rt-behavior/money/money_operations/money_operations.out
+[exit 0]
+$ tests/rt-behavior/money/money_operations/money_operations.out
+1.25
+2.50000
+-1.25
+3.75
+1.25
+-1.25
+3.75
+10.78920
+10.79
+2.50
+0.33333
+2.50
+1.00
+2.50
+FALSE
+TRUE
+TRUE
+2
+1.25
+2
+1.25
+4.00
+1.50
+3.50
+0.13
+0.12
+0.14
+1.25
+1.25
+2.50
+2.00
+3
+4
+4
+[exit 0]

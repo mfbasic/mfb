@@ -1,0 +1,4 @@
+IMPORT money
+FUNC main AS Integer
+  RETURN toInt(money::round(1.00m, 9))
+END FUNC

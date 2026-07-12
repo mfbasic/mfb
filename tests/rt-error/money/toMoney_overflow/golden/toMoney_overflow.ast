@@ -1,0 +1,24 @@
+{
+  "project": "toMoney_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "toMoney", "arguments": [{ "kind": "string", "value": "92233720368547.75808" }] }] }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

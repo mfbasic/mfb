@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/money/money_package
+Wrote AST to tests/rt-behavior/money/money_package/money_package.ast
+Wrote IR to tests/rt-behavior/money/money_package/money_package.ir
+[exit 0]
+$ mfb build tests/rt-behavior/money/money_package
+Wrote executable to tests/rt-behavior/money/money_package/money_package.out
+[exit 0]
+$ tests/rt-behavior/money/money_package/money_package.out
+Commercial
+0.13
+-0.13
+1.23456
+Banker
+0.12
+0.14
+3.00
+[exit 0]

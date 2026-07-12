@@ -1,0 +1,3 @@
+FUNC main AS Integer
+  RETURN toInt(toMoney("92233720368547.75808"))
+END FUNC

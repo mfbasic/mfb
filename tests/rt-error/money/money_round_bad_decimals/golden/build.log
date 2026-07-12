@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-error/money/money_round_bad_decimals
+Wrote AST to tests/rt-error/money/money_round_bad_decimals/money_round_bad_decimals.ast
+Wrote IR to tests/rt-error/money/money_round_bad_decimals/money_round_bad_decimals.ir
+[exit 0]
+$ mfb build tests/rt-error/money/money_round_bad_decimals
+Wrote executable to tests/rt-error/money/money_round_bad_decimals/money_round_bad_decimals.out
+[exit 0]
+$ tests/rt-error/money/money_round_bad_decimals/money_round_bad_decimals.out
+Code: 77050002 Message: invalid argument
+[exit 255]

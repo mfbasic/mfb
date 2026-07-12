@@ -1,0 +1,9 @@
+IMPORT money
+' plan-29-D: money:: callables reject wrong argument types and arities.
+FUNC main() AS Integer
+  money::setRounding(5)              ' setRounding wants Rounding, not Integer
+  LET a = money::round("x", 2)      ' round wants (Money, Integer)
+  LET b = money::round(1.00m)       ' round arity (needs 2 args)
+  LET c = money::getRounding(1)     ' getRounding takes no args
+  RETURN 0
+END FUNC
