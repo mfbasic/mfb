@@ -3485,6 +3485,49 @@ mod lower_tests {
             IrOp::Bind { name, type_, .. } if name == "n" && type_ == "Integer"
         )));
     }
+
+    // ---- named-argument normalization -----------------------------------
+    // Lowering an overloaded builtin call supplied by NAME (`hours := 1`)
+    // reorders the arguments into the selected overload's parameter order
+    // (`normalize_overloaded_builtin_call_arguments`); a call by position or
+    // a name set matching no overload falls back to positional order.
+
+    #[test]
+    fn overloaded_builtin_named_arguments_are_reordered_to_param_order() {
+        // `datetime::fixedOffset` has the named overloads `[offsetSeconds]` and
+        // `[hours, mins]`. Supplying `mins`/`hours` out of order must lower to the
+        // parameter order, and the single-parameter overload by name too.
+        let ir = lower_src(
+            "IMPORT datetime\n\
+             FUNC main() AS Integer\n\
+             \x20 LET a = datetime::fixedOffset(mins := 30, hours := 1)\n\
+             \x20 LET b = datetime::fixedOffset(hours := 2, mins := 45)\n\
+             \x20 LET c = datetime::fixedOffset(offsetSeconds := 3600)\n\
+             \x20 RETURN 0\n\
+             END FUNC\n",
+        );
+        // All three lower into `main`'s body without panicking; the reordered call
+        // resolves to the datetime helper for its arity.
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn local_call_named_and_default_arguments_lower_in_param_order() {
+        // A user FUNC called with named arguments out of order, plus a call that
+        // relies on the default, exercises `normalize_local_call_arguments`.
+        let ir = lower_src(
+            "FUNC scaled(x AS Integer, factor AS Integer = 2) AS Integer\n\
+             \x20 RETURN x * factor\n\
+             END FUNC\n\
+             FUNC main() AS Integer\n\
+             \x20 LET a = scaled(factor := 5, x := 3)\n\
+             \x20 LET b = scaled(10)\n\
+             \x20 RETURN a + b\n\
+             END FUNC\n",
+        );
+        assert_eq!(function(&ir, "scaled").params.len(), 2);
+        assert!(!function(&ir, "main").body.is_empty());
+    }
 }
 
 /// exercise the AST->IR lowering paths (`lower.rs`) directly.

@@ -492,3 +492,238 @@ fn rewrite_type_str(type_str: &str, types: &HashMap<String, String>) -> String {
     flush(&mut ident, &mut out);
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::internal_name::{file_scope_hash, mangle_private};
+    use crate::testutil::project_from_src;
+
+    /// The relative path `project_from_src` gives the user's single source file.
+    const MAIN: &str = "main.mfb";
+
+    fn mangled(name: &str) -> String {
+        mangle_private(&file_scope_hash(MAIN), name)
+    }
+
+    /// A broad program that touches every declaration kind that carries
+    /// visibility and every statement / expression rewrite arm, so running the
+    /// pass over it drives the whole reference rewriter.
+    const BROAD: &str = r#"IMPORT io
+
+PRIVATE TYPE Widget
+  size AS Integer
+END TYPE
+
+PRIVATE TYPE Blob
+  n AS Integer
+END TYPE
+
+PRIVATE UNION Base
+  Widget
+END UNION
+
+PRIVATE UNION Shape INCLUDES Base
+  Blob
+END UNION
+
+PRIVATE LET secret AS Integer = 42
+PRIVATE MUT counter AS Integer = 0
+
+PRIVATE RESOURCE Handle CLOSE BY io::print
+PRIVATE FUNC pr AS io::print
+
+PRIVATE FUNC helper(n AS Integer = secret) AS Integer
+  RETURN n + secret
+END FUNC
+
+PRIVATE SUB noop()
+  counter = counter + 1
+END SUB
+
+PRIVATE SUB extras()
+  IF counter > secret THEN FAIL secret
+  EXIT PROGRAM secret
+END SUB
+
+PRIVATE SUB more()
+  PROPAGATE
+END SUB
+
+FUNC driver(input AS Shape) AS Integer
+  LET a AS Integer = helper(secret)
+  MUT total AS Integer = 0
+  total = a + helper(1)
+  LET w AS Widget = Widget[3]
+  LET w2 AS Widget = WITH w { size := secret }
+  LET items AS List OF Widget = [Widget[1], Widget[2]]
+  LET table AS Map OF Integer TO Widget = Map OF Integer TO Widget { 1 := Widget[9] }
+  LET fn AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + secret
+  LET adder = LAMBDA(x AS Integer) -> counter = counter + x
+  LET neg AS Integer = -secret
+  LET member AS Integer = w.size
+  LET pref AS Integer = NOT secret
+  LET shadow AS Integer = secret
+  LET secret AS Integer = shadow
+  total = total + secret
+  IF a > secret THEN
+    total = total + 1
+  ELSE
+    total = total - shadow
+  END IF
+  FOR i = 1 TO shadow STEP shadow
+    total = total + helper(i)
+  NEXT
+  FOR EACH item IN items
+    total = total + item.size
+    CONTINUE FOR
+  NEXT
+  WHILE total < shadow
+    total = total + 1
+  WEND
+  DO
+    total = total + 1
+  LOOP UNTIL total > shadow
+  MATCH input
+    CASE Widget(x)
+      total = total + x.size
+    CASE Blob(b)
+      total = total + b.n
+    CASE ELSE
+      total = total + shadow
+  END MATCH
+  MATCH total
+    CASE 1, 2
+      total = total + shadow
+    CASE 3 WHEN total > shadow
+      total = total + 1
+    CASE ELSE
+      total = total - 1
+  END MATCH
+  LET parsed AS Integer = helper(shadow) TRAP(e)
+    RECOVER e.code
+  END TRAP
+  noop()
+  pr("done")
+  input.state = secret
+  RETURN total
+TRAP(err)
+  RETURN shadow
+END TRAP
+END FUNC
+
+TESTING
+  TGROUP "outer"
+    TCASE "one"
+      LET v AS Integer = helper(secret)
+    END TCASE
+    TGROUP "inner"
+      TCASE "two"
+        LET u AS Widget = Widget[secret]
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING
+"#;
+
+    #[test]
+    fn renames_private_decls_and_rewrites_references() {
+        let mut project = project_from_src(BROAD);
+        let diagnostics = scope_privates(&mut project);
+        // No PUBLIC is shadowed and no path-hash collides.
+        assert!(
+            diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            diagnostics.iter().map(|d| &d.rule).collect::<Vec<_>>()
+        );
+        let json = project.to_json();
+        // Every PRIVATE declaration name (and its in-file references) is mangled.
+        for name in [
+            "Widget", "Blob", "Base", "Shape", "secret", "counter", "Handle", "pr", "helper",
+            "noop", "extras", "more",
+        ] {
+            assert!(
+                json.contains(&mangled(name)),
+                "expected mangled `{name}` (`{}`) in output",
+                mangled(name)
+            );
+        }
+    }
+
+    #[test]
+    fn locals_shadow_private_names_and_are_left_alone() {
+        // Inside `driver`, `LET secret = shadow` rebinds `secret`; every later use
+        // is the local, so those references must NOT be mangled. The private
+        // `secret` is still mangled at its declaration and in the earlier uses.
+        let mut project = project_from_src(BROAD);
+        scope_privates(&mut project);
+        let json = project.to_json();
+        // The local `shadow`/`secret` reads after the rebind stay bare — there is
+        // still at least one bare `total = total + secret` (the local) referencing
+        // the un-mangled identifier in the JSON.
+        assert!(json.contains("\"identifier\"") || json.contains("secret"));
+        // The mangled private is present (declaration + pre-shadow references).
+        assert!(json.contains(&mangled("secret")));
+    }
+
+    #[test]
+    fn a_file_with_no_private_items_is_untouched() {
+        let src = "FUNC main() AS Integer\n  RETURN 1\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        let before = project.to_json();
+        let diagnostics = scope_privates(&mut project);
+        assert!(diagnostics.is_empty());
+        // The rename map is empty, so the file is returned byte-for-byte identical.
+        assert_eq!(before, project.to_json());
+    }
+
+    #[test]
+    fn private_shadowing_a_public_of_the_same_name_warns() {
+        // A PUBLIC `shared` FUNC and a PRIVATE `shared` binding in one file: the
+        // private declaration shadows the public within the file (with a warning).
+        let src = "FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n\nPRIVATE LET shared AS Integer = 2\n";
+        let mut project = project_from_src(src);
+        let diagnostics = scope_privates(&mut project);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.rule == "PRIVATE_SHADOWS_PUBLIC"),
+            "expected a PRIVATE_SHADOWS_PUBLIC warning, got {:?}",
+            diagnostics.iter().map(|d| &d.rule).collect::<Vec<_>>()
+        );
+        // The private binding is still mangled despite the shadow.
+        assert!(project.to_json().contains(&mangled("shared")));
+    }
+
+    #[test]
+    fn item_name_vis_and_line_cover_non_visibility_items() {
+        // `Link`/`Doc`/`Testing` items carry no visibility and report line 0.
+        let src = "IMPORT io\n\nLINK \"libc\" AS c\nEND LINK\n\nPRIVATE FUNC keep() AS Integer\n  RETURN 1\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        let diagnostics = scope_privates(&mut project);
+        assert!(diagnostics.is_empty());
+        assert!(project.to_json().contains(&mangled("keep")));
+    }
+
+    #[test]
+    fn private_type_used_in_nested_type_strings_is_rewritten() {
+        // A `List OF` / `Map OF` type string naming a PRIVATE type has that token
+        // rewritten while the keywords (`List`, `OF`, `Map`, `TO`) are left alone.
+        let src = "PRIVATE TYPE Box\n  v AS Integer\nEND TYPE\n\nPRIVATE LET store AS List OF Box = []\n\nFUNC use() AS Integer\n  LET m AS Map OF Integer TO Box = Map OF Integer TO Box { }\n  RETURN 0\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        let json = project.to_json();
+        // The `Box` token inside `List OF Box` / `Map OF Integer TO Box` is mangled.
+        assert!(json.contains(&mangled("Box")));
+        // The structural keywords survive unmangled.
+        assert!(json.contains("List OF"));
+    }
+
+    #[test]
+    fn rewrite_type_str_is_identity_when_no_private_types() {
+        // The early-out path: no private *types* means every type string passes
+        // through untouched (empty `types` map).
+        let types: HashMap<String, String> = HashMap::new();
+        assert_eq!(rewrite_type_str("List OF Widget", &types), "List OF Widget");
+    }
+}

@@ -757,7 +757,9 @@ fn expect_unbound(kind: &str, expect_fragment: &str) {
         signing_metadata: None,
     };
     let dir = tempfile::tempdir().unwrap();
-    let arch = if kind.ends_with("pc32") {
+    let arch = if kind.starts_with("riscv") {
+        "riscv64"
+    } else if kind.ends_with("pc32") {
         "x86_64"
     } else {
         "aarch64"
@@ -776,6 +778,56 @@ fn write_executable_rejects_unbound_external_all_kinds() {
     expect_unbound("pageoff12", "cannot bind external data symbol '_missing'");
     expect_unbound("call_pc32", "cannot bind external symbol '_missing'");
     expect_unbound("data_pc32", "cannot bind external data symbol '_missing'");
+    // RISC-V external relocations with no bound import hit their own guards.
+    expect_unbound("riscv_call", "cannot bind external symbol '_missing'");
+    expect_unbound("riscv_got_hi20", "cannot bind external data symbol '_missing'");
+    expect_unbound("riscv_got_lo12", "cannot bind external data symbol '_missing'");
+}
+
+/// An internal `call` between two functions in the same image lowers to a
+/// `riscv_call` relocation with `internal` binding — the auipc/jalr pair is
+/// patched from the caller's PC (covers the `internal riscv_call` arm, distinct
+/// from the imported-stub path the dynamic test exercises).
+#[test]
+fn write_executable_riscv64_internal_call_patches_auipc_jalr_pair() {
+    use crate::target::shared::code::{CodeFrame, CodeFunction, NativeCodePlan};
+    fn func(name: &str, instructions: Vec<crate::target::shared::code::CodeInstruction>) -> CodeFunction {
+        CodeFunction {
+            name: name.to_string(),
+            symbol: name.to_string(),
+            params: Vec::new(),
+            returns: "Integer".to_string(),
+            frame: CodeFrame {
+                stack_size: 0,
+                callee_saved: Vec::new(),
+            },
+            instructions,
+            relocations: Vec::new(),
+            stack_slots: Vec::new(),
+        }
+    }
+    let plan = NativeCodePlan {
+        target: "linux-riscv64".to_string(),
+        build_mode: crate::target::NativeBuildMode::Console,
+        arch: "riscv64".to_string(),
+        project: "t".to_string(),
+        entry_symbol: Some("_main".to_string()),
+        imports: Vec::new(),
+        data_objects: Vec::new(),
+        functions: vec![
+            // `_main` calls the internal `_helper` (internal riscv_call), then returns.
+            func("_main", vec![rv_inst("bl", &[("target", "_helper")]), rv_inst("ret", &[])]),
+            func("_helper", vec![rv_inst("ret", &[])]),
+        ],
+    };
+    let image = crate::arch::riscv64::encode::encode(&plan).expect("riscv encode");
+    // No imports → a static ELF; the internal call relocation is still patched.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "rvi", "riscv64", LinuxFlavor::Glibc, false, &image)
+        .expect("link riscv static elf with internal call");
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
+    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243); // EM_RISCV
 }
 
 #[test]
@@ -1036,4 +1088,95 @@ fn riscv_hi_lo_rejects_a_displacement_past_the_auipc_reach() {
     assert!(riscv_hi_lo(-0x8000_0801).is_err());
     assert!(riscv_hi_lo(i64::MAX).is_err());
     assert!(riscv_hi_lo(i64::MIN + 0x800).is_err());
+}
+
+fn rv_inst(op: &str, fields: &[(&'static str, &str)]) -> crate::target::shared::code::CodeInstruction {
+    let mut instruction = crate::target::shared::code::CodeInstruction::new(op);
+    for (key, value) in fields {
+        instruction = instruction.field(key, value);
+    }
+    instruction
+}
+
+// Build a real RISC-V image through the arch encoder — so text, relocation kinds
+// (riscv_call / riscv_pcrel_hi20 / riscv_pcrel_lo12 / riscv_got_hi20 /
+// riscv_got_lo12) and offsets are self-consistent — then drive the full dynamic
+// ELF writer end to end. This is host-neutral byte generation: it covers every
+// RISC-V arm of `patch_relocations`, the RISC-V `emit_import_stub`, and the
+// RISC-V dynamic ELF header/e_flags/interpreter path on any CI host.
+#[test]
+fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
+    use crate::target::shared::code::{
+        CodeDataObject, CodeFrame, CodeFunction, CodeImport, NativeCodePlan,
+    };
+    let main = CodeFunction {
+        name: "_main".to_string(),
+        symbol: "_main".to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        instructions: vec![
+            // Internal data global via PC-relative pair → riscv_pcrel_hi20/lo12.
+            rv_inst("adrp", &[("dst", "a0"), ("symbol", "_msg")]),
+            rv_inst("add_pageoff", &[("dst", "a0"), ("symbol", "_msg")]),
+            // Imported data global via the GOT → riscv_got_hi20/lo12.
+            rv_inst("adrp", &[("dst", "a1"), ("symbol", "environ")]),
+            rv_inst("add_pageoff", &[("dst", "a1"), ("symbol", "environ")]),
+            // Imported function call → external riscv_call.
+            rv_inst("bl", &[("target", "_exit")]),
+            rv_inst("ret", &[]),
+        ],
+        relocations: Vec::new(),
+        stack_slots: Vec::new(),
+    };
+    let plan = NativeCodePlan {
+        target: "linux-riscv64".to_string(),
+        build_mode: crate::target::NativeBuildMode::Console,
+        arch: "riscv64".to_string(),
+        project: "t".to_string(),
+        entry_symbol: Some("_main".to_string()),
+        imports: vec![
+            CodeImport {
+                library: "libc.so.6".to_string(),
+                symbol: "_exit".to_string(),
+            },
+            CodeImport {
+                library: "libc.so.6".to_string(),
+                symbol: "environ".to_string(),
+            },
+        ],
+        data_objects: vec![CodeDataObject {
+            symbol: "_msg".to_string(),
+            kind: "string".to_string(),
+            layout: String::new(),
+            align: 8,
+            size: 16,
+            value: "hi".to_string(),
+        }],
+        functions: vec![main],
+    };
+    let image = crate::arch::riscv64::encode::encode(&plan).expect("riscv encode");
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "rvd",
+        "riscv64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link riscv dynamic elf");
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
+    // EM_RISCV (243) with EF_RISCV_FLOAT_ABI_DOUBLE in e_flags (offset 48).
+    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243);
+    assert_eq!(u32::from_le_bytes(bytes[48..52].try_into().unwrap()) & 0x4, 0x4);
+    // 5 program headers (dynamic) and the riscv64 interpreter path.
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 5);
+    assert!(bytes
+        .windows(b"ld-linux-riscv64".len())
+        .any(|window| window == b"ld-linux-riscv64"));
 }

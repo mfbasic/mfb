@@ -1041,6 +1041,29 @@ fn encode_requires_entry_and_rejects_bad_hex() {
 }
 
 #[test]
+fn encode_rejects_a_duplicate_label_within_a_function() {
+    // The full two-pass `encode` (symbol layout + per-function label pass) must
+    // reject a repeated label rather than last-writer-wins silently resolving every
+    // reference to the final definition (bug-127). This drives the size-accumulation
+    // first pass, the label-insert branch, and the duplicate-label error return.
+    let func = plan_fn(
+        "main",
+        vec![
+            crate::arch::aarch64::abi::label("loop"),
+            CodeInstruction::new("ret"),
+            crate::arch::aarch64::abi::label("loop"),
+            CodeInstruction::new("ret"),
+        ],
+    );
+    let err = match super::encode(&plan(vec![func], Vec::new(), Vec::new(), Some("main"))) {
+        Ok(_) => panic!("expected a duplicate-label error"),
+        Err(e) => e,
+    };
+    assert!(err.contains("duplicate label"), "got: {err}");
+    assert!(err.contains("'loop'"), "got: {err}");
+}
+
+#[test]
 fn encode_carries_imports_as_functions() {
     let func = plan_fn(
         "main",

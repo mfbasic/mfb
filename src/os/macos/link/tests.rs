@@ -826,3 +826,161 @@ fn links_and_launches_app_bundle_importing_libobjc() {
         "app bundle importing libobjc should bind and exit 0"
     );
 }
+
+// Build a real AArch64 image through the arch encoder so text and relocations are
+// self-consistent, then drive the *full* Mach-O byte writer end to end without
+// running the binary. This is host-neutral (pure byte generation + a tempfile
+// write) so it covers the imports + data + initializer path — data_const_segment,
+// data_segment, dyld_info, bind_info, symbol_table, string_table, load_dylib,
+// dysymtab, rebase_info, linkedit_layout — on Linux CI too, where the
+// `#[cfg(target_os = "macos")]` launch tests do not run.
+fn encode_aarch64(
+    imports: Vec<crate::target::shared::code::CodeImport>,
+    data_objects: Vec<crate::target::shared::code::CodeDataObject>,
+    functions: Vec<crate::target::shared::code::CodeFunction>,
+    entry: &str,
+) -> EncodedImage {
+    let plan = crate::target::shared::code::NativeCodePlan {
+        target: "macos-aarch64".to_string(),
+        build_mode: crate::target::NativeBuildMode::Console,
+        arch: "aarch64".to_string(),
+        project: "t".to_string(),
+        entry_symbol: Some(entry.to_string()),
+        imports,
+        data_objects,
+        functions,
+    };
+    crate::arch::aarch64::encode::encode(&plan).expect("aarch64 encode")
+}
+
+fn code_fn(name: &str, instructions: Vec<crate::target::shared::code::CodeInstruction>) -> crate::target::shared::code::CodeFunction {
+    crate::target::shared::code::CodeFunction {
+        name: name.to_string(),
+        symbol: name.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: crate::target::shared::code::CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        instructions,
+        relocations: Vec::new(),
+        stack_slots: Vec::new(),
+    }
+}
+
+fn inst(op: &str, fields: &[(&'static str, &str)]) -> crate::target::shared::code::CodeInstruction {
+    let mut instruction = crate::target::shared::code::CodeInstruction::new(op);
+    for (key, value) in fields {
+        instruction = instruction.field(key, value);
+    }
+    instruction
+}
+
+#[test]
+fn writes_full_mach_o_with_imports_data_and_initializer() {
+    let main = code_fn(
+        "_main",
+        vec![
+            inst("adrp", &[("dst", "x0"), ("symbol", "_msg")]),
+            inst("add_pageoff", &[("dst", "x0"), ("src", "x0"), ("symbol", "_msg")]),
+            inst("bl", &[("target", "_write")]),
+            inst("ret", &[]),
+        ],
+    );
+    let init0 = code_fn("_init0", vec![inst("ret", &[])]);
+    let mut image = encode_aarch64(
+        vec![crate::target::shared::code::CodeImport {
+            library: "libSystem".to_string(),
+            symbol: "_write".to_string(),
+        }],
+        vec![crate::target::shared::code::CodeDataObject {
+            symbol: "_msg".to_string(),
+            kind: "string".to_string(),
+            layout: String::new(),
+            align: 8,
+            size: 16,
+            value: "hi".to_string(),
+        }],
+        vec![main, init0],
+        "_main",
+    );
+    // A load-time initializer forces the __DATA_CONST + __mod_init_func + rebase path.
+    image.initializers = vec!["_init0".to_string()];
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "full", &image).expect("write full mach-o");
+    let bytes = std::fs::read(&path).unwrap();
+    // Mach-O 64 magic (MH_MAGIC_64, little-endian on disk).
+    assert_eq!(&bytes[..4], &[0xCF, 0xFA, 0xED, 0xFE]);
+    // The dylib install path (LC_LOAD_DYLIB) and the imported symbol name (string
+    // table) are both present, proving the import path emitted its load commands.
+    assert!(bytes
+        .windows(b"/usr/lib/libSystem.B.dylib".len())
+        .any(|window| window == b"/usr/lib/libSystem.B.dylib"));
+    assert!(bytes.windows(b"_write".len()).any(|window| window == b"_write"));
+    // The string data lands in the writable __DATA segment.
+    assert!(bytes.windows(b"__DATA".len()).any(|window| window == b"__DATA"));
+    assert!(bytes.windows(2).any(|window| window == b"hi"));
+    // The file is comfortably larger than a page (code + data-const + data + linkedit).
+    assert!(bytes.len() > PAGE_SIZE);
+}
+
+// `write_app_bundle` host-neutral: assert the on-disk `.app` layout, the
+// Info.plist contents, and that the inner Mach-O carries the right magic, without
+// launching anything (the launch proof stays behind `#[cfg(target_os = "macos")]`).
+#[test]
+fn write_app_bundle_creates_layout_and_plist_host_neutral() {
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6], // ret
+        data: Vec::new(),
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = write_app_bundle(dir.path(), "demo", &image).expect("write app bundle");
+    assert_eq!(bundle, dir.path().join("demo.app"));
+
+    let exe = bundle.join("Contents/MacOS/demo");
+    let plist = bundle.join("Contents/Info.plist");
+    assert!(exe.is_file(), "bundle executable must exist");
+    assert!(plist.is_file(), "Info.plist must exist");
+
+    let plist_text = std::fs::read_to_string(&plist).unwrap();
+    assert!(plist_text.contains("<key>CFBundleExecutable</key>\n  <string>demo</string>"));
+    assert!(plist_text.contains("dev.mfbasic.demo"));
+
+    let exe_bytes = std::fs::read(&exe).unwrap();
+    assert_eq!(&exe_bytes[..4], &[0xCF, 0xFA, 0xED, 0xFE]);
+}
+
+// Directly exercise the small layout helpers across the four presence
+// combinations, so their branches are covered without a full write.
+#[test]
+fn code_offset_and_layout_helpers_vary_with_presence() {
+    let no_libs: [(String, String); 0] = [];
+    let libs = [("libSystem".to_string(), "/usr/lib/libSystem.B.dylib".to_string())];
+    // A data-const/dylib image needs a larger header than a bare one.
+    let bare = super::macho::code_offset(&no_libs, false, false, false);
+    let with_libs = super::macho::code_offset(&libs, false, false, false);
+    let with_data = super::macho::code_offset(&no_libs, false, false, true);
+    let with_sign = super::macho::code_offset(&no_libs, true, false, false);
+    assert!(with_libs > bare, "dylib load commands grow the header");
+    assert!(with_data > bare, "the __DATA segment grows the header");
+    assert!(with_sign > bare, "the signing segment grows the header");
+    // All are 4-byte aligned (the code offset rounds to 4).
+    for offset in [bare, with_libs, with_data, with_sign] {
+        assert_eq!(offset % 4, 0);
+    }
+    // macho_layout: with data the __DATA segment is page-aligned and non-zero.
+    let layout = super::macho::macho_layout(bare, 16, 32, 0, 0);
+    assert_eq!(layout.data_seg_size, PAGE_SIZE);
+    assert!(layout.data_seg_file_offset % PAGE_SIZE == 0);
+    // No data → no __DATA segment.
+    let empty = super::macho::macho_layout(bare, 16, 0, 0, 0);
+    assert_eq!(empty.data_seg_size, 0);
+}

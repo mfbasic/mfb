@@ -777,4 +777,240 @@ mod tests {
         // src (a0, a GPR) passes through unslotted.
         assert!(out.iter().any(|i| i.get("src") == Some("a0")));
     }
+
+    // ---------- extended op-lowering coverage ----------
+
+    /// A generous slot map for the value names the op tests use.
+    fn big() -> HashMap<String, usize> {
+        map(&[("v0", 0), ("v1", 1), ("v2", 2)])
+    }
+
+    /// Build `(field, String)` operand pairs.
+    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
+        pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+    }
+
+    fn count(out: &[CodeInstruction], mnemonic: &str) -> usize {
+        out.iter().filter(|i| i.op.mnemonic() == mnemonic).count()
+    }
+
+    #[test]
+    fn scratch_token_operands_are_vector_values() {
+        // plan-34-D VEC_SCRATCH/FP_SCRATCH token pools reach this pass unrealized.
+        assert!(is_vector_operand("%vscratch0"));
+        assert!(is_vector_operand("%vscratch7"));
+        assert!(is_vector_operand("%fscratch3"));
+        assert!(!is_vector_operand("%vscratch8")); // out of the 0..=7 pool
+        assert!(!is_vector_operand("%fscratchZ"));
+        assert!(is_vector_operand("%f42"));
+        assert!(!is_vector_operand("%fq"));
+    }
+
+    #[test]
+    fn fp_three_same_ops_lower_per_lane() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        for (op, mn) in [
+            (CodeOp::FAddV, "fadd_d"),
+            (CodeOp::FSubV, "fsub_d"),
+            (CodeOp::FMulV, "fmul_d"),
+            (CodeOp::FDivV, "fdiv_d"),
+        ] {
+            let out = scalarize_v128(op, &fields, &big());
+            assert_eq!(out[0].op.mnemonic(), "add_imm");
+            assert_eq!(count(&out, mn), 2, "{} lanes", op.mnemonic());
+        }
+    }
+
+    #[test]
+    fn fp_min_max_use_number_semantics() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        assert_eq!(count(&scalarize_v128(CodeOp::FMinV, &fields, &big()), "fminnm_d"), 2);
+        assert_eq!(count(&scalarize_v128(CodeOp::FMaxV, &fields, &big()), "fmaxnm_d"), 2);
+    }
+
+    #[test]
+    fn fmla_fuses_and_fmls_subtracts() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        let mla = scalarize_v128(CodeOp::FMlaV, &fields, &big());
+        assert_eq!(count(&mla, "fmadd_d"), 2);
+        let mls = scalarize_v128(CodeOp::FMlsV, &fields, &big());
+        assert_eq!(count(&mls, "fmul_d"), 2);
+        assert_eq!(count(&mls, "fsub_d"), 2);
+    }
+
+    #[test]
+    fn fp_two_reg_misc_ops_lower_per_lane() {
+        let fields = fl(&[("dst", "v0"), ("src", "v1")]);
+        for (op, mn) in [
+            (CodeOp::FAbsV, "fabs_d"),
+            (CodeOp::FNegV, "fneg_d"),
+            (CodeOp::FSqrtV, "fsqrt_d"),
+        ] {
+            assert_eq!(count(&scalarize_v128(op, &fields, &big()), mn), 2);
+        }
+    }
+
+    #[test]
+    fn frint_directed_modes_and_ties_even() {
+        let fields = fl(&[("dst", "v0"), ("src", "v1")]);
+        // Directed modes emit their mode-specific fcvt (one per lane).
+        for (op, cvt) in [
+            (CodeOp::FRintmV, "fcvtms_x_from_d"),
+            (CodeOp::FRintpV, "fcvtps_x_from_d"),
+            (CodeOp::FRintzV, "fcvtzs_x_from_d"),
+            (CodeOp::FRintaV, "fcvtas_x_from_d"),
+        ] {
+            let out = scalarize_v128(op, &fields, &big());
+            assert_eq!(count(&out, cvt), 2, "{}", op.mnemonic());
+            // Branchless magic-number mask select uses sltu per lane.
+            assert_eq!(count(&out, "rv.sltu"), 2);
+        }
+        // Nearest-ties-even takes the 2^52 magic-number add/sub path (no fcvt).
+        let n = scalarize_v128(CodeOp::FRintnV, &fields, &big());
+        assert_eq!(count(&n, "fadd_d"), 2);
+        assert_eq!(count(&n, "fsub_d"), 2);
+        assert!(n.iter().all(|i| !i.op.mnemonic().starts_with("fcvt")));
+    }
+
+    #[test]
+    fn float_to_int_and_int_to_float_lane_converts() {
+        let fields = fl(&[("dst", "v0"), ("src", "v1")]);
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::FCvtzsV, &fields, &big()), "fcvtzs_x_from_d"),
+            2
+        );
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::FCvtasV, &fields, &big()), "fcvtas_x_from_d"),
+            2
+        );
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::ScvtfV, &fields, &big()), "scvtf_d_from_x"),
+            2
+        );
+    }
+
+    #[test]
+    fn fp_lane_compares_build_masks() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        for op in [CodeOp::FCmGtV, CodeOp::FCmGeV, CodeOp::FCmEqV] {
+            let out = scalarize_v128(op, &fields, &big());
+            assert_eq!(count(&out, "rv.fcmp"), 2, "{}", op.mnemonic());
+            assert_eq!(count(&out, "sub"), 2); // mask = -bool
+        }
+    }
+
+    #[test]
+    fn fp_compare_against_zero_masks() {
+        let fields = fl(&[("dst", "v0"), ("src", "v1")]);
+        for op in [
+            CodeOp::FCmGtZeroV,
+            CodeOp::FCmGeZeroV,
+            CodeOp::FCmEqZeroV,
+            CodeOp::FCmLtZeroV,
+            CodeOp::FCmLeZeroV,
+        ] {
+            let out = scalarize_v128(op, &fields, &big());
+            assert_eq!(count(&out, "rv.fcmp"), 2, "{}", op.mnemonic());
+            // +0.0 materialized per lane.
+            assert_eq!(count(&out, "fmov_d_from_x"), 2);
+        }
+    }
+
+    #[test]
+    fn integer_add_sub_lanes() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        assert_eq!(count(&scalarize_v128(CodeOp::AddV, &fields, &big()), "add"), 2);
+        assert_eq!(count(&scalarize_v128(CodeOp::SubV, &fields, &big()), "sub"), 2);
+    }
+
+    #[test]
+    fn integer_lane_compares() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        let gt = scalarize_v128(CodeOp::CmGtV, &fields, &big());
+        assert_eq!(count(&gt, "rv.slt"), 2);
+        let ge = scalarize_v128(CodeOp::CmGeV, &fields, &big());
+        assert_eq!(count(&ge, "rv.slt"), 2);
+        assert_eq!(count(&ge, "sub_imm"), 2);
+        let eq = scalarize_v128(CodeOp::CmEqV, &fields, &big());
+        assert_eq!(count(&eq, "eor"), 2);
+        assert_eq!(count(&eq, "rv.sltu"), 2);
+    }
+
+    #[test]
+    fn integer_neg_and_abs() {
+        let fields = fl(&[("dst", "v0"), ("src", "v1")]);
+        assert_eq!(count(&scalarize_v128(CodeOp::NegV, &fields, &big()), "sub"), 2);
+        let abs = scalarize_v128(CodeOp::AbsV, &fields, &big());
+        assert_eq!(count(&abs, "asr_imm"), 2);
+        assert_eq!(count(&abs, "eor"), 2);
+    }
+
+    #[test]
+    fn bitwise_ops_lower_per_lane() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        for (op, mn) in [
+            (CodeOp::AndV, "and"),
+            (CodeOp::OrrV, "orr"),
+            (CodeOp::EorV, "eor"),
+        ] {
+            assert_eq!(count(&scalarize_v128(op, &fields, &big()), mn), 2, "{}", op.mnemonic());
+        }
+    }
+
+    #[test]
+    fn bit_select_and_bit_insert() {
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        let bsl = scalarize_v128(CodeOp::BslV, &fields, &big());
+        // Two `eor` per lane (a^b, then b^...) plus one `and`.
+        assert_eq!(count(&bsl, "eor"), 4);
+        assert_eq!(count(&bsl, "and"), 2);
+        let bit = scalarize_v128(CodeOp::BitV, &fields, &big());
+        assert_eq!(count(&bit, "eor"), 4);
+        assert_eq!(count(&bit, "and"), 2);
+    }
+
+    #[test]
+    fn quad_load_store_move_sixteen_bytes() {
+        let ld = scalarize_v128(
+            CodeOp::LdrQ,
+            &fl(&[("dst", "v0"), ("base", "a0"), ("offset", "0")]),
+            &big(),
+        );
+        // Two 8-byte loads from the source pointer, two stores into the slot.
+        assert_eq!(count(&ld, "ldr_u64"), 2);
+        assert_eq!(count(&ld, "str_u64"), 2);
+        // High lane reads source offset 8.
+        assert!(ld.iter().any(|i| i.get("offset") == Some("8")));
+
+        let st = scalarize_v128(
+            CodeOp::StrQ,
+            &fl(&[("src", "v0"), ("base", "a0"), ("offset", "0")]),
+            &big(),
+        );
+        assert_eq!(count(&st, "ldr_u64"), 2);
+        assert_eq!(count(&st, "str_u64"), 2);
+    }
+
+    #[test]
+    fn umov_extracts_one_lane() {
+        // dst is a GPR (passes through unslotted); index selects the lane half.
+        let out = scalarize_v128(
+            CodeOp::UmovXFromV,
+            &fl(&[("dst", "a0"), ("src", "v1"), ("index", "1")]),
+            &big(),
+        );
+        assert_eq!(count(&out, "ldr_u64"), 1);
+        assert_eq!(out.last().unwrap().get("dst"), Some("a0"));
+        // Slot 1, high half → offset 1*16 + 8 = 24.
+        assert_eq!(out.last().unwrap().get("offset"), Some("24"));
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet scalarized")]
+    fn unhandled_v128_op_panics() {
+        // `SshlV` is a recognized v128 op with no scalarization arm (register-shift
+        // by a vector, unused on rv64) — it must fail loud, not silently miscompile.
+        let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
+        let _ = scalarize_v128(CodeOp::SshlV, &fields, &big());
+    }
 }

@@ -231,4 +231,18 @@ mod tests {
         assert_eq!(m.emit_reload(RegClass::Fp, "fs0", 16).op.mnemonic(), "ldr_d");
         assert_eq!(m.emit_move("s1", "s2").op.mnemonic(), "mov");
     }
+
+    #[test]
+    fn role_tokens_pin_reserved_registers() {
+        let m = Riscv64RegisterModel;
+        // The closure-env and current-thread role tokens realize to fixed
+        // callee-saved registers that must be excluded from allocation.
+        assert_eq!(m.closure_env(), "s10");
+        assert_eq!(m.current_thread(), "s2");
+        assert!(!m.allocatable(RegClass::Int).contains(&m.closure_env()));
+        assert!(!m.allocatable(RegClass::Int).contains(&m.current_thread()));
+        // Both are genuine callee-saved integer registers.
+        assert!(m.is_callee_saved(m.closure_env()));
+        assert!(m.is_callee_saved(m.current_thread()));
+    }
 }

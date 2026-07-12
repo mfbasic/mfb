@@ -833,4 +833,119 @@ mod types_tests {
             &Type::User("Point".to_string())
         ));
     }
+
+    // ---- parse_type / compatible direct unit tests -------------------------
+
+    fn empty_project() -> crate::ast::AstProject {
+        crate::ast::AstProject {
+            name: "t".to_string(),
+            files: vec![],
+        }
+    }
+
+    #[test]
+    fn parse_type_bare_result_and_unknown() {
+        use super::{SyntaxChecker, Type};
+        let project = empty_project();
+        let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
+        assert!(matches!(checker.parse_type("Result"), Type::Result(_)));
+        assert!(matches!(checker.parse_type("Unknown"), Type::Unknown));
+    }
+
+    #[test]
+    fn parse_type_qualified_builtin_resolves_to_bare_user() {
+        use super::{SyntaxChecker, Type};
+        let project = empty_project();
+        let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
+        // `net.Url` is a package-qualified built-in type id (plan-03-http §A.1).
+        assert!(matches!(checker.parse_type("net.Url"), Type::User(_)));
+    }
+
+    #[test]
+    fn parse_function_type_malformed_yields_unknown() {
+        use super::{SyntaxChecker, Type};
+        let project = empty_project();
+        let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
+        // A `FUNC(...` with no `) AS ` return clause cannot split — Unknown.
+        assert!(matches!(checker.parse_type("FUNC(Integer"), Type::Unknown));
+    }
+
+    #[test]
+    fn compatible_result_threadworker_thread_function_arms() {
+        use super::{SyntaxChecker, Type};
+        let project = empty_project();
+        let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
+        let int = || Box::new(Type::Integer);
+        // Result vs Result.
+        assert!(checker.compatible(&Type::Result(int()), &Type::Result(int())));
+        // ThreadWorker vs ThreadWorker, with and without a resource plane.
+        let tw = |res: Option<Box<Type>>| Type::ThreadWorker(int(), res, int());
+        assert!(checker.compatible(&tw(None), &tw(None)));
+        assert!(checker.compatible(
+            &tw(Some(Box::new(Type::String))),
+            &tw(Some(Box::new(Type::String)))
+        ));
+        // compatible_optional: one side carries a resource plane, the other not.
+        assert!(!checker.compatible(&tw(Some(Box::new(Type::String))), &tw(None)));
+        // Thread vs Thread resource-plane mismatch.
+        let th = |res: Option<Box<Type>>| Type::Thread(int(), res, int());
+        assert!(!checker.compatible(&th(Some(Box::new(Type::String))), &th(None)));
+        // Function: a non-isolated function fits a non-isolated slot, and an
+        // isolated function fits an isolated slot, but not vice versa.
+        let func = |iso: bool| Type::Function {
+            params: vec![Type::Integer],
+            return_type: int(),
+            isolated: iso,
+        };
+        assert!(checker.compatible(&func(false), &func(true)));
+        assert!(!checker.compatible(&func(true), &func(false)));
+    }
+
+    #[test]
+    fn compatible_distinct_bare_user_names_reject() {
+        use super::{SyntaxChecker, Type};
+        let project = empty_project();
+        let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
+        // Different bare names never unify.
+        assert!(!checker.compatible(
+            &Type::User("Point".to_string()),
+            &Type::User("Circle".to_string())
+        ));
+    }
+
+    // ---- is_comparable User arms (via `=` on enum / record / union) --------
+
+    #[test]
+    fn enum_equality_comparability() {
+        let src = "ENUM Color\n  Red, Green\nEND ENUM\nFUNC main AS Integer\n  LET b AS Boolean = Color.Red = Color.Green\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn record_equality_comparability() {
+        let src = "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET p AS Point = Point[1, 2]\n  LET q AS Point = Point[1, 2]\n  LET b AS Boolean = p = q\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn union_equality_not_comparable() {
+        let src = "TYPE Dot\n  x AS Integer\nEND TYPE\nTYPE Line\n  a AS Integer\nEND TYPE\nUNION Shape\n  Dot\n  Line\nEND UNION\nFUNC eq(a AS Shape, b AS Shape) AS Boolean\n  RETURN a = b\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- expression_compatible literal-coercion arms -----------------------
+
+    #[test]
+    fn fixed_from_negative_integer_literal_accepted() {
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET f AS Fixed = -3\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn list_of_byte_from_integer_literals_accepted() {
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET xs AS List OF Byte = [1, 2, 3]\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
 }

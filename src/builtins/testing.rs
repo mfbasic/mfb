@@ -86,3 +86,88 @@ pub(crate) fn expect_arity(name: &str) -> Option<(usize, usize)> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_every_assertion_family_as_an_expect_call() {
+        // Equality, inequality, and the two trap families are all `expect*` calls;
+        // anything else (an ordinary function name) is not.
+        for name in [
+            EXPECT_EQUAL,
+            EXPECT_FLOAT,
+            EXPECT_INTEGER,
+            EXPECT_FIXED,
+            EXPECT_STRING,
+            EXPECT_NEQUAL,
+            EXPECT_NFLOAT,
+            EXPECT_NINTEGER,
+            EXPECT_NFIXED,
+            EXPECT_NSTRING,
+            EXPECT_TRAP,
+            EXPECT_NTRAP,
+        ] {
+            assert!(is_expect_call(name), "`{name}` should be an expect call");
+        }
+        assert!(!is_expect_call("print"));
+        assert!(!is_expect_call("expectSomethingElse"));
+    }
+
+    #[test]
+    fn classifies_equality_and_inequality_families() {
+        for name in [
+            EXPECT_EQUAL,
+            EXPECT_FLOAT,
+            EXPECT_INTEGER,
+            EXPECT_FIXED,
+            EXPECT_STRING,
+        ] {
+            assert!(is_equality_assert(name));
+            assert!(!is_inequality_assert(name));
+        }
+        for name in [
+            EXPECT_NEQUAL,
+            EXPECT_NFLOAT,
+            EXPECT_NINTEGER,
+            EXPECT_NFIXED,
+            EXPECT_NSTRING,
+        ] {
+            assert!(is_inequality_assert(name));
+            assert!(!is_equality_assert(name));
+        }
+        // The trap families are neither an equality nor an inequality assertion.
+        assert!(!is_equality_assert(EXPECT_TRAP));
+        assert!(!is_inequality_assert(EXPECT_NTRAP));
+    }
+
+    #[test]
+    fn typed_assertions_carry_their_operand_type() {
+        assert_eq!(expect_operand_type(EXPECT_FLOAT), Some("Float"));
+        assert_eq!(expect_operand_type(EXPECT_NFLOAT), Some("Float"));
+        assert_eq!(expect_operand_type(EXPECT_INTEGER), Some("Integer"));
+        assert_eq!(expect_operand_type(EXPECT_NINTEGER), Some("Integer"));
+        assert_eq!(expect_operand_type(EXPECT_FIXED), Some("Fixed"));
+        assert_eq!(expect_operand_type(EXPECT_NFIXED), Some("Fixed"));
+        assert_eq!(expect_operand_type(EXPECT_STRING), Some("String"));
+        assert_eq!(expect_operand_type(EXPECT_NSTRING), Some("String"));
+        // The generic families and non-assertions have no fixed operand type.
+        assert_eq!(expect_operand_type(EXPECT_EQUAL), None);
+        assert_eq!(expect_operand_type(EXPECT_NEQUAL), None);
+        assert_eq!(expect_operand_type("print"), None);
+    }
+
+    #[test]
+    fn arity_matches_each_assertion_family() {
+        assert_eq!(expect_arity(EXPECT_EQUAL), Some((2, 2)));
+        assert_eq!(expect_arity(EXPECT_STRING), Some((2, 2)));
+        assert_eq!(expect_arity(EXPECT_NEQUAL), Some((2, 2)));
+        assert_eq!(expect_arity(EXPECT_NFIXED), Some((2, 2)));
+        // `expectTrap` takes the expression plus an optional code; `expectNTrap`
+        // takes exactly the expression.
+        assert_eq!(expect_arity(EXPECT_TRAP), Some((1, 2)));
+        assert_eq!(expect_arity(EXPECT_NTRAP), Some((1, 1)));
+        assert_eq!(expect_arity("print"), None);
+    }
+}

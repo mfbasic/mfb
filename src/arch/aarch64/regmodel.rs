@@ -238,6 +238,22 @@ mod tests {
     }
 
     #[test]
+    fn role_tokens_and_caller_saved_bank() {
+        let m = Aarch64RegisterModel;
+        // The `%closure_env` and `%thread` role tokens realize to their pinned,
+        // never-allocated registers (excluded from INT_ALLOCATABLE).
+        assert_eq!(m.closure_env(), "x28");
+        assert_eq!(m.current_thread(), "x20");
+        // The integer caller-saved bank spans x0..x17: x15/x16/x17 are the encoder
+        // / platform scratch that a `bl` still clobbers, so they stay in the mask.
+        let saved = m.caller_saved(RegClass::Int);
+        assert_eq!(saved.len(), 18);
+        assert!(saved.contains(&"x0"));
+        assert!(saved.contains(&"x15"));
+        assert!(saved.contains(&"x17"));
+    }
+
+    #[test]
     fn spill_reload_move_emitters() {
         let m = Aarch64RegisterModel;
         assert_eq!(

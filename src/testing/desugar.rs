@@ -1164,4 +1164,164 @@ mod tests {
             "expected a CovSlot for the inline-TRAP handler line, got {slots:?}"
         );
     }
+
+    use crate::builtins::testing::{
+        EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP,
+    };
+
+    /// Positional call arguments from a list of expressions.
+    fn pos(values: Vec<Expression>) -> Vec<CallArg> {
+        values.into_iter().map(CallArg::Positional).collect()
+    }
+
+    #[test]
+    fn expand_equality_lowers_to_two_lets_and_a_guarded_fail() {
+        // `expectEqual(a, e)` binds both operands, then FAILs when they differ.
+        let out = expand_expect(EXPECT_EQUAL, &pos(vec![num(1), num(2)]), 0, 9);
+        assert_eq!(out.len(), 3);
+        assert!(matches!(out[0], Statement::Let { .. }));
+        assert!(matches!(out[1], Statement::Let { .. }));
+        // The guard's condition is the *negated* equality (fail on mismatch).
+        let Statement::If { condition, .. } = &out[2] else {
+            panic!("expected an IF guard");
+        };
+        assert!(matches!(condition, Expression::Unary { .. }));
+    }
+
+    #[test]
+    fn expand_inequality_fails_when_operands_are_equal() {
+        // `expectNEqual(a, e)` FAILs on a *positive* equality (the two matched).
+        let out = expand_expect(EXPECT_NEQUAL, &pos(vec![num(1), num(1)]), 3, 4);
+        assert_eq!(out.len(), 3);
+        let Statement::If { condition, .. } = &out[2] else {
+            panic!("expected an IF guard");
+        };
+        assert!(matches!(condition, Expression::Binary { .. }));
+    }
+
+    #[test]
+    fn expand_trap_without_a_code_guards_the_flag() {
+        // No expected code → flag init, the guarded expression, and one FAIL when
+        // the trap never fired.
+        let out = expand_expect(EXPECT_TRAP, &pos(vec![ident("risky")]), 1, 5);
+        assert_eq!(out.len(), 3);
+        assert!(matches!(out[0], Statement::Let { .. }));
+        assert!(matches!(out[1], Statement::Expression { .. }));
+        assert!(matches!(out[2], Statement::If { .. }));
+    }
+
+    #[test]
+    fn expand_trap_with_a_code_checks_both_presence_and_value() {
+        // An expected code adds a code capture and two guards (missing + mismatch).
+        let out = expand_expect(EXPECT_TRAP, &pos(vec![ident("risky"), num(42)]), 2, 6);
+        assert_eq!(out.len(), 6);
+        // Two of the emitted statements are the missing/mismatch FAIL guards.
+        let guards = out
+            .iter()
+            .filter(|statement| matches!(statement, Statement::If { .. }))
+            .count();
+        assert_eq!(guards, 2);
+    }
+
+    #[test]
+    fn expand_ntrap_is_a_single_trap_whose_handler_fails() {
+        let out = expand_expect(EXPECT_NTRAP, &pos(vec![ident("safe")]), 0, 7);
+        assert_eq!(out.len(), 1);
+        assert!(matches!(out[0], Statement::Expression { .. }));
+    }
+
+    #[test]
+    fn expand_expect_yields_nothing_for_unknown_or_argless_calls() {
+        // An unrecognized callee produces no lowering.
+        assert!(expand_expect("notAnAssertion", &pos(vec![num(1)]), 0, 0).is_empty());
+        // Missing operands short-circuit every family.
+        assert!(expand_expect(EXPECT_EQUAL, &[], 0, 0).is_empty());
+        assert!(expand_expect(EXPECT_TRAP, &[], 0, 0).is_empty());
+        assert!(expand_expect(EXPECT_NTRAP, &[], 0, 0).is_empty());
+    }
+
+    #[test]
+    fn validate_flags_a_stray_assertion_outside_a_tcase() {
+        // A broad program: `expectEqual` sits in an ordinary FUNC body (illegal) and
+        // the walker also descends through every common statement/expression kind.
+        let source = "\
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+MUT g AS Integer = 0
+
+FUNC f AS Integer
+  MUT total AS Integer = 0
+  LET a AS Integer = 1
+  LET b AS Integer = 2
+  IF total > 0 THEN
+    expectEqual(a, b)
+  ELSE
+    total = 0
+  END IF
+  MATCH total
+    CASE 0 WHEN a > 0
+      total = 1
+    CASE ELSE
+      total = 2
+  END MATCH
+  FOR i = 1 TO 10 STEP 2
+    total = total + i
+  NEXT
+  FOR EACH item IN [1, 2, 3]
+    total = total + item
+  NEXT
+  WHILE total < 100
+    total = total + 1
+  WEND
+  DO
+    total = total + 1
+  LOOP UNTIL total > 200
+  LET lam AS Integer = LAMBDA(x AS Integer) -> x + 1
+  LET neg AS Integer = -total
+  LET truth AS Boolean = NOT (a = b)
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"k\" := 1 }
+  LET lst AS List OF Integer = [1, 2]
+  LET pt AS Point = Point[x := 1, y := 2]
+  LET up AS Point = WITH pt { x := 9 }
+  LET member AS Integer = pt.x
+  LET trapped AS Integer = risky() TRAP(err)
+    RECOVER 0
+  END TRAP
+  EXIT FOR
+  CONTINUE FOR
+  FAIL \"boom\"
+  PROPAGATE
+  EXIT PROGRAM 1
+  RETURN total
+END FUNC
+";
+        let project = crate::testutil::project_from_src(source);
+        assert!(
+            validate_expect_placement(&project),
+            "an `expectEqual` outside a TCASE must be flagged"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_a_project_with_no_stray_assertions() {
+        // The same shape without any `expect*` call is clean; the walker visits the
+        // FUNC body (and its function-level TRAP) and finds nothing to report.
+        let source = "\
+FUNC f AS Integer
+  MUT total AS Integer = 0
+  IF total > 0 THEN
+    total = 1
+  END IF
+  RETURN total
+TRAP(err)
+  RETURN 0
+END TRAP
+END FUNC
+";
+        let project = crate::testutil::project_from_src(source);
+        assert!(!validate_expect_placement(&project));
+    }
 }

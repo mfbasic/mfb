@@ -2259,4 +2259,261 @@ mod tests {
         let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  RES handle AS File = fs::createTempFile()\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> fs::writeLine(handle, toString(x)))\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
     }
+
+    // ---- plan-18 assertion type-checking (check_expect_call) ----------------
+
+    fn tcase(body: &str) -> String {
+        // The assertion built-ins are recognized directly in the `Call` arm
+        // (`is_expect_call`), so a plain FUNC body reaches `check_expect_call`
+        // without the TESTING desugaring (which runs only in the build pipeline).
+        format!("FUNC main AS Integer\n{body}\n  RETURN 0\nEND FUNC\n")
+    }
+
+    #[test]
+    fn expect_arity_wrong_count_rejected() {
+        // `expectEqual` needs two operands; one is an arity error.
+        assert!(rejects_with(
+            &tcase("      expectEqual(1)"),
+            "TESTING_EXPECT_ARITY"
+        ));
+    }
+
+    #[test]
+    fn expect_typed_operand_mismatch_rejected() {
+        // `expectFloat` requires both operands to be Float; Integers are rejected.
+        assert!(rejects_with(
+            &tcase("      expectFloat(1, 2)"),
+            "TESTING_EXPECT_TYPE_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn expect_typed_operand_match_accepted() {
+        assert!(accepts(&tcase("      expectInteger(1, 2)")));
+    }
+
+    #[test]
+    fn expect_neq_typed_operand_match_accepted() {
+        assert!(accepts(&tcase("      expectNString(\"a\", \"b\")")));
+    }
+
+    #[test]
+    fn expect_equal_incomparable_rejected() {
+        // A String and an Integer are not comparable with `=`.
+        assert!(rejects_with(
+            &tcase("      expectEqual(\"a\", 1)"),
+            "TESTING_EXPECT_INCOMPARABLE"
+        ));
+    }
+
+    #[test]
+    fn expect_equal_not_printable_rejected() {
+        let body = "      LET m AS Map OF String TO Integer = Map OF String TO Integer {}\n      expectEqual(m, m)";
+        assert!(rejects_with(&tcase(body), "TESTING_EXPECT_NOT_PRINTABLE"));
+    }
+
+    #[test]
+    fn expect_equal_scalars_accepted() {
+        assert!(accepts(&tcase("      expectEqual(1, 1)")));
+    }
+
+    #[test]
+    fn expect_trap_non_integer_code_rejected() {
+        let body = "      LET xs AS List OF Integer = [1, 2, 3]\n      expectTrap(collections::get(xs, 0), \"x\")";
+        let src = format!("IMPORT collections\n{}", tcase(body));
+        assert!(rejects_with(&src, "TESTING_EXPECT_CODE_TYPE"));
+    }
+
+    #[test]
+    fn expect_trap_non_call_rejected() {
+        assert!(rejects_with(
+            &tcase("      expectTrap(5)"),
+            "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"
+        ));
+    }
+
+    #[test]
+    fn expect_ntrap_non_call_rejected() {
+        assert!(rejects_with(
+            &tcase("      expectNTrap(42)"),
+            "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"
+        ));
+    }
+
+    #[test]
+    fn expect_trap_package_constant_rejected() {
+        let src = format!("IMPORT math\n{}", tcase("      expectTrap(math::pi)"));
+        assert!(rejects_with(&src, "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"));
+    }
+
+    // ---- enum member access & match patterns --------------------------------
+
+    fn enum_prelude() -> &'static str {
+        "ENUM Color\n  Red, Green, Blue\nEND ENUM\n"
+    }
+
+    #[test]
+    fn enum_member_access_valid_accepted() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET c AS Color = Color.Red\n  RETURN 0\nEND FUNC\n",
+            enum_prelude()
+        );
+        assert!(accepts(&src));
+    }
+
+    #[test]
+    fn enum_member_access_unknown_member_yields_unknown() {
+        // `Color.Bogus` is not a declared member — walks the Unknown arm.
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET c = Color.Bogus\n  RETURN 0\nEND FUNC\n",
+            enum_prelude()
+        );
+        let _ = check_src(&src);
+    }
+
+    #[test]
+    fn constructor_of_enum_walks_non_type_arm() {
+        // `Color[1]` constructs an Enum, not a record Type — non-Type arm.
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET c = Color[1]\n  RETURN 0\nEND FUNC\n",
+            enum_prelude()
+        );
+        let _ = check_src(&src);
+    }
+
+    #[test]
+    fn match_literal_incompatible_pattern() {
+        // MATCH on an Integer with a String CASE literal walks the incompatible
+        // literal-pattern arm.
+        let src = "FUNC main AS Integer\n  LET n AS Integer = 3\n  MATCH n\n    CASE \"x\"\n      RETURN 1\n    CASE ELSE\n      RETURN 2\n  END MATCH\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_oneof_pattern_accepted() {
+        let src = "FUNC main AS Integer\n  LET n AS Integer = 3\n  MATCH n\n    CASE 1, 2, 3\n      RETURN 1\n    CASE ELSE\n      RETURN 2\n  END MATCH\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_union_pattern_on_non_union_scrutinee() {
+        // A union CASE against a non-union scrutinee walks the `_ => {}` arm.
+        let src = "FUNC main AS Integer\n  LET n AS Integer = 3\n  MATCH n\n    CASE Foo(x)\n      RETURN 1\n    CASE ELSE\n      RETURN 2\n  END MATCH\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_union_pattern_unknown_variant() {
+        // A CASE naming a variant not in the union walks the non-variant arm.
+        let src = "TYPE Dot\n  x AS Integer\nEND TYPE\nTYPE Line\n  a AS Integer\nEND TYPE\nUNION Shape\n  Dot\n  Line\nEND UNION\nFUNC pick(s AS Shape) AS Integer\n  MATCH s\n    CASE Dot(d)\n      RETURN 1\n    CASE Nope(n)\n      RETURN 2\n    CASE ELSE\n      RETURN 3\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_case_ok_error_result_skipped() {
+        // `CASE Ok`/`CASE Error` are internal Result variants and are skipped.
+        let src = "FUNC main AS Integer\n  LET n AS Integer = 3\n  MATCH n\n    CASE Ok(o)\n      RETURN 1\n    CASE ELSE\n      RETURN 2\n  END MATCH\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- WITH-update arms ---------------------------------------------------
+
+    fn point_type() -> &'static str {
+        "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n"
+    }
+
+    #[test]
+    fn with_update_on_non_user_type_yields_unknown() {
+        let src = "FUNC main AS Integer\n  LET n AS Integer = 3\n  LET m = WITH n { }\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn with_update_duplicate_field_rejected() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET p AS Point = Point[1, 2]\n  LET q = WITH p {{ x := 3, x := 4 }}\n  RETURN 0\nEND FUNC\n",
+            point_type()
+        );
+        assert!(rejects_with(&src, "TYPE_DUPLICATE_FIELD"));
+    }
+
+    #[test]
+    fn with_update_unknown_field_walks_arm() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET p AS Point = Point[1, 2]\n  LET q = WITH p {{ bogus := 3 }}\n  RETURN 0\nEND FUNC\n",
+            point_type()
+        );
+        let _ = check_src(&src);
+    }
+
+    #[test]
+    fn with_update_valid_accepted() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET p AS Point = Point[1, 2]\n  LET q = WITH p {{ x := 9 }}\n  RETURN q.x\nEND FUNC\n",
+            point_type()
+        );
+        assert!(accepts(&src));
+    }
+
+    // ---- constructor argument arms ------------------------------------------
+
+    #[test]
+    fn constructor_named_unknown_field_walks_arm() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET p AS Point = Point[x := 1, bogus := 2]\n  RETURN 0\nEND FUNC\n",
+            point_type()
+        );
+        let _ = check_src(&src);
+    }
+
+    #[test]
+    fn constructor_named_duplicate_field_rejected() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET p AS Point = Point[x := 1, x := 2]\n  RETURN 0\nEND FUNC\n",
+            point_type()
+        );
+        assert!(rejects_with(&src, "TYPE_DUPLICATE_FIELD"));
+    }
+
+    #[test]
+    fn read_only_error_record_constructor_rejected() {
+        let src = "FUNC main AS Integer\n  LET e AS Error = Error[1, \"m\"]\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"));
+    }
+
+    // ---- literal-type arms --------------------------------------------------
+
+    #[test]
+    fn fixed_literal_types_accepted() {
+        assert!(accepts(&wrap("  LET f AS Fixed = 1.5F")));
+    }
+
+    #[test]
+    fn negated_fixed_literal_accepted() {
+        assert!(accepts(&wrap("  LET f AS Fixed = -2F")));
+    }
+
+    #[test]
+    fn negated_out_of_range_integer_literal_is_integer() {
+        // The negated magnitude is out of positive i64 range, taking the early
+        // `Type::Integer` arm of the unary-minus branch.
+        assert!(accepts(&wrap("  LET n AS Integer = -9223372036854775808")));
+    }
+
+    // ---- lambda parameter arms ----------------------------------------------
+
+    #[test]
+    fn lambda_untyped_param_arm() {
+        // An untyped lambda parameter walks the `type_name.is_none()` arm.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  LET ys = collections::transform(numbers, LAMBDA(x) -> x * 2)\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn lambda_assign_to_param_immutable_arm() {
+        // The assignment target is a lambda parameter (immutable) — walks the
+        // `!local.mutable` arm of the assignment-bodied lambda.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> x = 5)\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
 }

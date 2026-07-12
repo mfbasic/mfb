@@ -312,4 +312,128 @@ mod tests {
         assert_eq!(first, "a-b-mfb");
         assert_eq!(second, "a-b-mfb-2");
     }
+
+    #[test]
+    fn covmap_round_trips_through_disk() {
+        // `write_covmap` emits the sidecar JSON; `read_covmap` folds it back to the
+        // same slot list (order preserved, paths with a quote escaped by
+        // `json_string`).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coverage.covmap.json");
+        let slots = vec![
+            CovSlot {
+                file: "main.mfb".to_string(),
+                line: 3,
+            },
+            CovSlot {
+                file: "pkg/a\"b.mfb".to_string(),
+                line: 17,
+            },
+        ];
+        write_covmap(&path, &slots).expect("write covmap");
+        let back = read_covmap(&path).expect("read covmap");
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].file, "main.mfb");
+        assert_eq!(back[0].line, 3);
+        assert_eq!(back[1].file, "pkg/a\"b.mfb");
+        assert_eq!(back[1].line, 17);
+    }
+
+    #[test]
+    fn read_covmap_returns_none_for_missing_or_malformed_input() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Missing file.
+        assert!(read_covmap(&dir.path().join("nope.json")).is_none());
+        // Present but not the expected shape.
+        let garbage = dir.path().join("garbage.json");
+        fs::write(&garbage, "not json at all").expect("write");
+        assert!(read_covmap(&garbage).is_none());
+    }
+
+    #[test]
+    fn read_counts_parses_numbers_and_tolerates_blank_or_junk_lines() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("counts");
+        fs::write(&path, "3\n\n  5  \nabc\n0\n").expect("write");
+        // Blank lines are dropped; a non-numeric line parses to 0.
+        assert_eq!(read_counts(&path), vec![3, 5, 0, 0]);
+        // Missing file → empty.
+        assert!(read_counts(&dir.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn read_failed_parses_file_colon_line_and_skips_unparseable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("fail");
+        // `pkg/a.mfb:3` splits on the *last* colon; a line without a colon and a
+        // line whose number won't parse are both dropped.
+        fs::write(&path, "main.mfb:12\npkg/a.mfb:3\nno-colon-here\nx:notanumber\n")
+            .expect("write");
+        let failed = read_failed(&path);
+        assert_eq!(failed.len(), 2);
+        assert!(failed.contains(&("main.mfb".to_string(), 12)));
+        assert!(failed.contains(&("pkg/a.mfb".to_string(), 3)));
+        // Missing file → empty set.
+        assert!(read_failed(&dir.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn percent_formats_ratio_and_dashes_the_empty_case() {
+        assert_eq!(percent(1, 1), "100%");
+        assert_eq!(percent(1, 2), "50%");
+        assert_eq!(percent(0, 4), "0%");
+        // No instrumented lines → an em dash rather than a divide-by-zero.
+        assert_eq!(percent(0, 0), "—");
+    }
+
+    #[test]
+    fn escape_replaces_html_metacharacters() {
+        assert_eq!(
+            escape("a & b < c > d \"e\""),
+            "a &amp; b &lt; c &gt; d &quot;e&quot;"
+        );
+        // Ordinary text passes through untouched.
+        assert_eq!(escape("plain"), "plain");
+    }
+
+    #[test]
+    fn generate_html_annotates_covered_uncovered_neutral_and_failed_lines() {
+        // A two-line source: line 2 is instrumented and executed (covered), line 3
+        // is instrumented but never ran (uncovered) *and* recorded as failed; line
+        // 1 hosts no slot (neutral). The `<` in line 1 exercises source escaping.
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(
+            dir.path().join("main.mfb"),
+            "REM a < b\n  x = 1\n  y = 2\n",
+        )
+        .expect("write source");
+
+        let slots = vec![
+            CovSlot {
+                file: "main.mfb".to_string(),
+                line: 2,
+            },
+            CovSlot {
+                file: "main.mfb".to_string(),
+                line: 3,
+            },
+        ];
+        let counts = vec![1, 0];
+        let mut failed = HashSet::new();
+        failed.insert(("main.mfb".to_string(), 3));
+
+        let html = generate_html(dir.path(), &slots, &counts, &failed);
+
+        // Summary: 1 of 2 instrumented lines covered.
+        assert!(html.contains("Total: 1 / 2 lines (50%)"), "{html}");
+        // The file appears in the index with an anchored link.
+        assert!(html.contains("<a href=\"#main-mfb\">main.mfb</a>"), "{html}");
+        // Line 2 executed → covered; line 3 never ran and failed → uncovered + fail.
+        assert!(html.contains("class=\"line cov\""), "{html}");
+        assert!(html.contains("class=\"line unc fail\""), "{html}");
+        // The failed line carries the ✗ marker; neutral line 1's source is escaped.
+        assert!(html.contains(" ✗ "), "{html}");
+        assert!(html.contains("REM a &lt; b"), "{html}");
+        assert!(html.contains("class=\"line neu\""), "{html}");
+    }
 }

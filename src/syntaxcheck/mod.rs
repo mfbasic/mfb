@@ -2761,4 +2761,101 @@ mod checker_tests {
         let src = "IMPORT http\nIMPORT net\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET r = http::write(u, method := \"GET\")\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
+
+    // ---- export_in_executable_diagnostics (build-pipeline entry point) ------
+
+    #[test]
+    fn export_in_executable_flags_each_item_kind() {
+        use crate::ast::{parse_source, AstProject};
+        use std::path::Path;
+        let src = "EXPORT LET g AS Integer = 5\nEXPORT TYPE Rec\n  x AS Integer\nEND TYPE\nEXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
+        let project = AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        };
+        let diags = crate::syntaxcheck::export_in_executable_diagnostics(false, &project);
+        assert!(diags.iter().all(|d| d.rule == "EXPORT_IN_EXECUTABLE"));
+        assert!(diags.len() >= 3, "expected an EXPORT diagnostic per item");
+    }
+
+    #[test]
+    fn export_in_executable_empty_for_package_project() {
+        use crate::ast::{parse_source, AstProject};
+        use std::path::Path;
+        let src = "EXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
+        let project = AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        };
+        // A package project never flags EXPORT (that is its purpose).
+        assert!(crate::syntaxcheck::export_in_executable_diagnostics(true, &project).is_empty());
+    }
+
+    #[test]
+    fn export_in_executable_no_export_no_diagnostic() {
+        use crate::ast::{parse_source, AstProject};
+        use std::path::Path;
+        let src = "FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
+        let project = AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        };
+        assert!(crate::syntaxcheck::export_in_executable_diagnostics(false, &project).is_empty());
+    }
+
+    // ---- record-field cycle detection ---------------------------------------
+
+    #[test]
+    fn return_type_overload_by_expected_binding() {
+        // Two overloads differ only by return type; the expected (contextual)
+        // type of the binding selects the Integer one uniquely.
+        let src = "FUNC pick() AS Integer\n  RETURN 1\nEND FUNC\nFUNC pick() AS String\n  RETURN \"a\"\nEND FUNC\nFUNC main AS Integer\n  LET x AS Integer = pick()\n  RETURN x\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn testing_and_doc_items_are_walked() {
+        // A top-level TESTING block and a DOC block are both no-op arms in the
+        // checker's item walk.
+        let src = "DOC\n  PACKAGE\n  DESC A program.\nEND DOC\nTESTING\n  TGROUP \"g\"\n    TCASE \"c\"\n      LET n AS Integer = 1\n    END TCASE\n  END TGROUP\nEND TESTING\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn record_field_referencing_resource_walks_arm() {
+        // A record field of a resource type walks the `is_resource_type` arm.
+        let src = "IMPORT fs\nTYPE Bad\n  f AS File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn self_referential_record_walks_cycle_arm() {
+        let src = "TYPE Node\n  child AS Node\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn empty_enum_walks_arm() {
+        let src = "ENUM Empty\nEND ENUM\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn union_including_non_union_and_non_type_variant_walks_arms() {
+        // A union variant that is itself an ENUM (not a record Type) walks the
+        // `!matches!(kind, Type)` variant arm.
+        let src = "ENUM Color\n  Red, Green\nEND ENUM\nTYPE Dot\n  x AS Integer\nEND TYPE\nUNION Mix\n  Dot\n  Color\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn record_field_diamond_is_not_a_cycle() {
+        // Two fields reach the same leaf record `D` — the cycle walk must mark it
+        // visited on the first path and skip it on the second (no false cycle).
+        let src = "TYPE D\n  n AS Integer\nEND TYPE\nTYPE B\n  d AS D\nEND TYPE\nTYPE C\n  d AS D\nEND TYPE\nTYPE A\n  b AS B\n  c AS C\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        assert!(accepts(src));
+    }
 }

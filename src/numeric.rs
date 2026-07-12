@@ -325,6 +325,66 @@ mod tests {
     }
 
     #[test]
+    fn expand_scientific_notation_returns_input_on_unparseable_exponent() {
+        // A non-numeric exponent cannot be parsed to i32, so the string is
+        // returned unchanged rather than shifted (the `Err` early-out).
+        assert_eq!(expand_scientific_notation("1eZ"), "1eZ");
+        assert_eq!(expand_scientific_notation("2.5e+"), "2.5e+");
+        // A value with no exponent marker at all is likewise returned as-is.
+        assert_eq!(expand_scientific_notation("123"), "123");
+    }
+
+    #[test]
+    fn fixed_raw_from_decimal_rejects_malformed_values() {
+        // A bare decimal point has neither a whole nor a fractional part.
+        assert!(fixed_raw_from_decimal(".")
+            .unwrap_err()
+            .contains("invalid Fixed constant"));
+        // A whole part too large to fit an i128 is rejected as malformed.
+        let huge_whole = format!("1{}", "0".repeat(39));
+        assert!(fixed_raw_from_decimal(&huge_whole)
+            .unwrap_err()
+            .contains("invalid Fixed constant"));
+        // A non-digit in the significant fractional prefix (first 28 places).
+        assert!(fixed_raw_from_decimal("1.5x")
+            .unwrap_err()
+            .contains("invalid Fixed constant"));
+        // A non-digit among the below-ULP trailing fractional digits (past 28).
+        let bad_tail = format!("0.{}x", "0".repeat(28));
+        assert!(fixed_raw_from_decimal(&bad_tail)
+            .unwrap_err()
+            .contains("invalid Fixed constant"));
+    }
+
+    #[test]
+    fn fixed_raw_from_decimal_carries_rounding_into_the_whole_part() {
+        // A fraction that rounds up to exactly 1.0 must carry into the whole part
+        // (fractional_value == SCALE), giving a clean `1 << 32` raw with no
+        // fractional remainder.
+        assert_eq!(
+            fixed_raw_from_decimal("0.9999999999999999999").unwrap(),
+            1_i64 << 32
+        );
+    }
+
+    #[test]
+    fn fixed_raw_from_decimal_rejects_out_of_range_magnitudes() {
+        // Expands to a plain decimal, but the 32.32 raw exceeds i64 range
+        // (i64::try_from fails).
+        assert!(fixed_raw_from_decimal("5000000000")
+            .unwrap_err()
+            .contains("is out of range"));
+        assert!(fixed_raw_from_decimal("-5000000000")
+            .unwrap_err()
+            .contains("is out of range"));
+        // A whole part so large that `whole * SCALE` overflows i128 itself.
+        let overflow = "9".repeat(29);
+        assert!(fixed_raw_from_decimal(&overflow)
+            .unwrap_err()
+            .contains("is out of range"));
+    }
+
+    #[test]
     fn expand_scientific_notation_shifts_the_point() {
         assert_eq!(expand_scientific_notation("1e3"), "1000");
         assert_eq!(expand_scientific_notation("1E3"), "1000");

@@ -169,6 +169,44 @@ mod tests {
     }
 
     #[test]
+    fn severity_displays_all_three_levels() {
+        assert_eq!(Severity::Error.to_string(), "error");
+        assert_eq!(Severity::Warn.to_string(), "warn");
+        // The `Info` arm is otherwise only hit by the (rare) info-severity rules.
+        assert_eq!(Severity::Info.to_string(), "info");
+    }
+
+    #[test]
+    fn is_error_reflects_rule_severity() {
+        // An Error-severity rule fails the build; a Warn-severity one does not.
+        assert!(is_error("IMPORT_PACKAGE_INVALID"));
+        assert!(!is_error("PRIVATE_SHADOWS_PUBLIC"));
+        assert!(!is_error("PROJECT_JSON_VALID")); // Info
+    }
+
+    #[test]
+    fn show_diagnostic_renders_source_context_and_underline() {
+        // Drives the on-disk source read, the context-line loop, and the caret
+        // underline (start_pos > 0 and display_line == line). Output goes to
+        // stderr; we only assert it does not panic on a real, multi-line file.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("src.mfb");
+        std::fs::write(&file, "line one\nline two\nline three\n").expect("write source");
+        show_diagnostic("IMPORT_PACKAGE_INVALID", "detail here", &file, 2, 3, 6);
+        // A line past the end clamps to the last line, still exercising the reader.
+        show_diagnostic("IMPORT_PACKAGE_INVALID", "clamped", &file, 99, 0, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "not defined in RULES")]
+    fn unknown_rule_name_trips_the_debug_assert() {
+        // An emit site referencing a rule name absent from `RULES` fails loudly in
+        // debug builds (the drift guard, bug-40) rather than silently degrading to
+        // the UNKNOWN_RULE sentinel.
+        let _ = code_and_name("NO_SUCH_RULE_NAME");
+    }
+
+    #[test]
     fn rule_names_are_unique() {
         // `rule_for` resolves by name, so a duplicate name would shadow a rule.
         let mut names: Vec<&str> = RULES.iter().map(|rule| rule.name).collect();
@@ -177,5 +215,61 @@ mod tests {
             names.windows(2).all(|w| w[0] != w[1]),
             "duplicate rule name in RULES"
         );
+    }
+
+    #[test]
+    fn show_diagnostic_handles_empty_and_missing_source_files() {
+        // An empty source file yields no lines, so the context/underline block is
+        // skipped and only the header + detail are rendered (the `!lines.is_empty()`
+        // false branch).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let empty = dir.path().join("empty.mfb");
+        std::fs::write(&empty, "").expect("write empty");
+        show_diagnostic("IMPORT_PACKAGE_INVALID", "empty file", &empty, 1, 1, 2);
+
+        // A file that does not exist: `fs::read_to_string` fails, so the whole
+        // context block is skipped — the diagnostic header still renders.
+        let missing = dir.path().join("does-not-exist.mfb");
+        show_diagnostic("IMPORT_PACKAGE_INVALID", "missing file", &missing, 3, 1, 4);
+    }
+
+    #[test]
+    fn show_diagnostic_skips_underline_when_position_precedes_the_reported_line() {
+        // start_pos > 0 but the clamped display line differs from the reported
+        // line (line past EOF): the caret underline is suppressed even though a
+        // start position was given (the `display_line == line` guard is false).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("src.mfb");
+        std::fs::write(&file, "only one line\n").expect("write source");
+        show_diagnostic("IMPORT_PACKAGE_INVALID", "clamped-with-pos", &file, 42, 3, 7);
+    }
+
+    #[test]
+    fn show_general_diagnostic_renders_header_and_detail() {
+        // The context-free renderer (used when there is no source location) emits
+        // the rule header and the detail line for each severity.
+        show_general_diagnostic("IMPORT_PACKAGE_INVALID", "an error detail");
+        show_general_diagnostic("PRIVATE_SHADOWS_PUBLIC", "a warning detail");
+        show_general_diagnostic("PROJECT_JSON_VALID", "an info detail");
+    }
+
+    #[test]
+    fn code_and_name_resolves_representative_rules() {
+        // Every entry in the table resolves to its own identity (not the sentinel).
+        for rule in RULES {
+            let (code, name) = code_and_name(rule.name);
+            assert_eq!(name, rule.name, "name round-trip for {}", rule.name);
+            assert_eq!(code, rule.code, "code round-trip for {}", rule.name);
+        }
+    }
+
+    #[test]
+    fn is_error_partitions_the_whole_table_by_severity() {
+        // Exercise `is_error` across every defined rule so both the Error and the
+        // non-Error (Warn/Info) arms are hit for real table entries.
+        for rule in RULES {
+            let expected = matches!(rule.severity, Severity::Error);
+            assert_eq!(is_error(rule.name), expected, "is_error for {}", rule.name);
+        }
     }
 }

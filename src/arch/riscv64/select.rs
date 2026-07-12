@@ -761,4 +761,266 @@ mod tests {
         assert!(vals.contains(&"fa1".to_string()));
         assert!(vals.contains(&"fs0".to_string())); // d8 → fs0
     }
+
+    // ---------- branch-condition mapping helpers ----------
+
+    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
+        pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+    }
+
+    #[test]
+    fn integer_branch_condition_table() {
+        // Every AArch64 compare-branch mnemonic maps to a RISC-V branch relation,
+        // swapping operands where RISC-V lacks the direct form.
+        assert_eq!(int_branch("b.eq", "a", "b"), ("a", "b", "eq"));
+        assert_eq!(int_branch("b.ne", "a", "b"), ("a", "b", "ne"));
+        assert_eq!(int_branch("b.ge", "a", "b"), ("a", "b", "ge"));
+        assert_eq!(int_branch("b.lt", "a", "b"), ("a", "b", "lt"));
+        assert_eq!(int_branch("b.gt", "a", "b"), ("b", "a", "lt")); // swap
+        assert_eq!(int_branch("b.le", "a", "b"), ("b", "a", "ge")); // swap
+        assert_eq!(int_branch("b.hi", "a", "b"), ("b", "a", "ltu")); // swap
+        assert_eq!(int_branch("b.lo", "a", "b"), ("a", "b", "ltu"));
+        assert_eq!(int_branch("b.ls", "a", "b"), ("b", "a", "geu")); // swap
+        assert_eq!(int_branch("b.hs", "a", "b"), ("a", "b", "geu"));
+        assert_eq!(int_branch("b.cs", "a", "b"), ("a", "b", "geu"));
+    }
+
+    #[test]
+    #[should_panic(expected = "unmapped integer compare-branch")]
+    fn integer_branch_unknown_condition_panics() {
+        int_branch("b.zz", "a", "b");
+    }
+
+    #[test]
+    fn float_branch_condition_table() {
+        // Ordered-only relations emit one compare then branch-on-true.
+        for cond in ["b.gt", "b.ge", "b.mi", "b.lo", "b.ls", "b.eq"] {
+            let out = float_branch(cond, "fa0", "fa1", "L");
+            assert_eq!(out.len(), 2, "{cond}");
+            assert_eq!(out[0].op.mnemonic(), "rv.fcmp");
+            assert_eq!(out[1].get("cond"), Some("ne"));
+        }
+        // Unordered-including relations branch when the ordered complement is false.
+        for cond in ["b.ne", "b.hi", "b.lt", "b.le"] {
+            let out = float_branch(cond, "fa0", "fa1", "L");
+            assert_eq!(out.len(), 2, "{cond}");
+            assert_eq!(out[1].get("cond"), Some("eq"));
+        }
+        // Finiteness checks compare each operand with itself (NaN detection).
+        let vs = float_branch("b.vs", "fa0", "fa1", "L");
+        assert_eq!(vs.len(), 4);
+        assert_eq!(vs[3].get("cond"), Some("eq"));
+        let vc = float_branch("b.vc", "fa0", "fa1", "L");
+        assert_eq!(vc.len(), 4);
+        assert_eq!(vc[3].get("cond"), Some("ne"));
+    }
+
+    #[test]
+    #[should_panic(expected = "unmapped float compare-branch")]
+    fn float_branch_unknown_condition_panics() {
+        float_branch("b.zz", "fa0", "fa1", "L");
+    }
+
+    // ---------- fused-op expansion ----------
+
+    #[test]
+    fn float_compare_against_zero_materializes_plus_zero() {
+        let out = expand_fused(
+            MirOp::AddrOf, // `op` is unused for this setter
+            CodeOp::FCmpZeroD,
+            &fl(&[("src", "d0"), ("cond", "b.mi"), ("target", "L")]),
+        );
+        // First materialize +0.0 into ft1, then a float compare-and-branch.
+        assert_eq!(out[0].op.mnemonic(), "fmov_d_from_x");
+        assert_eq!(out[0].get("dst"), Some("ft1"));
+        assert!(out.iter().any(|i| i.op.mnemonic() == "rv.fcmp"));
+    }
+
+    #[test]
+    fn overflow_subtract_expands_with_detection() {
+        let out = expand_fused(
+            MirOp::AddrOf,
+            CodeOp::Subs,
+            &fl(&[
+                ("dst", "x9"),
+                ("lhs", "x10"),
+                ("rhs", "x11"),
+                ("cond", "b.vs"),
+                ("target", "ov"),
+            ]),
+        );
+        assert!(out.iter().any(|i| i.op.mnemonic() == "sub"));
+        // dst is written before the branch (see the Adds/Subs comments).
+        assert!(out.iter().any(|i| i.op.mnemonic() == "mov" && i.get("dst") == Some("x9")));
+        let br = out.iter().find(|i| i.op.mnemonic() == "rv.br").unwrap();
+        assert_eq!(br.get("cond"), Some("lt")); // b.vs = overflow = word < 0
+    }
+
+    #[test]
+    #[should_panic(expected = "SyscallBr")]
+    fn fused_syscall_carry_idiom_is_rejected() {
+        expand_fused(
+            MirOp::AddrOf,
+            CodeOp::Svc,
+            &fl(&[("cond", "b.hs"), ("target", "e")]),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected fused setter")]
+    fn fused_unexpected_setter_panics() {
+        expand_fused(
+            MirOp::AddrOf,
+            CodeOp::Add,
+            &fl(&[("cond", "b.eq"), ("target", "L")]),
+        );
+    }
+
+    #[test]
+    fn overflow_branch_condition_mapping() {
+        assert_eq!(overflow_branch_cond("b.vs"), "lt");
+        assert_eq!(overflow_branch_cond("b.vc"), "ge");
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected overflow branch")]
+    fn overflow_branch_unknown_condition_panics() {
+        overflow_branch_cond("b.eq");
+    }
+
+    // ---------- bare (non-fused) compare + standalone flag branch ----------
+
+    #[test]
+    fn bare_compare_register_defers_to_standalone_branch() {
+        // A non-adjacent cmp/branch (fusion misses it): the cmp snapshots its lhs
+        // into `gp` and the standalone branch re-derives the native compare-branch.
+        let out = sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build("mov", &[("dst", "x12"), ("src", "x13")]),
+            build("b.lt", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+        // lhs saved into the flag register gp.
+        assert!(out.iter().any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+        let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
+        assert_eq!(br.get("lhs"), Some("gp"));
+        assert_eq!(br.get("cond"), Some("lt"));
+    }
+
+    #[test]
+    fn bare_compare_imm_zero_standalone_branch() {
+        let out = sel(&[
+            build("cmp_imm", &[("lhs", "x9"), ("rhs", "0")]),
+            build("mov", &[("dst", "x12"), ("src", "x13")]),
+            build("b.ne", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+        let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
+        assert_eq!(br.get("lhs"), Some("gp"));
+        assert_eq!(br.get("rhs"), Some("zero"));
+        assert!(!out.iter().any(|i| i.op == CodeOp::MovImm));
+    }
+
+    #[test]
+    fn bare_compare_imm_nonzero_standalone_branch() {
+        let out = sel(&[
+            build("cmp_imm", &[("lhs", "x9"), ("rhs", "7")]),
+            build("mov", &[("dst", "x12"), ("src", "x13")]),
+            build("b.eq", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+        // The immediate is re-materialized into t0 at the branch.
+        assert!(out.iter().any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+        assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
+    }
+
+    #[test]
+    fn pending_compare_invalidated_by_label_and_redef() {
+        // A label between the compare and any consumer strands the pending compare
+        // (bug-126.2) — no branch reads it, so selection must not panic.
+        let out = sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build("label", &[("name", "mid")]),
+            build("ret", &[]),
+        ]);
+        assert!(out.iter().any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+
+        // A redefinition of the compare's rhs register likewise invalidates it.
+        let out = sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build("mov", &[("dst", "x10"), ("src", "x11")]),
+            build("ret", &[]),
+        ]);
+        assert!(out.iter().any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+    }
+
+    // ---------- v128 scalarization through selection ----------
+
+    #[test]
+    fn v128_op_scalarizes_during_selection() {
+        let out = sel(&[
+            build("fadd_v", &[("dst", "d0"), ("lhs", "d1"), ("rhs", "d2")]),
+            build("ret", &[]),
+        ]);
+        // Scalarized to the per-thread slot base plus two lane fadd_d.
+        assert!(out.iter().any(|i| i.op.mnemonic() == "add_imm"));
+        assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(), 2);
+    }
+
+    // ---------- residual physical-register remapping ----------
+
+    #[test]
+    fn scratch_register_homes() {
+        assert_eq!(map_scratch_register(9), "t3");
+        assert_eq!(map_scratch_register(10), "t4");
+        assert_eq!(map_scratch_register(11), "t5");
+        assert_eq!(map_scratch_register(12), "t6");
+        assert_eq!(map_scratch_register(13), "s0");
+        assert_eq!(map_scratch_register(14), "s3");
+        assert_eq!(map_scratch_register(15), "s4");
+        assert_eq!(map_scratch_register(16), "s5");
+        assert_eq!(map_scratch_register(17), "s6");
+        assert_eq!(map_scratch_register(18), "s7");
+        assert_eq!(map_scratch_register(19), "s1"); // x19 → s1
+        assert_eq!(map_scratch_register(28), "s10"); // x28 → s10
+        assert_eq!(map_scratch_register(29), "t6"); // fp / straggler default
+        assert_eq!(map_scratch_register(31), "t6");
+    }
+
+    #[test]
+    fn fp_register_homes() {
+        assert_eq!(map_fp_register(0), "fa0");
+        assert_eq!(map_fp_register(7), "fa7");
+        assert_eq!(map_fp_register(8), "fs0");
+        assert_eq!(map_fp_register(15), "fs7");
+        assert_eq!(map_fp_register(16), "ft2"); // skips reserved ft0/ft1
+        assert_eq!(map_fp_register(25), "ft11");
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected physical FP register")]
+    fn fp_register_out_of_range_panics() {
+        map_fp_register(26);
+    }
+
+    #[test]
+    fn remap_register_cases() {
+        assert_eq!(remap_register("sp").as_deref(), Some("sp"));
+        assert_eq!(remap_register("raw_sp").as_deref(), Some("sp"));
+        assert_eq!(remap_register("xzr").as_deref(), Some("zero"));
+        assert_eq!(remap_register("lr").as_deref(), Some("ra"));
+        assert_eq!(remap_register("x0").as_deref(), Some("a0"));
+        assert_eq!(remap_register("x7").as_deref(), Some("a7"));
+        assert_eq!(remap_register("x8").as_deref(), Some("a7")); // syscall number reg
+        assert_eq!(remap_register("x9").as_deref(), Some("t3"));
+        assert_eq!(remap_register("w5").as_deref(), Some("a5")); // wN alias
+        // n >= 30: a stray physical is mapped to an invalid `aN` the encoder rejects.
+        assert_eq!(remap_register("x30").as_deref(), Some("a30"));
+        assert_eq!(remap_register("d0").as_deref(), Some("fa0"));
+        assert_eq!(remap_register("d16").as_deref(), Some("ft2"));
+        // Non-physical operands pass through unchanged.
+        assert_eq!(remap_register("a0"), None);
+        assert_eq!(remap_register("%f3"), None);
+        assert_eq!(remap_register("t0"), None);
+    }
 }

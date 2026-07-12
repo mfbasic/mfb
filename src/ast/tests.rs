@@ -2549,3 +2549,88 @@ fn doc_example_dedent_handles_multibyte_whitespace() {
     let ascii = project_json("DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n");
     assert!(ascii.contains("a\\n  b"), "ascii dedent: {ascii}");
 }
+
+// ---------------------------------------------------------------------------
+// TESTING / TGROUP / TCASE block parsing (src/ast/testing.rs)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_testing_block_with_nested_groups_and_cases() {
+    // A top-level TESTING block: an outer group with a direct case and a nested
+    // sub-group holding its own case. Exercises parse_testing_block /
+    // parse_test_group / parse_test_case plus the contextual END matching.
+    let file = parse_file(
+        "TESTING\n\
+         \x20 TGROUP \"outer\"\n\
+         \x20   TCASE \"one\"\n\
+         \x20     x = 1\n\
+         \x20   END TCASE\n\
+         \x20   TGROUP \"inner\"\n\
+         \x20     TCASE \"two\"\n\
+         \x20       y = 2\n\
+         \x20     END TCASE\n\
+         \x20   END TGROUP\n\
+         \x20 END TGROUP\n\
+         END TESTING\n",
+    );
+    let Item::Testing(block) = &file.items[0] else {
+        panic!("expected a TESTING item, got {:?}", file.items);
+    };
+    assert_eq!(block.groups.len(), 1);
+    let outer = &block.groups[0];
+    assert_eq!(outer.description, "outer");
+    assert_eq!(outer.members.len(), 2);
+    // First member is the direct TCASE.
+    let TestGroupMember::Case(case) = &outer.members[0] else {
+        panic!("expected a TCASE first");
+    };
+    assert_eq!(case.description, "one");
+    assert_eq!(case.body.len(), 1);
+    // Second member is the nested TGROUP with its own case.
+    let TestGroupMember::Group(inner) = &outer.members[1] else {
+        panic!("expected a nested TGROUP second");
+    };
+    assert_eq!(inner.description, "inner");
+    assert_eq!(inner.members.len(), 1);
+    assert!(matches!(inner.members[0], TestGroupMember::Case(_)));
+}
+
+#[test]
+fn parse_testing_rejects_a_non_group_member() {
+    // A TESTING block may contain only TGROUP groups; a bare statement is an error.
+    assert!(try_parse("TESTING\n  x = 1\nEND TESTING\n").is_err());
+}
+
+#[test]
+fn parse_tgroup_rejects_a_non_case_member() {
+    // A TGROUP may contain only TCASE cases and nested TGROUP groups.
+    assert!(try_parse(
+        "TESTING\n  TGROUP \"g\"\n    x = 1\n  END TGROUP\nEND TESTING\n"
+    )
+    .is_err());
+}
+
+#[test]
+fn parse_tgroup_requires_a_string_description() {
+    // A missing TGROUP description is reported by consume_test_description.
+    assert!(try_parse("TESTING\n  TGROUP\n  END TGROUP\nEND TESTING\n").is_err());
+}
+
+#[test]
+fn parse_tcase_requires_a_string_description() {
+    // A missing TCASE description is likewise rejected.
+    assert!(try_parse(
+        "TESTING\n  TGROUP \"g\"\n    TCASE\n    END TCASE\n  END TGROUP\nEND TESTING\n"
+    )
+    .is_err());
+}
+
+#[test]
+fn parse_tcase_without_end_tcase_is_rejected() {
+    // The case body terminates at the enclosing END TGROUP, so the missing
+    // END TCASE is reported rather than the parser running away.
+    assert!(try_parse(
+        "TESTING\n  TGROUP \"g\"\n    TCASE \"c\"\n      x = 1\n  END TGROUP\nEND TESTING\n"
+    )
+    .is_err());
+}

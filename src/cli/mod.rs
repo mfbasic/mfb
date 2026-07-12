@@ -231,6 +231,42 @@ mod tests {
     }
 
     #[test]
+    fn stage_package_blob_errors_when_the_directory_is_missing() {
+        // A valid name, but the packages directory does not exist, so the
+        // exclusive `create_new` open fails before anything is written.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let missing = dir.path().join("no-such-packages-dir");
+        let err = stage_package_blob(&missing, "shape", b"blob").expect_err("open must fail");
+        assert!(err.contains("failed to create"), "got: {err}");
+    }
+
+    #[test]
+    fn commit_staged_package_errors_when_the_rename_fails() {
+        // The staged file was never created, so the promoting rename fails and the
+        // installer surfaces the error (having tried to clean up the phantom stage).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let staged = dir.path().join("phantom.part");
+        let destination = dir.path().join("shape.mfp");
+        let err = commit_staged_package(&staged, &destination).expect_err("rename must fail");
+        assert!(err.contains("failed to install"), "got: {err}");
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn install_verified_package_propagates_a_staging_failure() {
+        // A traversing name is rejected while staging; `install_verified_package`
+        // returns that failure via `?` rather than proceeding to classify/commit.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        let err = install_verified_package(&packages, "../evil", b"blob", None)
+            .expect_err("traversing name must be rejected");
+        assert!(!err.is_empty());
+        // Nothing was staged or installed.
+        assert_eq!(std::fs::read_dir(&packages).expect("read dir").count(), 0);
+    }
+
+    #[test]
     fn local_paths_for_repo_scopes_by_repo_url() {
         let _lock = ENV_LOCK.lock().unwrap();
         let _mfb = EnvVarGuard::set("MFB_HOME", "/tmp/mfb-scope-test");
@@ -238,5 +274,25 @@ mod tests {
         let b = local_paths_for_repo("https://two.example").expect("b");
         // Different repo URLs hash to distinct store directories.
         assert_ne!(a.keys_dir(), b.keys_dir());
+    }
+
+    #[test]
+    fn install_refuses_a_structurally_valid_but_unsigned_package() {
+        // A well-formed but UNSIGNED `.mfp` stages and parses cleanly, so
+        // classification reaches `Unsigned` (state != Verified) with no refusal
+        // detail — the installer removes the stage and returns the default
+        // "did not verify" message rather than committing it.
+        let fixture =
+            Path::new("tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp");
+        let blob = std::fs::read(fixture).expect("unsigned package fixture must exist");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        let err = install_verified_package(&packages, "trap_builtin_pkg", &blob, None)
+            .expect_err("an unsigned package must not verify");
+        assert!(!err.is_empty());
+        // Nothing was installed and no staging leftovers remain.
+        assert!(!packages.join("trap_builtin_pkg.mfp").exists());
+        assert_eq!(std::fs::read_dir(&packages).expect("read dir").count(), 0);
     }
 }

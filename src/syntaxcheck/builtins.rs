@@ -2705,4 +2705,226 @@ mod builtins_tests {
             "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [3, 1, 2]\n  LET ys = collections::sort(xs)\n  RETURN 0\nEND FUNC\n",
         );
     }
+
+    // ---- per-package arity + argument-type rejection arms -------------------
+
+    fn wrap_import(import: &str, body: &str) -> String {
+        format!("IMPORT {import}\nFUNC main AS Integer\n{body}\n  RETURN 0\nEND FUNC\n")
+    }
+
+    #[test]
+    fn os_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("os", "  LET x = os::getEnv()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("os", "  LET x = os::getEnv(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn net_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("net", "  LET x = net::lookup()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("net", "  LET x = net::lookup(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn tls_arity_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("tls", "  LET x = tls::connect(1)"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn json_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("json", "  LET x = json::parse()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("json", "  LET x = json::parse(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn csv_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("csv", "  LET x = csv::parse()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("csv", "  LET x = csv::parse(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn http_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("http", "  LET x = http::read()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("http", "  LET x = http::read(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn regex_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("regex", "  LET x = regex::match(\"a\")"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("regex", "  LET x = regex::match(TRUE, FALSE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn datetime_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("datetime", "  LET x = datetime::date(1)"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("datetime", "  LET x = datetime::date(TRUE, FALSE, TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn io_arity_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("io", "  io::print()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn strings_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("strings", "  LET x = strings::trim()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("strings", "  LET x = strings::trim(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn math_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("math", "  LET x = math::abs()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("math", "  LET x = math::abs(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn bits_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("bits", "  LET x = bits::band(1)"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("bits", "  LET x = bits::band(TRUE, FALSE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn crypto_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("crypto", "  LET x = crypto::sha256()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("crypto", "  LET x = crypto::sha256(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn encoding_arity_and_type_mismatch_rejected() {
+        assert!(rejects_with(
+            &wrap_import("encoding", "  LET x = encoding::hexEncode()"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            &wrap_import("encoding", "  LET x = encoding::hexEncode(TRUE)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn thread_start_non_identifier_rejected() {
+        assert!(rejects_with(
+            &wrap_import("thread", "  LET t = thread::start(5)"),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- overloaded-named-argument normalization (net/datetime) -------------
+
+    #[test]
+    fn overloaded_named_duplicate_argument_rejected() {
+        assert!(rejects_with(
+            &wrap_import("datetime", "  LET z = datetime::fixedOffset(hours := 1, hours := 2)"),
+            "TYPE_DUPLICATE_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn overloaded_named_unknown_argument_rejected() {
+        assert!(rejects_with(
+            &wrap_import("datetime", "  LET z = datetime::fixedOffset(bogus := 1)"),
+            "TYPE_UNKNOWN_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn overloaded_named_omitted_prefix_rejected() {
+        // `fixedOffset(mins := 2)` omits `hours` before a later-supplied argument.
+        assert!(rejects_with(
+            &wrap_import("datetime", "  LET z = datetime::fixedOffset(mins := 2)"),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn overloaded_named_no_covering_overload_rejected() {
+        // `offsetSeconds` and `mins` live in different overloads; no single one
+        // covers both — the generic no-overload arm.
+        assert!(rejects_with(
+            &wrap_import(
+                "datetime",
+                "  LET z = datetime::fixedOffset(offsetSeconds := 1, mins := 2)"
+            ),
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn overloaded_named_valid_selection_accepted() {
+        let _ = check_src(&wrap_import(
+            "datetime",
+            "  LET z = datetime::fixedOffset(hours := 1, mins := 2)",
+        ));
+    }
 }
