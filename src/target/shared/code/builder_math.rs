@@ -476,7 +476,9 @@ impl CodeBuilder<'_> {
         let dst = self.allocate_register()?;
         let bound = self.temporary_vreg();
         match value.type_.as_str() {
-            "Integer" | "Fixed" => {
+            // Money is a raw i64, so |x| and the INT64_MIN overflow check are the
+            // same integer op as Integer/Fixed (plan-29-G §4.7).
+            "Integer" | "Fixed" | "Money" => {
                 let ok = self.label("math_abs_ok");
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 self.emit(abi::branch_ge(&ok));
@@ -675,7 +677,8 @@ impl CodeBuilder<'_> {
             ));
         }
         match left.type_.as_str() {
-            "Integer" | "Fixed" => {
+            // Money min/max is the signed-i64 compare+select (plan-29-G §4.7).
+            "Integer" | "Fixed" | "Money" => {
                 let take_left = self.label("math_minmax_take_left");
                 let done = self.label("math_minmax_done");
                 self.emit(abi::compare_registers(&lhs, &rhs));
@@ -750,7 +753,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&high_reg, abi::stack_pointer(), high_slot));
 
         match value.type_.as_str() {
-            "Integer" | "Fixed" => {
+            // Money clamp is the signed-i64 bounds compare+select (plan-29-G §4.7).
+            "Integer" | "Fixed" | "Money" => {
                 let bounds_valid = self.label("math_clamp_bounds_valid");
                 let take_low = self.label("math_clamp_take_low");
                 let take_high = self.label("math_clamp_take_high");
@@ -836,6 +840,12 @@ impl CodeBuilder<'_> {
                 // so no host floating-point conversion is required.
                 self.emit_fixed_rounding_to_integer(function, &value.location, &dst)?;
             }
+            // floor/ceil/round(Money) → the whole-unit count `raw / 100000`, a
+            // fixed rule (round uses half-away-from-zero, not the global mode —
+            // an explicit call is presentation-like) (plan-29-G §4.7).
+            "Money" => {
+                self.emit_money_rounding_to_integer(function, &value.location, &dst)?;
+            }
             other => return Err(format!("math.{function} does not accept {other}")),
         }
         Ok(ValueResult {
@@ -843,6 +853,63 @@ impl CodeBuilder<'_> {
             location: dst,
             text: format!("math.{function}({})", value.text),
         })
+    }
+
+    /// floor/ceil/round of a Money raw to its whole-unit Integer count
+    /// (plan-29-G §4.7). `q = raw / 100000` truncated toward zero, then adjusted:
+    /// floor toward -∞, ceil toward +∞, round half-away-from-zero.
+    fn emit_money_rounding_to_integer(
+        &mut self,
+        function: &str,
+        raw: &str,
+        dst: &str,
+    ) -> Result<(), String> {
+        let scale = self.allocate_register()?;
+        let quotient = self.allocate_register()?;
+        let remainder = self.allocate_register()?;
+        self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+        self.emit(abi::signed_divide_registers(&quotient, raw, &scale));
+        self.emit(abi::multiply_subtract_registers(&remainder, &quotient, &scale, raw));
+        self.emit(abi::move_register(dst, &quotient));
+        let done = self.label("math_money_round_done");
+        match function {
+            "floor" => {
+                // remainder < 0 (raw negative, non-zero frac) → toward -∞.
+                self.emit(abi::compare_immediate(&remainder, "0"));
+                self.emit(abi::branch_ge(&done));
+                self.emit(abi::subtract_immediate(dst, &quotient, 1));
+            }
+            "ceil" => {
+                // remainder > 0 (raw positive, non-zero frac) → toward +∞.
+                self.emit(abi::compare_immediate(&remainder, "0"));
+                self.emit(abi::branch_le(&done));
+                self.emit(abi::add_immediate(dst, &quotient, 1));
+            }
+            "round" => {
+                // half-away: bump the magnitude when 2*|remainder| >= 100000.
+                let abs_rem = self.allocate_register()?;
+                let bump_pos = self.label("math_money_round_bump_pos");
+                let bump_neg = self.label("math_money_round_bump_neg");
+                let half = self.allocate_register()?;
+                self.emit(abi::move_register(&abs_rem, &remainder));
+                self.emit_abs_i64(&abs_rem)?;
+                // 2*|rem| vs 100000: compare |rem| against 100000 - |rem|.
+                self.emit(abi::move_immediate(&half, "Integer", "100000"));
+                self.emit(abi::subtract_registers(&half, &half, &abs_rem));
+                self.emit(abi::compare_registers(&abs_rem, &half));
+                self.emit(abi::branch_lt(&done)); // below the half → keep quotient
+                self.emit(abi::compare_immediate(&remainder, "0"));
+                self.emit(abi::branch_lt(&bump_neg));
+                self.emit(abi::label(&bump_pos));
+                self.emit(abi::add_immediate(dst, &quotient, 1));
+                self.emit(abi::branch(&done));
+                self.emit(abi::label(&bump_neg));
+                self.emit(abi::subtract_immediate(dst, &quotient, 1));
+            }
+            _ => unreachable!(),
+        }
+        self.emit(abi::label(&done));
+        Ok(())
     }
 
     fn emit_float_rounding_integer_range_check(&mut self, source_bits: &str) -> Result<(), String> {
@@ -903,9 +970,12 @@ impl CodeBuilder<'_> {
     /// `min > max`.
     fn lower_math_rand(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let min = self.lower_value(&args[0])?;
-        if min.type_ != "Integer" {
+        // `rand(Money, Money) → Money` draws uniformly over the raw i64 range, the
+        // same Lemire sampling as Integer (the raws are i64) (plan-29-G §4.7).
+        if !matches!(min.type_.as_str(), "Integer" | "Money") {
             return Err(format!("math.rand does not accept {}", min.type_));
         }
+        let result_type = min.type_.clone();
         let min_slot = self.allocate_stack_object("math_rand_min", 8);
         self.emit(abi::store_u64(
             &min.location,
@@ -913,7 +983,7 @@ impl CodeBuilder<'_> {
             min_slot,
         ));
         let max = self.lower_value(&args[1])?;
-        if max.type_ != "Integer" {
+        if max.type_ != result_type {
             return Err(format!("math.rand does not accept {}", max.type_));
         }
         let max_slot = self.allocate_stack_object("math_rand_max", 8);
@@ -1039,7 +1109,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
-            type_: "Integer".to_string(),
+            type_: result_type,
             location: result,
             text: format!("math.rand({}, {})", min.text, max.text),
         })

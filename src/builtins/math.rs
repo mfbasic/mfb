@@ -170,6 +170,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         CLAMP if clamp_list(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
         CLAMP if all_same_numeric(arg_types, 3, 3) => Cow::Borrowed(arg_types[0].as_str()),
         FLOOR | CEIL | ROUND if one_floatish(arg_types) => Cow::Borrowed("Integer"),
+        // floor/ceil/round(Money) → Integer: the dimensionless count of whole
+        // currency units, a deliberate dimension exit (plan-29-G §4.7).
+        FLOOR | CEIL | ROUND if one_money(arg_types) => Cow::Borrowed("Integer"),
         SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN
             if one_float_or_fixed(arg_types) =>
         {
@@ -177,6 +180,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         POW | ATAN2 if two_same_float_or_fixed(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
         RAND if two_integers(arg_types) => Cow::Borrowed("Integer"),
+        // rand(Money, Money) → Money: a uniform amount between two amounts is
+        // itself an amount (plan-29-G §4.7).
+        RAND if two_money(arg_types) => Cow::Borrowed("Money"),
         SEED if one_integer(arg_types) => Cow::Borrowed("Nothing"),
         _ => return None,
     };
@@ -185,13 +191,13 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        ABS => Some("Integer | Float | Fixed"),
-        FLOOR | CEIL | ROUND => Some("Float | Fixed"),
+        ABS => Some("Integer | Float | Fixed | Money"),
+        FLOOR | CEIL | ROUND => Some("Float | Fixed | Money"),
         SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN => Some("Float | Fixed"),
         MIN | MAX => Some("same numeric type, same numeric type"),
         POW | ATAN2 => Some("Float | Fixed, same type"),
         CLAMP => Some("numeric value, numeric low, numeric high of the same type"),
-        RAND => Some("Integer min, Integer max"),
+        RAND => Some("Integer min, Integer max (or Money, Money)"),
         SEED => Some("Integer"),
         _ => None,
     }
@@ -229,6 +235,14 @@ fn two_integers(arg_types: &[String]) -> bool {
     arg_types.len() == 2 && arg_types[0] == "Integer" && arg_types[1] == "Integer"
 }
 
+fn one_money(arg_types: &[String]) -> bool {
+    arg_types.len() == 1 && arg_types[0] == "Money"
+}
+
+fn two_money(arg_types: &[String]) -> bool {
+    arg_types.len() == 2 && arg_types[0] == "Money" && arg_types[1] == "Money"
+}
+
 fn two_same_float_or_fixed(arg_types: &[String]) -> bool {
     arg_types.len() == 2
         && matches!(arg_types[0].as_str(), "Float" | "Fixed")
@@ -236,7 +250,11 @@ fn two_same_float_or_fixed(arg_types: &[String]) -> bool {
 }
 
 fn is_numeric(type_name: &str) -> bool {
-    matches!(type_name, "Integer" | "Float" | "Fixed")
+    // Money joins the deliberate dimensional set: abs/min/max/clamp accept it and
+    // stay in the dimension (plan-29-G §4.7). The transcendentals gate through
+    // `one_float_or_fixed` (Float|Fixed only), so widening this does not enable
+    // sqrt/pow/log/trig for Money — those keep rejecting it.
+    matches!(type_name, "Integer" | "Float" | "Fixed" | "Money")
 }
 
 /// A single `List OF <element>` argument (the unary SIMD array overloads).
