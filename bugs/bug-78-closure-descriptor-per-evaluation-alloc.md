@@ -4,7 +4,47 @@ Last updated: 2026-07-11
 Effort: medium (1h–2h) to bound; large to make no-capture function values allocation-free
 Severity: MEDIUM (unbounded arena growth in a loop)
 
-**Status (2026-07-11):** DEFERRED — no safe minimal patch. Confirmed still present:
+**Status (2026-07-11, updated):** User chose the FULL allocation-free redesign.
+Scoped in depth this session; it is a substantial cross-phase + cross-backend
+feature, NOT a contained patch, so it is documented here for a dedicated staged
+effort rather than rushed (rushing risks regressing the function-value/closure
+semantics bug-72/73 established, across all 4 backends).
+
+### The design (route A — static descriptor, keeps every consumer unchanged)
+All indirect-call / env-access consumers read `{code@0, env@8}` from a descriptor
+pointer (`builder_collection_queries.rs:1270`, `builder_emit_helpers.rs:216`,
+`runtime_helpers.rs:663`). So the lowest-risk redesign keeps the descriptor shape
+and makes a **no-capture** `FunctionRef` return the address of a STATIC descriptor
+instead of arena-allocating one per evaluation (`builder_values.rs:357-428`).
+
+Two ways to get a static `{&function, 0}`:
+- **A1 — data→code absolute relocation:** emit the descriptor as a data object
+  whose code word is a link-time pointer to the function symbol. Blocker:
+  `CodeDataObject.value` is a static byte string with NO embedded-relocation
+  mechanism, and `RelocIntent` has no absolute data→symbol kind. Needs a new
+  `RelocIntent` (e.g. `DataAbs64`) emitted + resolved in all four backends'
+  encoders and static linkers (R_AARCH64_ABS64 / R_X86_64_64 / R_RISCV_64 / Mach-O
+  ABS64).
+- **A2 — BSS descriptor + startup initializer:** emit a zeroed BSS descriptor per
+  function-value symbol and populate its code word at startup with the existing
+  text-section `adrp;add` (`push_symbol_address`), wired through the entry's
+  `global_initializer_symbol` path (`entry_and_arena.rs:9`). No new relocation, but
+  needs the init code generated + run before `main`.
+
+### The integration blocker (common to A1/A2 and to any cache/bounded variant)
+Descriptors are emitted at the MODULE level (`mod.rs:444+`), but which functions
+are referenced as values is only known during PER-FUNCTION lowering (`CodeBuilder`,
+one per function). So a fix must thread a set of function-value symbols out of each
+`CodeFunction` and aggregate them at module assembly, then emit the descriptors
+(+ A2's initializer) once. That cross-phase plumbing + the 4-backend work + full
+re-verification of every function-value/collection-of-closures program (bug-72/73)
+on all four remotes is the dedicated effort this needs.
+
+Note: it is arena GROWTH (freed at process exit), not a leak that outlives the
+process — a perf/memory-pressure issue, not a correctness defect.
+
+### Original finding
+Confirmed still present:
 `NirValue::FunctionRef` (builder_values.rs) unconditionally `arena_alloc`s a
 `CLOSURE_OBJECT_SIZE` descriptor per evaluation with a hardcoded zero env, so a
 lambda in a loop grows the arena without bound. The allocation-free route (a bare

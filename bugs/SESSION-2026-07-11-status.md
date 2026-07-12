@@ -1,5 +1,45 @@
 # Bug-fix session disposition — 2026-07-11
 
+## FINAL state (after the "fix each" continuation)
+Of the 21 docs that were open at the continuation, 20 are resolved and verified on
+all four remotes; 1 (bug-78) is a scoped feature deferred for a dedicated effort.
+
+**Fixed + moved to completed-bugs this continuation:** bug-97, bug-102, bug-114,
+bug-115, bug-116, bug-117, bug-120, bug-124, bug-125, bug-136, bug-137, bug-139
+(all sub-issues); bug-80 (union canonical tags — divergent positions now dispatch,
+verified 4 remotes); bug-82 (CodeOp relocation, byte-identical); bug-86 (CLOSED as
+not-a-bug — the "spurious overflow" was the entry exit-code range check on a large
+returned error code, not a codegen defect).
+
+**Still open (with reasons):**
+- **bug-78** — user chose the full allocation-free closure redesign; scoped in the
+  doc as a cross-phase + cross-backend FEATURE (static BSS descriptors + a startup
+  initializer, or a new data→code absolute relocation) with real regression risk to
+  function-value semantics. It is arena GROWTH (freed at exit), not a correctness
+  bug. Left for a dedicated staged effort rather than rushed.
+- **bug-79** — 79.2/79.3/79.4 fixed; 79.1 == bug-116 (fixed); 79.5 (`pick()(4)`
+  call-a-returned-value grammar) LEFT as a parse error per the user's decision
+  (deliberate language limitation, not a bug).
+- **bug-126** — 126.1/126.2 fixed; 126.3 (shared fused-setter re-expansion) latent,
+  no byte-neutral rewrite without churn.
+- **bug-127** — 127.1/127.2 fixed; 127.3 (per-ISA scratch occupancy) latent,
+  guaranteed unreachable by plan-34-D; correct fix is an ISA-threading refactor of
+  the hot allocator, not worth the risk.
+- **bug-138** — 138.1/138.2a fixed; 138.2b (an x0<-x0 no-op in randomBytes) left in
+  place — removing it churns x86 bytes via the fragile arg-staging inference for
+  zero benefit.
+- **bug-147** — 147.1/147.3/147.4/147.7 fixed (147.6 already fixed, 147.2 stale);
+  147.5 (error-path frees) needs an ActiveCleanup redesign to avoid double-free /
+  cross-thread arena races — an OOM-under-TRAP / send-failure-only leak.
+
+**Discovered (filed separately, pre-existing, out of scope):** x86-glibc
+`math::rand` with a fixed seed is non-deterministic (present at HEAD before this
+work; musl x86 / aarch64 / riscv are all correct and deterministic). bug-148
+(loop-trap nulls e.message) was filed by a concurrent client.
+
+---
+
+
 ## Wave 3 addendum
 **bug-137.4** (math::rand modulo bias → Lemire rejection sampling; verified
 uniform-bounded + cross-target-identical seeded sequence on all four remotes) and
