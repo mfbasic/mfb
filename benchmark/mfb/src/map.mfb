@@ -1,0 +1,133 @@
+' Map-group benchmarks (collections:: over maps). Split from main.mfb.
+'
+' The two historical timing rows (set, lookup) plus consolidated coverage rows
+' that exercise every Map-shaped collections:: member — get, getOr, set, hasKey,
+' keys, values, mapValues, merge, removeKey — over both an Integer-valued and a
+' String-valued map.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC test_map_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+    FOR i = 0 TO 999
+      m = collections::set(m, toString(i), i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR i = 0 TO 999
+      sumv = sumv + collections::get(m, toString(i))
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_set = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "set", times))
+END FUNC
+
+FUNC test_map_lookup(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+    FOR i = 0 TO 19999
+      m = collections::set(m, i, i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR i = 0 TO 19999
+      sumv = sumv + collections::get(m, i)
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_lookup = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "lookup", times))
+END FUNC
+
+' --- coverage helpers -------------------------------------------------------
+
+FUNC mapDoubleVal(v AS Integer) AS Integer
+  RETURN v + v
+END FUNC
+
+FUNC mapTagVal(v AS String) AS String
+  RETURN v & "!"
+END FUNC
+
+' Integer values, String keys: every Map-shaped collections:: member.
+FUNC test_map_int_ops(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR pass = 0 TO 49
+      MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+      FOR i = 0 TO 199
+        m = collections::set(m, toString(i), i)
+      NEXT
+      MUT other AS Map OF String TO Integer = Map OF String TO Integer {}
+      FOR i = 200 TO 249
+        other = collections::set(other, toString(i), i)
+      NEXT
+      LET merged AS Map OF String TO Integer = collections::merge(m, other, TRUE)
+      LET doubled AS Map OF String TO Integer = collections::mapValues(merged, mapDoubleVal)
+      LET ks AS List OF String = collections::keys(doubled)
+      LET vs AS List OF Integer = collections::values(doubled)
+      acc = acc + len(ks) + len(vs)
+      IF collections::hasKey(doubled, "10") THEN
+        acc = acc + collections::get(doubled, "10")
+      END IF
+      acc = acc + collections::getOr(doubled, "missing", -1)
+      LET pruned AS Map OF String TO Integer = collections::removeKey(doubled, "0")
+      acc = acc + len(collections::keys(pruned))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_int_ops = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "int_ops", times))
+END FUNC
+
+' String values, String keys: the same members over String payloads.
+FUNC test_map_str_ops(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR pass = 0 TO 49
+      MUT m AS Map OF String TO String = Map OF String TO String {}
+      FOR i = 0 TO 199
+        m = collections::set(m, toString(i), "v" & toString(i))
+      NEXT
+      MUT other AS Map OF String TO String = Map OF String TO String {}
+      FOR i = 200 TO 249
+        other = collections::set(other, toString(i), "v" & toString(i))
+      NEXT
+      LET merged AS Map OF String TO String = collections::merge(m, other, TRUE)
+      LET tagged AS Map OF String TO String = collections::mapValues(merged, mapTagVal)
+      LET ks AS List OF String = collections::keys(tagged)
+      LET vs AS List OF String = collections::values(tagged)
+      acc = acc + len(ks) + len(vs)
+      IF collections::hasKey(tagged, "10") THEN
+        acc = acc + len(collections::get(tagged, "10"))
+      END IF
+      acc = acc + len(collections::getOr(tagged, "missing", "none"))
+      LET pruned AS Map OF String TO String = collections::removeKey(tagged, "0")
+      acc = acc + len(collections::keys(pruned))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_str_ops = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "str_ops", times))
+END FUNC

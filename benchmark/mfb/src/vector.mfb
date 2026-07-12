@@ -1,0 +1,180 @@
+' Vector-group benchmarks (vector:: package). Split from main.mfb.
+'
+' The historical `math` row (Float3 geometry, scalar-equivalent to the C/Python
+' references) plus consolidated coverage rows that exercise every vector::
+' member across each element family (Float, Fixed, Integer). Every function is
+' driven on the 2D type (so perpendicular/rotate_2d/1-ary cross are covered),
+' and cross is additionally driven on the 3D (2-ary) and 4D (3-ary) types.
+IMPORT io
+IMPORT vector
+IMPORT collections
+IMPORT datetime
+
+FUNC test_vector_math(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR k = 0 TO 199999
+      LET fk AS Float = toFloat(k)
+      LET a AS vector::Float3 = vector::Float3[fk + 1.0, fk * 0.5 + 2.0, 3.0 - fk * 0.25]
+      LET b AS vector::Float3 = vector::Float3[2.0 - fk * 0.125, fk + 0.5, fk * 0.75 + 1.0]
+      LET na AS vector::Float3 = vector::normalize(a)
+      LET nb AS vector::Float3 = vector::normalize(b)
+      LET c AS vector::Float3 = vector::cross(na, nb)
+      LET m AS vector::Float3 = vector::lerp(a, b, 0.5)
+      LET s AS vector::Float3 = vector::scale(na, nb)
+      acc = acc + vector::dot(c, m) + vector::length(s) + vector::distance(a, b)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("vector_math = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("vector", "math", times))
+END FUNC
+
+' Float family: every vector:: member.
+FUNC test_vector_float(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR i = 0 TO 19999
+      LET fk AS Float = toFloat(i - (i / 1000) * 1000)
+      LET a AS vector::Float2 = vector::Float2[fk + 1.0, fk * 0.5 + 2.0]
+      LET b AS vector::Float2 = vector::Float2[fk * 0.25 + 3.0, fk + 1.5]
+      LET nb AS vector::Float2 = vector::normalize(b)
+      acc = acc + vector::length(a)
+      acc = acc + vector::distance(a, b)
+      acc = acc + vector::dot(a, b)
+      acc = acc + vector::angle(a, b)
+      acc = acc + vector::length(vector::abs(a))
+      acc = acc + vector::length(vector::min(a, b))
+      acc = acc + vector::length(vector::max(a, b))
+      acc = acc + vector::length(vector::scale(a, b))
+      acc = acc + vector::length(vector::normalize(a))
+      acc = acc + vector::length(vector::lerp(a, b, 0.5))
+      acc = acc + vector::length(vector::lerp_unclamped(a, b, 1.5))
+      acc = acc + vector::length(vector::clamp_length(a, 3.0))
+      acc = acc + vector::length(vector::project(a, b))
+      acc = acc + vector::length(vector::reject(a, b))
+      acc = acc + vector::length(vector::reflect(a, nb))
+      acc = acc + vector::length(vector::slerp(a, b, 0.5))
+      acc = acc + vector::length(vector::perpendicular(a))
+      acc = acc + vector::length(vector::rotate_2d(a, 0.5))
+      acc = acc + vector::length(vector::cross(a))
+      LET a3 AS vector::Float3 = vector::Float3[fk + 1.0, fk * 0.5 + 2.0, fk * 0.25 + 3.0]
+      LET b3 AS vector::Float3 = vector::Float3[fk * 0.3 + 1.0, fk + 2.0, fk * 0.7 + 0.5]
+      acc = acc + vector::length(vector::cross(a3, b3))
+      LET a4 AS vector::Float4 = vector::Float4[fk + 1.0, fk * 0.5 + 2.0, fk * 0.25 + 3.0, fk * 0.1 + 1.0]
+      LET b4 AS vector::Float4 = vector::Float4[fk * 0.3 + 1.0, fk + 2.0, fk * 0.7 + 0.5, fk * 0.2 + 2.0]
+      LET c4 AS vector::Float4 = vector::Float4[fk * 0.6 + 1.0, fk * 0.2 + 2.0, fk + 0.5, fk * 0.9 + 1.0]
+      acc = acc + vector::length(vector::cross(a4, b4, c4))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("vector_float = " & toString(checksum, toByte(3)))
+  RETURN collections::append(tests, makeResult("vector", "float", times))
+END FUNC
+
+' Fixed family: components kept small so the deterministic Q32.32 accumulator
+' never overflows the ~2.1e9 Fixed range.
+FUNC test_vector_fixed(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET fxThree AS Fixed = 3.0
+  MUT times AS List OF Integer = []
+  MUT checksum AS Fixed = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Fixed = 0.0
+    FOR i = 0 TO 3999
+      LET fk AS Fixed = toFixed(i - (i / 10) * 10)
+      LET a AS vector::Fixed2 = vector::Fixed2[fk + 1.0, fk * 0.5 + 2.0]
+      LET b AS vector::Fixed2 = vector::Fixed2[fk * 0.25 + 3.0, fk + 1.5]
+      LET nb AS vector::Fixed2 = vector::normalize(b)
+      acc = acc + vector::length(a)
+      acc = acc + vector::distance(a, b)
+      acc = acc + vector::dot(a, b)
+      acc = acc + vector::angle(a, b)
+      acc = acc + vector::length(vector::abs(a))
+      acc = acc + vector::length(vector::min(a, b))
+      acc = acc + vector::length(vector::max(a, b))
+      acc = acc + vector::length(vector::scale(a, b))
+      acc = acc + vector::length(vector::normalize(a))
+      acc = acc + vector::length(vector::lerp(a, b, 0.5))
+      acc = acc + vector::length(vector::lerp_unclamped(a, b, 1.5))
+      acc = acc + vector::length(vector::clamp_length(a, fxThree))
+      acc = acc + vector::length(vector::project(a, b))
+      acc = acc + vector::length(vector::reject(a, b))
+      acc = acc + vector::length(vector::reflect(a, nb))
+      acc = acc + vector::length(vector::slerp(a, b, 0.5))
+      acc = acc + vector::length(vector::perpendicular(a))
+      acc = acc + vector::length(vector::rotate_2d(a, 0.5))
+      acc = acc + vector::length(vector::cross(a))
+      LET a3 AS vector::Fixed3 = vector::Fixed3[fk + 1.0, fk * 0.5 + 2.0, fk * 0.25 + 3.0]
+      LET b3 AS vector::Fixed3 = vector::Fixed3[fk * 0.3 + 1.0, fk + 2.0, fk * 0.7 + 0.5]
+      acc = acc + vector::length(vector::cross(a3, b3))
+      LET a4 AS vector::Fixed4 = vector::Fixed4[fk + 1.0, fk * 0.5 + 2.0, fk * 0.25 + 3.0, fk * 0.1 + 1.0]
+      LET b4 AS vector::Fixed4 = vector::Fixed4[fk * 0.3 + 1.0, fk + 2.0, fk * 0.7 + 0.5, fk * 0.2 + 2.0]
+      LET c4 AS vector::Fixed4 = vector::Fixed4[fk * 0.6 + 1.0, fk * 0.2 + 2.0, fk + 0.5, fk * 0.9 + 1.0]
+      acc = acc + vector::length(vector::cross(a4, b4, c4))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("vector_fixed = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("vector", "fixed", times))
+END FUNC
+
+' Integer family: components bounded, normal for reflection is the normalized
+' (degenerate) integer unit so magnitudes stay in the i64 range.
+FUNC test_vector_int(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 19999
+      LET m AS Integer = i - (i / 90) * 90
+      LET a AS vector::Integer2 = vector::Integer2[m + 1, m + 2]
+      LET b AS vector::Integer2 = vector::Integer2[m + 3, m + 5]
+      LET nb AS vector::Integer2 = vector::normalize(b)
+      acc = acc + vector::length(a)
+      acc = acc + vector::distance(a, b)
+      acc = acc + vector::dot(a, b)
+      acc = acc + vector::angle(a, b)
+      acc = acc + vector::length(vector::abs(a))
+      acc = acc + vector::length(vector::min(a, b))
+      acc = acc + vector::length(vector::max(a, b))
+      acc = acc + vector::length(vector::scale(a, b))
+      acc = acc + vector::length(vector::normalize(a))
+      acc = acc + vector::length(vector::lerp(a, b, 0.5))
+      acc = acc + vector::length(vector::lerp_unclamped(a, b, 1.5))
+      acc = acc + vector::length(vector::clamp_length(a, 50))
+      acc = acc + vector::length(vector::project(a, b))
+      acc = acc + vector::length(vector::reject(a, b))
+      acc = acc + vector::length(vector::reflect(a, nb))
+      acc = acc + vector::length(vector::slerp(a, b, 0.5))
+      acc = acc + vector::length(vector::perpendicular(a))
+      acc = acc + vector::length(vector::rotate_2d(a, 0.5))
+      acc = acc + vector::length(vector::cross(a))
+      LET a3 AS vector::Integer3 = vector::Integer3[m + 1, m + 2, m + 3]
+      LET b3 AS vector::Integer3 = vector::Integer3[m + 4, m + 5, m + 6]
+      acc = acc + vector::length(vector::cross(a3, b3))
+      LET a4 AS vector::Integer4 = vector::Integer4[m + 1, m + 2, m + 3, m + 4]
+      LET b4 AS vector::Integer4 = vector::Integer4[m + 2, m + 3, m + 4, m + 5]
+      LET c4 AS vector::Integer4 = vector::Integer4[m + 3, m + 4, m + 5, m + 6]
+      acc = acc + vector::length(vector::cross(a4, b4, c4))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("vector_int = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("vector", "int", times))
+END FUNC

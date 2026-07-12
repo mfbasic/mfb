@@ -11,8 +11,9 @@
  * Every test prints its checksum to stderr so the optimizer cannot delete the
  * workload and the implementations can be cross-checked. Build with
  * `cc -O2 main.c -o bench -lm -lpthread` (the runner builds -O0 and -O2). The
- * `parse` group is intentionally absent: C has no standard-library CSV/JSON/
- * regex parser, so those tests exist only for mfb and Python. */
+ * `parse` group (parsebench.c) vendors parson (JSON) + libcsv (CSV) and uses
+ * POSIX <regex.h> for regex, so csv/json/regex compare across all three
+ * languages. */
 #include <math.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -22,7 +23,13 @@
 #include <time.h>
 
 #include "bench.h"
+#include "bitsbench.h"
 #include "list.h"
+#include "mapbench.h"
+#include "mathbench.h"
+#include "parsebench.h"
+#include "stringbench.h"
+#include "vectorbench.h"
 
 int RUN = 10;
 
@@ -239,148 +246,11 @@ static void test_mandelbrot(void) {
   free(t);
 }
 
-/* ===================================================================== */
-/* GROUP: math (each kernel run 2000 x 1000 times)                       */
-/* ===================================================================== */
-
-#define MATH_KERNEL(fnname, label, expr, init, step)         \
-  static void fnname(void) {                                 \
-    long long *t = alloc_times();                            \
-    double checksum = 0.0;                                   \
-    for (int r = 0; r < RUN; r++) {                          \
-      long long t0 = now_ns();                               \
-      double acc = 0.0;                                      \
-      for (int rep = 0; rep < 2000; rep++) {                 \
-        double v = (init);                                   \
-        for (int i = 0; i < 1000; i++) {                     \
-          acc += (expr);                                     \
-          v += (step);                                       \
-        }                                                    \
-      }                                                      \
-      checksum = acc;                                        \
-      t[r] = now_ns() - t0;                                  \
-    }                                                        \
-    fprintf(stderr, "%s = %.6f\n", label, checksum);         \
-    record("math", label, t, RUN);                           \
-    free(t);                                                 \
-  }
-
-MATH_KERNEL(test_sin, "sin", sin(v), 0.001, 0.0015)
-MATH_KERNEL(test_cos, "cos", cos(v), 0.001, 0.0015)
-MATH_KERNEL(test_tan, "tan", tan(v), 0.001, 0.0015)
-MATH_KERNEL(test_atan2, "atan2", atan2(v, 1.0 + v), 0.001, 0.0015)
-MATH_KERNEL(test_asin, "asin", asin(v), -0.999, 0.001998)
-MATH_KERNEL(test_acos, "acos", acos(v), -0.999, 0.001998)
-MATH_KERNEL(test_atan, "atan", atan(v), -0.999, 0.001998)
-MATH_KERNEL(test_exp, "exp", exp(v * 0.1), 0.001, 0.005)
-MATH_KERNEL(test_log, "log", log(v), 0.001, 0.005)
-MATH_KERNEL(test_log10, "log10", log10(v), 0.001, 0.005)
-MATH_KERNEL(test_pow, "pow", pow(v, 1.5), 0.001, 0.005)
-MATH_KERNEL(test_sqrt, "sqrt", sqrt(v), 0.001, 0.005)
-
-/* GROUP: list lives in list.c (see run_list_group). */
-
-/* ===================================================================== */
-/* GROUP: map (open-addressing hash tables)                              */
-/* ===================================================================== */
-
-typedef struct { char *key; long val; int used; } SSlot;
-static unsigned long djb2(const char *s) {
-  unsigned long h = 5381; int c;
-  while ((c = *s++)) h = ((h << 5) + h) + c;
-  return h;
-}
-
-static void test_map_set(void) {
-#define SMAP_CAP 4096
-  long long *t = alloc_times();
-  long checksum = 0;
-  char buf[16];
-  for (int r = 0; r < RUN; r++) {
-    SSlot *table = calloc(SMAP_CAP, sizeof(SSlot));
-    long long t0 = now_ns();
-    for (int i = 0; i < 1000; i++) {
-      snprintf(buf, sizeof buf, "%d", i);
-      unsigned long h = djb2(buf) & (SMAP_CAP - 1);
-      while (table[h].used) {
-        if (strcmp(table[h].key, buf) == 0) break;
-        h = (h + 1) & (SMAP_CAP - 1);
-      }
-      if (!table[h].used) { table[h].key = strdup(buf); table[h].used = 1; }
-      table[h].val = i;
-    }
-    long sum = 0;
-    for (int i = 0; i < 1000; i++) {
-      snprintf(buf, sizeof buf, "%d", i);
-      unsigned long h = djb2(buf) & (SMAP_CAP - 1);
-      while (table[h].used) {
-        if (strcmp(table[h].key, buf) == 0) { sum += table[h].val; break; }
-        h = (h + 1) & (SMAP_CAP - 1);
-      }
-    }
-    checksum = sum;
-    t[r] = now_ns() - t0;
-    for (int i = 0; i < SMAP_CAP; i++) if (table[i].used) free(table[i].key);
-    free(table);
-  }
-  fprintf(stderr, "map_set = %ld\n", checksum);
-  record("map", "set", t, RUN);
-  free(t);
-}
-
-static void test_map_lookup(void) {
-#define IMAP_CAP 32768
-#define IMAP_N 20000
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long *keys = calloc(IMAP_CAP, sizeof(long));
-    long *vals = calloc(IMAP_CAP, sizeof(long));
-    char *used = calloc(IMAP_CAP, 1);
-    long long t0 = now_ns();
-    for (long i = 0; i < IMAP_N; i++) {
-      size_t h = (size_t)(i * 1099511628211UL) & (IMAP_CAP - 1);
-      while (used[h] && keys[h] != i) h = (h + 1) & (IMAP_CAP - 1);
-      used[h] = 1; keys[h] = i; vals[h] = i;
-    }
-    long sum = 0;
-    for (long i = 0; i < IMAP_N; i++) {
-      size_t h = (size_t)(i * 1099511628211UL) & (IMAP_CAP - 1);
-      while (used[h] && keys[h] != i) h = (h + 1) & (IMAP_CAP - 1);
-      sum += vals[h];
-    }
-    checksum = sum;
-    t[r] = now_ns() - t0;
-    free(keys); free(vals); free(used);
-  }
-  fprintf(stderr, "map_lookup = %ld\n", checksum);
-  record("map", "lookup", t, RUN);
-  free(t);
-}
-
-/* ===================================================================== */
-/* GROUP: string                                                         */
-/* ===================================================================== */
-
-static void test_string_concat(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    char *s = NULL; int len = 0, cap = 0;
-    for (int i = 0; i < 1000; i++) {
-      if (len + 1 >= cap) { cap = cap ? cap * 2 : 2; s = realloc(s, cap); }
-      s[len++] = 'x';
-    }
-    s[len] = '\0';
-    checksum = len;
-    t[r] = now_ns() - t0;
-    free(s);
-  }
-  fprintf(stderr, "string_concat = %ld\n", checksum);
-  record("string", "concat", t, RUN);
-  free(t);
-}
+/* GROUP: math lives in mathbench.c (see run_math_group). */
+/* GROUP: list lives in list.c (see run_list_group / run_liststr_group). */
+/* GROUP: map lives in mapbench.c (see run_map_group). */
+/* GROUP: string lives in stringbench.c (see run_string_group). */
+/* GROUP: bits lives in bitsbench.c (see run_bits_group). */
 
 /* ===================================================================== */
 /* GROUP: record                                                         */
@@ -572,40 +442,7 @@ static void test_io_read(void) {
   free(t);
 }
 
-/* ===================================================================== */
-/* GROUP: vector (scalar 3D geometry, same op order as mfb/python)       */
-/* ===================================================================== */
-
-static void test_vector_math(void) {
-  long long *t = alloc_times();
-  double checksum = 0.0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    double acc = 0.0;
-    for (long k = 0; k < 200000; k++) {
-      double fk = (double)k;
-      double ax = fk + 1.0, ay = fk * 0.5 + 2.0, az = 3.0 - fk * 0.25;
-      double bx = 2.0 - fk * 0.125, by = fk + 0.5, bz = fk * 0.75 + 1.0;
-      double la = sqrt(ax * ax + ay * ay + az * az);
-      double nax = ax / la, nay = ay / la, naz = az / la;
-      double lb = sqrt(bx * bx + by * by + bz * bz);
-      double nbx = bx / lb, nby = by / lb, nbz = bz / lb;
-      double cx = nay * nbz - naz * nby, cy = naz * nbx - nax * nbz, cz = nax * nby - nay * nbx;
-      double mx = ax + (bx - ax) * 0.5, my = ay + (by - ay) * 0.5, mz = az + (bz - az) * 0.5;
-      double sx = nax * nbx, sy = nay * nby, sz = naz * nbz;
-      double dcm = cx * mx + cy * my + cz * mz;
-      double lens = sqrt(sx * sx + sy * sy + sz * sz);
-      double dx = ax - bx, dy = ay - by, dz = az - bz;
-      double dist = sqrt(dx * dx + dy * dy + dz * dz);
-      acc += dcm + lens + dist;
-    }
-    checksum = acc;
-    t[r] = now_ns() - t0;
-  }
-  fprintf(stderr, "vector_math = %.6f\n", checksum);
-  record("vector", "math", t, RUN);
-  free(t);
-}
+/* GROUP: vector lives in vectorbench.c (see run_vector_group). */
 
 /* ===================================================================== */
 /* GROUP: primes                                                         */
@@ -684,26 +521,28 @@ int main(int argc, char **argv) {
   test_nbody();
   test_mandelbrot();
 
-  test_sin(); test_cos(); test_tan(); test_atan2();
-  test_asin(); test_acos(); test_atan();
-  test_exp(); test_log(); test_log10(); test_pow(); test_sqrt();
+  run_math_group();
 
   run_list_group();
+  run_liststr_group();
 
-  test_map_set();
-  test_map_lookup();
+  run_map_group();
 
-  test_string_concat();
+  run_string_group();
+
+  run_bits_group();
 
   test_record_update();
 
   test_bignum_modmul();
   test_bignum_modexp();
 
+  run_parse_group();
+
   test_io_write();
   test_io_read();
 
-  test_vector_math();
+  run_vector_group();
 
   test_primes();
 

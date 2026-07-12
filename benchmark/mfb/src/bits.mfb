@@ -1,0 +1,45 @@
+' Bits-group benchmark (bits:: package). Split from main.mfb.
+'
+' Every bits:: member operates on raw 64-bit Integer bit patterns, so a single
+' coverage row drives the whole surface — band, bor, bxor, bnot, sl, sr, sra,
+' rl32/rr32/rl64/rr64, clz, ctz, popCount, bswap16/bswap32/bswap64. The
+' accumulator is folded with bxor (not +) so the workload never trips checked
+' Integer-addition overflow on a full-width bit pattern.
+IMPORT io
+IMPORT bits
+IMPORT collections
+IMPORT datetime
+
+FUNC test_bits_ops(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    MUT h AS Integer = 2166136261
+    FOR i = 0 TO 199999
+      LET x AS Integer = i
+      h = bits::bxor(h, bits::bor(x, bits::sl(x, 3)))
+      h = bits::band(h, 1152921504606846975)
+      h = bits::rl64(h, 7)
+      h = bits::rr64(h, 3)
+      h = bits::bxor(h, bits::sr(h, 11))
+      h = bits::bxor(h, bits::sra(h, 2))
+      h = bits::bxor(h, bits::bnot(x))
+      acc = bits::bxor(acc, h)
+      acc = bits::bxor(acc, bits::rl32(h, 5))
+      acc = bits::bxor(acc, bits::rr32(h, 9))
+      acc = bits::bxor(acc, bits::bswap16(x))
+      acc = bits::bxor(acc, bits::bswap32(x))
+      acc = bits::bxor(acc, bits::bswap64(h))
+      acc = bits::bxor(acc, bits::popCount(h))
+      acc = bits::bxor(acc, bits::clz(x))
+      acc = bits::bxor(acc, bits::ctz(x))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("bits_ops = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bits", "ops", times))
+END FUNC

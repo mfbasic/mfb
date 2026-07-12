@@ -7,7 +7,6 @@ IMPORT fs
 IMPORT csv
 IMPORT json
 IMPORT regex
-IMPORT vector
 IMPORT thread
 IMPORT bench_workers
 
@@ -21,6 +20,16 @@ IMPORT bench_workers
 '
 ' Every test prints its checksum to stderr so the compiler cannot eliminate the
 ' workload and the three language implementations can be cross-checked.
+'
+' The suite is split across files so each package's coverage lives on its own:
+'   list.mfb    collections:: over Integer lists  + liststr:: over String lists
+'   map.mfb     collections:: over maps (Integer and String values)
+'   math.mfb    math:: kernels + Integer/Float/Fixed/SIMD coverage
+'   vector.mfb  vector:: over the Float/Fixed/Integer families
+'   bits.mfb    bits:: bitwise/shift/rotate coverage
+'   string.mfb  strings:: coverage + & concat
+' main.mfb keeps recurse/float/record/bignum/parse/io/primes/thread and the
+' shared BenchResult type, statistics helpers, and the driver.
 
 TYPE BenchResult
   group AS String
@@ -493,330 +502,6 @@ FUNC test_mandelbrot(run AS Integer, tests AS List OF BenchResult) AS List OF Be
 END FUNC
 
 ' ===========================================================================
-' GROUP: math (individual libm-severed kernels; 2000 x 1000 calls each)
-' ===========================================================================
-
-FUNC test_sin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT x AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::sin(x)
-        x = x + 0.0015
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("sin = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "sin", times))
-END FUNC
-
-FUNC test_cos(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT x AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::cos(x)
-        x = x + 0.0015
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("cos = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "cos", times))
-END FUNC
-
-FUNC test_tan(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT x AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::tan(x)
-        x = x + 0.0015
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("tan = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "tan", times))
-END FUNC
-
-FUNC test_atan2(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT x AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::atan2(x, 1.0 + x)
-        x = x + 0.0015
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("atan2 = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "atan2", times))
-END FUNC
-
-FUNC test_asin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT t AS Float = -0.999
-      FOR i = 0 TO 999
-        acc = acc + math::asin(t)
-        t = t + 0.001998
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("asin = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "asin", times))
-END FUNC
-
-FUNC test_acos(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT t AS Float = -0.999
-      FOR i = 0 TO 999
-        acc = acc + math::acos(t)
-        t = t + 0.001998
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("acos = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "acos", times))
-END FUNC
-
-FUNC test_atan(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT t AS Float = -0.999
-      FOR i = 0 TO 999
-        acc = acc + math::atan(t)
-        t = t + 0.001998
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("atan = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "atan", times))
-END FUNC
-
-FUNC test_exp(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT v AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::exp(v * 0.1)
-        v = v + 0.005
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("exp = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "exp", times))
-END FUNC
-
-FUNC test_log(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT v AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::log(v)
-        v = v + 0.005
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("log = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "log", times))
-END FUNC
-
-FUNC test_log10(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT v AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::log10(v)
-        v = v + 0.005
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("log10 = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "log10", times))
-END FUNC
-
-FUNC test_pow(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT v AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::pow(v, 1.5)
-        v = v + 0.005
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("pow = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "pow", times))
-END FUNC
-
-FUNC test_sqrt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR rep = 0 TO 1999
-      MUT v AS Float = 0.001
-      FOR i = 0 TO 999
-        acc = acc + math::sqrt(v)
-        v = v + 0.005
-      NEXT
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("sqrt = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("math", "sqrt", times))
-END FUNC
-
-
-' ===========================================================================
-' GROUP: map
-' ===========================================================================
-
-FUNC test_map_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
-    FOR i = 0 TO 999
-      m = collections::set(m, toString(i), i)
-    NEXT
-    MUT sumv AS Integer = 0
-    FOR i = 0 TO 999
-      sumv = sumv + collections::get(m, toString(i))
-    NEXT
-    checksum = sumv
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("map_set = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("map", "set", times))
-END FUNC
-
-FUNC test_map_lookup(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
-    FOR i = 0 TO 19999
-      m = collections::set(m, i, i)
-    NEXT
-    MUT sumv AS Integer = 0
-    FOR i = 0 TO 19999
-      sumv = sumv + collections::get(m, i)
-    NEXT
-    checksum = sumv
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("map_lookup = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("map", "lookup", times))
-END FUNC
-
-' ===========================================================================
-' GROUP: string
-' ===========================================================================
-
-FUNC test_string_concat(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT s AS String = ""
-    FOR i = 0 TO 999
-      s = s & "x"
-    NEXT
-    checksum = len(s)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("string_concat = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("string", "concat", times))
-END FUNC
-
-' ===========================================================================
 ' GROUP: record
 ' ===========================================================================
 
@@ -1192,35 +877,6 @@ FUNC test_io_read(run AS Integer, tests AS List OF BenchResult) AS List OF Bench
 END FUNC
 
 ' ===========================================================================
-' GROUP: vector (vector:: package geometry surface)
-' ===========================================================================
-
-FUNC test_vector_math(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Float = 0.0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Float = 0.0
-    FOR k = 0 TO 199999
-      LET fk AS Float = toFloat(k)
-      LET a AS vector::Float3 = vector::Float3[fk + 1.0, fk * 0.5 + 2.0, 3.0 - fk * 0.25]
-      LET b AS vector::Float3 = vector::Float3[2.0 - fk * 0.125, fk + 0.5, fk * 0.75 + 1.0]
-      LET na AS vector::Float3 = vector::normalize(a)
-      LET nb AS vector::Float3 = vector::normalize(b)
-      LET c AS vector::Float3 = vector::cross(na, nb)
-      LET m AS vector::Float3 = vector::lerp(a, b, 0.5)
-      LET s AS vector::Float3 = vector::scale(na, nb)
-      acc = acc + vector::dot(c, m) + vector::length(s) + vector::distance(a, b)
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("vector_math = " & toString(checksum, toByte(6)))
-  RETURN collections::append(tests, makeResult("vector", "math", times))
-END FUNC
-
-' ===========================================================================
 ' GROUP: primes
 ' ===========================================================================
 
@@ -1322,6 +978,7 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_nbody(run, tests)
   tests = test_mandelbrot(run, tests)
 
+  ' math group (math.mfb)
   tests = test_sin(run, tests)
   tests = test_cos(run, tests)
   tests = test_tan(run, tests)
@@ -1334,7 +991,12 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_log10(run, tests)
   tests = test_pow(run, tests)
   tests = test_sqrt(run, tests)
+  tests = test_math_float(run, tests)
+  tests = test_math_int(run, tests)
+  tests = test_math_fixed(run, tests)
+  tests = test_math_simd(run, tests)
 
+  ' list group (list.mfb)
   tests = test_list_append(run, tests)
   tests = test_list_append_batch(run, tests)
   tests = test_list_prepend(run, tests)
@@ -1370,10 +1032,27 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_list_window(run, tests)
   tests = test_list_zip(run, tests)
 
+  ' liststr group (list.mfb) — collections:: over String lists
+  tests = test_liststr_build(run, tests)
+  tests = test_liststr_query(run, tests)
+  tests = test_liststr_hof(run, tests)
+  tests = test_liststr_reshape(run, tests)
+
+  ' map group (map.mfb)
   tests = test_map_set(run, tests)
   tests = test_map_lookup(run, tests)
+  tests = test_map_int_ops(run, tests)
+  tests = test_map_str_ops(run, tests)
 
+  ' string group (string.mfb)
   tests = test_string_concat(run, tests)
+  tests = test_string_case(run, tests)
+  tests = test_string_search(run, tests)
+  tests = test_string_slice(run, tests)
+  tests = test_string_unicode(run, tests)
+
+  ' bits group (bits.mfb)
+  tests = test_bits_ops(run, tests)
 
   tests = test_record_update(run, tests)
 
@@ -1387,7 +1066,11 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_io_write(run, tests)
   tests = test_io_read(run, tests)
 
+  ' vector group (vector.mfb)
   tests = test_vector_math(run, tests)
+  tests = test_vector_float(run, tests)
+  tests = test_vector_fixed(run, tests)
+  tests = test_vector_int(run, tests)
 
   tests = test_primes(run, tests)
 

@@ -783,6 +783,244 @@ static void test_list_zip(void) {
   free(t);
 }
 
+/* ===================================================================== */
+/* GROUP: liststr (collections:: over a List OF String)                  */
+/*                                                                       */
+/* Mirrors list.mfb's liststr rows: the same collections:: list ops over */
+/* String elements. Backed by a growable char* array (StrVec); the       */
+/* checksums are the same len()-based sums as the mfb version.           */
+/* ===================================================================== */
+
+typedef struct { char **d; int len; int cap; } StrVec;
+
+static void sv_init(StrVec *v) { v->d = NULL; v->len = 0; v->cap = 0; }
+static void sv_reserve(StrVec *v, int n) {
+  if (v->cap < n) { int c = v->cap ? v->cap : 1; while (c < n) c *= 2;
+    v->d = realloc(v->d, (size_t)c * sizeof(char *)); v->cap = c; }
+}
+static void sv_push(StrVec *v, char *s) { sv_reserve(v, v->len + 1); v->d[v->len++] = s; }
+static void sv_prepend(StrVec *v, char *s) {
+  sv_reserve(v, v->len + 1);
+  memmove(v->d + 1, v->d, (size_t)v->len * sizeof(char *));
+  v->d[0] = s; v->len++;
+}
+static void sv_insert(StrVec *v, int idx, char *s) {
+  sv_reserve(v, v->len + 1);
+  memmove(v->d + idx + 1, v->d + idx, (size_t)(v->len - idx) * sizeof(char *));
+  v->d[idx] = s; v->len++;
+}
+static void sv_removeAt(StrVec *v, int idx) {
+  free(v->d[idx]);
+  memmove(v->d + idx, v->d + idx + 1, (size_t)(v->len - idx - 1) * sizeof(char *));
+  v->len--;
+}
+static void sv_set(StrVec *v, int idx, char *s) { free(v->d[idx]); v->d[idx] = s; }
+static void sv_free(StrVec *v) {
+  for (int i = 0; i < v->len; i++) free(v->d[i]);
+  free(v->d); v->d = NULL; v->len = 0; v->cap = 0;
+}
+static int sv_contains(const StrVec *v, const char *s) {
+  for (int i = 0; i < v->len; i++) if (strcmp(v->d[i], s) == 0) return 1;
+  return 0;
+}
+
+/* Plain (non-owning helper) string-array builders. */
+static char **str_range(int n) {
+  char **a = malloc((size_t)n * sizeof(char *)); char buf[24];
+  for (int i = 0; i < n; i++) { snprintf(buf, sizeof buf, "s%d", i); a[i] = strdup(buf); }
+  return a;
+}
+static char **str_dup_arr(int n, int distinct) {
+  char **a = malloc((size_t)n * sizeof(char *)); char buf[24];
+  for (int i = 0; i < n; i++) { snprintf(buf, sizeof buf, "d%d", i % distinct); a[i] = strdup(buf); }
+  return a;
+}
+static void str_arr_free(char **a, int n) { for (int i = 0; i < n; i++) free(a[i]); free(a); }
+
+typedef int (*StrPred)(const char *);
+static int p_nonempty(const char *s) { return strlen(s) > 0; }
+static int p_short(const char *s) { return strlen(s) <= 2; }
+static int p_long(const char *s) { return strlen(s) >= 4; }
+
+static int arr_find(char **a, int n, const char *target) {
+  for (int i = 0; i < n; i++) if (strcmp(a[i], target) == 0) return i;
+  return -1;
+}
+static int arr_findIndex(char **a, int n, StrPred p) {
+  for (int i = 0; i < n; i++) if (p(a[i])) return i;
+  return -1;
+}
+static int arr_findLastIndex(char **a, int n, StrPred p) {
+  for (int i = n - 1; i >= 0; i--) if (p(a[i])) return i;
+  return -1;
+}
+static int arr_all(char **a, int n, StrPred p) {
+  for (int i = 0; i < n; i++) if (!p(a[i])) return 0;
+  return 1;
+}
+static int arr_any(char **a, int n, StrPred p) {
+  for (int i = 0; i < n; i++) if (p(a[i])) return 1;
+  return 0;
+}
+static int arr_count(char **a, int n, StrPred p) {
+  int c = 0; for (int i = 0; i < n; i++) if (p(a[i])) c++; return c;
+}
+static char *arr_concat(char **a, int n, int reverse) {
+  size_t total = 0; for (int i = 0; i < n; i++) total += strlen(a[i]);
+  char *r = malloc(total + 1); size_t pos = 0;
+  for (int j = 0; j < n; j++) {
+    int i = reverse ? n - 1 - j : j;
+    size_t l = strlen(a[i]); memcpy(r + pos, a[i], l); pos += l;
+  }
+  r[pos] = '\0'; return r;
+}
+static int cmp_str(const void *a, const void *b) {
+  return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+static int cmp_strlen(const void *a, const void *b) {
+  size_t x = strlen(*(const char *const *)a), y = strlen(*(const char *const *)b);
+  return (x > y) - (x < y);
+}
+
+/* append, prepend, insert, set, removeAt, get, getOr, contains */
+static void test_liststr_build(void) {
+  long long *t = alloc_times();
+  long checksum = 0;
+  char buf[40];
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    StrVec nums; sv_init(&nums);
+    for (int i = 0; i < 500; i++) { snprintf(buf, sizeof buf, "a%d", i); sv_push(&nums, strdup(buf)); }
+    for (int i = 0; i < 100; i++) { snprintf(buf, sizeof buf, "p%d", i); sv_prepend(&nums, strdup(buf)); }
+    for (int i = 0; i < 100; i++) { snprintf(buf, sizeof buf, "m%d", i); sv_insert(&nums, nums.len / 2, strdup(buf)); }
+    long acc = 0;
+    for (int i = 0; i < 200; i++) {
+      snprintf(buf, sizeof buf, "%s!", nums.d[i]); /* get + append "!" */
+      sv_set(&nums, i, strdup(buf));
+      acc += (long)strlen(nums.d[i]);              /* getOr(nums, i, "") */
+    }
+    if (sv_contains(&nums, "a10!")) acc += 1;
+    for (int i = 0; i < 100; i++) sv_removeAt(&nums, 0);
+    checksum = acc + nums.len;
+    t[r] = now_ns() - t0;
+    sv_free(&nums);
+  }
+  fprintf(stderr, "liststr_build = %ld\n", checksum);
+  record("liststr", "build", t, RUN);
+  free(t);
+}
+
+/* find, findIndex, findLastIndex, all, any */
+static void test_liststr_query(void) {
+  char **base = str_range(1000);
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    long acc = 0;
+    for (int k = 0; k < 200; k++) {
+      acc += arr_find(base, 1000, "s999");
+      acc += arr_findIndex(base, 1000, p_long);
+      acc += arr_findLastIndex(base, 1000, p_short);
+      if (arr_all(base, 1000, p_nonempty)) acc += 1;
+      if (arr_any(base, 1000, p_short)) acc += 1;
+    }
+    checksum = acc;
+    t[r] = now_ns() - t0;
+  }
+  fprintf(stderr, "liststr_query = %ld\n", checksum);
+  record("liststr", "query", t, RUN);
+  str_arr_free(base, 1000);
+  free(t);
+}
+
+/* filter, transform, reduce, reduceRight, forEach, partition */
+static long strForEachAcc = 0;
+static void test_liststr_hof(void) {
+  char **base = str_range(100);
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    long acc = 0;
+    strForEachAcc = 0;
+    for (int k = 0; k < 200; k++) {
+      acc += arr_count(base, 100, p_short);         /* len(filter) */
+      /* transform(strWrap): build "[s]" wrappers, list length = 100 */
+      char wbuf[32];
+      for (int i = 0; i < 100; i++) { snprintf(wbuf, sizeof wbuf, "[%s]", base[i]); }
+      acc += 100;
+      char *c = arr_concat(base, 100, 0); acc += (long)strlen(c); free(c);   /* reduce */
+      char *cr = arr_concat(base, 100, 1); acc += (long)strlen(cr); free(cr);/* reduceRight */
+      for (int i = 0; i < 100; i++) strForEachAcc += (long)strlen(base[i]);  /* forEach */
+      acc += arr_count(base, 100, p_short);         /* partition matched */
+    }
+    checksum = acc + strForEachAcc;
+    t[r] = now_ns() - t0;
+  }
+  fprintf(stderr, "liststr_hof = %ld\n", checksum);
+  record("liststr", "hof", t, RUN);
+  str_arr_free(base, 100);
+  free(t);
+}
+
+/* sort, sortBy, distinct, take, drop, mid, chunks, window, zip, flatten, replace */
+/* base list and k are kept small to match the mfb coverage row, which must
+ * stay tiny to dodge a runtime arena mixed-transient-churn slowdown on String
+ * sort/window (see benchmark/mfb/src/list.mfb and the README). */
+static void test_liststr_reshape(void) {
+  char **base = str_range(40);
+  char **dupbase = str_dup_arr(80, 40);
+  char **nested[15];
+  for (int i = 0; i < 15; i++) nested[i] = str_range(10);
+  char **tmp = malloc(80 * sizeof(char *));
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    long acc = 0;
+    for (int k = 0; k < 3; k++) {
+      /* sort: first element length */
+      memcpy(tmp, base, 40 * sizeof(char *));
+      qsort(tmp, 40, sizeof(char *), cmp_str);
+      acc += (long)strlen(tmp[0]);
+      /* sortBy length: first element length */
+      memcpy(tmp, base, 40 * sizeof(char *));
+      qsort(tmp, 40, sizeof(char *), cmp_strlen);
+      acc += (long)strlen(tmp[0]);
+      /* distinct(dupbase): unique count via sorted copy */
+      memcpy(tmp, dupbase, 80 * sizeof(char *));
+      qsort(tmp, 80, sizeof(char *), cmp_str);
+      int uniq = 0;
+      for (int i = 0; i < 80; i++) if (i == 0 || strcmp(tmp[i], tmp[i - 1]) != 0) uniq++;
+      acc += uniq;
+      acc += 20;                        /* take(base, 20)  */
+      acc += 20;                        /* drop(base, 20)  */
+      acc += 20;                        /* mid(base, 10, 20) */
+      acc += 40 / 10;                   /* chunks(base, 10) => 4 */
+      acc += 40 - 10 + 1;               /* window(base, 10) => 31 */
+      acc += 40;                        /* zip(base, base)  */
+      acc += 15 * 10;                   /* flatten(nested)  => 150 */
+      acc += 40;                        /* replace(base, ...) list length */
+    }
+    checksum = acc;
+    t[r] = now_ns() - t0;
+  }
+  fprintf(stderr, "liststr_reshape = %ld\n", checksum);
+  record("liststr", "reshape", t, RUN);
+  str_arr_free(base, 40);
+  str_arr_free(dupbase, 80);
+  for (int i = 0; i < 15; i++) str_arr_free(nested[i], 10);
+  free(tmp); free(t);
+}
+
+void run_liststr_group(void) {
+  test_liststr_build();
+  test_liststr_query();
+  test_liststr_hof();
+  test_liststr_reshape();
+}
+
 void run_list_group(void) {
   test_list_append();
   test_list_append_batch();

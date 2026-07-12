@@ -13,17 +13,22 @@ cross-checked. The workloads mirror the mfb and C references so the columns line
 up; the bignum test deliberately avoids Python's native pow() and does the same
 base-2^28 limb-list arithmetic as the other two.
 """
+import bitsbench
 import csv
 import io
 import json
 import list as listbench
+import mapbench
 import math
+import mathbench
 import os
 import re
+import stringbench
 import sys
 import tempfile
 import threading
 import time
+import vectorbench
 from math import (acos, asin, atan, atan2, cos, exp, log, log10, pow as mpow,
                   sin, sqrt, tan)
 
@@ -293,60 +298,12 @@ def test_sqrt():
 
 
 # ===================================================================== #
-# GROUP: map                                                            #
+# GROUP: map / string / bits / vector coverage rows live in their own    #
+# modules (mapbench.py, stringbench.py, bitsbench.py, vectorbench.py) and #
+# the math float/int/simd rows in mathbench.py -- mirroring how the mfb   #
+# side is split per package. main.py keeps the historical per-kernel math #
+# rows above and the cross-cutting rows below.                           #
 # ===================================================================== #
-
-def test_map_set():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        m = {}
-        for i in range(1000):
-            m[str(i)] = i
-        total = 0
-        for i in range(1000):
-            total += m[str(i)]
-        checksum = total
-        times.append(now_ns() - t0)
-    print("map_set = %d" % checksum, file=sys.stderr)
-    record("map", "set", times)
-
-
-def test_map_lookup():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        m = {}
-        for i in range(20000):
-            m[i] = i
-        total = 0
-        for i in range(20000):
-            total += m[i]
-        checksum = total
-        times.append(now_ns() - t0)
-    print("map_lookup = %d" % checksum, file=sys.stderr)
-    record("map", "lookup", times)
-
-
-# ===================================================================== #
-# GROUP: string                                                         #
-# ===================================================================== #
-
-def test_string_concat():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        s = ""
-        for _i in range(1000):
-            s = s + "x"
-        checksum = len(s)
-        times.append(now_ns() - t0)
-    print("string_concat = %d" % checksum, file=sys.stderr)
-    record("string", "concat", times)
-
 
 # ===================================================================== #
 # GROUP: record                                                         #
@@ -615,42 +572,6 @@ def test_io_read():
 
 
 # ===================================================================== #
-# GROUP: vector                                                         #
-# ===================================================================== #
-
-def test_vector_math():
-    times = []
-    checksum = 0.0
-    for _ in range(RUN):
-        t0 = now_ns()
-        acc = 0.0
-        for k in range(200000):
-            fk = float(k)
-            ax, ay, az = fk + 1.0, fk * 0.5 + 2.0, 3.0 - fk * 0.25
-            bx, by, bz = 2.0 - fk * 0.125, fk + 0.5, fk * 0.75 + 1.0
-            la = sqrt(ax * ax + ay * ay + az * az)
-            nax, nay, naz = ax / la, ay / la, az / la
-            lb = sqrt(bx * bx + by * by + bz * bz)
-            nbx, nby, nbz = bx / lb, by / lb, bz / lb
-            cx = nay * nbz - naz * nby
-            cy = naz * nbx - nax * nbz
-            cz = nax * nby - nay * nbx
-            mx = ax + (bx - ax) * 0.5
-            my = ay + (by - ay) * 0.5
-            mz = az + (bz - az) * 0.5
-            sx, sy, sz = nax * nbx, nay * nby, naz * nbz
-            dcm = cx * mx + cy * my + cz * mz
-            lens = sqrt(sx * sx + sy * sy + sz * sz)
-            dx, dy, dz = ax - bx, ay - by, az - bz
-            dist = sqrt(dx * dx + dy * dy + dz * dz)
-            acc += dcm + lens + dist
-        checksum = acc
-        times.append(now_ns() - t0)
-    print("vector_math = %.6f" % checksum, file=sys.stderr)
-    record("vector", "math", times)
-
-
-# ===================================================================== #
 # GROUP: primes                                                         #
 # ===================================================================== #
 
@@ -736,12 +657,20 @@ def main():
     test_asin(); test_acos(); test_atan()
     test_exp(); test_log(); test_log10(); test_pow(); test_sqrt()
 
+    # math coverage rows (float/int/simd)
+    mathbench.run_all(RUN, now_ns, record)
+
+    # list group + liststr rows
     listbench.run_all(RUN, now_ns, record)
 
-    test_map_set()
-    test_map_lookup()
+    # map group (set/lookup/int_ops/str_ops)
+    mapbench.run_all(RUN, now_ns, record)
 
-    test_string_concat()
+    # string group (concat/case/search/slice/unicode)
+    stringbench.run_all(RUN, now_ns, record)
+
+    # bits group (ops)
+    bitsbench.run_all(RUN, now_ns, record)
 
     test_record_update()
 
@@ -755,7 +684,8 @@ def main():
     test_io_write()
     test_io_read()
 
-    test_vector_math()
+    # vector group (math/float/int)
+    vectorbench.run_all(RUN, now_ns, record)
 
     test_primes()
 

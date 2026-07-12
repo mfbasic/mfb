@@ -1,0 +1,145 @@
+' String-group benchmarks (strings:: package + & concat). Split from main.mfb.
+'
+' The historical `concat` row plus consolidated coverage rows that exercise
+' every strings:: member: case/trim/normalize, search, slice/reshape, and the
+' Unicode grapheme/byte surface.
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+FUNC test_string_concat(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT s AS String = ""
+    FOR i = 0 TO 999
+      s = s & "x"
+    NEXT
+    checksum = len(s)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_concat = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "concat", times))
+END FUNC
+
+' Case mapping, trimming, and normalization.
+FUNC test_string_case(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 49999
+      LET s AS String = "  Hello World " & toString(i) & "  "
+      acc = acc + len(strings::upper(s))
+      acc = acc + len(strings::lower(s))
+      acc = acc + len(strings::caseFold(s))
+      acc = acc + len(strings::trim(s))
+      acc = acc + len(strings::trimStart(s))
+      acc = acc + len(strings::trimEnd(s))
+      acc = acc + len(strings::trimChars(s, " Helo"))
+      acc = acc + len(strings::normalizeNfc(s))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_case = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "case", times))
+END FUNC
+
+' Tests and search.
+FUNC test_string_search(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET prefixes AS List OF String = ["He", "Wo"]
+  LET suffixes AS List OF String = ["ld", "xx"]
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 49999
+      LET s AS String = "Hello World " & toString(i)
+      IF strings::contains(s, "World") THEN acc = acc + 1
+      acc = acc + strings::count(s, "l")
+      IF strings::startsWith(s, "Hello") THEN acc = acc + 1
+      IF strings::endsWith(s, "World " & toString(i)) THEN acc = acc + 1
+      IF strings::startsWithAny(s, prefixes) THEN acc = acc + 1
+      IF strings::endsWithAny(s, suffixes) THEN acc = acc + 1
+      acc = acc + strings::find(s, "World")
+      acc = acc + len(strings::stripPrefix(s, "Hello "))
+      acc = acc + len(strings::stripSuffix(s, "!"))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_search = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "search", times))
+END FUNC
+
+' Slicing and reshaping.
+FUNC test_string_slice(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 49999
+      LET s AS String = "Hello World " & toString(i)
+      acc = acc + len(strings::left(s, 5))
+      acc = acc + len(strings::right(s, 3))
+      acc = acc + len(strings::mid(s, 2, 4))
+      LET words AS List OF String = strings::split(s, " ")
+      acc = acc + len(words)
+      acc = acc + len(strings::join(words, "-"))
+      acc = acc + len(strings::replace(s, "l", "L"))
+      acc = acc + len(strings::repeat("ab", 3))
+      acc = acc + len(strings::padLeft(s, 24))
+      acc = acc + len(strings::padRight(s, 24, "."))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_slice = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "slice", times))
+END FUNC
+
+' Unicode: grapheme segmentation and byte views.
+'
+' NOTE: the inner count is deliberately tiny (10). strings::graphemes /
+' graphemesCount / graphemeAt / toBytes / normalizeNfc allocate short-lived
+' List/String temporaries of several distinct sizes each iteration, and the
+' runtime arena's free list degrades quadratically under that mixed-size churn
+' — process-global and cumulative across the `run` loop (a fresh row starts fast
+' but each repeat gets dramatically slower). A few hundred total iterations stay
+' in the linear regime; tens of thousands hang the suite for minutes. This row
+' is therefore a coverage smoke-test of the Unicode surface, not a throughput
+' benchmark. (Arena mixed-transient-churn regression — see benchmark README.)
+FUNC test_string_unicode(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET u AS String = "cafe\u{0301} rocket\u{1F680} nai\u{0308}ve schoen"
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 9
+      LET g AS List OF String = strings::graphemes(u)
+      acc = acc + len(g)
+      acc = acc + strings::graphemesCount(u)
+      acc = acc + len(strings::graphemeAt(u, 0))
+      acc = acc + strings::byteLen(u)
+      LET bs AS List OF Byte = strings::toBytes(u)
+      acc = acc + len(bs)
+      acc = acc + len(strings::normalizeNfc(u))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_unicode = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "unicode", times))
+END FUNC

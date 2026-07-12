@@ -741,3 +741,187 @@ FUNC test_list_zip(run AS Integer, tests AS List OF BenchResult) AS List OF Benc
   RETURN collections::append(tests, makeResult("list", "zip", times))
 END FUNC
 
+' ===========================================================================
+' GROUP: liststr — every collections:: list op over a List OF String, so the
+' string element type is exercised alongside the Integer rows above. (sum is
+' numeric-only and has no String form.)
+' ===========================================================================
+
+MUT strForEachAcc AS Integer = 0
+
+FUNC buildStrRange(n AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, "s" & toString(i))
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildStrDup(n AS Integer, distinct AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, "d" & toString(i - (i / distinct) * distinct))
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildStrNested(outer AS Integer, inner AS Integer) AS List OF List OF String
+  LET row AS List OF String = buildStrRange(inner)
+  MUT xs AS List OF List OF String = []
+  FOR i = 0 TO outer - 1
+    xs = collections::append(xs, row)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC strNonEmpty(s AS String) AS Boolean
+  RETURN len(s) > 0
+END FUNC
+
+FUNC strIsShort(s AS String) AS Boolean
+  RETURN len(s) <= 2
+END FUNC
+
+FUNC strIsLong(s AS String) AS Boolean
+  RETURN len(s) >= 4
+END FUNC
+
+FUNC strWrap(s AS String) AS String
+  RETURN "[" & s & "]"
+END FUNC
+
+FUNC strConcatFn(acc AS String, s AS String) AS String
+  RETURN acc & s
+END FUNC
+
+FUNC strLenKey(s AS String) AS Integer
+  RETURN len(s)
+END FUNC
+
+SUB strBumpLen(s AS String)
+  strForEachAcc = strForEachAcc + len(s)
+END SUB
+
+' append, prepend, insert, set, removeAt, get, getOr, contains
+FUNC test_liststr_build(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF String = []
+    FOR i = 0 TO 499
+      nums = collections::append(nums, "a" & toString(i))
+    NEXT
+    FOR i = 0 TO 99
+      nums = collections::prepend(nums, "p" & toString(i))
+    NEXT
+    FOR i = 0 TO 99
+      nums = collections::insert(nums, len(nums) / 2, "m" & toString(i))
+    NEXT
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 199
+      LET v AS String = collections::get(nums, i)
+      nums = collections::set(nums, i, v & "!")
+      acc = acc + len(collections::getOr(nums, i, ""))
+    NEXT
+    IF collections::contains(nums, "a10!") THEN acc = acc + 1
+    FOR i = 0 TO 99
+      nums = collections::removeAt(nums, 0)
+    NEXT
+    checksum = acc + len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("liststr_build = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("liststr", "build", times))
+END FUNC
+
+' find, findIndex, findLastIndex, all, any
+FUNC test_liststr_query(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF String = buildStrRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      acc = acc + collections::find(base, "s999")
+      acc = acc + collections::findIndex(base, strIsLong)
+      acc = acc + collections::findLastIndex(base, strIsShort)
+      IF collections::all(base, strNonEmpty) THEN acc = acc + 1
+      IF collections::any(base, strIsShort) THEN acc = acc + 1
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("liststr_query = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("liststr", "query", times))
+END FUNC
+
+' filter, transform, reduce, reduceRight, forEach, partition
+FUNC test_liststr_hof(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF String = buildStrRange(100)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    strForEachAcc = 0
+    FOR k = 0 TO 199
+      acc = acc + len(collections::filter(base, strIsShort))
+      acc = acc + len(collections::transform(base, strWrap))
+      acc = acc + len(collections::reduce(base, "", strConcatFn))
+      acc = acc + len(collections::reduceRight(base, "", strConcatFn))
+      collections::forEach(base, strBumpLen)
+      LET p AS Partition OF String = collections::partition(base, strIsShort)
+      acc = acc + len(p.matched)
+    NEXT
+    checksum = acc + strForEachAcc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("liststr_hof = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("liststr", "hof", times))
+END FUNC
+
+' sort, sortBy, distinct, take, drop, mid, chunks, window, zip, flatten, replace
+'
+' NOTE: the base list and k are deliberately small. On String lists the copying
+' ops — collections::sort and collections::window especially — allocate many
+' short-lived String/List temporaries, and the runtime arena's free list
+' degrades quadratically under that churn, process-globally and cumulatively
+' across the `run` loop (each repeat gets slower). A few hundred string-list
+' allocations stay in the linear regime; thousands hang the suite for minutes.
+' This row is therefore a coverage smoke-test of the String reshaping ops, not a
+' throughput benchmark. (Arena mixed-transient-churn regression — see README.)
+FUNC test_liststr_reshape(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF String = buildStrRange(40)
+  LET dupbase AS List OF String = buildStrDup(80, 40)
+  LET nested AS List OF List OF String = buildStrNested(15, 10)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 2
+      acc = acc + len(collections::get(collections::sort(base), 0))
+      acc = acc + len(collections::get(collections::sortBy(base, strLenKey), 0))
+      acc = acc + len(collections::distinct(dupbase))
+      acc = acc + len(collections::take(base, 20))
+      acc = acc + len(collections::drop(base, 20))
+      acc = acc + len(collections::mid(base, 10, 20))
+      acc = acc + len(collections::chunks(base, 10))
+      acc = acc + len(collections::window(base, 10))
+      acc = acc + len(collections::zip(base, base))
+      acc = acc + len(collections::flatten(nested))
+      acc = acc + len(collections::replace(base, "s5", "S5"))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("liststr_reshape = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("liststr", "reshape", times))
+END FUNC
+

@@ -563,6 +563,139 @@ def test_list_zip():
     record("list", "zip", times)
 
 
+# ===================================================================== #
+# GROUP: liststr  (collections:: list ops over a List OF String)         #
+# Mirrors the liststr rows in benchmark/mfb/src/list.mfb. len() over ASCII #
+# strings counts code points == Unicode scalars, so the checksums line up. #
+# ===================================================================== #
+
+strForEachAcc = 0
+
+
+def _build_str_range(n):
+    return ["s" + str(i) for i in range(n)]
+
+
+def _build_str_dup(n, distinct):
+    return ["d" + str(i - (i // distinct) * distinct) for i in range(n)]
+
+
+def _build_str_nested(outer, inner):
+    row = _build_str_range(inner)
+    return [row for _ in range(outer)]
+
+
+# append, prepend, insert, set, removeAt, get, getOr, contains
+def test_liststr_build():
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        nums = []
+        for i in range(500):
+            nums.append("a" + str(i))
+        for i in range(100):
+            nums.insert(0, "p" + str(i))
+        for i in range(100):
+            nums.insert(len(nums) // 2, "m" + str(i))
+        acc = 0
+        for i in range(200):
+            v = nums[i]
+            nums[i] = v + "!"
+            acc += len(nums[i] if i < len(nums) else "")
+        if "a10!" in nums:
+            acc += 1
+        for _i in range(100):
+            nums.pop(0)
+        checksum = acc + len(nums)
+        times.append(now_ns() - t0)
+    print("liststr_build = %d" % checksum, file=sys.stderr)
+    record("liststr", "build", times)
+
+
+# find, findIndex, findLastIndex, all, any
+def test_liststr_query():
+    base = _build_str_range(1000)
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        acc = 0
+        for _k in range(200):
+            acc += base.index("s999")
+            acc += next((i for i, s in enumerate(base) if len(s) >= 4), -1)
+            last = -1
+            for i, s in enumerate(base):
+                if len(s) <= 2:
+                    last = i
+            acc += last
+            if all(len(s) > 0 for s in base):
+                acc += 1
+            if any(len(s) <= 2 for s in base):
+                acc += 1
+        checksum = acc
+        times.append(now_ns() - t0)
+    print("liststr_query = %d" % checksum, file=sys.stderr)
+    record("liststr", "query", times)
+
+
+# filter, transform, reduce, reduceRight, forEach, partition
+def test_liststr_hof():
+    global strForEachAcc
+    base = _build_str_range(100)
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        acc = 0
+        strForEachAcc = 0
+        for _k in range(200):
+            acc += len([s for s in base if len(s) <= 2])
+            acc += len(["[" + s + "]" for s in base])
+            reduced = "".join(base)
+            acc += len(reduced)
+            acc += len(reduced)                       # reduceRight, same length
+            for s in base:
+                strForEachAcc += len(s)
+            matched = [s for s in base if len(s) <= 2]
+            acc += len(matched)
+        checksum = acc + strForEachAcc
+        times.append(now_ns() - t0)
+    print("liststr_hof = %d" % checksum, file=sys.stderr)
+    record("liststr", "hof", times)
+
+
+# sort, sortBy, distinct, take, drop, mid, chunks, window, zip, flatten, replace
+# base list and k kept small to match the mfb coverage row, which must stay
+# tiny to dodge a runtime arena mixed-transient-churn slowdown on String
+# sort/window (see benchmark/mfb/src/list.mfb and the README).
+def test_liststr_reshape():
+    base = _build_str_range(40)
+    dupbase = _build_str_dup(80, 40)
+    nested = _build_str_nested(15, 10)
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        acc = 0
+        for _k in range(3):
+            acc += len(sorted(base)[0])
+            acc += len(sorted(base, key=len)[0])
+            acc += len(dict.fromkeys(dupbase))
+            acc += len(base[:20])
+            acc += len(base[20:])
+            acc += len(base[10:10 + 20])
+            acc += len([base[i:i + 10] for i in range(0, len(base), 10)])
+            acc += len([base[i:i + 10] for i in range(len(base) - 10 + 1)])
+            acc += len(list(zip(base, base)))
+            acc += len([x for row in nested for x in row])
+            acc += len(["S5" if x == "s5" else x for x in base])
+        checksum = acc
+        times.append(now_ns() - t0)
+    print("liststr_reshape = %d" % checksum, file=sys.stderr)
+    record("liststr", "reshape", times)
+
+
 def run_all(run, now_ns_fn, record_fn):
     global RUN, now_ns, record
     RUN, now_ns, record = run, now_ns_fn, record_fn
@@ -575,3 +708,5 @@ def run_all(run, now_ns_fn, record_fn):
     test_list_reduce(); test_list_reduceRight(); test_list_removeAt(); test_list_replace()
     test_list_sortBy(); test_list_sum(); test_list_take(); test_list_transform()
     test_list_window(); test_list_zip()
+    # liststr group (String element type)
+    test_liststr_build(); test_liststr_query(); test_liststr_hof(); test_liststr_reshape()

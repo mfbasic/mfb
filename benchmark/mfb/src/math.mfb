@@ -1,0 +1,418 @@
+' Math-group benchmarks (math:: package). Split from main.mfb.
+'
+' Two kinds of coverage live here:
+'   1. The individual libm-severed Float kernels (sin, cos, ... sqrt) — one row
+'      each, the historical benchmark surface.
+'   2. Consolidated "coverage" rows that exercise every remaining math:: member
+'      across every relevant numeric type (Integer, Float, Fixed) plus the array
+'      (SIMD) overloads, so the whole package surface is compiled and executed.
+IMPORT io
+IMPORT math
+IMPORT collections
+IMPORT datetime
+
+' ===========================================================================
+' GROUP: math (individual libm-severed Float kernels; 2000 x 1000 calls each)
+' ===========================================================================
+
+FUNC test_sin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::sin(x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("sin = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "sin", times))
+END FUNC
+
+FUNC test_cos(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::cos(x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("cos = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "cos", times))
+END FUNC
+
+FUNC test_tan(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::tan(x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("tan = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "tan", times))
+END FUNC
+
+FUNC test_atan2(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::atan2(x, 1.0 + x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("atan2 = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "atan2", times))
+END FUNC
+
+FUNC test_asin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT t AS Float = -0.999
+      FOR i = 0 TO 999
+        acc = acc + math::asin(t)
+        t = t + 0.001998
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("asin = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "asin", times))
+END FUNC
+
+FUNC test_acos(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT t AS Float = -0.999
+      FOR i = 0 TO 999
+        acc = acc + math::acos(t)
+        t = t + 0.001998
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("acos = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "acos", times))
+END FUNC
+
+FUNC test_atan(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT t AS Float = -0.999
+      FOR i = 0 TO 999
+        acc = acc + math::atan(t)
+        t = t + 0.001998
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("atan = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "atan", times))
+END FUNC
+
+FUNC test_exp(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::exp(v * 0.1)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("exp = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "exp", times))
+END FUNC
+
+FUNC test_log(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::log(v)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("log = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "log", times))
+END FUNC
+
+FUNC test_log10(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::log10(v)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("log10 = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "log10", times))
+END FUNC
+
+FUNC test_pow(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::pow(v, 1.5)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("pow = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "pow", times))
+END FUNC
+
+FUNC test_sqrt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::sqrt(v)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("sqrt = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "sqrt", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: math coverage — every remaining member across each relevant type.
+' ===========================================================================
+
+' Float: abs, floor, ceil, round, min, max, clamp (the non-transcendental
+' members not already covered by the kernels above).
+FUNC test_math_float(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR i = 0 TO 199999
+      LET v AS Float = toFloat(i) * 0.5 - 50000.0
+      acc = acc + math::abs(v)
+      acc = acc + toFloat(math::floor(v * 0.001))
+      acc = acc + toFloat(math::ceil(v * 0.001))
+      acc = acc + toFloat(math::round(v * 0.001))
+      acc = acc + math::min(v, 0.0)
+      acc = acc + math::max(v, 0.0)
+      acc = acc + math::clamp(v, -10.0, 10.0)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("math_float = " & toString(checksum, toByte(3)))
+  RETURN collections::append(tests, makeResult("math", "float", times))
+END FUNC
+
+' Integer: abs, min, max, clamp, and the PCG64 generator (seed + rand). The
+' generator is seeded to a fixed value so the checksum is reproducible.
+FUNC test_math_int(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    math::seed(123456789)
+    FOR i = 0 TO 199999
+      LET v AS Integer = i - 100000
+      acc = acc + math::abs(v)
+      acc = acc + math::min(v, 0)
+      acc = acc + math::max(v, 0)
+      acc = acc + math::clamp(v, -10, 10)
+      acc = acc + math::rand(0, 100)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("math_int = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("math", "int", times))
+END FUNC
+
+' Fixed: the whole deterministic Q32.32 surface — abs, floor, ceil, round, min,
+' max, clamp, sqrt, pow, exp, log, log10, sin, cos, tan, asin, acos, atan,
+' atan2. Arguments are kept inside each function's real domain.
+FUNC test_math_fixed(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET fxNegHalf AS Fixed = -0.5
+  LET fxHalf AS Fixed = 0.5
+  LET fxOneHalf AS Fixed = 1.5
+  MUT times AS List OF Integer = []
+  MUT checksum AS Fixed = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Fixed = 0.0
+    FOR i = 0 TO 19999
+      LET fi AS Fixed = toFixed(i)
+      LET pos AS Fixed = 0.5 + fi * 0.00005      ' 0.5 .. 1.5, always positive
+      LET unit AS Fixed = -0.9 + fi * 0.00009    ' -0.9 .. 0.9, within [-1, 1]
+      acc = acc + math::abs(unit)
+      acc = acc + math::floor(pos)
+      acc = acc + math::ceil(pos)
+      acc = acc + math::round(pos)
+      acc = acc + math::min(pos, unit)
+      acc = acc + math::max(pos, unit)
+      acc = acc + math::clamp(unit, fxNegHalf, fxHalf)
+      acc = acc + math::sqrt(pos)
+      acc = acc + math::pow(pos, fxOneHalf)
+      acc = acc + math::exp(unit)
+      acc = acc + math::log(pos)
+      acc = acc + math::log10(pos)
+      acc = acc + math::sin(unit)
+      acc = acc + math::cos(unit)
+      acc = acc + math::tan(unit)
+      acc = acc + math::asin(unit)
+      acc = acc + math::acos(unit)
+      acc = acc + math::atan(unit)
+      acc = acc + math::atan2(unit, pos)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("math_fixed = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "fixed", times))
+END FUNC
+
+' Build a List OF Float of length n with values in (lo, hi].
+FUNC mathRangeFloat(n AS Integer, lo AS Float, span AS Float) AS List OF Float
+  MUT xs AS List OF Float = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, lo + toFloat(i) / toFloat(n) * span)
+  NEXT
+  RETURN xs
+END FUNC
+
+' Array (SIMD) overloads: every math:: member that has a Float[] overload,
+' driven element-wise over freshly built lists and folded with collections::sum.
+FUNC test_math_simd(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET unit AS List OF Float = mathRangeFloat(1024, -0.9, 1.8)      ' [-0.9, 0.9]
+  LET pos AS List OF Float = mathRangeFloat(1024, 0.01, 4.0)       ' (0, ~4]
+  LET big AS List OF Float = mathRangeFloat(1024, -1000.0, 2000.0)
+  LET expo AS List OF Float = mathRangeFloat(1024, -2.0, 4.0)
+  LET lo AS List OF Float = mathRangeFloat(1024, -5.0, 10.0)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 199
+      acc = acc + collections::sum(math::abs(big))
+      acc = acc + toFloat(collections::sum(math::floor(pos)))
+      acc = acc + toFloat(collections::sum(math::ceil(pos)))
+      acc = acc + toFloat(collections::sum(math::round(pos)))
+      acc = acc + collections::sum(math::min(big, lo))
+      acc = acc + collections::sum(math::max(big, lo))
+      acc = acc + collections::sum(math::clamp(big, -1.0, 1.0))
+      acc = acc + collections::sum(math::sqrt(pos))
+      acc = acc + collections::sum(math::log(pos))
+      acc = acc + collections::sum(math::log10(pos))
+      acc = acc + collections::sum(math::exp(expo))
+      acc = acc + collections::sum(math::sin(unit))
+      acc = acc + collections::sum(math::cos(unit))
+      acc = acc + collections::sum(math::tan(unit))
+      acc = acc + collections::sum(math::atan(unit))
+      acc = acc + collections::sum(math::asin(unit))
+      acc = acc + collections::sum(math::acos(unit))
+      acc = acc + collections::sum(math::pow(pos, expo))
+      acc = acc + collections::sum(math::atan2(unit, pos))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("math_simd = " & toString(checksum, toByte(3)))
+  RETURN collections::append(tests, makeResult("math", "simd", times))
+END FUNC
