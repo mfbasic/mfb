@@ -139,6 +139,34 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&wrap_error_label));
         let source_slot = self.allocate_stack_object("raw_result_source", 8);
+        // Design "b": an `ERR_BLOCK` error already carries its single owned flat
+        // Error block, parked in the current-error slot. ADOPT it as the payload
+        // directly (no source rebuild), copy it into the materialized `Result`, and
+        // free the adopted owner once — rather than rebuilding a fresh block from the
+        // loose registers and orphaning the parked one. A legacy `ERR` (or a worker
+        // error, never block-carried) falls through to the rebuild below.
+        let rebuild_label = self.label("raw_result_rebuild");
+        let err_built_label = self.label("raw_result_err_built");
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), tag_slot));
+        self.emit(abi::compare_immediate(&scratch9, RESULT_ERR_BLOCK_TAG));
+        self.emit(abi::branch_ne(&rebuild_label));
+        let adopted = self.emit_adopt_current_error_block();
+        self.emit(abi::store_u64(&adopted, abi::stack_pointer(), payload_slot));
+        // Store the canonical error tag into the `Result` value (not the raw
+        // ERR_BLOCK ABI tag) so every `Result` inspection sees a uniform error tag.
+        let err_tag = self.temporary_vreg();
+        self.emit(abi::move_immediate(&err_tag, "Integer", RESULT_ERR_TAG));
+        self.emit(abi::store_u64(&err_tag, abi::stack_pointer(), tag_slot));
+        let adopt_result = self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+        self.emit(abi::store_u64(
+            &adopt_result,
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit_free_error_block_from_slot(payload_slot)?;
+        self.emit(abi::branch(&err_built_label));
+
+        self.emit(abi::label(&rebuild_label));
         if worker_error_source {
             // A propagated worker error: deep-copy its message and origin out of
             // the (still-alive) worker arena into the caller arena. If the helper
@@ -191,6 +219,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
+        self.emit(abi::label(&err_built_label));
 
         self.emit(abi::label(&have_payload_label));
         let register = self.allocate_register()?;

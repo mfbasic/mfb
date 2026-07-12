@@ -95,6 +95,15 @@ struct CodeBuilder<'a> {
     /// fallback re-enters `emit_error_register_return` — which must then return to
     /// the caller (a plain `return_()`) rather than recursing into the trap route.
     emitting_error_route: bool,
+    /// Re-entrancy guard for the error-block origin funnel (plan-error-block-in-slot
+    /// stages 4-5). Set while `emit_park_error_block_from_registers` is building the
+    /// owned Error block to park in the current-error slot. Building the block can
+    /// itself fail to allocate, whose OOM fallback routes through
+    /// `emit_allocation_error_return` → `emit_error_register_return`; that nested
+    /// return must stay a loose `RESULT_ERR_TAG` (there is no memory to park a block)
+    /// rather than recursing into another park, so the funnel suppresses parking
+    /// while this flag is set.
+    building_error_block: bool,
     /// Project-relative source file of the function currently being lowered. Used
     /// to build `ErrorLoc.filename` for errors that originate in this function.
     current_file: String,
@@ -2377,6 +2386,7 @@ fn lower_direct_builtin_runtime_helper(
         error_arena_restore_slot: None,
         raw_result_capture: None,
         emitting_error_route: false,
+        building_error_block: false,
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
         resource_owners: HashMap::new(),

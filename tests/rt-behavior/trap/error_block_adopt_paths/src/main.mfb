@@ -1,0 +1,85 @@
+IMPORT io
+IMPORT collections
+IMPORT fs
+
+' plan-error-block-in-slot stages 4-5: every propagating error now travels as ONE
+' owned flat Error block, parked in the per-thread current-error slot and ADOPTED
+' (freed exactly once) by whoever catches it, instead of loose interior pointers the
+' catcher must rebuild. This drives the three migrated origin funnels many times and
+' checks that the correct code/message survive every hop with no double-free crash
+' and no per-iteration leak:
+'   - domainCase: a domain error (index out of range) built by the trap-site funnel
+'     (`emit_error_register_return`) propagates up two frames to a function `TRAP`.
+'   - helperCase: a raw runtime-helper error (`fs::readText` on a missing path) is
+'     stamped and parked at the call site (`emit_stamp_current_error_source`).
+'   - inlineCase: an inline `TRAP` materializes-and-adopts a domain error's block.
+
+FUNC deep(l AS List OF Integer, n AS Integer) AS Integer
+  RETURN collections::get(l, n)
+END FUNC
+
+FUNC mid(l AS List OF Integer, n AS Integer) AS Integer
+  LET v AS Integer = deep(l, n)
+  RETURN v
+END FUNC
+
+FUNC domainCase() AS String
+  MUT l AS List OF Integer = [10, 20, 30]
+  LET v AS Integer = mid(l, 99)
+  RETURN "no-error"
+  TRAP(e)
+    RETURN toString(e.code) & ":" & e.message
+  END TRAP
+END FUNC
+
+FUNC helperCase() AS String
+  LET t AS String = fs::readText("/mfb/does/not/exist.txt")
+  RETURN "no-error"
+  TRAP(e)
+    RETURN toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC inlineCase() AS Integer
+  MUT l AS List OF Integer = [1, 2]
+  LET v AS Integer = collections::get(l, 50) TRAP(e)
+    RECOVER 0 - e.code
+  END TRAP
+  RETURN v
+END FUNC
+
+' A FRESH `FAIL error(...)` with live owned locals (the List/String cleanups): the
+' `store_pending_error_from_value` funnel. Its standalone block is parked and adopted
+' once by the catcher — previously it was orphaned on every failure (a per-FAIL leak
+' that also turned the arena free-list walk quadratic in a hot loop).
+FUNC boom(n AS Integer) AS Integer
+  MUT scratch AS List OF Integer = [n, n + 1, n + 2]
+  LET label AS String = "boom-" & toString(n MOD 4)
+  FAIL error(8100 + (n MOD 3), label)
+  RETURN len(scratch)
+END FUNC
+
+FUNC failCase(n AS Integer) AS String
+  LET v AS Integer = boom(n)
+  RETURN "no-error"
+  TRAP(e)
+    RETURN toString(e.code) & ":" & e.message
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  MUT i AS Integer = 0
+  MUT acc AS Integer = 0
+  WHILE i < 10000
+    acc = acc + len(domainCase())
+    acc = acc + inlineCase()
+    acc = acc + len(failCase(i))
+    i = i + 1
+  WEND
+  io::print("domain=" & domainCase())
+  io::print("helper=" & helperCase())
+  io::print("inline=" & toString(inlineCase()))
+  io::print("fail=" & failCase(7))
+  io::print("acc=" & toString(acc))
+  RETURN 0
+END FUNC
