@@ -61,7 +61,7 @@ the pipeline.
 
 Layering lets one `UNION` define a larger closed domain from an existing union
 with `INCLUDES`, without subtyping or open dispatch. The example below compiles
-and runs today as a single program: `ExtraShape` includes every member of
+and runs as a single program: `ExtraShape` includes every member of
 `Shape` and adds `Triangle`, and a `MATCH` over `ExtraShape` must cover the whole
 merged set.
 
@@ -118,12 +118,10 @@ not a subtype, there is no virtual dispatch, and the included union is named
 explicitly — there is no retroactive extension of a union from outside its
 definition.
 
-> **Cross-package layering is not yet fully wired.** The design intent is that a
-> consumer can `IMPORT shape`, then construct and name another package's exported
-> `Shape`/`Circle` by qualified name (`shape::Circle[radius := 10.0]`,
-> `UNION ExtraShape INCLUDES shape::Shape`). Today the compiler registers the
-> *names* of an imported package's exported `TYPE`/`UNION` (so a `pkg::Type`
-> annotation resolves) but does not yet carry their field layout into the
-> consumer, so constructing an imported type by qualified name fails with
-> `TYPE_UNKNOWN_VALUE`. The single-package form above is the working subset of
-> this feature.
+> **Cross-package type layering is limited.** A consumer that `IMPORT`s a package
+> can name that package's exported `TYPE`/`UNION` by qualified reference (a
+> `pkg::Type` annotation resolves), because the importer registers the exported
+> type *names*. Their field layout is not carried into the consumer, so
+> *constructing* an imported type by qualified name (`shape::Circle[radius := 10.0]`)
+> fails with `TYPE_UNKNOWN_VALUE`. The single-package form above is the working
+> subset.

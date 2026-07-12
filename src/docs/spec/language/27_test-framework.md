@@ -44,7 +44,7 @@ Case   := TCASE  <string> NEWLINE Statement* END TCASE
 
 ## Assertion builtins
 
-Four compiler-lowered builtins are valid only inside a `TCASE` body (using one
+The assertion builtins are valid only inside a `TCASE` body (using one
 elsewhere is `TESTING_EXPECT_OUTSIDE_TCASE`). Each produces `Nothing`; the first
 failed assertion aborts its case, and sibling cases and groups continue.
 
@@ -60,7 +60,7 @@ failed assertion aborts its case, and sibling cases and groups continue.
 
 - `expectEqual`/`expectNEqual` reuse the language `=`/`<>` operators — the operands
   must be comparable with `=` (`TESTING_EXPECT_INCOMPARABLE`) and printable for the
-  failure message: a scalar, `String`, or `Byte` (`TESTING_EXPECT_NOT_PRINTABLE`).
+  failure message: a scalar, `String`, `Byte`, or `List OF Byte` (`TESTING_EXPECT_NOT_PRINTABLE`).
   `Integer` and `Float` compare numerically.
 - The **typed** forms (`expectFloat`, `expectInteger`, `expectFixed`,
   `expectString`, and their `expectN…` counterparts) additionally require both

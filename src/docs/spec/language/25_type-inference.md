@@ -64,7 +64,7 @@ When a name resolves to more than one visible signature that all match the call'
 *shape* (arity + named-arg layout), the surviving set is a **return-type overload
 set**. `lookup_visible_call_sig` then picks the one signature whose `return_type`
 equals the call's expected (contextual) type. If no expected type uniquely
-selects one, it falls back to the **last** candidate (preserving prior behaviour);
+selects one, it falls back to the **last** candidate;
 the hard `TYPE_OVERLOAD_AMBIGUOUS` error is raised later, in the monomorphizer,
 when the inferred argument/expected types still leave the call unresolved. The
 final, authoritative overload resolution + symbol mangling lives in
@@ -134,7 +134,9 @@ compatible(E, A):
       ∧ ∀ i: compatible(ep[i], ap[i])    ; pairwise param compat
       ∧ compatible(er, ar)               ; return compat
     User(en), User(an)                   → en == an
-                                          ∨ trailing-segment(en) == trailing-segment(an)
+                                          ∨ (trailing-segment(en) == trailing-segment(an)
+                                             ∧ (either side is unregistered
+                                                ∨ both resolve to the same registered TypeInfo))
                                           ∨ en (a UNION) has a variant named trailing(an)
     otherwise                            → E == A
 ```
@@ -157,7 +159,10 @@ Key points:
 - **Bare vs qualified user types.** An imported type is registered under its bare
   name (`Db`) while an importer writes a qualified reference (`binding.Db`); a
   trailing-segment match makes these equal so a returned package type fits a
-  `binding::Type` annotation. See `./mfb spec language type-name-encoding`.
+  `binding::Type` annotation. Two *registered* user types that merely share a
+  trailing segment are **not** compatible unless they resolve to the same
+  `TypeInfo`; the bare-name match only bridges a case where one side is
+  unregistered. See `./mfb spec language type-name-encoding`.
 - **Union subsumption is the only nominal widening.** If the *expected* user type
   is a `UNION`, any *actual* type whose (bare) name is one of its variant names
   is compatible — assigning a variant value into the union slot. No other

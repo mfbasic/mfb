@@ -53,8 +53,8 @@ Rules:
 - Record fields use `value.field`. Methods and object-style access do not exist.
 - Imports are not transitive. A package cannot export an imported package or create re-export chains.
 - `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed.
-- An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The built-in packages (`is_builtin_import`, `src/builtins/mod.rs`) are: `bits`, `collections`, `crypto`, `csv`, `datetime`, `encoding`, `errorCode`, `fs`, `http`, `io`, `json`, `math`, `net`, `regex`, `strings`, `term`, `thread`, `tls`, and `vector`.
-- `[visibility] FUNC alias AS qualified::name` declares a **function alias**. This form exists today only as a transparent re-export of a native `LINK` function: the resolver requires the alias target to resolve to a `LINK` (native) function signature (`link_target_signature`, `src/resolver.rs`) and reports `SYMBOL_UNKNOWN_IDENTIFIER` otherwise. It is not a general mechanism for aliasing arbitrary MFBASIC functions to package-qualified names.
+- An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The built-in packages are: `bits`, `collections`, `crypto`, `csv`, `datetime`, `encoding`, `errorCode`, `fs`, `http`, `io`, `json`, `math`, `net`, `os`, `regex`, `strings`, `term`, `thread`, `tls`, and `vector`. [[src/builtins/mod.rs:is_builtin_import]]
+- `[visibility] FUNC alias AS qualified::name` declares a **function alias**. This form exists only as a transparent re-export of a native `LINK` function: the resolver requires the alias target to resolve to a `LINK` (native) function signature and reports `SYMBOL_UNKNOWN_IDENTIFIER` otherwise. [[src/resolver/mod.rs:link_target_signature]] It is not a general mechanism for aliasing arbitrary MFBASIC functions to package-qualified names.
 
 ```basic
 ' shapes package source

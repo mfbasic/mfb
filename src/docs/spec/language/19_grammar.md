@@ -60,7 +60,7 @@ funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] "(" [ params ] 
                    block [ trap ] "END" "FUNC" ;
 subDecl        = declVis "SUB" ident [ templateParams ] "(" [ params ] ")"
                    block [ trap ] "END" "SUB" ;
-trap           = "TRAP" ident block "END" "TRAP" ;
+trap           = "TRAP" "(" ident ")" block "END" "TRAP" ;
 
 templateParams = "OF" ident { "," ident } ;
 params         = param { "," param } ;

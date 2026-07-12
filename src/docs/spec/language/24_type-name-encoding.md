@@ -106,10 +106,9 @@ scope-ownership transfers across a function boundary.
 | Map value | `Map OF K TO RES File` | prefix sits after `" TO "` |
 | Thread resource plane | `Thread OF Msg RES Res TO Out` | infix `RES` clause |
 
-`parse_type_name` accepts `RES` after `List OF` (the `Result` base accepts the
-keyword token but the marker is harmless and later rejected by the semantic
-checker, `ir::verify`, as `TYPE_RES_REQUIRES_RESOURCE`) and
-after `Map ... TO`. Consumers strip it with
+`parse_type_name` accepts `RES` only after `List OF` and after `Map ... TO`. The
+`Result` base does *not* consume `RES`, so `Result OF RES File` is a parse error
+(`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
 [[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
 

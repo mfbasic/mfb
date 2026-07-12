@@ -81,9 +81,7 @@ compiler-owned generic record templates in the always-in-scope builtin prelude
 like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the
 compiler-owned record yielded when iterating a `Map` with `FOR EACH`.
 
-Three further helpers (`toMap`, `zipWith`, `filterEntries`) are **not yet
-exported** because they need runtime capabilities the implementation lacks today
-(`src/builtins/collections.rs`).
+The names `toMap`, `zipWith`, and `filterEntries` are reserved but not exported.
 
 The native collection memory layout — one uniform contiguous header + lookup
 table + packed data region for both `List` and `Map` — is specified by the

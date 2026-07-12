@@ -27,12 +27,12 @@ status. `--format` accepts `text` (default) or `json` (both `--format json` and
 `--format=json` forms); `[path]` defaults to `.`. `--locked` elevates a stale or
 missing lockfile to an error: the lockfile is `mfb.lock`, and the check compares
 the lockfile's recorded `projectHash` against a hash over the current
-`project.json` package requests (it does not yet compare the full resolved
+`project.json` package requests (it does not compare the full resolved
 dependency graph — resolved versions, content hashes, or transitive deps). The
 exit code is `0` when clean, `1` on error-severity findings, `2` on a usage
-error, and `3` on unreadable or malformed input. (Native-link reporting is a
-declared section but the current collector leaves it empty; native `LINK`
-metadata surfaces instead through the native-resource entries.) [[src/audit/mod.rs:run]]
+error, and `3` on unreadable or malformed input. (Native-link reporting is populated from the project's own `LINK` declarations —
+one entry per linked function — and is empty only when the project declares no
+`LINK` blocks.) [[src/audit/collect/project.rs:collect_native_links]]
 
 The formatter command:
 
@@ -58,9 +58,8 @@ are described here because they surface auditability as a language property; the
 remaining build, package-management, and repository commands are owned by that
 architecture topic.
 
-> **Not yet implemented.** A dedicated test runner (`mfb test`) and a
-> language-server entry point (`mfb lsp`) are intended but absent from the
-> current CLI. The language-server diagnostics described above — marking every
+> **Not yet implemented.** A language-server entry point (`mfb lsp`) is intended
+> but absent from the CLI. The language-server diagnostics described above — marking every
 > fallible call site, propagation edge, `TRAP` recovery, resource
 > move/use-after-move, native-link, permission, version-conflict, lockfile, and
 > identifier-similarity finding — are the design target for an LSP and editor

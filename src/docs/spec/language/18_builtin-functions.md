@@ -38,10 +38,10 @@ which whitelists `builtins::general::is_general_call`); the set is defined in
 
 All sixteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*
-in scope without its `IMPORT`. The package set the resolver recognizes is fixed
-(`src/builtins/mod.rs` `is_builtin_import`): `collections`, `csv`, `datetime`,
-`errorCode`, `fs`, `http`, `io`, `json`, `math`, `net`, `os`, `regex`,
-`strings`, `term`, `thread`, `tls`. A bare unqualified `find`, `get`, `append`, `print`,
+in scope without its `IMPORT`. The package set the resolver recognizes is fixed:
+`bits`, `collections`, `crypto`, `csv`, `datetime`, `encoding`, `errorCode`,
+`fs`, `http`, `io`, `json`, `math`, `net`, `os`, `regex`, `strings`, `term`,
+`thread`, `tls`, `vector`. [[src/builtins/mod.rs:is_builtin_import]] A bare unqualified `find`, `get`, `append`, `print`,
 … is a `SYMBOL_UNKNOWN_IDENTIFIER` error; a qualified `io::print` without
 `IMPORT io` is a `SYMBOL_UNKNOWN_IMPORT` error.
 

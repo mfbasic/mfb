@@ -34,16 +34,13 @@ time are owned by `./mfb spec package verifier-rules`.
 
 Verification failure rejects the package with a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.
 
-> **Current implementation status.** The list above is the verifier contract this
-> format is designed to support. The shipping decoder already verifies the package
-> container before decoding. The outer `MFP` package magic and container major
-> version (required to be `1`) are checked when the header is read
-> (`read_mfp_header` in `src/manifest/package.rs`); the inner `MFPC` payload magic and MFPC
+> The decoder verifies the package container before decoding. The outer `MFP`
+> package magic and container major version (required to be `1`) are checked when
+> the header is read; the inner `MFPC` payload magic and MFPC
 > major version (required to be `2`, `MFPC_MAJOR_VERSION`) and the header-vs-manifest
-> identity match are checked when the binary representation is decoded
-> (`src/binary_repr/`) — and malformed input is rejected before any merge. The
-> structural IR verifier (`ir::verify_package` in `src/ir/binary.rs`) enforces
-> structural invariants at decode: function names are non-empty and unique, type names are
+> identity match are checked when the binary representation is decoded — and
+> malformed input is rejected before any merge. The structural IR verifier
+> enforces structural invariants at decode: function names are non-empty and unique, type names are
 > unique, and every `MATCH` carries at least one case. The remaining semantic invariants
 > (full IR-node type-correctness, definite-assignment, linear resource ownership,
 > drop/cleanup validity, return/effect agreement, and native-link manifest

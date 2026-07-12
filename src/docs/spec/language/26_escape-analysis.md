@@ -31,7 +31,7 @@ collection-valued expressions — never on inferred types. [[src/escape.rs:analy
 It is consumed by **IR lowering**, which records the result per function as
 `resource_owners` — carried into the IR (and serialized into `.mfp` packages)
 so the resource-ownership rules run on the typed IR, on both the source and
-package paths (plan-20). The escape decisions are what let `ir::verify`
+package paths. The escape decisions are what let `ir::verify`
 distinguish an owner from a borrow (`RES b = a` moves; a resource parameter or
 `FOR EACH` element borrows) without re-deriving ownership.
 
@@ -40,12 +40,8 @@ ir/lower.rs: resource_owners: escape::analyze_function(function).owners().clone(
 ```
 
 There is a single implementation in `src/escape.rs`; the analyzer is invoked,
-not copy-pasted. (Historical note: the source checker `src/syntaxcheck/` used to
-run `analyze_function` a second time to demote borrow-only `RES` bindings, but
-that ownership logic relocated to `ir::verify` in plan-20-Z, so lowering is now
-the sole consumer. The unrelated `native_member_bare` match for
-`append|prepend|insert|set` in `src/syntaxcheck/mod.rs` is a different check at a
-different call site, not a replication of this set.) [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
+not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
+logic. [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
 
 Soundness rests on the borrow rule (`TYPE_RESOURCE_BORROW_INVALIDATE`,
 §15.6): a borrowed resource cannot escape a callee, so a resource enters a
@@ -129,7 +125,8 @@ repeat until no change:
   for each routing R:
     incoming = R.res_elems ∪ ⋃{ membership[s] : s ∈ R.src_collections }
     if R.target = Var(name):  membership[name] ∪= incoming
-    if R.target = Returned:   returned ∪= incoming
+    ; Returned routings are not accumulated here — the returned-collection set
+    ; is gathered once, before the fixpoint, from every Returned routing
 ```
 
 This closes membership over collection copy/append/nesting edges (`List`/`Map`
