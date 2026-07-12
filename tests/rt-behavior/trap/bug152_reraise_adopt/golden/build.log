@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/trap/bug152_reraise_adopt
+Wrote AST to tests/rt-behavior/trap/bug152_reraise_adopt/bug152_reraise_adopt.ast
+Wrote IR to tests/rt-behavior/trap/bug152_reraise_adopt/bug152_reraise_adopt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/trap/bug152_reraise_adopt
+Wrote executable to tests/rt-behavior/trap/bug152_reraise_adopt/bug152_reraise_adopt.out
+[exit 0]
+$ tests/rt-behavior/trap/bug152_reraise_adopt/bug152_reraise_adopt.out
+acc=220000
+sample=4203:deep 3
+[exit 0]

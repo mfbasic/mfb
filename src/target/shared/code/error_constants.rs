@@ -3,6 +3,14 @@ use super::*;
 pub(crate) const RESULT_OK_TAG: &str = "0";
 pub(crate) const RESULT_ERR_TAG: &str = "1";
 pub(crate) const RESULT_PROGRAM_EXIT_TAG: &str = "2";
+/// Error result whose owned Error block is parked in the per-thread
+/// `ARENA_CURRENT_ERROR_OFFSET` slot for the catcher to ADOPT rather than rebuild
+/// (plan-error-block-in-slot / design "b"). Treated exactly like `RESULT_ERR_TAG`
+/// by every "is it not Ok?" test (`tag != 0`); only the trap route distinguishes
+/// it, adopting the parked block instead of calling `emit_build_error_inline`.
+/// During migration, producers that still emit the legacy loose-register error use
+/// `RESULT_ERR_TAG` and the trap route rebuilds as before — never a stale slot.
+pub(crate) const RESULT_ERR_BLOCK_TAG: &str = "3";
 pub(crate) const ERR_OVERFLOW_CODE: &str = "77050010";
 pub(crate) const ERR_OVERFLOW_MESSAGE: &str = "numeric overflow";
 pub(crate) const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
@@ -255,7 +263,17 @@ pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET +
 pub(crate) const ARENA_V128_SLOTS_OFFSET: usize =
     ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
 pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
+/// Per-thread "current error" slot (plan-error-block-in-slot / design "b"): holds
+/// the block base of the single in-flight owned Error while it propagates, so the
+/// catching trap route ADOPTS that block (freeing it once) instead of rebuilding a
+/// fresh one and orphaning the source (bug-152). 0 when no error is in flight.
+/// Appended past the V128 slots so those keep the small offset rv64's 12-bit `addi`
+/// immediate needs; this slot sits beyond that range, so its (error-path-only)
+/// accesses compute the address in a register rather than using a fixed offset.
+/// Zero-initialized by the same whole-`ARENA_STATE_SIZE` clear the entry and
+/// thread-spawn paths already run.
+pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_CURRENT_ERROR_OFFSET + 8;
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// Internal helper that drains the per-arena stdout buffer to fd 1 (plan-14-A):

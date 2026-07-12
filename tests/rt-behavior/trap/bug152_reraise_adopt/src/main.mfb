@@ -1,0 +1,41 @@
+IMPORT io
+
+' bug-152: a handler that re-raises the caught Error (`FAIL e`) used to deep-copy
+' it and orphan the copy on every hop (a re-raise-in-a-loop leak). Design "b" parks
+' the owned Error block in the per-thread current-error slot and the catcher ADOPTS
+' it (freed exactly once), so re-raise adds no leak and the propagated error's
+' fields survive intact through every hop. This drives a two-level re-raise many
+' times: it must produce the correct code/message with no double-free crash.
+FUNC inner(n AS Integer) AS Integer
+  FAIL error(4200 + (n MOD 5), "deep " & toString(n MOD 5))
+  RETURN n
+END FUNC
+
+FUNC reraise(n AS Integer) AS Integer
+  LET v AS Integer = inner(n)
+  RETURN v
+  TRAP(e)
+    FAIL e
+  END TRAP
+END FUNC
+
+FUNC top(n AS Integer) AS String
+  LET v AS Integer = reraise(n)
+  RETURN "ok"
+  TRAP(e)
+    RETURN toString(e.code) & ":" & e.message
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  MUT i AS Integer = 0
+  MUT acc AS Integer = 0
+  WHILE i < 20000
+    LET r AS String = top(i)
+    acc = acc + len(r)
+    i = i + 1
+  WEND
+  io::print("acc=" & toString(acc))
+  io::print("sample=" & top(3))
+  RETURN 0
+END FUNC

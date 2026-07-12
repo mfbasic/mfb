@@ -879,11 +879,34 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Address of the per-thread current-error slot in a fresh temporary register.
+    /// The slot lives past the V128 arena-state region, beyond rv64's 12-bit `addi`
+    /// immediate, so the offset is materialized in a register and added to the arena
+    /// base rather than used as a load/store displacement (plan-error-block-in-slot).
+    fn current_error_slot_address(&mut self) -> String {
+        let addr = self.temporary_vreg();
+        self.emit(abi::move_immediate(
+            &addr,
+            "Integer",
+            &ARENA_CURRENT_ERROR_OFFSET.to_string(),
+        ));
+        self.emit(abi::add_registers(&addr, ARENA_STATE_REGISTER, &addr));
+        addr
+    }
+
+    /// Park an owned Error block base in the current-error slot so the catching
+    /// trap route ADOPTS it (design "b"); pair with `RESULT_ERR_BLOCK_TAG`.
+    fn emit_store_current_error(&mut self, base_register: &str) {
+        let addr = self.current_error_slot_address();
+        self.emit(abi::store_u64(base_register, &addr, 0));
+    }
+
     fn store_pending_error_registers(
         &mut self,
         code_register: &str,
         message_register: &str,
         source_register: &str,
+        tag: &str,
     ) {
         let slots = self.ensure_pending_result_slots();
         let scratch9 = self.temporary_vreg();
@@ -892,7 +915,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             slots.value,
         ));
-        self.emit(abi::move_immediate(&scratch9, "Integer", RESULT_ERR_TAG));
+        self.emit(abi::move_immediate(&scratch9, "Integer", tag));
         self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slots.tag));
         self.emit(abi::store_u64(
             message_register,
@@ -945,6 +968,17 @@ impl CodeBuilder<'_> {
         // used after `emit_cleanup_sequence` frees this scope's owned values.
         // Deep-copy an aliasing-source error so those pointers reference a
         // standalone block that the frees cannot scrub (plan-02 Phase 8).
+        //
+        // When the value was an aliasing source (`FAIL e` re-raising an owned Error
+        // local), `lower_value_owned` produced a STANDALONE copy that this scope
+        // does NOT register for cleanup — historically that copy was orphaned once
+        // its interior pointers propagated (bug-152). Park that copy's base in the
+        // per-thread current-error slot and tag the result `ERR_BLOCK` so the
+        // catching trap route ADOPTS the copy (freeing it exactly once) instead of
+        // rebuilding a fresh block and leaking this one (design "b"). A fresh
+        // (non-aliasing) error is registered as a pending temp, so it must NOT be
+        // adopted — it keeps the legacy `ERR` rebuild path to avoid a double free.
+        let adopt = self.value_needs_owning_copy(error);
         let error = self.lower_value_owned(error)?;
         if error.type_ != "Error" {
             return Err(format!(
@@ -961,11 +995,33 @@ impl CodeBuilder<'_> {
             &message_register,
             &source_register,
         );
-        self.store_pending_error_registers(&code_register, &message_register, &source_register);
+        // Keep the legacy loose registers set even in the adopt case: a non-trap
+        // consumer (top-level exit printer) still reads code/message from them.
+        let tag = if adopt {
+            self.emit_store_current_error(&error.location);
+            RESULT_ERR_BLOCK_TAG
+        } else {
+            RESULT_ERR_TAG
+        };
+        self.store_pending_error_registers(
+            &code_register,
+            &message_register,
+            &source_register,
+            tag,
+        );
         Ok(())
     }
 
     fn emit_direct_error_return(&mut self, error: &NirValue) -> Result<(), String> {
+        // A fresh Error block (e.g. `FAIL error(...)`) is a standalone owned block
+        // that the FAIL's control transfer CLEARS (not frees) from the pending-temp
+        // set, so it is safe to park it in the current-error slot and let whoever
+        // catches it ADOPT the block (freed once), rather than propagating loose
+        // interior pointers that force the catcher to rebuild — which orphaned this
+        // block on every cross-call propagation (design "b"). A borrow / aliasing
+        // source is NOT owned here (`lower_value` returns another owner's pointer),
+        // so it keeps the legacy loose-register path and the catcher rebuilds a copy.
+        let adopt = !Self::value_is_aliasing_source(error);
         let error = self.lower_value(error)?;
         if error.type_ != "Error" {
             return Err(format!(
@@ -983,11 +1039,13 @@ impl CodeBuilder<'_> {
             &source_register,
         );
         self.emit(abi::move_register(RESULT_VALUE_REGISTER, &code_register));
-        self.emit(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_ERR_TAG,
-        ));
+        let tag = if adopt {
+            self.emit_store_current_error(&error.location);
+            RESULT_ERR_BLOCK_TAG
+        } else {
+            RESULT_ERR_TAG
+        };
+        self.emit(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", tag));
         self.emit(abi::move_register(
             RESULT_ERROR_MESSAGE_REGISTER,
             &message_register,
@@ -1967,6 +2025,27 @@ impl CodeBuilder<'_> {
             .map(|trap| (trap.stack_offset, trap.label.clone()))
             .ok_or_else(|| "trap routing requires bound trap local".to_string())?;
 
+        // Design "b": an `ERR_BLOCK` error parked its owned Error block base in the
+        // current-error slot. ADOPT it as the trap local (freed once on the
+        // handler's exit) and clear the slot, instead of rebuilding a fresh block
+        // and orphaning the parked one (bug-152). A legacy `ERR` falls through to
+        // the rebuild below.
+        let rebuild_label = self.label("trap_route_rebuild");
+        self.emit(abi::compare_immediate(
+            RESULT_TAG_REGISTER,
+            RESULT_ERR_BLOCK_TAG,
+        ));
+        self.emit(abi::branch_ne(&rebuild_label));
+        let adopt_addr = self.current_error_slot_address();
+        let adopted = self.temporary_vreg();
+        self.emit(abi::load_u64(&adopted, &adopt_addr, 0));
+        let zero = self.temporary_vreg();
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::store_u64(&zero, &adopt_addr, 0));
+        self.emit(abi::store_u64(&adopted, abi::stack_pointer(), stack_offset));
+        self.emit(abi::branch(&label));
+
+        self.emit(abi::label(&rebuild_label));
         self.emit(abi::store_u64(
             RESULT_VALUE_REGISTER,
             abi::stack_pointer(),
