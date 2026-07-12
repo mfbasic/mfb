@@ -23,3 +23,11 @@ parameters.
   Comment-only fix.
 - `src/target/shared/code/crypto.rs:60` — `move_register(x0, x0)` no-op emitted
   into every randomBytes helper. Drop the dead instruction.
+
+---
+## Resolution (2026-07-11)
+- 138.1 (dead FloatBinaryKernel::Pow) — FIXED (deleted).
+- 138.2a (stale distance comment) — FIXED.
+- 138.2b (dead x0<-x0 self-move in crypto::randomBytes) — FIXED (removed);
+  crypto::randomBytes verified len=16 on host + all four remotes, so the x86
+  arg-staging inference does not depend on it. Cluster closed.

@@ -56,8 +56,9 @@ pub(super) fn lower_crypto_random_bytes_helper(
         abi::branch_lt(&invalid),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), COUNT_OFFSET),
         // Allocate a scratch buffer of `count` bytes (arena_alloc rounds up, so a
-        // zero request still yields a valid pointer we simply never read).
-        abi::move_register(abi::return_register(), abi::return_register()),
+        // zero request still yields a valid pointer we simply never read). `count`
+        // already sits in return_register() == ARG[0] for the alloc (bug-138
+        // removed a dead x0<-x0 self-move here).
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_arena_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
