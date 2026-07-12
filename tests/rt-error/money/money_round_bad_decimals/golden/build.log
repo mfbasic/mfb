@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/money/money_round_bad_decimals
 Wrote executable to tests/rt-error/money/money_round_bad_decimals/money_round_bad_decimals.out
 [exit 0]
 $ tests/rt-error/money/money_round_bad_decimals/money_round_bad_decimals.out
-Code: 77050002 Message: invalid argument
+Error: 7-705-0002
+Argument value is not valid for the requested operation.
 [exit 255]

@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/operators/unary-float-negation-invalid-format-rt
 Wrote executable to tests/rt-error/operators/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.out
 [exit 0]
 $ tests/rt-error/operators/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.out
-Code: 77050003 Message: invalid format
+Error: 7-705-0003
+Text parse or non-finite numeric representation conversion failed.
 [exit 255]

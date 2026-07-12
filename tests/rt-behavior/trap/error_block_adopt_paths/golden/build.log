@@ -6,9 +6,9 @@ $ mfb build tests/rt-behavior/trap/error_block_adopt_paths
 Wrote executable to tests/rt-behavior/trap/error_block_adopt_paths/error_block_adopt_paths.out
 [exit 0]
 $ tests/rt-behavior/trap/error_block_adopt_paths/error_block_adopt_paths.out
-domain=77050001:index out of range
+domain=77050001:List or string index/range is outside valid bounds.
 helper=77030001
 inline=-77050001
 fail=8101:boom-3
-acc=-770499630000
+acc=-770499300000
 [exit 0]

@@ -398,8 +398,13 @@ pub(crate) fn lower_program_entry(
         &mut instructions,
         &mut relocations,
     )?;
+    // The untrapped-error banner is `Error:  <G-SSS-EEEE>\n<message>\n`, so the
+    // code (printed above in canonical hyphenated form) is followed by a newline,
+    // not the legacy ` Message: ` label. The cleanup-failure audit keeps its own
+    // ` Message: ` separator (a distinct call below), so this only reformats the
+    // program-ending untrapped-error output.
     emit_write_string_object(
-        ENTRY_ERROR_SEPARATOR_SYMBOL,
+        ENTRY_ERROR_NEWLINE_SYMBOL,
         entry_symbol,
         platform_imports,
         platform,
@@ -646,9 +651,13 @@ fn emit_cleanup_failure_audit_report(
         instructions,
         relocations,
         "entry_cleanup_failure_code",
+        true,
     )?;
+    // Same banner shape as the untrapped-error path: `Cleanup failure: <code>\n`
+    // with the code in canonical hyphenated form, then the message on its own
+    // line.
     emit_write_string_object(
-        CLEANUP_FAILURE_SEPARATOR_SYMBOL,
+        ENTRY_ERROR_NEWLINE_SYMBOL,
         from,
         platform_imports,
         platform,
@@ -2123,6 +2132,7 @@ fn emit_write_integer_to_stderr(
         instructions,
         relocations,
         "entry_error_code",
+        true,
     )
 }
 
@@ -2133,11 +2143,13 @@ fn emit_write_integer_to_stderr_with_labels(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     label_prefix: &str,
+    hyphenate: bool,
 ) -> Result<(), String> {
     let absolute_ready_label = format!("{label_prefix}_absolute_ready");
     let digit_loop_label = format!("{label_prefix}_digit_loop");
     let digits_done_label = format!("{label_prefix}_digits_done");
     let write_label = format!("{label_prefix}_write");
+    let hyphen_label = format!("{label_prefix}_hyphen");
     instructions.extend([
         abi::subtract_stack(64),
         abi::load_u64(abi::SCRATCH[11], ARENA_STATE_REGISTER, 32),
@@ -2155,6 +2167,23 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::label(&absolute_ready_label),
         abi::add_immediate(abi::SCRATCH[13], abi::stack_pointer(), 64),
         abi::move_immediate(abi::SCRATCH[14], "Integer", "10"),
+    ]);
+    // Canonical error-code formatting (doc `diagnostics 02_error-codes.md`): the
+    // untrapped-error banner prints the code in its hyphenated `G-SSS-EEEE` form,
+    // so the digit loop keeps a running digit count and injects a `-` after the
+    // 4th and 7th digit-from-the-right — but only while more digits remain, so an
+    // arbitrary short `FAIL` code degrades to a plain number rather than gaining a
+    // stray leading/trailing hyphen. The cleanup-failure audit passes
+    // `hyphenate = false` and stays on the bare integer (byte-identical to the
+    // pre-change lowering). The counter lives in SCRATCH[12] (AArch64 x22 / x86
+    // rdi / riscv scratch): the loop body never touches that register and the
+    // divide's implicit rax:rdx clobber does not reach it, so it persists across
+    // every iteration. The hyphen store below borrows SCRATCH[16] (the just-freed
+    // digit register) for the `-` byte so it does not disturb the counter.
+    if hyphenate {
+        instructions.push(abi::move_immediate(abi::SCRATCH[12], "Integer", "0"));
+    }
+    instructions.extend([
         abi::compare_immediate(abi::SCRATCH[11], "0"),
         abi::branch_ne(&digit_loop_label),
         abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
@@ -2168,9 +2197,32 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
         abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
         abi::move_register(abi::SCRATCH[11], abi::SCRATCH[15]),
-        abi::compare_immediate(abi::SCRATCH[11], "0"),
-        abi::branch_ne(&digit_loop_label),
-        abi::label(&digits_done_label),
+    ]);
+    if hyphenate {
+        instructions.extend([
+            abi::add_immediate(abi::SCRATCH[12], abi::SCRATCH[12], 1),
+            abi::compare_immediate(abi::SCRATCH[11], "0"),
+            abi::branch_eq(&digits_done_label),
+            abi::compare_immediate(abi::SCRATCH[12], "4"),
+            abi::branch_eq(&hyphen_label),
+            abi::compare_immediate(abi::SCRATCH[12], "7"),
+            abi::branch_eq(&hyphen_label),
+            abi::branch(&digit_loop_label),
+            abi::label(&hyphen_label),
+            abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
+            abi::move_immediate(abi::SCRATCH[16], "Integer", "45"),
+            abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
+            abi::branch(&digit_loop_label),
+            abi::label(&digits_done_label),
+        ]);
+    } else {
+        instructions.extend([
+            abi::compare_immediate(abi::SCRATCH[11], "0"),
+            abi::branch_ne(&digit_loop_label),
+            abi::label(&digits_done_label),
+        ]);
+    }
+    instructions.extend([
         abi::compare_immediate(abi::SCRATCH[18], "0"),
         abi::branch_eq(&write_label),
         abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),

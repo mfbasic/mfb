@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/math/func_math_exp_floatarray_rt
 Wrote executable to tests/rt-error/math/func_math_exp_floatarray_rt/func_math_exp_floatarray_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_exp_floatarray_rt/func_math_exp_floatarray_rt.out
-Code: 77050014 Message: float infinity result
+Error: 7-705-0014
+Floating-point operation produced an infinity result.
 [exit 255]

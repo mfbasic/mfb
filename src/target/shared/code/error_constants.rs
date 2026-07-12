@@ -1,4 +1,14 @@
+//! Shared codegen constants: the `Result`/`Error` calling protocol, the error
+//! catalog, runtime-helper symbol names, and the byte layouts of every runtime
+//! record (arena state, closures, resources/`File`, collections). Grouped by
+//! concern; `const` items may reference one another regardless of order, so the
+//! layout chains below are written in ascending-offset (dependency) order.
+
 use super::*;
+
+// ===========================================================================
+// Result / Error calling protocol
+// ===========================================================================
 
 pub(crate) const RESULT_OK_TAG: &str = "0";
 pub(crate) const RESULT_ERR_TAG: &str = "1";
@@ -11,82 +21,7 @@ pub(crate) const RESULT_PROGRAM_EXIT_TAG: &str = "2";
 /// During migration, producers that still emit the legacy loose-register error use
 /// `RESULT_ERR_TAG` and the trap route rebuilds as before — never a stale slot.
 pub(crate) const RESULT_ERR_BLOCK_TAG: &str = "3";
-pub(crate) const ERR_OVERFLOW_CODE: &str = "77050010";
-pub(crate) const ERR_OVERFLOW_MESSAGE: &str = "numeric overflow";
-pub(crate) const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
-pub(crate) const ERR_UNDERFLOW_CODE: &str = "77050011";
-pub(crate) const ERR_UNDERFLOW_MESSAGE: &str = "numeric underflow";
-pub(crate) const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
-pub(crate) const ERR_FLOAT_DOMAIN_CODE: &str = "77050012";
-pub(crate) const ERR_FLOAT_DOMAIN_MESSAGE: &str = "float domain error";
-pub(crate) const ERR_FLOAT_DOMAIN_SYMBOL: &str = "_mfb_str_error_float_domain";
-pub(crate) const ERR_FLOAT_NAN_CODE: &str = "77050013";
-pub(crate) const ERR_FLOAT_NAN_MESSAGE: &str = "float NaN result";
-pub(crate) const ERR_FLOAT_NAN_SYMBOL: &str = "_mfb_str_error_float_nan";
-pub(crate) const ERR_FLOAT_INF_CODE: &str = "77050014";
-pub(crate) const ERR_FLOAT_INF_MESSAGE: &str = "float infinity result";
-pub(crate) const ERR_FLOAT_INF_SYMBOL: &str = "_mfb_str_error_float_inf";
-pub(crate) const ERR_FLOAT_OVERFLOW_CODE: &str = "77050015";
-pub(crate) const ERR_FLOAT_OVERFLOW_MESSAGE: &str = "float overflow";
-pub(crate) const ERR_FLOAT_OVERFLOW_SYMBOL: &str = "_mfb_str_error_float_overflow";
-pub(crate) const ERR_ALLOCATION_MESSAGE: &str = "allocation failed";
-pub(crate) const ERR_ALLOCATION_SYMBOL: &str = "_mfb_str_error_allocation";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "77050001";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str = "index out of range";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
-pub(crate) const ERR_NOT_FOUND_CODE: &str = "77050004";
-pub(crate) const ERR_NOT_FOUND_MESSAGE: &str = "not found";
-pub(crate) const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
-pub(crate) const ERR_TIMEOUT_CODE: &str = "77050008";
-pub(crate) const ERR_TIMEOUT_MESSAGE: &str = "timeout";
-pub(crate) const ERR_TIMEOUT_SYMBOL: &str = "_mfb_str_error_timeout";
-pub(crate) const ERR_INTERRUPTED_CODE: &str = "77050009";
-pub(crate) const ERR_INTERRUPTED_MESSAGE: &str = "interrupted";
-pub(crate) const ERR_INTERRUPTED_SYMBOL: &str = "_mfb_str_error_interrupted";
-pub(crate) const ERR_UNKNOWN_CODE: &str = "77050000";
-pub(crate) const ERR_UNKNOWN_MESSAGE: &str = "unknown error";
-pub(crate) const ERR_UNKNOWN_SYMBOL: &str = "_mfb_str_error_unknown";
-pub(crate) const ERR_READ_CODE: &str = "77020001";
-pub(crate) const ERR_READ_MESSAGE: &str = "read failure";
-pub(crate) const ERR_READ_SYMBOL: &str = "_mfb_str_error_read";
-pub(crate) const ERR_OUTPUT_CODE: &str = "77020002";
-pub(crate) const ERR_OUTPUT_MESSAGE: &str = "output failure";
-pub(crate) const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
-/// macOS app mode (plan-04-macos-app.md §6.6): the standard program-entry logic
-/// (arena setup + language `main` + exit) is emitted under this symbol and runs
-/// on the worker thread, while `_main` is the AppKit bootstrap.
-pub(crate) const MACAPP_PROGRAM_SYMBOL: &str = "_mfb_macapp_program";
-pub(crate) const ERR_UNSUPPORTED_CODE: &str = "77050007";
-pub(crate) const ERR_UNSUPPORTED_MESSAGE: &str = "unsupported operation";
-pub(crate) const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
-pub(crate) const ERR_EOF_CODE: &str = "77020003";
-pub(crate) const ERR_EOF_MESSAGE: &str = "end of file";
-pub(crate) const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
-pub(crate) const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
-pub(crate) const ERR_RESOURCE_CLOSED_MESSAGE: &str = "resource closed";
-pub(crate) const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
-pub(crate) const ERR_NATIVE_LINK_LOAD_CODE: &str = "77030007";
-pub(crate) const ERR_NATIVE_LINK_LOAD_MESSAGE: &str = "native binding library unavailable";
-pub(crate) const ERR_NATIVE_LINK_LOAD_SYMBOL: &str = "_mfb_str_error_native_link_load";
-pub(crate) const ERR_NATIVE_LINK_CALL_CODE: &str = "77030008";
-pub(crate) const ERR_NATIVE_LINK_CALL_MESSAGE: &str = "native binding call failed";
-pub(crate) const ERR_NATIVE_LINK_CALL_SYMBOL: &str = "_mfb_str_error_native_link_call";
-pub(crate) const ERR_ENCODING_CODE: &str = "77020004";
-pub(crate) const ERR_ENCODING_MESSAGE: &str = "invalid encoding";
-pub(crate) const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
-pub(crate) const ERR_INPUT_CODE: &str = "77020005";
-pub(crate) const ERR_INPUT_MESSAGE: &str = "input failure";
-pub(crate) const ERR_INPUT_SYMBOL: &str = "_mfb_str_error_input";
-pub(crate) const ENTRY_ERROR_PREFIX: &str = "Code: ";
-pub(crate) const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
-pub(crate) const ENTRY_ERROR_SEPARATOR: &str = " Message: ";
-pub(crate) const ENTRY_ERROR_SEPARATOR_SYMBOL: &str = "_mfb_str_entry_error_separator";
-pub(crate) const ENTRY_ERROR_NEWLINE: &str = "\n";
-pub(crate) const ENTRY_ERROR_NEWLINE_SYMBOL: &str = "_mfb_str_entry_error_newline";
-pub(crate) const CLEANUP_FAILURE_PREFIX: &str = "Cleanup failure: Code: ";
-pub(crate) const CLEANUP_FAILURE_PREFIX_SYMBOL: &str = "_mfb_str_cleanup_failure_prefix";
-pub(crate) const CLEANUP_FAILURE_SEPARATOR: &str = " Message: ";
-pub(crate) const CLEANUP_FAILURE_SEPARATOR_SYMBOL: &str = ENTRY_ERROR_SEPARATOR_SYMBOL;
+
 pub(crate) const RESULT_TAG_REGISTER: &str = abi::RET[0];
 pub(crate) const RESULT_VALUE_REGISTER: &str = abi::RET[1];
 pub(crate) const RESULT_ERROR_MESSAGE_REGISTER: &str = abi::RET[2];
@@ -94,11 +29,12 @@ pub(crate) const RESULT_ERROR_MESSAGE_REGISTER: &str = abi::RET[2];
 /// error originated. Carried alongside code (x1) and message (x2) so propagation
 /// preserves the origin and trap materialization can build a 3-field `Error`.
 pub(crate) const RESULT_ERROR_SOURCE_REGISTER: &str = abi::RET[3];
+
 /// Byte size of an allocated `Error` record: code(+0), message(+8), source(+16).
 pub(crate) const ERROR_OBJECT_SIZE: usize = 24;
 /// Byte size of an allocated `ErrorLoc` record: filename(+0), line(+8), char(+16).
 pub(crate) const ERROR_LOC_OBJECT_SIZE: usize = 24;
-pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
+
 /// Out-of-line `ErrorLoc` builder (plan-16). `x0 = filename String*`,
 /// `x1 = line`, `x2 = char`; returns `x0 = ErrorLoc*`, or `x0 = 0` on OOM. One
 /// shared copy replaces the ~48-instruction block formerly inlined at every trap
@@ -111,29 +47,168 @@ pub(crate) const BUILD_ERROR_LOC_SYMBOL: &str = "_mfb_build_error_loc";
 /// `x0 = RESULT_ERR_TAG`, `x1 = code`, `x2 = message`, `x3 = ErrorLoc*`. Collapses
 /// the per-trap-site register shuffle (`emit_error_register_return`) to a call.
 pub(crate) const MAKE_ERROR_RESULT_SYMBOL: &str = "_mfb_make_error_result";
-pub(crate) const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
-/// Shared process-teardown routine: restores the terminal (when `term::` is used)
-/// and frees the main arena, then returns. Called both after the entry FUNC/SUB
-/// finishes and from the SIGINT/SIGTERM handler, so the cleanup is identical on a
-/// normal exit and a signal kill. It locates the arena through
-/// `MAIN_ARENA_GLOBAL_SYMBOL` (not `x19`) so it works from a signal handler whose
-/// `x19` belongs to the interrupted code.
-pub(crate) const SHUTDOWN_SYMBOL: &str = "_mfb_shutdown";
-/// `void handler(int signo)` installed for SIGINT/SIGTERM in console programs. It
-/// runs `_mfb_shutdown` and then `_exit(128 + signo)`; it never returns.
-pub(crate) const SIGNAL_HANDLER_SYMBOL: &str = "_mfb_rt_signal_handler";
-/// One writable 8-byte global holding the main thread's arena-state address,
-/// stored at program startup. The signal handler and `_mfb_shutdown` read it to
-/// find the arena without relying on the pinned `x19` (which is unavailable on a
-/// signal frame). Per-thread worker arenas are intentionally not tracked here —
-/// they are never freed by us anyway (the entry only ever frees the main arena).
-pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
+
+// ===========================================================================
+// Error catalog — (code, message, symbol) triples, ascending by code
+// ===========================================================================
+
+// -- Memory (7701) ----------------------------------------------------------
+pub(crate) const ERR_OUT_OF_MEMORY_CODE: &str = "77010001";
+pub(crate) const ERR_ALLOCATION_MESSAGE: &str = "Allocation failed.";
+pub(crate) const ERR_ALLOCATION_SYMBOL: &str = "_mfb_str_error_allocation";
+
+// -- I/O (7702) -------------------------------------------------------------
+pub(crate) const ERR_READ_CODE: &str = "77020001";
+pub(crate) const ERR_READ_MESSAGE: &str = "Read operation failed.";
+pub(crate) const ERR_READ_SYMBOL: &str = "_mfb_str_error_read";
+pub(crate) const ERR_OUTPUT_CODE: &str = "77020002";
+pub(crate) const ERR_OUTPUT_MESSAGE: &str = "Write or flush operation failed.";
+pub(crate) const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
+pub(crate) const ERR_EOF_CODE: &str = "77020003";
+pub(crate) const ERR_EOF_MESSAGE: &str = "Read operation reached end of file where a value was required.";
+pub(crate) const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
+pub(crate) const ERR_ENCODING_CODE: &str = "77020004";
+pub(crate) const ERR_ENCODING_MESSAGE: &str = "Text encoding or decoding failed.";
+pub(crate) const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
+pub(crate) const ERR_INPUT_CODE: &str = "77020005";
+pub(crate) const ERR_INPUT_MESSAGE: &str = "Standard input operation failed.";
+pub(crate) const ERR_INPUT_SYMBOL: &str = "_mfb_str_error_input";
+
+// -- Filesystem / resource / native link (7703) -----------------------------
+pub(crate) const ERR_PATH_NOT_FOUND_CODE: &str = "77030001";
+pub(crate) const ERR_PATH_NOT_FOUND_MESSAGE: &str = "Filesystem path does not exist.";
+pub(crate) const ERR_PATH_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_path_not_found";
+pub(crate) const ERR_INVALID_PATH_CODE: &str = "77030002";
+pub(crate) const ERR_INVALID_PATH_MESSAGE: &str = "Filesystem path string is invalid for the host platform.";
+pub(crate) const ERR_INVALID_PATH_SYMBOL: &str = "_mfb_str_error_invalid_path";
+pub(crate) const ERR_ACCESS_DENIED_CODE: &str = "77030003";
+pub(crate) const ERR_ACCESS_DENIED_MESSAGE: &str = "Filesystem access was denied.";
+pub(crate) const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied";
+pub(crate) const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
+pub(crate) const ERR_RESOURCE_CLOSED_MESSAGE: &str = "Resource handle is already closed.";
+pub(crate) const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
+pub(crate) const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
+pub(crate) const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str = "Resource is unavailable, locked, busy, or not in the required empty state.";
+pub(crate) const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
+pub(crate) const ERR_CLOSE_FAILED_CODE: &str = "77030006";
+pub(crate) const ERR_CLOSE_FAILED_MESSAGE: &str = "Resource close operation failed.";
+pub(crate) const ERR_CLOSE_FAILED_SYMBOL: &str = "_mfb_str_error_close_failed";
+pub(crate) const ERR_NATIVE_LINK_LOAD_CODE: &str = "77030007";
+pub(crate) const ERR_NATIVE_LINK_LOAD_MESSAGE: &str =
+    "Native `LINK` binding library or symbol could not be loaded at startup (`dlopen`/`dlsym` failed).";
+pub(crate) const ERR_NATIVE_LINK_LOAD_SYMBOL: &str = "_mfb_str_error_native_link_load";
+pub(crate) const ERR_NATIVE_LINK_CALL_CODE: &str = "77030008";
+pub(crate) const ERR_NATIVE_LINK_CALL_MESSAGE: &str = "Native `LINK` binding call failed its `SUCCESS_ON` gate.";
+pub(crate) const ERR_NATIVE_LINK_CALL_SYMBOL: &str = "_mfb_str_error_native_link_call";
+
+// -- General runtime (7705) -------------------------------------------------
+pub(crate) const ERR_UNKNOWN_CODE: &str = "77050000";
+pub(crate) const ERR_UNKNOWN_MESSAGE: &str = "Unclassified standard-package failure.";
+pub(crate) const ERR_UNKNOWN_SYMBOL: &str = "_mfb_str_error_unknown";
+pub(crate) const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "77050001";
+pub(crate) const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str = "List or string index/range is outside valid bounds.";
+pub(crate) const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
+pub(crate) const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
+pub(crate) const ERR_INVALID_ARGUMENT_MESSAGE: &str = "Argument value is not valid for the requested operation.";
+pub(crate) const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
+pub(crate) const ERR_INVALID_FORMAT_CODE: &str = "77050003";
+pub(crate) const ERR_INVALID_FORMAT_MESSAGE: &str = "Text parse or non-finite numeric representation conversion failed.";
+pub(crate) const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
+pub(crate) const ERR_NOT_FOUND_CODE: &str = "77050004";
+pub(crate) const ERR_NOT_FOUND_MESSAGE: &str = "Requested item, key, file, or resource was not found.";
+pub(crate) const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
+pub(crate) const ERR_ALREADY_EXISTS_CODE: &str = "77050005";
+pub(crate) const ERR_ALREADY_EXISTS_MESSAGE: &str = "Create operation conflicts with an existing item.";
+pub(crate) const ERR_ALREADY_EXISTS_SYMBOL: &str = "_mfb_str_error_already_exists";
+pub(crate) const ERR_UNSUPPORTED_CODE: &str = "77050007";
+pub(crate) const ERR_UNSUPPORTED_MESSAGE: &str = "Operation is not supported by the implementation or platform.";
+pub(crate) const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
+pub(crate) const ERR_TIMEOUT_CODE: &str = "77050008";
+pub(crate) const ERR_TIMEOUT_MESSAGE: &str = "Operation did not complete before its deadline.";
+pub(crate) const ERR_TIMEOUT_SYMBOL: &str = "_mfb_str_error_timeout";
+pub(crate) const ERR_INTERRUPTED_CODE: &str = "77050009";
+pub(crate) const ERR_INTERRUPTED_MESSAGE: &str = "Operation was interrupted before completion.";
+pub(crate) const ERR_INTERRUPTED_SYMBOL: &str = "_mfb_str_error_interrupted";
+pub(crate) const ERR_OVERFLOW_CODE: &str = "77050010";
+pub(crate) const ERR_OVERFLOW_MESSAGE: &str = "Arithmetic overflow or numeric conversion outside the destination range.";
+pub(crate) const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
+pub(crate) const ERR_UNDERFLOW_CODE: &str = "77050011";
+pub(crate) const ERR_UNDERFLOW_MESSAGE: &str = "Arithmetic underflow below the destination range.";
+pub(crate) const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
+pub(crate) const ERR_FLOAT_DOMAIN_CODE: &str = "77050012";
+pub(crate) const ERR_FLOAT_DOMAIN_MESSAGE: &str =
+    "Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, \
+     out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). \
+     Divide-by-zero is not reported here — `x / 0` produces `±Inf`/`NaN` caught at the \
+     observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`.";
+pub(crate) const ERR_FLOAT_DOMAIN_SYMBOL: &str = "_mfb_str_error_float_domain";
+pub(crate) const ERR_FLOAT_NAN_CODE: &str = "77050013";
+pub(crate) const ERR_FLOAT_NAN_MESSAGE: &str = "Floating-point operation produced a NaN result.";
+pub(crate) const ERR_FLOAT_NAN_SYMBOL: &str = "_mfb_str_error_float_nan";
+pub(crate) const ERR_FLOAT_INF_CODE: &str = "77050014";
+pub(crate) const ERR_FLOAT_INF_MESSAGE: &str = "Floating-point operation produced an infinity result.";
+pub(crate) const ERR_FLOAT_INF_SYMBOL: &str = "_mfb_str_error_float_inf";
+pub(crate) const ERR_FLOAT_OVERFLOW_CODE: &str = "77050015";
+pub(crate) const ERR_FLOAT_OVERFLOW_MESSAGE: &str = "Floating-point arithmetic overflowed to infinity.";
+pub(crate) const ERR_FLOAT_OVERFLOW_SYMBOL: &str = "_mfb_str_error_float_overflow";
+
+// -- Network (7707) ---------------------------------------------------------
+pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";
+pub(crate) const ERR_ADDRESS_INVALID_MESSAGE: &str = "Network host, address, or port is invalid.";
+pub(crate) const ERR_ADDRESS_INVALID_SYMBOL: &str = "_mfb_str_error_address_invalid";
+pub(crate) const ERR_ADDRESS_NOT_FOUND_CODE: &str = "77070002";
+pub(crate) const ERR_ADDRESS_NOT_FOUND_MESSAGE: &str = "Network host name or address could not be resolved.";
+pub(crate) const ERR_ADDRESS_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_address_not_found";
+pub(crate) const ERR_NETWORK_FAILED_CODE: &str = "77070003";
+pub(crate) const ERR_NETWORK_FAILED_MESSAGE: &str = "Network operation failed before a connection was established.";
+pub(crate) const ERR_NETWORK_FAILED_SYMBOL: &str = "_mfb_str_error_network_failed";
+pub(crate) const ERR_CONNECTION_CLOSED_CODE: &str = "77070004";
+pub(crate) const ERR_CONNECTION_CLOSED_MESSAGE: &str = "Socket peer closed the connection or the connection is no longer usable.";
+pub(crate) const ERR_CONNECTION_CLOSED_SYMBOL: &str = "_mfb_str_error_connection_closed";
+pub(crate) const ERR_READ_TIMEOUT_CODE: &str = "77070005";
+pub(crate) const ERR_READ_TIMEOUT_MESSAGE: &str = "Socket read operation timed out.";
+pub(crate) const ERR_READ_TIMEOUT_SYMBOL: &str = "_mfb_str_error_read_timeout";
+pub(crate) const ERR_WRITE_TIMEOUT_CODE: &str = "77070006";
+pub(crate) const ERR_WRITE_TIMEOUT_MESSAGE: &str = "Socket write operation timed out.";
+pub(crate) const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
+pub(crate) const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
+pub(crate) const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str = "Datagram or message exceeds the requested or supported size.";
+pub(crate) const ERR_MESSAGE_TOO_LARGE_SYMBOL: &str = "_mfb_str_error_message_too_large";
+pub(crate) const ERR_TLS_FAILED_CODE: &str = "77070008";
+pub(crate) const ERR_TLS_FAILED_MESSAGE: &str = "TLS handshake, certificate validation, SNI validation, or protocol operation failed.";
+pub(crate) const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
+
+// ===========================================================================
+// Entry-point & cleanup-failure diagnostic strings
+// ===========================================================================
+
+// Untrapped-error / cleanup-failure banners share one shape (doc
+// `diagnostics 02_error-codes.md`): `<label> <G-SSS-EEEE>\n<message>\n`. The code
+// is printed on the label line (canonical hyphenated form) and the message stands
+// alone on the next line, so there is no inline separator string — both paths emit
+// `ENTRY_ERROR_NEWLINE` between the code and the message.
+pub(crate) const ENTRY_ERROR_PREFIX: &str = "Error: ";
+pub(crate) const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
+pub(crate) const ENTRY_ERROR_NEWLINE: &str = "\n";
+pub(crate) const ENTRY_ERROR_NEWLINE_SYMBOL: &str = "_mfb_str_entry_error_newline";
+pub(crate) const CLEANUP_FAILURE_PREFIX: &str = "Cleanup failure: ";
+pub(crate) const CLEANUP_FAILURE_PREFIX_SYMBOL: &str = "_mfb_str_cleanup_failure_prefix";
+
+// ===========================================================================
+// Neutral register tokens
+// ===========================================================================
+
 /// The arena-state pointer as shared code names it — the neutral `arena_base`
 /// token (plan-34-A). Each backend's selection realizes it to a physical
 /// register (AArch64 x19 via `regmodel::ARENA_BASE_REGISTER`, RISC-V s11,
 /// x86-64 r15); shared lowering never spells the AArch64 register number.
 pub(crate) const ARENA_STATE_REGISTER: &str = crate::target::shared::abi::ARENA;
 pub(crate) const CLOSURE_ENV_REGISTER: &str = crate::target::shared::abi::CLOSURE_ENV;
+
+// ===========================================================================
+// Closures
+// ===========================================================================
+
 pub(crate) const CLOSURE_OBJECT_SIZE: usize = 16;
 pub(crate) const CLOSURE_OFFSET_CODE: usize = 0;
 pub(crate) const CLOSURE_OFFSET_ENV: usize = 8;
@@ -150,11 +225,55 @@ pub(crate) fn closure_descriptor_symbol(func_symbol: &str) -> String {
 /// The startup function that populates every static closure descriptor's `code`
 /// word (bug-78). Run once from the entry before `main`.
 pub(crate) const CLOSURE_DESC_INIT_SYMBOL: &str = "_mfb_closure_desc_init";
+
+// ===========================================================================
+// Program-entry frame & process lifecycle
+// ===========================================================================
+
 /// Entry-frame prefix: the arena state plus the one seed-scratch word after it.
 /// Derived from `ARENA_STATE_SIZE` so the frame tracks arena-state growth
 /// (e.g. the allocator-01 quick bins) automatically.
 pub(crate) const ENTRY_STACK_SIZE: usize = ENTRY_SEED_SCRATCH_OFFSET + 8;
 pub(crate) const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
+/// One in-frame scratch word between the arena state (0..`ARENA_STATE_SIZE`)
+/// and the globals (`ENTRY_STACK_SIZE`..): the RNG-seed block's `getentropy`
+/// buffer.
+pub(crate) const ENTRY_SEED_SCRATCH_OFFSET: usize = ARENA_STATE_SIZE;
+/// Size of the args region appended to the entry frame for an arg-accepting
+/// entry: five 8-byte slots (argc, argv, args list, data length, saved count),
+/// rounded up to the 16-byte frame granule. The region sits ABOVE the globals
+/// (at `entry_stack_size - ENTRY_ARGS_REGION_SIZE`); the old fixed offsets at
+/// 104..144 overlapped the first four global slots and, for a program with no
+/// globals, spilled past the frame — silently-scratch memory on macOS, but the
+/// OS argc/argv words themselves at a raw Linux ELF entry.
+pub(crate) const ENTRY_ARGS_REGION_SIZE: usize = 48;
+
+/// macOS app mode (plan-04-macos-app.md §6.6): the standard program-entry logic
+/// (arena setup + language `main` + exit) is emitted under this symbol and runs
+/// on the worker thread, while `_main` is the AppKit bootstrap.
+pub(crate) const MACAPP_PROGRAM_SYMBOL: &str = "_mfb_macapp_program";
+
+/// Shared process-teardown routine: restores the terminal (when `term::` is used)
+/// and frees the main arena, then returns. Called both after the entry FUNC/SUB
+/// finishes and from the SIGINT/SIGTERM handler, so the cleanup is identical on a
+/// normal exit and a signal kill. It locates the arena through
+/// `MAIN_ARENA_GLOBAL_SYMBOL` (not `x19`) so it works from a signal handler whose
+/// `x19` belongs to the interrupted code.
+pub(crate) const SHUTDOWN_SYMBOL: &str = "_mfb_shutdown";
+/// `void handler(int signo)` installed for SIGINT/SIGTERM in console programs. It
+/// runs `_mfb_shutdown` and then `_exit(128 + signo)`; it never returns.
+pub(crate) const SIGNAL_HANDLER_SYMBOL: &str = "_mfb_rt_signal_handler";
+/// One writable 8-byte global holding the main thread's arena-state address,
+/// stored at program startup. The signal handler and `_mfb_shutdown` read it to
+/// find the arena without relying on the pinned `x19` (which is unavailable on a
+/// signal frame). Per-thread worker arenas are intentionally not tracked here —
+/// they are never freed by us anyway (the entry only ever frees the main arena).
+pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
+
+// ===========================================================================
+// term:: TUI state slots (reserved in the program-entry frame)
+// ===========================================================================
+
 /// `term::` TUI-mode state slots reserved in the program-entry frame just past
 /// the program globals and `LINK` slots (plan-01-term.md §6.2). The first eight
 /// `u64` slots hold: active, packed foreground, packed background, bold,
@@ -186,22 +305,14 @@ pub(crate) const TERM_STATE_COOKED_TERMIOS_OFFSET: usize = 72;
 pub(crate) const TERM_STATE_RAW_TERMIOS_OFFSET: usize = 144;
 /// Total reserved slots: through the raw `termios` buffer (144 + 72 = 216 bytes).
 pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) / 8;
+
+// ===========================================================================
+// Arena state layout (ascending offset) & allocator
+// ===========================================================================
+
 pub(crate) const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
 pub(crate) const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
 pub(crate) const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
-/// Per-arena (per-thread) PCG64 random-number generator state. Each OS thread
-/// owns its own arena, so storing the 128-bit RNG state in the arena gives every
-/// thread an independent stream reachable through the pinned arena register
-/// (`x19`) without a thread-local lookup. Appended past the cleanup-audit fields
-/// so the historical 0..88 layout is unchanged for programs that never seed.
-pub(crate) const ARENA_RNG_STATE_LO_OFFSET: usize = 88;
-pub(crate) const ARENA_RNG_STATE_HI_OFFSET: usize = 96;
-/// Per-arena (per-thread) Money rounding mode (plan-29-D): `0 = Commercial`
-/// (round-half-away-from-zero, the default), `1 = Banker` (round-half-to-even).
-/// Stored in the reserved arena-state word at offset 56 so the zero-init clear
-/// gives the Commercial default with no extra init code; a child thread inherits
-/// the parent's mode at spawn (copied beside the RNG-seed derivation).
-pub(crate) const ARENA_ROUNDING_MODE_OFFSET: usize = 56;
 /// Dedicated per-arena memory-fill PCG64 state, reusing the two reserved
 /// arena-state words at offsets 16/24. This stream is **separate** from the
 /// language RNG at 88/96 (`math::rand`): it is seeded independently and its
@@ -215,6 +326,26 @@ pub(crate) const ARENA_FILL_RNG_HI_OFFSET: usize = 24;
 /// arenas seeding in the same instant (or after a `getentropy` failure) still get
 /// distinct poison streams.
 pub(crate) const ARENA_START_TIME_OFFSET: usize = 40;
+/// Per-arena address-ordered coalescing free-list head (lowest-address free
+/// chunk, 0 when empty). Stored in the reserved arena-state word at offset 48
+/// (`memory_layouts.md` Arenas §). The list subsumes the old bump pointer: a
+/// freshly mapped block's usable region is inserted as one big free chunk and
+/// `arena_alloc` carves allocations out of it (first-fit + split), while
+/// `arena_free` returns chunks and coalesces with address-adjacent neighbors.
+pub(crate) const ARENA_FREE_LIST_HEAD_OFFSET: usize = 48;
+/// Per-arena (per-thread) Money rounding mode (plan-29-D): `0 = Commercial`
+/// (round-half-away-from-zero, the default), `1 = Banker` (round-half-to-even).
+/// Stored in the reserved arena-state word at offset 56 so the zero-init clear
+/// gives the Commercial default with no extra init code; a child thread inherits
+/// the parent's mode at spawn (copied beside the RNG-seed derivation).
+pub(crate) const ARENA_ROUNDING_MODE_OFFSET: usize = 56;
+/// Per-arena (per-thread) PCG64 random-number generator state. Each OS thread
+/// owns its own arena, so storing the 128-bit RNG state in the arena gives every
+/// thread an independent stream reachable through the pinned arena register
+/// (`x19`) without a thread-local lookup. Appended past the cleanup-audit fields
+/// so the historical 0..88 layout is unchanged for programs that never seed.
+pub(crate) const ARENA_RNG_STATE_LO_OFFSET: usize = 88;
+pub(crate) const ARENA_RNG_STATE_HI_OFFSET: usize = 96;
 /// Per-size-class quick bins (allocator-01): `ARENA_QUICK_BIN_COUNT` singly
 /// linked bin heads for exact chunk sizes 16, 32, …, `ARENA_QUICK_BIN_MAX`
 /// (granule 16; class index `size/16 - 1`), appended to the arena state after
@@ -280,6 +411,28 @@ pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
 /// thread-spawn paths already run.
 pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
 pub(crate) const ARENA_STATE_SIZE: usize = ARENA_CURRENT_ERROR_OFFSET + 8;
+
+pub(crate) const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
+pub(crate) const ARENA_BLOCK_HEADER_SIZE: usize = 32;
+/// Minimum allocation granule. A free chunk overlays a `FreeNode` ({next, size})
+/// in its own dead bytes, so it must hold at least 16 bytes. Every request is
+/// rounded up to this granule and every allocation is at least 16-byte aligned,
+/// which keeps every chunk start 16-aligned and every chunk size a multiple of
+/// 16 — so a split front/tail remainder is always either 0 or a valid (≥16)
+/// node, never sub-granule slack.
+pub(crate) const ARENA_MIN_CHUNK: u64 = 16;
+
+pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
+pub(crate) const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
+/// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
+/// to the per-arena free-list (entropy-scrub then coalescing insert). Never
+/// unmaps; memory returns to the OS only at `arena_destroy`.
+pub(crate) const ARENA_FREE_SYMBOL: &str = "_mfb_arena_free";
+/// `arena_insert_free(x0 = ptr, x1 = size)` — the address-ordered coalescing
+/// insert shared by `arena_free` and `arena_alloc`'s block-grow path. Pure
+/// free-list surgery; does not scrub (callers fill first when required).
+pub(crate) const ARENA_INSERT_FREE_SYMBOL: &str = "_mfb_arena_insert_free";
+
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// Internal helper that drains the per-arena stdout buffer to fd 1 (plan-14-A):
@@ -290,6 +443,25 @@ pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// every stdin read, and `_mfb_shutdown` — every point where held-back bytes
 /// would otherwise be lost or misordered.
 pub(crate) const STDOUT_DRAIN_SYMBOL: &str = "_mfb_rt_io_stdout_drain";
+
+// ===========================================================================
+// PCG64 random-number generation
+// ===========================================================================
+
+/// PCG64 (XSL-RR 128/64) default LCG multiplier, high and low 64-bit limbs.
+pub(crate) const PCG_MULT_HI: u64 = 0x2360_ED05_1FC6_5DA4;
+pub(crate) const PCG_MULT_LO: u64 = 0x4385_DF64_9FCC_F645;
+/// PCG64 default stream increment, high and low 64-bit limbs.
+pub(crate) const PCG_INC_HI: u64 = 0x5851_F42D_4C95_7F2D;
+pub(crate) const PCG_INC_LO: u64 = 0x1405_7B7E_F767_814F;
+
+/// Advance one PCG64 step and return the next 64-bit value in `x0`; reads/writes
+/// the calling thread's arena RNG state via `x19`.
+pub(crate) const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
+/// Seed the PCG64 state at `[x0 + ARENA_RNG_STATE_*]` from the 64-bit seed in
+/// `x1`. Used both for the program-startup seed and to give each spawned thread
+/// its own stream drawn from the parent's generator.
+pub(crate) const RNG_SEED_SYMBOL: &str = "_mfb_rng_seed_at";
 /// Fill `x1` bytes at `x0` with output from the dedicated per-arena fill RNG.
 /// Used to scrub freed chunks and poison freshly mapped blocks. Clobbers
 /// x0, x1, x9–x16.
@@ -301,114 +473,36 @@ pub(crate) const ARENA_FILL_SEED_SYMBOL: &str = "_mfb_arena_fill_seed";
 /// 64-bit value in `x0`. Used to draw an independent child seed from the parent
 /// at thread spawn (runs in the parent, so the draw is race-free).
 pub(crate) const ARENA_FILL_NEXT_SYMBOL: &str = "_mfb_arena_fill_next";
-/// Advance one PCG64 step and return the next 64-bit value in `x0`; reads/writes
-/// the calling thread's arena RNG state via `x19`.
-pub(crate) const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
+
+// ===========================================================================
+// SIMD
+// ===========================================================================
+
 /// Allocate a tight homogeneous numeric `List` (plan-01-simd §4.3). Input
 /// `x0 = count`, `x1 = valueTypeCode`; returns `x0 = list base` (or `0` on OOM).
 /// Writes the 40-byte header and `count` uniform 40-byte lookup entries so the
 /// per-op SIMD lowerings only stream the data region. Confines the
 /// `_mfb_arena_alloc` clobber discipline to one audited routine.
 pub(crate) const SIMD_ALLOC_LIST_SYMBOL: &str = "_mfb_simd_alloc_list";
-/// Seed the PCG64 state at `[x0 + ARENA_RNG_STATE_*]` from the 64-bit seed in
-/// `x1`. Used both for the program-startup seed and to give each spawned thread
-/// its own stream drawn from the parent's generator.
-pub(crate) const RNG_SEED_SYMBOL: &str = "_mfb_rng_seed_at";
-/// PCG64 (XSL-RR 128/64) default LCG multiplier, high and low 64-bit limbs.
-pub(crate) const PCG_MULT_HI: u64 = 0x2360_ED05_1FC6_5DA4;
-pub(crate) const PCG_MULT_LO: u64 = 0x4385_DF64_9FCC_F645;
-/// PCG64 default stream increment, high and low 64-bit limbs.
-pub(crate) const PCG_INC_HI: u64 = 0x5851_F42D_4C95_7F2D;
-pub(crate) const PCG_INC_LO: u64 = 0x1405_7B7E_F767_814F;
-/// One in-frame scratch word between the arena state (0..`ARENA_STATE_SIZE`)
-/// and the globals (`ENTRY_STACK_SIZE`..): the RNG-seed block's `getentropy`
-/// buffer.
-pub(crate) const ENTRY_SEED_SCRATCH_OFFSET: usize = ARENA_STATE_SIZE;
-/// Size of the args region appended to the entry frame for an arg-accepting
-/// entry: five 8-byte slots (argc, argv, args list, data length, saved count),
-/// rounded up to the 16-byte frame granule. The region sits ABOVE the globals
-/// (at `entry_stack_size - ENTRY_ARGS_REGION_SIZE`); the old fixed offsets at
-/// 104..144 overlapped the first four global slots and, for a program with no
-/// globals, spilled past the frame — silently-scratch memory on macOS, but the
-/// OS argc/argv words themselves at a raw Linux ELF entry.
-pub(crate) const ENTRY_ARGS_REGION_SIZE: usize = 48;
-pub(crate) const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
-pub(crate) const ARENA_BLOCK_HEADER_SIZE: usize = 32;
-/// Per-arena address-ordered coalescing free-list head (lowest-address free
-/// chunk, 0 when empty). Stored in the reserved arena-state word at offset 48
-/// (`memory_layouts.md` Arenas §). The list subsumes the old bump pointer: a
-/// freshly mapped block's usable region is inserted as one big free chunk and
-/// `arena_alloc` carves allocations out of it (first-fit + split), while
-/// `arena_free` returns chunks and coalesces with address-adjacent neighbors.
-pub(crate) const ARENA_FREE_LIST_HEAD_OFFSET: usize = 48;
-/// Minimum allocation granule. A free chunk overlays a `FreeNode` ({next, size})
-/// in its own dead bytes, so it must hold at least 16 bytes. Every request is
-/// rounded up to this granule and every allocation is at least 16-byte aligned,
-/// which keeps every chunk start 16-aligned and every chunk size a multiple of
-/// 16 — so a split front/tail remainder is always either 0 or a valid (≥16)
-/// node, never sub-granule slack.
-pub(crate) const ARENA_MIN_CHUNK: u64 = 16;
-/// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
-/// to the per-arena free-list (entropy-scrub then coalescing insert). Never
-/// unmaps; memory returns to the OS only at `arena_destroy`.
-pub(crate) const ARENA_FREE_SYMBOL: &str = "_mfb_arena_free";
-/// `arena_insert_free(x0 = ptr, x1 = size)` — the address-ordered coalescing
-/// insert shared by `arena_free` and `arena_alloc`'s block-grow path. Pure
-/// free-list surgery; does not scrub (callers fill first when required).
-pub(crate) const ARENA_INSERT_FREE_SYMBOL: &str = "_mfb_arena_insert_free";
-pub(crate) const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
-pub(crate) const ERR_INVALID_ARGUMENT_MESSAGE: &str = "invalid argument";
-pub(crate) const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
-pub(crate) const ERR_INVALID_FORMAT_CODE: &str = "77050003";
-pub(crate) const ERR_INVALID_FORMAT_MESSAGE: &str = "invalid format";
-pub(crate) const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
-pub(crate) const ERR_OUT_OF_MEMORY_CODE: &str = "77010001";
-pub(crate) const ERR_ALREADY_EXISTS_CODE: &str = "77050005";
-pub(crate) const ERR_ALREADY_EXISTS_MESSAGE: &str = "already exists";
-pub(crate) const ERR_ALREADY_EXISTS_SYMBOL: &str = "_mfb_str_error_already_exists";
-pub(crate) const ERR_ACCESS_DENIED_CODE: &str = "77030003";
-pub(crate) const ERR_ACCESS_DENIED_MESSAGE: &str = "access denied";
-pub(crate) const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str = "directory not empty";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
-pub(crate) const ERR_CLOSE_FAILED_CODE: &str = "77030006";
-pub(crate) const ERR_CLOSE_FAILED_MESSAGE: &str = "close failed";
-pub(crate) const ERR_CLOSE_FAILED_SYMBOL: &str = "_mfb_str_error_close_failed";
-pub(crate) const ERR_PATH_NOT_FOUND_CODE: &str = "77030001";
-pub(crate) const ERR_PATH_NOT_FOUND_MESSAGE: &str = "path not found";
-pub(crate) const ERR_PATH_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_path_not_found";
-pub(crate) const ERR_INVALID_PATH_CODE: &str = "77030002";
-pub(crate) const ERR_INVALID_PATH_MESSAGE: &str = "invalid path";
-pub(crate) const ERR_INVALID_PATH_SYMBOL: &str = "_mfb_str_error_invalid_path";
-pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";
-pub(crate) const ERR_ADDRESS_INVALID_MESSAGE: &str = "address invalid";
-pub(crate) const ERR_ADDRESS_INVALID_SYMBOL: &str = "_mfb_str_error_address_invalid";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_CODE: &str = "77070002";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_MESSAGE: &str = "address not found";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_address_not_found";
-pub(crate) const ERR_NETWORK_FAILED_CODE: &str = "77070003";
-pub(crate) const ERR_NETWORK_FAILED_MESSAGE: &str = "network failed";
-pub(crate) const ERR_NETWORK_FAILED_SYMBOL: &str = "_mfb_str_error_network_failed";
-pub(crate) const ERR_CONNECTION_CLOSED_CODE: &str = "77070004";
-pub(crate) const ERR_CONNECTION_CLOSED_MESSAGE: &str = "connection closed";
-pub(crate) const ERR_CONNECTION_CLOSED_SYMBOL: &str = "_mfb_str_error_connection_closed";
-pub(crate) const ERR_READ_TIMEOUT_CODE: &str = "77070005";
-pub(crate) const ERR_READ_TIMEOUT_MESSAGE: &str = "read timeout";
-pub(crate) const ERR_READ_TIMEOUT_SYMBOL: &str = "_mfb_str_error_read_timeout";
-pub(crate) const ERR_WRITE_TIMEOUT_CODE: &str = "77070006";
-pub(crate) const ERR_WRITE_TIMEOUT_MESSAGE: &str = "write timeout";
-pub(crate) const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
-pub(crate) const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
-pub(crate) const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str = "message too large";
-pub(crate) const ERR_MESSAGE_TOO_LARGE_SYMBOL: &str = "_mfb_str_error_message_too_large";
-pub(crate) const ERR_TLS_FAILED_CODE: &str = "77070008";
-pub(crate) const ERR_TLS_FAILED_MESSAGE: &str = "TLS failed";
-pub(crate) const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
+
+// ===========================================================================
+// Shared string symbols
+// ===========================================================================
+
 pub(crate) const EMPTY_STRING_SYMBOL: &str = "_mfb_str_empty";
+
+// ===========================================================================
+// Filesystem mode bits
+// ===========================================================================
+
 pub(crate) const FS_MODE_TYPE_MASK: &str = "61440";
 pub(crate) const FS_MODE_DIRECTORY: &str = "16384";
 pub(crate) const FS_MODE_REGULAR: &str = "32768";
+
+// ===========================================================================
+// Resource / File record layout
+// ===========================================================================
+
 pub(crate) const FILE_OFFSET_FD: usize = 0;
 pub(crate) const FILE_OFFSET_CLOSED: usize = 8;
 /// Offset of the optional `STATE` payload pointer in a resource record. A
@@ -459,6 +553,11 @@ pub(crate) const FILE_BUFFER_CAPACITY: u64 = 4096;
 /// `fs::flush`, buffered `fs::writeAll`/`writeAllBytes` overflow, the
 /// `fs::setBuffered(FALSE)` transition, and the mandatory flush-on-close.
 pub(crate) const FILE_DRAIN_SYMBOL: &str = "_mfb_rt_fs_file_drain";
+
+// ===========================================================================
+// Collections (List / Map) record layout
+// ===========================================================================
+
 pub(crate) const COLLECTION_KIND_LIST: usize = 0;
 pub(crate) const COLLECTION_KIND_MAP: usize = 1;
 pub(crate) const COLLECTION_HEADER_SIZE: usize = 40;
@@ -477,6 +576,7 @@ pub(crate) const COLLECTION_ENTRY_OFFSET_KEY_LENGTH: usize = 16;
 pub(crate) const COLLECTION_ENTRY_OFFSET_VALUE_OFFSET: usize = 24;
 pub(crate) const COLLECTION_ENTRY_OFFSET_VALUE_LENGTH: usize = 32;
 pub(crate) const COLLECTION_ENTRY_FLAG_USED: usize = 1;
+
 // Map hash index (plan-02 Phase 6). A `Map` reserves a bucket array of
 // `2*capacity` u64 entries **after** the data region (so the capacity-based data
 // base is unchanged); each bucket holds `entryIndex + 1` (0 = empty) addressed by
@@ -496,6 +596,7 @@ pub(crate) const MAP_PROBE_SYMBOL: &str = "_mfb_rt_map_probe";
 /// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash.
 pub(crate) const FNV1A_BASIS: &str = "14695981039346656037";
 pub(crate) const FNV1A_PRIME: &str = "1099511628211";
+
 // Geometric growth shape for the append grow path (plan-01 §5): start small,
 // double until a taper threshold, then ×1.5. Lookup slots and data bytes grow
 // independently. Literals and known-size builders ignore these (exact alloc).
@@ -503,6 +604,7 @@ pub(crate) const COLLECTION_GROW_LOOKUP_INIT: usize = 4;
 pub(crate) const COLLECTION_GROW_LOOKUP_TAPER: usize = 1024;
 pub(crate) const COLLECTION_GROW_DATA_INIT: usize = 32;
 pub(crate) const COLLECTION_GROW_DATA_TAPER: usize = 65536;
+
 pub(crate) const COLLECTION_TYPE_NONE: usize = 0;
 pub(crate) const COLLECTION_TYPE_BOOLEAN: usize = 2;
 pub(crate) const COLLECTION_TYPE_INTEGER: usize = 3;
@@ -517,6 +619,11 @@ pub(crate) const COLLECTION_TYPE_MONEY: usize = 8;
 pub(crate) const COLLECTION_TYPE_LIST: usize = 20;
 pub(crate) const COLLECTION_TYPE_MAP: usize = 21;
 pub(crate) const COLLECTION_TYPE_OBJECT: usize = 22;
+
+// ===========================================================================
+// Unicode data-table symbols
+// ===========================================================================
+
 pub(crate) const UNICODE_STAGE1_SYMBOL: &str = "_mfb_unicode_stage1";
 pub(crate) const UNICODE_STAGE2_SYMBOL: &str = "_mfb_unicode_stage2";
 pub(crate) const UNICODE_PROPERTIES_SYMBOL: &str = "_mfb_unicode_properties";
@@ -531,4 +638,9 @@ pub(crate) const UNICODE_LOWERCASE_ENTRIES_SYMBOL: &str = "_mfb_unicode_lowercas
 pub(crate) const UNICODE_LOWERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_lowercase_sequences";
 pub(crate) const UNICODE_CASEFOLD_ENTRIES_SYMBOL: &str = "_mfb_unicode_casefold_entries";
 pub(crate) const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefold_sequences";
+
+// ===========================================================================
+// Threads
+// ===========================================================================
+
 pub(crate) const THREAD_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_thread_trampoline";

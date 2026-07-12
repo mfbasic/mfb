@@ -554,7 +554,7 @@ END FUNC
     assert_eq!(stdout, "");
     assert_eq!(
         stderr,
-        "Code: 1234 Message: body failed\nCleanup failure: Code: 77030006 Message: close failed\n"
+        "Error: 1234\nbody failed\nCleanup failure: 7-703-0006\nResource close operation failed.\n"
     );
 }
 
@@ -1020,11 +1020,17 @@ END FUNC
 
 #[test]
 fn native_term_console_emits_expected_escape_sequences() {
-    // The console backend writes the documented ANSI escapes to stdout while TUI
-    // mode is active (plan-01-term.md §10.2). Driven into a pipe (no tty needed).
+    // The console backend is a shadow grid (plan-35): drawing calls (setColor/
+    // setAttr/cursor/moveTo/clear) mutate the in-memory back buffer and emit no
+    // ANSI; only `term::sync`/`term::off` present the frame, diffing the back
+    // buffer against the last-presented front buffer and writing the changed cells
+    // as one batched escape run. So the pen (foreground/background/bold/underline)
+    // only surfaces on cells a glyph is actually written to — here the "HELLO" run
+    // positioned by `moveTo`. Driven into a pipe (no tty needed).
     let project = temp_project(
         "native_term_escapes",
         r#"
+IMPORT io
 IMPORT term
 
 FUNC main AS Integer
@@ -1034,9 +1040,9 @@ FUNC main AS Integer
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::moveTo(2, 4)
-  term::showCursor()
+  io::print("HELLO")
   term::hideCursor()
-  term::clear()
+  term::sync()
   term::off()
   RETURN 0
 END FUNC
@@ -1046,14 +1052,13 @@ END FUNC
     let out = run_with_stdin(&executable, b"");
     for needle in [
         "\x1b[?1049h",        // on(): enter the alternate screen
-        "\x1b[38;2;0;255;0m", // setForeground(0,255,0)
+        "\x1b[2J\x1b[H",      // on()'s first present clears the alternate screen
+        "\x1b[38;2;0;255;0m", // setForeground(0,255,0), presented on the drawn run
         "\x1b[48;2;0;0;0m",   // setBackground(0,0,0)
         "\x1b[1m",            // setBold(TRUE)
         "\x1b[4m",            // setUnderline(TRUE)
-        "\x1b[3;5H",          // moveTo(2,4) -> 1-based 3;5
-        "\x1b[?25h",          // showCursor()
-        "\x1b[?25l",          // hideCursor()
-        "\x1b[2J\x1b[H",      // clear()
+        "HELLO",             // the glyph run, drawn with the pen above
+        "\x1b[?25l",          // hideCursor(), presented as the frame's cursor state
         "\x1b[?1049l",        // off(): leave the alternate screen
     ] {
         assert!(

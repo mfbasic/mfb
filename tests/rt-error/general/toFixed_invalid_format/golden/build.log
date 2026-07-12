@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/general/toFixed_invalid_format
 Wrote executable to tests/rt-error/general/toFixed_invalid_format/func_general_toFixed_invalid_format.out
 [exit 0]
 $ tests/rt-error/general/toFixed_invalid_format/func_general_toFixed_invalid_format.out
-Code: 77050003 Message: invalid format
+Error: 7-705-0003
+Text parse or non-finite numeric representation conversion failed.
 [exit 255]

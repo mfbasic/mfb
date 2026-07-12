@@ -1732,7 +1732,7 @@ FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS Integ
   LET prog AS __regex_Program = __regex_compile(pattern)
   LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   IF start < 0 OR start > ctx.n THEN
-    FAIL error(77050001, "index out of range")
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
   LET r AS __regex_Result = __regex_searchFrom(prog, ctx, start)
   IF r.ok = FALSE THEN
@@ -1745,7 +1745,7 @@ FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS Li
   LET prog AS __regex_Program = __regex_compile(pattern)
   LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   IF start < 0 OR start > ctx.n THEN
-    FAIL error(77050001, "index out of range")
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
   MUT out AS List OF Integer = []
   MUT lastEnd AS Integer = start

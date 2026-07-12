@@ -8,5 +8,6 @@ uses fs_thread_workers - [Unsigned]
 Wrote executable to tests/rt-error/threads/thread-fs-path-notfound-rt/thread_fs_path_notfound_rt.out
 [exit 0]
 $ tests/rt-error/threads/thread-fs-path-notfound-rt/thread_fs_path_notfound_rt.out
-Code: 77030001 Message: path not found
+Error: 7-703-0001
+Filesystem path does not exist.
 [exit 255]

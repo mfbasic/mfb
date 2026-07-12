@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/operators/unary-byte-negation-underflow-rt
 Wrote executable to tests/rt-error/operators/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.out
 [exit 0]
 $ tests/rt-error/operators/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.out
-Code: 77050011 Message: numeric underflow
+Error: 7-705-0011
+Arithmetic underflow below the destination range.
 [exit 255]

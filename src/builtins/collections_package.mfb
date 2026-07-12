@@ -128,7 +128,7 @@ END FUNC
 
 FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer = 0) AS Integer
   IF start < 0 OR start > len(value) THEN
-    FAIL error(77050001, "index out of range")
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
   LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT i AS Integer = start
@@ -138,7 +138,7 @@ FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Bo
     END IF
     i = i + 1
   WEND
-  FAIL error(77050004, "not found")
+  FAIL error(77050004, "Requested item, key, file, or resource was not found.")
 END FUNC
 
 FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer = -1) AS Integer
@@ -147,7 +147,7 @@ FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) A
     e = len(value) + e
   END IF
   IF e < 0 OR e >= len(value) THEN
-    FAIL error(77050001, "index out of range")
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
   LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT i AS Integer = e
@@ -157,7 +157,7 @@ FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) A
     END IF
     i = i - 1
   WEND
-  FAIL error(77050004, "not found")
+  FAIL error(77050004, "Requested item, key, file, or resource was not found.")
 END FUNC
 
 FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
@@ -223,7 +223,7 @@ END FUNC
 
 FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T
   IF chunkSize < 1 THEN
-    FAIL error(77050002, "invalid argument")
+    FAIL error(77050002, "Argument value is not valid for the requested operation.")
   END IF
   MUT result AS List OF List OF T = []
   MUT i AS Integer = 0
@@ -241,7 +241,7 @@ END FUNC
 
 FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS Integer = 1) AS List OF List OF T
   IF size < 1 OR stride < 1 THEN
-    FAIL error(77050002, "invalid argument")
+    FAIL error(77050002, "Argument value is not valid for the requested operation.")
   END IF
   MUT result AS List OF List OF T = []
   MUT i AS Integer = 0

@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/arithmetic/arithmetic-float-overflow-rt
 Wrote executable to tests/rt-error/arithmetic/arithmetic-float-overflow-rt/arithmetic_float_overflow_rt.out
 [exit 0]
 $ tests/rt-error/arithmetic/arithmetic-float-overflow-rt/arithmetic_float_overflow_rt.out
-Code: 77050015 Message: float overflow
+Error: 7-705-0015
+Floating-point arithmetic overflowed to infinity.
 [exit 255]

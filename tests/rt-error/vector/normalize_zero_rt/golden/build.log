@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/vector/normalize_zero_rt
 Wrote executable to tests/rt-error/vector/normalize_zero_rt/func_vector_normalize_zero_rt.out
 [exit 0]
 $ tests/rt-error/vector/normalize_zero_rt/func_vector_normalize_zero_rt.out
-Code: 77050002 Message: vector::normalize of a zero-length vector
+Error: 7-705-0002
+vector::normalize of a zero-length vector
 [exit 255]

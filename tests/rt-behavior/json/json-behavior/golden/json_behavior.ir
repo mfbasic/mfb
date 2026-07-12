@@ -253,7 +253,7 @@
           "pattern": { "kind": "else" },
           "guard": null,
           "body": [
-          { "op": "fail", "line": 67, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "not found" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/json.mfb" }, { "kind": "const", "type": "Integer", "value": "67" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "line": 67, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/json.mfb" }, { "kind": "const", "type": "Integer", "value": "67" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ]
         }
         ]

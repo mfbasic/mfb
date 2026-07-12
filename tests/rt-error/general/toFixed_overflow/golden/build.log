@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/general/toFixed_overflow
 Wrote executable to tests/rt-error/general/toFixed_overflow/func_general_toFixed_overflow.out
 [exit 0]
 $ tests/rt-error/general/toFixed_overflow/func_general_toFixed_overflow.out
-Code: 77050010 Message: numeric overflow
+Error: 7-705-0010
+Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

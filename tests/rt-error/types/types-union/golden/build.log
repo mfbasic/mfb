@@ -10,5 +10,6 @@ Shape
 ExtraShape
 10
 4
-Code: 77050010 Message: numeric overflow
+Error: 7-705-0010
+Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

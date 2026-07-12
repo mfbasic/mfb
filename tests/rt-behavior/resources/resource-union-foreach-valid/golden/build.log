@@ -6,5 +6,6 @@ $ mfb build tests/rt-behavior/resources/resource-union-foreach-valid
 Wrote executable to tests/rt-behavior/resources/resource-union-foreach-valid/resource_union_foreach_valid.out
 [exit 0]
 $ tests/rt-behavior/resources/resource-union-foreach-valid/resource_union_foreach_valid.out
-Code: 77050004 Message: not found
+Error: 7-705-0004
+Requested item, key, file, or resource was not found.
 [exit 255]

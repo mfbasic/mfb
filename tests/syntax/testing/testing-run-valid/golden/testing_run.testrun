@@ -16,10 +16,10 @@ $ mfb test tests/syntax/testing/testing-run-valid
   * [P] expectTrap with matching code passes
   * [P] expectNTrap passes
   * [F] expectNTrap on a trapping call fails
-    X unexpected trap: invalid format  (src/main.mfb:63)
+    X unexpected trap: Text parse or non-finite numeric representation conversion failed.  (src/main.mfb:63)
 * runtime errors
   * [F] a genuine runtime error is a failure, not a crash
-    X runtime error [77050003] invalid format  (src/main.mfb:11)
+    X runtime error [77050003] Text parse or non-finite numeric representation conversion failed.  (src/main.mfb:11)
 
 Tests: 13  Pass: 9  Fail: 4
 [exit 1]

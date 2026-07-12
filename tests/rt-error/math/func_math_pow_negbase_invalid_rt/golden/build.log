@@ -6,5 +6,6 @@ $ mfb build tests/rt-error/math/func_math_pow_negbase_invalid_rt
 Wrote executable to tests/rt-error/math/func_math_pow_negbase_invalid_rt/func_math_pow_negbase_invalid_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_pow_negbase_invalid_rt/func_math_pow_negbase_invalid_rt.out
-Code: 77050013 Message: float NaN result
+Error: 7-705-0013
+Floating-point operation produced a NaN result.
 [exit 255]

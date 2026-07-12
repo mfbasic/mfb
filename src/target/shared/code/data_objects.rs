@@ -300,20 +300,14 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         push_string_value(&mut values, "FALSE".to_string());
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
-    for value in [
-        ENTRY_ERROR_PREFIX,
-        ENTRY_ERROR_SEPARATOR,
-        ENTRY_ERROR_NEWLINE,
-    ] {
+    for value in [ENTRY_ERROR_PREFIX, ENTRY_ERROR_NEWLINE] {
         if !values.contains(&value.to_string()) {
             values.push(value.to_string());
         }
     }
     if module_may_record_cleanup_failure(module) {
-        for value in [CLEANUP_FAILURE_PREFIX, CLEANUP_FAILURE_SEPARATOR] {
-            if !values.contains(&value.to_string()) {
-                values.push(value.to_string());
-            }
+        if !values.contains(&CLEANUP_FAILURE_PREFIX.to_string()) {
+            values.push(CLEANUP_FAILURE_PREFIX.to_string());
         }
     }
     values
@@ -324,14 +318,10 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
                 symbol.to_string()
             } else if value == ENTRY_ERROR_PREFIX {
                 ENTRY_ERROR_PREFIX_SYMBOL.to_string()
-            } else if value == ENTRY_ERROR_SEPARATOR {
-                ENTRY_ERROR_SEPARATOR_SYMBOL.to_string()
             } else if value == ENTRY_ERROR_NEWLINE {
                 ENTRY_ERROR_NEWLINE_SYMBOL.to_string()
             } else if value == CLEANUP_FAILURE_PREFIX {
                 CLEANUP_FAILURE_PREFIX_SYMBOL.to_string()
-            } else if value == CLEANUP_FAILURE_SEPARATOR {
-                CLEANUP_FAILURE_SEPARATOR_SYMBOL.to_string()
             } else {
                 format!("_mfb_str_{index}")
             };

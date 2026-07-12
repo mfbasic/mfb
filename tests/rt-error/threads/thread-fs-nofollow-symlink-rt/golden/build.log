@@ -8,5 +8,6 @@ uses fs_thread_workers - [Unsigned]
 Wrote executable to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
 [exit 0]
 $ tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
-Code: 77030003 Message: access denied
+Error: 7-703-0003
+Filesystem access was denied.
 [exit 255]

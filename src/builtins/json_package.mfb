@@ -64,7 +64,7 @@ FUNC __json_get(value AS Json, path AS List OF String) AS Json
       CASE JsonObj(obj)
         nextValue = collections::get(obj.fields, key)
       CASE ELSE
-        FAIL error(77050004, "not found")
+        FAIL error(77050004, "Requested item, key, file, or resource was not found.")
     END MATCH
     current = nextValue
   NEXT

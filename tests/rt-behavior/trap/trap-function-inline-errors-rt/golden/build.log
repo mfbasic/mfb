@@ -6,14 +6,14 @@ $ mfb build tests/rt-behavior/trap/trap-function-inline-errors-rt
 Wrote executable to tests/rt-behavior/trap/trap-function-inline-errors-rt/trap_function_inline_errors_rt.out
 [exit 0]
 $ tests/rt-behavior/trap/trap-function-inline-errors-rt/trap_function_inline_errors_rt.out
-trap-toInt: invalid format
+trap-toInt: Text parse or non-finite numeric representation conversion failed.
 0
-trap-div: invalid argument
+trap-div: Argument value is not valid for the requested operation.
 -1
-trap-get: index out of range
+trap-get: List or string index/range is outside valid bounds.
 -2
-outer-caught: invalid argument
+outer-caught: Argument value is not valid for the requested operation.
 42
-trap-res: invalid format
+trap-res: Text parse or non-finite numeric representation conversion failed.
 7
 [exit 0]

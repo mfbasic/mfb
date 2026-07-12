@@ -230,7 +230,9 @@ fn thread_queue_limit_out_of_range_rejected() {
         result.output
     );
     assert!(
-        result.output.contains("invalid argument"),
+        result
+            .output
+            .contains("Argument value is not valid for the requested operation."),
         "expected an invalid-argument error, got:\n{}",
         result.output
     );

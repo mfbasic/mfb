@@ -370,7 +370,7 @@ TESTING
     END TCASE
     TCASE "runtime error uses the failing expression location"
       expectInteger(divideCode(), 77050002)
-      expectString(divideMessage(), "invalid argument")
+      expectString(divideMessage(), "Argument value is not valid for the requested operation.")
       expectInteger(divideLine(), 24)
       expectInteger(divideChar(), 12)
     END TCASE
