@@ -22,8 +22,9 @@ A `Rule` is four `&'static str`/enum fields; the registry `RULES` is a flat
 The **symbolic name is the real primary key.** A call site passes only a rule
 name; lookup linear-scans the registry for the entry whose `name` matches and
 returns it, falling back to a synthetic `0-000-0000 UNKNOWN_RULE` error rule
-when no name matches (a missing rule never panics — it degrades to a generic
-error). [[src/rules/mod.rs:rule_for]] The `code` is therefore a stable display label,
+when no name matches. In a release build a missing rule degrades to that generic
+error; a debug build asserts (panics) instead, so the emit-site/table drift is
+caught by tests rather than shipped. [[src/rules/mod.rs:rule_for]] The `code` is therefore a stable display label,
 not the lookup key, which is why two rules may legitimately carry the same code
 as long as their names differ (see *Code Collisions*). Registration is likewise
 independent of emission: lookup is a pure name scan, nothing requires a

@@ -39,7 +39,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `targets` | array | no | build targets; emitted by `mfb init` as `["native"]` |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
-manifest inputs: they are outputs of `mfb build --sign` (plan-23), stamped into
+manifest inputs: they are outputs of `mfb build --sign`, stamped into
 the package metadata from the signing bundle. A manifest-level `identKey` is
 ignored by the builder. (The per-dependency `identKey` *pin* inside
 `packages[]` is different and load-bearing — see *Dependency Entries*.)
@@ -75,7 +75,7 @@ A `sources[]` element that is not a JSON object is a `PROJECT_JSON_FIELD_TYPE`
 error reported as `Source entry #N must be an object.`. [[src/manifest/mod.rs:validate_sources]] [[src/manifest/mod.rs:validate_source_pattern_field]]
 
 The glob algorithm that turns these patterns into the `.mfb` input set is
-`./mfb spec tooling source-selection` (coming); `role` semantics are part of
+`./mfb spec tooling source-selection`; `role` semantics are part of
 that selection model.
 
 ## Dependency Entries
@@ -89,7 +89,7 @@ Each element of `packages[]` declares one dependency:
 | `version` | string | `""` | requested version |
 | `pin` | bool | `false` | when true, the installed `.mfp` must match `version` exactly |
 | `source` | string | `""` | origin URL the dependency was added from |
-| `identKey` | string | `""` | the pinned owner ident public key — the plan-23 §3.5 trust anchor. Written by `pkg add` on first add of a signed package (trust-on-first-use); every later build verifies the installed `.mfp` against this pin, never against the file-embedded key. Snake_case `ident_key` is accepted on read. |
+| `identKey` | string | `""` | the pinned owner ident public key — the trust anchor. Written by `pkg add` on first add of a signed package (trust-on-first-use); every later build verifies the installed `.mfp` against this pin, never against the file-embedded key. Snake_case `ident_key` is accepted on read. |
 
 `packages` must be an array when present (`validate_packages_array`); each
 element must be an object with a string `name`. An entry whose `name` is absent,
@@ -98,7 +98,7 @@ build reject an installed `packages/<name>.mfp` whose header version differs fro
 the declared `version`. [[src/manifest/package.rs:project_package_dependency]] [[src/manifest/package.rs:package_dependencies]] [[src/manifest/package.rs:installed_package_files]]
 
 The registry/add workflow that writes these entries is
-`./mfb spec package-manager` (coming); the on-disk `.mfp` header they resolve
+`./mfb spec package-manager`; the on-disk `.mfp` header they resolve
 against is `./mfb spec package container-format`.
 
 ## Entry Point Validation
@@ -169,7 +169,7 @@ the field is absent). [[src/manifest/mod.rs:validate_sources]]
 
 * ./mfb spec architecture commands — the build commands that load and act on this manifest
 * ./mfb spec architecture packages — how dependency manifests feed the package build path
-* ./mfb spec tooling source-selection — the glob algorithm over `sources[]` (coming)
+* ./mfb spec tooling source-selection — the glob algorithm over `sources[]`
 * ./mfb spec diagnostics rule-codes — the full `2-200-####` diagnostic catalogue
 * ./mfb spec package container-format — the `.mfp` header that `pin`/`version` resolve against
-* ./mfb spec package-manager — the `pkg add`/publish workflow that writes `packages[]` (coming)
+* ./mfb spec package-manager — the `pkg add`/publish workflow that writes `packages[]`

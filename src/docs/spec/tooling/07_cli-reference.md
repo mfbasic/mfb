@@ -84,8 +84,8 @@ package).
 requires a value, accepts at most one (`mfb build accepts at most one --sign
 option`), and is only honored when no output flag is given (package/executable
 builds); combined with any output flag it errors with `mfb build --sign is
-only supported for package and executable builds`. Signing follows plan-23
-§3.3 and requires the repository to be reachable: the build reads the local
+only supported for package and executable builds`. Signing requires the
+repository to be reachable: the build reads the local
 **ident** key, generates a **one-off signing keypair**, fetches a server
 **attestation** via `POST /signing`, mints the ident-signed **proof**, and
 threads the bundle to the package writer; the one-off private key is discarded
@@ -143,7 +143,7 @@ absolute and end `.mfp`), copies it into `packages/`, and records a pinned
 dependency in `project.json` — for a **signed** package the dependency entry
 also pins the header `identKey` on this first add (trust-on-first-use); the
 pin, never the file-embedded key, is the trust anchor every later build
-verifies against (plan-23 §3.5).[[src/cli/pkg.rs:add_package]] `info <package>`
+verifies against.[[src/cli/pkg.rs:add_package]] `info <package>`
 prints the package report (below). `verify` checks each `project.json`
 dependency. `validate <package>` checks an **existing** `.mfp` — "is this
 package correct?" (below). `publish <owner> <package>` rebuilds and signs the
@@ -185,12 +185,12 @@ dependency missing both a `packages/<name>.mfp` and a source-package
 
 (the `(actual)` suffix appears only when the installed version is known). A
 dependency entry that fails to parse prints `<invalid> @ <invalid> : Invalid
-Package`. Compiled `.mfp` dependencies additionally get their plan-23 §3.5
-trust state — `[Verified]`, `[Unsigned]`, or `[Tampered]` — verified against
+Package`. Compiled `.mfp` dependencies additionally get their trust state —
+`[Verified]`, `[Unsigned]`, or `[Tampered]` — verified against
 the dependency's pinned `identKey`; source-package dependencies get no state
 suffix.[[src/cli/pkg.rs:verify_packages]]
 
-With `--proof` (plan-23-B3), each Verified dependency additionally needs a
+With `--proof`, each Verified dependency additionally needs a
 transparency-log inclusion proof for its publish entry, verified against the
 signed, rollback-checked checkpoint; success appends
 `(log index <n> ⊂ checkpoint size <s>)` to the line and a missing/unverifiable
@@ -204,7 +204,7 @@ upload at all if the checkpoint fetch detects a rollback or fork
 
 `validate_package_file` resolves `<package>` like `pkg doc` (a direct `.mfp`
 path, or `packages/<name>.mfp`) and prints one check line per verifiable link
-of the plan-23 §3.5 chain, then `result: valid` or `result: INVALID (<n>
+of the trust chain, then `result: valid` or `result: INVALID (<n>
 failed check(s))` (exit 1).[[src/cli/pkg.rs:validate_package_file]]
 
 ```text
@@ -227,7 +227,7 @@ payload-hash check. The proof and package signature are checked against the
 correct?", not "do I trust this publisher"); the attestation requires the
 pinned `server.pub`, and the `ident pin` line compares against the working
 project's pinned `identKey` when the package is declared there. This command
-is not a pre-publish step; nothing is uploaded (plan-23 index §10.4).
+is not a pre-publish step; nothing is uploaded.
 
 `print_package_info` decodes the `.mfp` header (`read_mfp_header`) and binary
 representation info (`binary_repr::read_package_info`) and prints fixed sections
@@ -326,8 +326,9 @@ cell is escaped (`escape_spec_cell`).[[src/cli/spec.rs:print_spec_listing]]
 `show_man` mirrors `spec` but is not width-aware: zero args print the package
 index, one arg a package's function/topic listing, two args a single function
 page; an unknown package/function or more than two args exits `2`.[[src/cli/man.rs:show_man]]
-The `man` listing heading is `TOPICS`/`topic` for the `types` package and
-`FUNCTIONS`/`function` otherwise.[[src/cli/man.rs:man_entry_heading]] Within a
+The `man` listing heading is `TOPICS`/`topic` for the `types` package,
+`COMPARISONS`/`language` for the `tour` package, and `FUNCTIONS`/`function`
+otherwise.[[src/cli/man.rs:man_entry_heading]] Within a
 package listing, value-reference entries (a synopsis qualified `package::name`
 with an `AS <Type>` clause and no argument list, e.g. `math::pi`) are split into
 a separate `CONSTANTS` section printed ahead of the `FUNCTIONS`/`TOPICS`
@@ -343,4 +344,4 @@ list.[[src/cli/man.rs:is_constant]]
 * ./mfb spec tooling doc-html — the `mfb doc` / `pkg doc` HTML rendering model
 * ./mfb spec package container-format — the `.mfp` header and signature byte encoding read by `pkg info`
 * ./mfb spec diagnostics rule-codes — the diagnostics these commands emit
-* ./mfb spec package-manager — registry protocol, signing, and `pkg publish`/`repo` detail (coming)
+* ./mfb spec package-manager — registry protocol, signing, and `pkg publish`/`repo` detail

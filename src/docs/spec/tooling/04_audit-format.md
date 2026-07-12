@@ -130,15 +130,15 @@ line, function)`, sorted by `(capability, path, line,
 function)`.[[src/audit/collect/source.rs:collect_source]]
 
 A call discloses a capability by package — `fs` → `filesystem`, `io` →
-`terminal`, `thread` → `threads`, `net` → `network`, any `LINK` alias →
-`native` — except for the three packages that mix pure and host-touching
-builtins, which map per builtin:[[src/audit/collect/source.rs:builtin_capability]]
+`terminal`, `thread` → `threads`, `net`/`tls`/`http` → `network`, any `LINK`
+alias → `native` — except for the four packages that mix pure and host-touching
+builtins (`crypto`, `os`, `math`, `datetime`), which map per builtin:[[src/audit/collect/source.rs:builtin_capability]]
 
 | Capability | Builtins |
 |---|---|
 | `environment` | `os::getEnv`, `os::getEnvOr`, `os::hasEnv`, `os::setEnv`, `os::unsetEnv`, `os::environ` |
 | `process` | `os::args`, `os::pid`, `os::name`, `os::arch`, `os::hostName`, `os::userName`, `os::cpuCount`, `os::executablePath` |
-| `randomness` | `math::rand`, `math::seed` |
+| `randomness` | `math::rand`, `math::seed`, and the entropy-drawing crypto builtins `crypto::randomBytes`, `crypto::randomInt`, `crypto::uuid4`, `crypto::generateEd25519`, `crypto::generateP256`, `crypto::generateP384`, `crypto::generateP521` |
 | `clock` | `datetime::now`, `datetime::nowNanos`, `datetime::monotonic`, `datetime::monotonicNanos`, `datetime::localOffset`, `datetime::local`, `datetime::toLocal` |
 
 The rest of `math` and `datetime` is arithmetic over caller-supplied values and
@@ -195,7 +195,7 @@ Permission findings are emitted once per distinct capability (deduplicated by
 capability across all sites).[[src/audit/collect/findings.rs:permission_findings]] Lockfile
 findings are mutually staged: a missing-but-required lockfile returns
 `AUDIT-LOCK-MISSING` and suppresses the stale check.[[src/audit/collect/findings.rs:lockfile_findings]]
-The `lint`/`policy` categories have ranks reserved but emit no codes today.
+The `lint`/`policy` categories have ranks reserved but emit no codes.
 
 ## Analysis Model
 
@@ -240,6 +240,10 @@ segment before the first `.`):[[src/audit/collect/source.rs:builtin_capability]]
 | `fs` | `filesystem` |
 | `io` | `terminal` |
 | `thread` | `threads` |
+| `net` / `tls` / `http` | `network` |
+| `crypto` (entropy builtins) | `randomness` |
+| `os` / `math` / `datetime` (per builtin) | `environment` / `process` / `randomness` / `clock` |
+| any `LINK` alias | `native` |
 | (other) | none |
 
 Each call to a capability-bearing builtin becomes a `PermissionEntry` (and, when
@@ -251,7 +255,7 @@ A call is fallible if its callee's package is a known-fallible builtin namespace
 or if it names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
 
 ```text
-fallible builtin packages: fs, io, json, net, thread
+fallible builtin packages: fs, io, json, net, thread, tls, http
 otherwise:                 callee ∈ fallible-user-function set
 ```
 
@@ -267,6 +271,9 @@ resources have `native = false` and `closeMayFail = true`:[[src/audit/collect/so
 | `thread.start` | `Thread` | `thread.waitFor` |
 | `net.connectTcp`, `net.accept` | `Socket` | `net.close` |
 | `net.listenTcp` | `Listener` | `net.close` |
+| `net.bindUdp` | `UdpSocket` | `net.close` |
+| `tls.connect`, `tls.accept` | `TlsSocket` | `tls.close` |
+| `tls.listen`, `http.serverSSL` | `TlsListener` | `tls.close` |
 
 ### Project hash
 

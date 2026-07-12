@@ -3,7 +3,7 @@
 `mfb.lock` records the resolved dependency state a project was last reconciled
 against, so a later build or audit can detect that the declared dependency set
 has drifted from what was locked. It lives at the project root beside
-`project.json`. It is **written by `mfb pkg update`** (the resolver, plan-10-B2)
+`project.json`. It is **written by `mfb pkg update`**
 and **applied by `mfb pkg install`**, which fetches each locked blob by hash and
 verifies it — never re-resolving. `mfb audit` also consumes it (the `lockfile`
 section and `AUDIT-LOCK-*` findings).
@@ -16,10 +16,10 @@ project reproduces the file exactly. For each dependency it records the
 requested and selected versions, the content hash, the pinned owner `identKey`
 (metadata form) and its fingerprint, and the current release `state`; the file
 also carries the registry `repoFingerprint` and the pinned transparency-log
-`checkpoint` (size + root). Signing keys are one-off per package (plan-23), so
+`checkpoint` (size + root). Signing keys are one-off per package, so
 there is no key status/window to record. `mfb pkg install` reads this file,
 cross-checks `repoFingerprint` against the pinned `server.pub`, and installs
-each package by fetching `/blob/<hash>` and re-verifying the plan-23 §3.5 chain
+each package by fetching `/blob/<hash>` and re-verifying the trust chain
 against the locked `identKey` — no `/index` lookups.[[src/cli/resolve.rs:write_lock]][[src/cli/resolve.rs:install]]
 
 The resolver picks, for every dependency, the highest install-eligible version
@@ -36,7 +36,7 @@ and takes its exact version.[[src/cli/resolve.rs:select_node]]
 | --- | --- |
 | Path | `<project>/mfb.lock` (sibling of `project.json`) |
 | Required | No — absence is not an error unless `--locked` is set |
-| Written by | `mfb pkg update` (resolver, plan-10-B2) |
+| Written by | `mfb pkg update` |
 | Read by | `mfb audit` (the `lockfile` section + `AUDIT-LOCK-*` findings) |
 
 The audit collector probes the path; a missing file yields a summary with
@@ -45,7 +45,7 @@ as JSON. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 ## JSON shape
 
-`mfb.lock` is a JSON object. Only two fields are read today:
+`mfb.lock` is a JSON object. Only two fields are read:
 
 ```json
 {
