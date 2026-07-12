@@ -109,10 +109,20 @@ noted, not separately re-filed.
   set-specific component). Regression: `tests/rt-behavior/collections/bug147_set_error_path_leak`.
   The sole residual `set` window is a mid-operation OOM (arena already exhausted),
   equally present before and terminal anyway.
-- 147.5(b) thread-send copied-message leak — DEFERRED (genuinely blocked): the leak
-  lives in the DESTINATION worker's arena and freeing it needs a cross-thread
-  arena-free of another thread's live free-list — a data race. Needs a threading/
-  ownership redesign, not a spot free.
+- 147.5(b) thread-send copied-message leak — DEFERRED (architecturally blocked; a
+  spot free would be a data race / use-after-free, CONFIRMED by code audit
+  2026-07-11). `emit_thread_send_runtime_helper_call` (builder_emit_helpers.rs:397-421)
+  switches `ARENA_STATE` to the DESTINATION thread's arena and copies the message
+  there BEFORE calling the send helper, so on failure the copy is orphaned in the
+  destination arena. The send helper (`runtime_helpers_thread.rs:733-908`) fails on
+  three paths, all under the queue mutex but NOT under any arena lock:
+  `timeout` (queue full, destination thread ALIVE and actively mutating its own
+  arena → freeing the copy races its free-list), and `closed`/`interrupted`
+  (destination CLOSED/COMPLETED/CANCELLED → its arena is being or has been torn down
+  → freeing into it is a use-after-free). The copy is made before the enqueue
+  commits, so the only correct fix is to defer the copy until AFTER the state check
+  passes, inside the helper under the queue lock (copy-on-commit) — a thread-send
+  protocol restructure, not a caller-side free.
 - Separately discovered while validating 147.5(a): a **general Error-object-per-trap
   leak** — every taken `TRAP(e)` leaks the caught `Error` block (`e` is bound at a
   function-level slot in `function_lowering.rs:688` / `builder_control.rs:772` but

@@ -63,6 +63,19 @@ Both touch the error-Result ABI and the trap-route rebuild, so this is an
 error-propagation redesign, not a spot free. Same block-lifetime family as bug-151
 and the bug-147.5(b) thread-send copied-message leak.
 
+Confirmed structural blocker (code audit 2026-07-11): the propagated message/source
+registers hold *interior* pointers — `emit_load_error_fields` computes
+`message = error_block_base + block[8]` (block-relative offset), never carrying the
+block base — and `route_current_result_to_trap` (builder_codegen_primitives.rs:1946)
+always REBUILDS a fresh `e` block via `emit_build_error_inline` from those interior
+pointers. So the receiver structurally cannot free the propagated block (it never
+learns the base), and every hop orphans one block. A correct fix must change the
+Result ABI to carry the Error block base (so the receiver can adopt or free it),
+which also forces rodata-message errors (`FAIL error(code, "literal")`, today a
+no-alloc path pointing message at rodata) to always allocate a block. That is a
+change to every `FAIL`, error return, trap route, and error-producing builtin across
+all three backends.
+
 ## Scope
 
 All targets (shared codegen). Correctness-critical only for programs that re-raise
