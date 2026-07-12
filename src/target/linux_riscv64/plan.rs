@@ -137,21 +137,21 @@ impl plan::NativePlanPlatform for Platform {
             }
             // `term::on` also drives stdin into single-key (cbreak) mode and
             // `term::off` restores the saved cooked discipline (bug-149).
+            // plan-35-B: `term::on` also sizes the shadow grid via the TIOCGWINSZ
+            // ioctl; the drawing calls now mutate the in-memory grid (no ANSI, no
+            // write); only `term::sync`'s batched present writes to stdout.
             "term.on" => vec![
                 self.libc_import("write", spec.symbol),
                 self.libc_import("isatty", spec.symbol),
                 self.libc_import("tcgetattr", spec.symbol),
                 self.libc_import("tcsetattr", spec.symbol),
+                self.libc_import("ioctl", spec.symbol),
             ],
             "term.off" => vec![
                 self.libc_import("write", spec.symbol),
                 self.libc_import("tcsetattr", spec.symbol),
             ],
-            // `term::` console helpers that emit ANSI escape sequences write to
-            // stdout (plan-01-term.md §6.1).
-            "term.setForeground" | "term.setBackground"
-            | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
-            | "term.clear" | "term.moveTo" => vec![self.libc_import("write", spec.symbol)],
+            "term.sync" => vec![self.libc_import("write", spec.symbol)],
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],

@@ -150,18 +150,20 @@ impl NativePlanPlatform for Platform {
             // `term::off` restores the saved cooked discipline (bug-149); the
             // `isatty`/`tcgetattr`/`tcsetattr` terminal-control calls are libc
             // calls even on x86 (only `write` is a raw syscall, bug-79.4).
+            // plan-35-B: `term::on` also sizes the shadow grid via the TIOCGWINSZ
+            // ioctl. The drawing calls now mutate the in-memory grid, and
+            // `term::sync`'s present writes via the raw `write` syscall, so none of
+            // them import anything (bug-79.4).
             "term.on" => vec![
                 self.libc_import("isatty", spec.symbol),
                 self.libc_import("tcgetattr", spec.symbol),
                 self.libc_import("tcsetattr", spec.symbol),
+                self.libc_import("ioctl", spec.symbol),
             ],
             "term.off" => vec![self.libc_import("tcsetattr", spec.symbol)],
-            // The remaining `term::` console helpers emit ANSI escape sequences to
-            // stdout (plan-01-term.md §6.1) via the raw `write` syscall, so they
-            // import nothing (bug-79.4).
             "term.setForeground" | "term.setBackground"
             | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
-            | "term.clear" | "term.moveTo" => Vec::new(),
+            | "term.clear" | "term.moveTo" | "term.sync" => Vec::new(),
             "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],

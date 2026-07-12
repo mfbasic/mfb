@@ -265,6 +265,7 @@ pub(super) fn lower_io_write_helper(
     platform: &dyn CodegenPlatform,
     stderr: bool,
     append_newline: bool,
+    term_state_offset: Option<usize>,
 ) -> Result<
     (
         CodeFrame,
@@ -276,6 +277,33 @@ pub(super) fn lower_io_write_helper(
 > {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // plan-35-B: while TUI mode is on, stdout writes mutate the shadow grid's back
+    // buffer instead of the terminal (the mirror of app mode's `active`-gated grid
+    // routing). Only stdout (not stderr) is retained, and only when the program
+    // uses `term::` (`term_state_offset` is `Some`) — so a non-term program's
+    // `io::write` is byte-identical. The grid path is emitted just before `done`.
+    let grid_path = format!("{symbol}_grid");
+    // The String object arrives in the return register. Capture it into a vreg
+    // that stays live across the active-check branch: the check's own load may be
+    // allocated into the return register (rax on x86), clobbering the pointer
+    // before the grid path reads it — so save it here and restore the return
+    // register for the fall-through (non-TUI) path.
+    let strobj_vreg = "%v31";
+    let grid_target = if !stderr && term_state_offset.is_some() {
+        let tso = term_state_offset.unwrap();
+        instructions.push(abi::move_register(strobj_vreg, abi::return_register()));
+        instructions.push(abi::load_u64(
+            "%v29",
+            ARENA_STATE_REGISTER,
+            tso + TERM_STATE_ACTIVE_OFFSET,
+        ));
+        instructions.push(abi::compare_immediate("%v29", "0"));
+        instructions.push(abi::branch_ne(&grid_path));
+        instructions.push(abi::move_register(abi::return_register(), strobj_vreg));
+        Some(tso)
+    } else {
+        None
+    };
     // Opt-in stdout buffering (plan-14-A): stderr is never buffered, so only the
     // stdout helper gets the prologue. When `OUT_ENABLED == 0` (the default) fall
     // straight through to the unbuffered direct-write path below, byte-identical
@@ -444,6 +472,25 @@ pub(super) fn lower_io_write_helper(
             library: None,
         },
     ]);
+    if let Some(tso) = grid_target {
+        // TUI-active stdout: route the string (still in the return register) into
+        // the shadow-grid back buffer. No terminal write happens here; the frame
+        // is shown when the program calls `term::sync`.
+        instructions.push(abi::label(&grid_path));
+        term_grid::emit_grid_write(
+            symbol,
+            tso,
+            strobj_vreg,
+            append_newline,
+            &mut instructions,
+        );
+        instructions.push(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        instructions.push(abi::branch(&done));
+    }
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 16);

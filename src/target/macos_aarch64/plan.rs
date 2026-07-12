@@ -301,7 +301,12 @@ impl plan::NativePlanPlatform for Platform {
             // `term::on` also drives stdin into single-key (cbreak) mode and
             // `term::off` restores the saved cooked discipline (bug-149), so both
             // pull in the terminal-control libSystem symbols on top of `_write`.
-            "term.on" => ["_write", "_isatty", "_tcgetattr", "_tcsetattr"]
+            // plan-35-B: `term::on` also sizes the shadow grid via the TIOCGWINSZ
+            // ioctl. The `term::` drawing calls (setColor/setAttr/cursor/clear/
+            // moveTo) no longer emit ANSI — they mutate the in-memory grid — so
+            // they need no platform import; only `term::sync`'s batched present
+            // writes to stdout.
+            "term.on" => ["_write", "_isatty", "_tcgetattr", "_tcsetattr", "_ioctl"]
                 .iter()
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
@@ -317,11 +322,7 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: spec.symbol.to_string(),
                 })
                 .collect(),
-            // `term::` console helpers that emit ANSI escape sequences write to
-            // stdout (plan-01-term.md §6.1).
-            "term.setForeground" | "term.setBackground"
-            | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
-            | "term.clear" | "term.moveTo" => vec![PlatformImport {
+            "term.sync" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),
                 required_by: spec.symbol.to_string(),

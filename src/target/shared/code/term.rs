@@ -20,7 +20,6 @@ use crate::target::shared::abi;
 const LR_OFFSET: usize = 64;
 const ARG0_OFFSET: usize = 8;
 const ARG1_OFFSET: usize = 16;
-const ARG2_OFFSET: usize = 24;
 /// Scratch buffer for runtime decimal formatting and the `winsize` struct.
 const SCRATCH_OFFSET: usize = 32;
 const SCRATCH_END: usize = 56;
@@ -155,39 +154,6 @@ fn emit_write_const(
     platform.emit_write(from, platform_imports, instructions, relocations)
 }
 
-/// Format the unsigned value in `value_reg` as ASCII decimal into the scratch
-/// buffer and write it to stdout. Uses x9..x15 as scratch.
-fn emit_write_decimal(
-    from: &str,
-    value_reg: &str,
-    tag: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    let loop_label = format!("{from}_dec_{tag}");
-    instructions.extend([
-        abi::move_register("%v10", value_reg),
-        abi::move_immediate("%v11", "Integer", "10"),
-        abi::add_immediate("%v12", abi::stack_pointer(), SCRATCH_END),
-        abi::label(&loop_label),
-        abi::unsigned_divide_registers("%v13", "%v10", "%v11"),
-        abi::multiply_subtract_registers("%v14", "%v13", "%v11", "%v10"),
-        abi::add_immediate("%v14", "%v14", 48),
-        abi::subtract_immediate("%v12", "%v12", 1),
-        abi::store_u8("%v14", "%v12", 0),
-        abi::move_register("%v10", "%v13"),
-        abi::compare_immediate("%v10", "0"),
-        abi::branch_ne(&loop_label),
-        abi::add_immediate("%v9", abi::stack_pointer(), SCRATCH_END),
-        abi::subtract_registers(abi::string_length_register(), "%v9", "%v12"),
-        abi::move_register(abi::string_data_register(), "%v12"),
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
-    ]);
-    platform.emit_write(from, platform_imports, instructions, relocations)
-}
-
 /// Load `active` and branch to `target` when TUI mode is off (the §4.2.1 gate).
 fn emit_gate_inactive(
     term_state_offset: usize,
@@ -247,6 +213,7 @@ pub(super) fn lower_term_helper(
         "term.on" => emit_on(
             symbol,
             term_state_offset,
+            &done,
             platform,
             platform_imports,
             &mut instructions,
@@ -266,105 +233,59 @@ pub(super) fn lower_term_helper(
             symbol,
             term_state_offset,
             term_state_offset + TERM_STATE_FG_OFFSET,
-            ESC_FG_PREFIX_SYMBOL,
-            ESC_FG_PREFIX.len(),
-            platform,
-            platform_imports,
             &mut instructions,
-            &mut relocations,
-        )?,
+        ),
         "term.setBackground" => emit_set_color(
             symbol,
             term_state_offset,
             term_state_offset + TERM_STATE_BG_OFFSET,
-            ESC_BG_PREFIX_SYMBOL,
-            ESC_BG_PREFIX.len(),
-            platform,
-            platform_imports,
             &mut instructions,
-            &mut relocations,
-        )?,
+        ),
         "term.setBold" => emit_set_attr(
             symbol,
             term_state_offset,
             term_state_offset + TERM_STATE_BOLD_OFFSET,
-            ESC_BOLD_ON_SYMBOL,
-            ESC_BOLD_ON.len(),
-            ESC_BOLD_OFF_SYMBOL,
-            ESC_BOLD_OFF.len(),
-            platform,
-            platform_imports,
             &mut instructions,
-            &mut relocations,
-        )?,
+        ),
         "term.setUnderline" => emit_set_attr(
             symbol,
             term_state_offset,
             term_state_offset + TERM_STATE_UNDERLINE_OFFSET,
-            ESC_UNDERLINE_ON_SYMBOL,
-            ESC_UNDERLINE_ON.len(),
-            ESC_UNDERLINE_OFF_SYMBOL,
-            ESC_UNDERLINE_OFF.len(),
-            platform,
-            platform_imports,
             &mut instructions,
-            &mut relocations,
-        )?,
-        "term.showCursor" => emit_surface(
+        ),
+        "term.showCursor" => emit_set_cursor_visible(
             symbol,
             term_state_offset,
-            Some((term_state_offset + TERM_STATE_CURSOR_VISIBLE_OFFSET, 1)),
-            ESC_SHOW_CURSOR_SYMBOL,
-            ESC_SHOW_CURSOR.len(),
-            &done,
-            platform,
-            platform_imports,
+            "1",
             &mut instructions,
-            &mut relocations,
-        )?,
-        "term.hideCursor" => emit_surface(
+        ),
+        "term.hideCursor" => emit_set_cursor_visible(
             symbol,
             term_state_offset,
-            Some((term_state_offset + TERM_STATE_CURSOR_VISIBLE_OFFSET, 0)),
-            ESC_HIDE_CURSOR_SYMBOL,
-            ESC_HIDE_CURSOR.len(),
-            &done,
-            platform,
-            platform_imports,
+            "0",
             &mut instructions,
-            &mut relocations,
-        )?,
-        "term.clear" => emit_surface(
-            symbol,
-            term_state_offset,
-            None,
-            ESC_CLEAR_SYMBOL,
-            ESC_CLEAR.len(),
-            &done,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?,
+        ),
+        "term.clear" => emit_clear_grid(symbol, term_state_offset, &mut instructions),
         "term.sync" => {
-            // plan-35-A: `term::sync()` is the present hook. In this scaffold it is
-            // a no-op on the console (returns OK whether TUI mode is on or off);
-            // plan-35-C replaces this arm with the front/back-buffer diff presenter.
+            // plan-35-C: present the frame — diff the back buffer against the
+            // last-presented front buffer and emit only the changed cells as one
+            // batched write. A no-op while TUI mode is off (grid pointer null).
+            term_grid::emit_grid_present(
+                symbol,
+                term_state_offset,
+                SCRATCH_END,
+                platform,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
             instructions.push(abi::move_immediate(
                 RESULT_TAG_REGISTER,
                 "Integer",
                 RESULT_OK_TAG,
             ));
         }
-        "term.moveTo" => emit_move_to(
-            symbol,
-            term_state_offset,
-            &done,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?,
+        "term.moveTo" => emit_move_to(symbol, term_state_offset, &mut instructions),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -418,11 +339,35 @@ pub(super) fn lower_term_helper(
 fn emit_on(
     symbol: &str,
     term_state_offset: usize,
+    done: &str,
     platform: &dyn CodegenPlatform,
     platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    // plan-35-B: allocate the console shadow-grid header block sized to the
+    // terminal *before* marking TUI mode active, so a program never sees
+    // `active == 1` with a null grid. On allocation failure surface
+    // `ERR_OUT_OF_MEMORY` and leave the terminal untouched.
+    let alloc_fail = format!("{symbol}_grid_alloc_fail");
+    let request = if platform.target() == "macos-aarch64" {
+        DARWIN_TIOCGWINSZ
+    } else {
+        LINUX_TIOCGWINSZ
+    };
+    term_grid::emit_grid_alloc(
+        symbol,
+        term_state_offset,
+        request,
+        SCRATCH_OFFSET,
+        ARG0_OFFSET,
+        ARG1_OFFSET,
+        &alloc_fail,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     // Reset all state to defaults (plan §4.2). Foreground white, background
     // black, bold/underline off, cursor visible, active on.
     let writes: &[(usize, &str)] = &[
@@ -496,6 +441,20 @@ fn emit_on(
         "Integer",
         RESULT_OK_TAG,
     ));
+    instructions.push(abi::branch(done));
+    // Grid allocation failed: active was never set, so the terminal is untouched.
+    instructions.push(abi::label(&alloc_fail));
+    instructions.push(abi::move_immediate(
+        RESULT_VALUE_REGISTER,
+        "Integer",
+        ERR_OUT_OF_MEMORY_CODE,
+    ));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_ERR_TAG,
+    ));
+    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
     Ok(())
 }
 
@@ -511,6 +470,11 @@ fn emit_off(
 ) -> Result<(), String> {
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // plan-35-C: present the final frame before restoring the user's screen, so
+    // the last frame the program drew is shown. Reuse the `term::sync` helper as
+    // the present routine (force-emitted whenever `term::` is used).
+    instructions.push(abi::branch_link("_mfb_rt_term_term_sync"));
+    relocations.push(internal_branch(symbol, "_mfb_rt_term_term_sync"));
     // bug-149: leaving TUI mode restores the saved cooked line discipline that
     // `term::on` captured, so the terminal returns to canonical/echoing input.
     // A no-op when the raw-active flag is 0 (stdin was never put into raw mode).
@@ -552,6 +516,8 @@ fn emit_off(
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
+    // plan-35-B: free the shadow-grid block and zero its slot (no-op if null).
+    term_grid::emit_grid_free(symbol, term_state_offset, instructions, relocations);
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -575,288 +541,171 @@ fn emit_is_on(term_state_offset: usize, instructions: &mut Vec<CodeInstruction>)
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `term::setForeground`/`setBackground` (plan-35-B): pack `r|g<<8|b<<16` into the
+/// term-state colour slot — the "current attribute" the grid writer stamps into
+/// cells. Emits no ANSI; the colour is applied when `term::sync` presents.
 fn emit_set_color(
     symbol: &str,
     term_state_offset: usize,
     state_offset: usize,
-    prefix_symbol: &str,
-    prefix_len: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+) {
     let inactive = format!("{symbol}_inactive");
-    // Save r/g/b before any write clobbers x0/x1/x2.
-    instructions.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), ARG1_OFFSET));
-    instructions.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), ARG2_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    // Pack r | g<<8 | b<<16 and store to the state attribute.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), ARG1_OFFSET),
-        abi::load_u64("%v11", abi::stack_pointer(), ARG2_OFFSET),
+        abi::move_register("%v9", abi::ARG[0]),
+        abi::move_register("%v10", abi::ARG[1]),
+        abi::move_register("%v11", abi::ARG[2]),
         abi::shift_left_immediate("%v10", "%v10", 8),
         abi::shift_left_immediate("%v11", "%v11", 16),
         abi::or_registers("%v9", "%v9", "%v10"),
         abi::or_registers("%v9", "%v9", "%v11"),
         abi::store_u64("%v9", ARENA_STATE_REGISTER, state_offset),
     ]);
-    emit_write_const(
-        symbol,
-        prefix_symbol,
-        prefix_len,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.push(abi::load_u64("%v15", abi::stack_pointer(), ARG0_OFFSET));
-    emit_write_decimal(
-        symbol,
-        "%v15",
-        "r",
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    emit_write_const(
-        symbol,
-        ESC_SEMICOLON_SYMBOL,
-        ESC_SEMICOLON.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.push(abi::load_u64("%v15", abi::stack_pointer(), ARG1_OFFSET));
-    emit_write_decimal(
-        symbol,
-        "%v15",
-        "g",
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    emit_write_const(
-        symbol,
-        ESC_SEMICOLON_SYMBOL,
-        ESC_SEMICOLON.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.push(abi::load_u64("%v15", abi::stack_pointer(), ARG2_OFFSET));
-    emit_write_decimal(
-        symbol,
-        "%v15",
-        "b",
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    emit_write_const(
-        symbol,
-        ESC_LETTER_M_SYMBOL,
-        ESC_LETTER_M.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
-    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `term::setBold`/`setUnderline` (plan-35-B): store the flag into its term-state
+/// slot (the current attribute). Emits no ANSI.
 fn emit_set_attr(
     symbol: &str,
     term_state_offset: usize,
     state_offset: usize,
-    on_symbol: &str,
-    on_len: usize,
-    off_symbol: &str,
-    off_len: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+) {
     let inactive = format!("{symbol}_inactive");
-    let off_label = format!("{symbol}_attr_off");
-    let written = format!("{symbol}_attr_written");
-    instructions.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), ARG0_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::move_register("%v9", abi::ARG[0]));
     instructions.push(abi::store_u64("%v9", ARENA_STATE_REGISTER, state_offset));
-    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::compare_immediate("%v9", "0"));
-    instructions.push(abi::branch_eq(&off_label));
-    emit_write_const(
-        symbol,
-        on_symbol,
-        on_len,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.push(abi::branch(&written));
-    instructions.push(abi::label(&off_label));
-    emit_write_const(
-        symbol,
-        off_symbol,
-        off_len,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.push(abi::label(&written));
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
-    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_surface(
+/// `term::showCursor`/`hideCursor` (plan-35-B): store the cursor-visible flag; the
+/// present applies it. Emits no ANSI.
+fn emit_set_cursor_visible(
     symbol: &str,
     term_state_offset: usize,
-    cursor_update: Option<(usize, u64)>,
-    esc_symbol: &str,
-    esc_len: usize,
-    done: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
+    value: &str,
     instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+) {
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    if let Some((offset, value)) = cursor_update {
-        instructions.push(abi::move_immediate("%v9", "Integer", &value.to_string()));
-        instructions.push(abi::store_u64("%v9", ARENA_STATE_REGISTER, offset));
-    }
-    emit_write_const(
-        symbol,
-        esc_symbol,
-        esc_len,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
+    instructions.push(abi::move_immediate("%v9", "Integer", value));
+    instructions.push(abi::store_u64(
+        "%v9",
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_CURSOR_VISIBLE_OFFSET,
+    ));
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
-    let _ = done;
-    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `term::clear` (plan-35-B): blank the back buffer (every cell cleared using the
+/// current background) and home the shadow cursor. Emits no ANSI; the cleared
+/// state is shown when `term::sync` presents.
+fn emit_clear_grid(
+    symbol: &str,
+    term_state_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let clr = format!("{symbol}_clr_loop");
+    let clr_done = format!("{symbol}_clr_done");
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    instructions.extend([
+        abi::load_u64("%v9", ARENA_STATE_REGISTER, term_state_offset + term_grid::TERM_STATE_GRID_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&inactive),
+        // words = rows*cols*CELL_SIZE/8 = rows*cols*2 ; back = gp + HDR_SIZE
+        abi::load_u64("%v10", "%v9", 0),
+        abi::load_u64("%v11", "%v9", 8),
+        abi::multiply_registers("%v10", "%v10", "%v11"),
+        abi::shift_left_immediate("%v10", "%v10", 1),
+        abi::add_immediate("%v12", "%v9", 40),
+        abi::move_immediate("%v13", "Integer", "0"),
+        abi::label(&clr),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&clr_done),
+        abi::store_u64("%v13", "%v12", 0),
+        abi::add_immediate("%v12", "%v12", 8),
+        abi::subtract_immediate("%v10", "%v10", 1),
+        abi::branch(&clr),
+        abi::label(&clr_done),
+        // Home the shadow cursor (cursorRow @ 16, cursorCol @ 24).
+        abi::store_u64("%v13", "%v9", 16),
+        abi::store_u64("%v13", "%v9", 24),
+    ]);
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `term::moveTo(row, column)` (plan-35-B): set the shadow cursor in the grid
+/// header, clamping negatives to 0 and high values to the last valid cell. Emits
+/// no ANSI; the cursor is honoured by the next glyph write and by the present.
 fn emit_move_to(
     symbol: &str,
     term_state_offset: usize,
-    done: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+) {
     let inactive = format!("{symbol}_inactive");
-    let row_clamp = format!("{symbol}_row_ok");
-    let col_clamp = format!("{symbol}_col_ok");
-    instructions.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), ARG1_OFFSET));
+    let row_lo = format!("{symbol}_row_lo");
+    let col_lo = format!("{symbol}_col_lo");
+    let row_hi = format!("{symbol}_row_hi");
+    let col_hi = format!("{symbol}_col_hi");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    emit_write_const(
-        symbol,
-        ESC_BRACKET_SYMBOL,
-        ESC_BRACKET.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    // row (0-based) clamped to >= 0, then +1 for 1-based ANSI.
     instructions.extend([
-        abi::load_u64("%v15", abi::stack_pointer(), ARG0_OFFSET),
-        abi::compare_immediate("%v15", "0"),
-        abi::branch_ge(&row_clamp),
-        abi::move_immediate("%v15", "Integer", "0"),
-        abi::label(&row_clamp),
-        abi::add_immediate("%v15", "%v15", 1),
+        abi::load_u64("%v9", ARENA_STATE_REGISTER, term_state_offset + term_grid::TERM_STATE_GRID_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&inactive),
+        abi::load_u64("%v10", "%v9", 0), // rows
+        abi::load_u64("%v11", "%v9", 8), // cols
+        // row = clamp(ARG[0], 0, rows-1)
+        abi::move_register("%v12", abi::ARG[0]),
+        abi::compare_immediate("%v12", "0"),
+        abi::branch_ge(&row_lo),
+        abi::move_immediate("%v12", "Integer", "0"),
+        abi::label(&row_lo),
+        abi::compare_registers("%v12", "%v10"),
+        abi::branch_lt(&row_hi),
+        abi::subtract_immediate("%v12", "%v10", 1),
+        abi::label(&row_hi),
+        // col = clamp(ARG[1], 0, cols-1)
+        abi::move_register("%v13", abi::ARG[1]),
+        abi::compare_immediate("%v13", "0"),
+        abi::branch_ge(&col_lo),
+        abi::move_immediate("%v13", "Integer", "0"),
+        abi::label(&col_lo),
+        abi::compare_registers("%v13", "%v11"),
+        abi::branch_lt(&col_hi),
+        abi::subtract_immediate("%v13", "%v11", 1),
+        abi::label(&col_hi),
+        abi::store_u64("%v12", "%v9", 16), // cursorRow
+        abi::store_u64("%v13", "%v9", 24), // cursorCol
     ]);
-    emit_write_decimal(
-        symbol,
-        "%v15",
-        "row",
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    emit_write_const(
-        symbol,
-        ESC_SEMICOLON_SYMBOL,
-        ESC_SEMICOLON.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.extend([
-        abi::load_u64("%v15", abi::stack_pointer(), ARG1_OFFSET),
-        abi::compare_immediate("%v15", "0"),
-        abi::branch_ge(&col_clamp),
-        abi::move_immediate("%v15", "Integer", "0"),
-        abi::label(&col_clamp),
-        abi::add_immediate("%v15", "%v15", 1),
-    ]);
-    emit_write_decimal(
-        symbol,
-        "%v15",
-        "col",
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    emit_write_const(
-        symbol,
-        ESC_LETTER_H_SYMBOL,
-        ESC_LETTER_H.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
-    let _ = done;
-    Ok(())
 }
 
 fn emit_get_color(

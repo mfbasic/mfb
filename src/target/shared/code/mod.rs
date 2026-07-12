@@ -634,6 +634,12 @@ pub(crate) fn lower_module_for_platform(
     if uses_term && !runtime_symbols.iter().any(|s| s == "_mfb_rt_term_term_off") {
         runtime_symbols.push("_mfb_rt_term_term_off".to_string());
     }
+    // plan-35-C: `term::off` presents the final frame by calling the `term::sync`
+    // helper, and the shutdown teardown frees the grid, so the present helper must
+    // exist whenever `term::` is used even if the program never calls `sync`.
+    if uses_term && !runtime_symbols.iter().any(|s| s == "_mfb_rt_term_term_sync") {
+        runtime_symbols.push("_mfb_rt_term_term_sync".to_string());
+    }
     let term_state_offset = if uses_term {
         Some(ENTRY_GLOBALS_OFFSET + (globals_base + link_slot_count) * 8)
     } else {
@@ -1312,7 +1318,14 @@ fn lower_runtime_helper(
                         })??,
                 )
             } else {
-                lower_io_write_helper(symbol, platform_imports, platform, stderr, newline)?
+                lower_io_write_helper(
+                    symbol,
+                    platform_imports,
+                    platform,
+                    stderr,
+                    newline,
+                    term_state_offset,
+                )?
             };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -2874,6 +2887,7 @@ mod os;
 mod private;
 mod simd_kernel_coeffs;
 mod term;
+mod term_grid;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tls;
