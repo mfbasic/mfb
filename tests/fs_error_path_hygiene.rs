@@ -272,7 +272,16 @@ fn atomic_write_rename_failure_unlinks_temp() {
         String::from_utf8_lossy(&build.stderr),
     );
 
-    let exe = root.join("fs_atomic_unlink_rt.out");
+    // Locate the built executable from the build log rather than assuming a fixed
+    // name: macOS emits a single `<name>.out`, but the linux console build emits one
+    // `<name>-glibc.out` + `<name>-musl.out` per libc world (no bare `<name>.out`).
+    // Any flavor exercises the same lowering, so run the first one reported.
+    let build_stdout = String::from_utf8_lossy(&build.stdout);
+    let exe = build_stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Wrote executable to "))
+        .map(PathBuf::from)
+        .expect("build reported no executable path");
     // The unhandled error Result traps the program (nonzero exit); that is fine —
     // the invariant under test is that no temp file is left behind.
     let _ = Command::new(&exe).output().expect("run generated program");
