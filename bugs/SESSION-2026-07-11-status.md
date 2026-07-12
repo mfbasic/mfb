@@ -53,15 +53,23 @@ returned error code, not a codegen defect).
 ## Wave 5 addendum (error-block-in-slot / design b)
 - **bug-152 FIXED** as above. Plan: planning/plan-error-block-in-slot.md (Stages 1-4
   = adopt; the constructor self-containment fix completes the leak elimination).
-- **bug-147.5(b)** — still open. Design finalized + implementation-ready in the
-  bug-147 doc: a mutex-protected **dest-drain pending-free list** (the dest thread
-  frees the orphaned failed-send copies in its own arena on its next receive). Every
-  simpler approach ruled out (cross-thread free = race/UAF; copy-on-commit-in-helper
-  can't type-aware-copy collections or size the free; two-phase reserve = TOCTOU).
-  The leak is BOUNDED (reclaimed at worker teardown). Deferred from the tail of the
-  error-leak work — the five coordinated raw-helper/queue-layout changes belong in a
-  focused threading session with its own 4-remote validation, not landed where a
-  subtle queue-layout slip would corrupt message passing.
+- **bug-147.5(b) FIXED** (commit 8fb7d59a) — the mutex-protected **dest-drain
+  pending-free list**: a failed send pushes the orphaned dest-arena copy (with its
+  size) onto the queue's pending-free list under the queue mutex; the destination
+  drains + frees it in its OWN arena on its next read (also under the mutex). Every
+  free on the owning thread, every list op mutex-serialized = correct-by-construction,
+  no cross-thread free. Caller passes the exact copy size only for
+  recoverable-size flat types (else 0 = keep the bounded pre-existing behavior, never
+  a wrong-size free). Verified suite-wide runtime-identical + thread-bounded-queues
+  correct on all 4 remotes. **bug-147 is now fully closed** (all sub-issues) and
+  moved to completed-bugs.
+
+## Result
+Both bugs the continuation targeted are FIXED and verified on all four remotes:
+- **bug-152** (error re-raise / propagation leak) — error-block-in-slot adopt +
+  constructor self-containment; error loops RSS-flat.
+- **bug-147.5(b)** (failed-send copied-message leak) — dest-drain pending-free list.
+Plus the general error-propagation leak (the `ErrorLoc` orphan) fixed as a bonus.
 
 **Discovered (filed separately, pre-existing, out of scope):** x86-glibc
 `math::rand` with a fixed seed is non-deterministic (present at HEAD before this
