@@ -82,3 +82,24 @@ paths, `lower_map_concat`:3644-3659), `builder_collection_queries.rs`
 plain multiply/add (no `emit_checked_size_multiply`); only exploitable via
 corrupted headers. **Dup of audit-1-codegen-memory.md MEM-04/MEM-05 class** —
 noted, not separately re-filed.
+
+---
+## Resolution (2026-07-11)
+- 147.1 (Float equality bitwise at record-field depth) — FIXED.
+- 147.3 (deterministic union field-access order) — FIXED.
+- 147.4 (list-element 8-byte alignment, reader/writer lockstep) — FIXED.
+- 147.7 (checked collection-size arithmetic at 9 alloc sites) — FIXED.
+- 147.6 — already fixed (commit 39c4bcd8). 147.2 — stale (values.rs is flat-layout
+  correct).
+- 147.5 (error-path intermediate frees) — DEFERRED. Two parts, both risky:
+  (a) the set/set_in_place trap-route leak needs the singleton/removed intermediates
+  re-registered as ActiveCleanup owned values (so trap_route_cleanups frees them)
+  with the manual success-path free removed — a delicate lifetime restructure that
+  is exactly the double-free-prone class (memory: trap-cleanup-double-free); an
+  alternative (reorder the fallible removeAt before the singleton is materialized)
+  fixes only the common index-OOB case and churns goldens. (b) the thread-send
+  copied-message leak lives in the DESTINATION worker's arena and would need
+  cross-thread arena-free of another thread's live free-list — a data race. Both are
+  exceptional error-path (OOM-under-TRAP / send-failure) leaks; a wrong free is a
+  double-free crash, so per "correctness over performance" this needs a dedicated
+  ActiveCleanup redesign with runtime trap/OOM validation, not a spot free.
