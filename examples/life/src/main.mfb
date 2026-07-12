@@ -1,0 +1,354 @@
+IMPORT collections
+IMPORT datetime
+IMPORT io
+IMPORT math
+IMPORT strings
+IMPORT term
+
+' Conway's Game of Life — a full-screen terminal cellular automaton built on the
+' term:: TUI module.
+'
+' Build and run it from an interactive terminal:
+'   mfb build examples/life
+'   ./examples/life/life.out
+'
+' The board fills the whole terminal except the last line, which is a status bar
+' showing the live/dead cell counts, the generation number, the current pattern,
+' and the elapsed time. The grid wraps around at the edges (a torus), so gliders
+' and spaceships that run off one side reappear on the other.
+'
+' Controls (the console terminal stays in cooked/line mode, so a key takes effect
+' when you press it followed by Return):
+'   1..9   load one of nine named starting patterns
+'   0      load a random starting screen
+'   space  pause / resume the simulation
+'   r      restart the current pattern
+'   q      quit
+'
+' Resizing the terminal is handled live: the board is reallocated to the new size
+' on the next frame, preserving the cells that still fit.
+
+' One (dx, dy) offset of a seed pattern, measured from the pattern's centre.
+TYPE Cell
+  dx AS Integer
+  dy AS Integer
+END TYPE
+
+' How long each generation is displayed before the next is computed, in
+' milliseconds. io::pollInput doubles as the frame timer: it waits up to this
+' long for a keypress and advances the simulation when the wait elapses.
+FUNC frameDelayMs AS Integer
+  RETURN 90
+END FUNC
+
+' A short human name for a pattern choice, shown in the status bar.
+FUNC patternName(choice AS Integer) AS String
+  IF choice = 0 THEN RETURN "random"
+  IF choice = 1 THEN RETURN "glider"
+  IF choice = 2 THEN RETURN "blinkers"
+  IF choice = 3 THEN RETURN "toad"
+  IF choice = 4 THEN RETURN "beacon"
+  IF choice = 5 THEN RETURN "pulsar"
+  IF choice = 6 THEN RETURN "glider-gun"
+  IF choice = 7 THEN RETURN "spaceship"
+  IF choice = 8 THEN RETURN "r-pentomino"
+  IF choice = 9 THEN RETURN "acorn"
+  RETURN "?"
+END FUNC
+
+' The live cells of each named pattern, as offsets from the board centre.
+FUNC patternFor(choice AS Integer) AS List OF Cell
+  IF choice = 1 THEN
+    ' Glider — travels diagonally forever.
+    RETURN [Cell[0, -1], Cell[1, 0], Cell[-1, 1], Cell[0, 1], Cell[1, 1]]
+  END IF
+
+  IF choice = 2 THEN
+    ' A field of period-2 blinkers.
+    RETURN [Cell[-1, -4], Cell[0, -4], Cell[1, -4], Cell[-1, 0], Cell[0, 0], Cell[1, 0], Cell[-1, 4], Cell[0, 4], Cell[1, 4], Cell[-9, 0], Cell[-8, 0], Cell[-7, 0], Cell[7, 0], Cell[8, 0], Cell[9, 0]]
+  END IF
+
+  IF choice = 3 THEN
+    ' Toad — a period-2 oscillator.
+    RETURN [Cell[0, 0], Cell[1, 0], Cell[2, 0], Cell[-1, 1], Cell[0, 1], Cell[1, 1]]
+  END IF
+
+  IF choice = 4 THEN
+    ' Beacon — a period-2 oscillator.
+    RETURN [Cell[-1, -1], Cell[0, -1], Cell[-1, 0], Cell[0, 0], Cell[1, 1], Cell[2, 1], Cell[1, 2], Cell[2, 2]]
+  END IF
+
+  IF choice = 5 THEN
+    ' Pulsar — a large period-3 oscillator.
+    RETURN [Cell[-4, -6], Cell[-3, -6], Cell[-2, -6], Cell[2, -6], Cell[3, -6], Cell[4, -6], Cell[-6, -4], Cell[-1, -4], Cell[1, -4], Cell[6, -4], Cell[-6, -3], Cell[-1, -3], Cell[1, -3], Cell[6, -3], Cell[-6, -2], Cell[-1, -2], Cell[1, -2], Cell[6, -2], Cell[-4, -1], Cell[-3, -1], Cell[-2, -1], Cell[2, -1], Cell[3, -1], Cell[4, -1], Cell[-4, 1], Cell[-3, 1], Cell[-2, 1], Cell[2, 1], Cell[3, 1], Cell[4, 1], Cell[-6, 2], Cell[-1, 2], Cell[1, 2], Cell[6, 2], Cell[-6, 3], Cell[-1, 3], Cell[1, 3], Cell[6, 3], Cell[-6, 4], Cell[-1, 4], Cell[1, 4], Cell[6, 4], Cell[-4, 6], Cell[-3, 6], Cell[-2, 6], Cell[2, 6], Cell[3, 6], Cell[4, 6]]
+  END IF
+
+  IF choice = 6 THEN
+    ' Gosper glider gun — emits a stream of gliders forever.
+    RETURN [Cell[-17, 0], Cell[-17, 1], Cell[-16, 0], Cell[-16, 1], Cell[-7, 0], Cell[-7, 1], Cell[-7, 2], Cell[-6, -1], Cell[-6, 3], Cell[-5, -2], Cell[-5, 4], Cell[-4, -2], Cell[-4, 4], Cell[-3, 1], Cell[-2, -1], Cell[-2, 3], Cell[-1, 0], Cell[-1, 1], Cell[-1, 2], Cell[0, 1], Cell[3, -2], Cell[3, -1], Cell[3, 0], Cell[4, -2], Cell[4, -1], Cell[4, 0], Cell[5, -3], Cell[5, 1], Cell[7, -4], Cell[7, -3], Cell[7, 1], Cell[7, 2], Cell[17, -2], Cell[17, -1], Cell[18, -2], Cell[18, -1]]
+  END IF
+
+  IF choice = 7 THEN
+    ' Lightweight spaceship — glides horizontally.
+    RETURN [Cell[-2, -1], Cell[1, -1], Cell[2, 0], Cell[-2, 1], Cell[2, 1], Cell[-1, 2], Cell[0, 2], Cell[1, 2], Cell[2, 2]]
+  END IF
+
+  IF choice = 8 THEN
+    ' R-pentomino — a five-cell methuselah with a long, chaotic life.
+    RETURN [Cell[0, -1], Cell[1, -1], Cell[-1, 0], Cell[0, 0], Cell[0, 1]]
+  END IF
+
+  IF choice = 9 THEN
+    ' Acorn — a seven-cell methuselah that runs for thousands of generations.
+    RETURN [Cell[-2, -1], Cell[0, 0], Cell[-3, 1], Cell[-2, 1], Cell[1, 1], Cell[2, 1], Cell[3, 1]]
+  END IF
+
+  RETURN []
+END FUNC
+
+' A fresh all-dead board of gridW * gridH cells, row-major.
+FUNC deadGrid(gridW AS Integer, gridH AS Integer) AS List OF Boolean
+  MUT g AS List OF Boolean = []
+  FOR i = 0 TO gridW * gridH - 1
+    g = collections::append(g, FALSE)
+  NEXT
+  RETURN g
+END FUNC
+
+' Build the starting board for a pattern choice. Choice 0 fills the board at
+' random; 1..9 stamp a named pattern centred on the board.
+FUNC seedGrid(gridW AS Integer, gridH AS Integer, choice AS Integer) AS List OF Boolean
+  IF choice = 0 THEN
+    MUT g AS List OF Boolean = []
+    FOR i = 0 TO gridW * gridH - 1
+      g = collections::append(g, math::rand(0, 4) = 0)
+    NEXT
+    RETURN g
+  END IF
+
+  MUT g AS List OF Boolean = deadGrid(gridW, gridH)
+  LET cx AS Integer = gridW / 2
+  LET cy AS Integer = gridH / 2
+  FOR EACH c IN patternFor(choice)
+    LET x AS Integer = cx + c.dx
+    LET y AS Integer = cy + c.dy
+    IF x >= 0 AND x < gridW AND y >= 0 AND y < gridH THEN
+      g = collections::set(g, y * gridW + x, TRUE)
+    END IF
+  NEXT
+  RETURN g
+END FUNC
+
+' Re-lay an existing board into a new size, keeping every cell that still fits.
+FUNC resizeGrid(old AS List OF Boolean, oldW AS Integer, oldH AS Integer, newW AS Integer, newH AS Integer) AS List OF Boolean
+  MUT g AS List OF Boolean = []
+  FOR y = 0 TO newH - 1
+    FOR x = 0 TO newW - 1
+      MUT v AS Boolean = FALSE
+      IF x < oldW AND y < oldH THEN
+        v = collections::get(old, y * oldW + x)
+      END IF
+      g = collections::append(g, v)
+    NEXT
+  NEXT
+  RETURN g
+END FUNC
+
+' Advance the whole board one generation under Conway's rules, wrapping at the
+' edges so the board behaves as a torus.
+FUNC stepGrid(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer) AS List OF Boolean
+  MUT nextGrid AS List OF Boolean = []
+  FOR y = 0 TO gridH - 1
+    FOR x = 0 TO gridW - 1
+      MUT n AS Integer = 0
+      FOR dy = -1 TO 1
+        FOR dx = -1 TO 1
+          IF dx <> 0 OR dy <> 0 THEN
+            LET nx AS Integer = (x + dx + gridW) MOD gridW
+            LET ny AS Integer = (y + dy + gridH) MOD gridH
+            IF collections::get(grid, ny * gridW + nx) THEN
+              n = n + 1
+            END IF
+          END IF
+        NEXT
+      NEXT
+      LET alive AS Boolean = collections::get(grid, y * gridW + x)
+      ' Born on exactly 3 neighbours; a live cell also survives on 2.
+      LET live AS Boolean = (n = 3) OR (alive AND n = 2)
+      nextGrid = collections::append(nextGrid, live)
+    NEXT
+  NEXT
+  RETURN nextGrid
+END FUNC
+
+' Count the live cells on the board.
+FUNC countLive(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer) AS Integer
+  MUT total AS Integer = 0
+  FOR i = 0 TO gridW * gridH - 1
+    IF collections::get(grid, i) THEN
+      total = total + 1
+    END IF
+  NEXT
+  RETURN total
+END FUNC
+
+' Truncate or space-pad a string to exactly `width` columns.
+FUNC fit(s AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  IF len(s) > width THEN RETURN strings::mid(s, 0, width)
+  MUT r AS String = s
+  DO WHILE len(r) < width
+    r = r & " "
+  LOOP
+  RETURN r
+END FUNC
+
+' Repaint the whole board. Each row is built as one string and drawn in a single
+' write, overwriting the previous frame in place.
+SUB drawGrid(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer)
+  term::setForeground(120, 230, 140)
+  FOR y = 0 TO gridH - 1
+    MUT row AS String = ""
+    FOR x = 0 TO gridW - 1
+      IF collections::get(grid, y * gridW + x) THEN
+        row = row & "█"
+      ELSE
+        row = row & " "
+      END IF
+    NEXT
+    term::moveTo(y, 0)
+    io::write(row)
+  NEXT
+END SUB
+
+' Draw the status bar on the last terminal line.
+SUB drawStatus(gridW AS Integer, gridH AS Integer, cols AS Integer, live AS Integer, gen AS Integer, choice AS Integer, startNanos AS Integer, paused AS Boolean)
+  LET dead AS Integer = gridW * gridH - live
+  LET elapsedMs AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
+  LET secs AS Integer = elapsedMs / 1000
+  LET tenths AS Integer = (elapsedMs MOD 1000) / 100
+
+  MUT s AS String = " Life " & toString(live) & "  Dead " & toString(dead) & "  Gen " & toString(gen) & "  Pattern " & patternName(choice) & "  Time " & toString(secs) & "." & toString(tenths) & "s"
+  IF paused THEN
+    s = s & "  [PAUSED]"
+  END IF
+  s = s & "   |   1-9 pattern  0 random  space pause  r restart  q quit "
+
+  ' Fill the whole line except its last cell (writing the last cell of the last
+  ' terminal row can scroll the screen).
+  term::setBold(TRUE)
+  term::setForeground(15, 20, 30)
+  term::setBackground(170, 200, 225)
+  term::moveTo(gridH, 0)
+  io::write(fit(s, cols - 1))
+  term::setBackground(0, 0, 0)
+  term::setForeground(255, 255, 255)
+  term::setBold(FALSE)
+END SUB
+
+' Read one keypress, returning "" on end-of-input or a read error so the caller
+' can quit cleanly.
+FUNC readKey AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC main AS Integer
+  ' A full-screen TUI needs an interactive terminal on both ends: it queries the
+  ' window size and reads single keypresses. Bail out clearly when either end is
+  ' redirected (a pipe or file) rather than drawing escape codes into it.
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("life: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+
+  MUT gridW AS Integer = 0
+  MUT gridH AS Integer = 0
+  MUT grid AS List OF Boolean = []
+  MUT choice AS Integer = 0
+  MUT gen AS Integer = 0
+  MUT paused AS Boolean = FALSE
+  MUT dirty AS Boolean = TRUE
+  MUT startNanos AS Integer = datetime::monotonicNanos()
+  MUT running AS Boolean = TRUE
+
+  DO WHILE running
+    ' Track the live terminal size, reserving the last line for the status bar.
+    ' Handle the size query locally: if the terminal is detached mid-run, stop.
+    LET size AS TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+    MUT newW AS Integer = size.columns
+    MUT newH AS Integer = size.rows - 1
+    IF newW < 1 THEN newW = 1
+    IF newH < 1 THEN newH = 1
+
+    IF gridW = 0 AND gridH = 0 THEN
+      ' First frame: allocate and seed the board.
+      gridW = newW
+      gridH = newH
+      grid = seedGrid(gridW, gridH, choice)
+      gen = 0
+      startNanos = datetime::monotonicNanos()
+      dirty = TRUE
+    ELSEIF newW <> gridW OR newH <> gridH THEN
+      ' The terminal was resized: keep the cells that still fit.
+      grid = resizeGrid(grid, gridW, gridH, newW, newH)
+      gridW = newW
+      gridH = newH
+      dirty = TRUE
+    END IF
+
+    IF dirty THEN
+      term::clear()
+      dirty = FALSE
+    END IF
+
+    drawGrid(grid, gridW, gridH)
+    drawStatus(gridW, gridH, size.columns, countLive(grid, gridW, gridH), gen, choice, startNanos, paused)
+
+    ' Wait up to one frame for a key; if none arrives, advance the simulation.
+    IF io::pollInput(frameDelayMs()) THEN
+      LET key AS String = readKey()
+      IF key = "" OR key = "q" OR key = "Q" THEN
+        running = FALSE
+      ELSEIF key = " " THEN
+        paused = NOT paused
+      ELSEIF key = "r" OR key = "R" THEN
+        grid = seedGrid(gridW, gridH, choice)
+        gen = 0
+        startNanos = datetime::monotonicNanos()
+        dirty = TRUE
+      ELSEIF len(key) = 1 AND strings::contains("0123456789", key) THEN
+        LET picked AS Integer = toInt(key) TRAP(e)
+          RECOVER 0
+        END TRAP
+        choice = picked
+        grid = seedGrid(gridW, gridH, choice)
+        gen = 0
+        startNanos = datetime::monotonicNanos()
+        dirty = TRUE
+      END IF
+    ELSEIF NOT paused THEN
+      grid = stepGrid(grid, gridW, gridH)
+      gen = gen + 1
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  io::print("Thanks for playing Life!")
+  RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("life: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
