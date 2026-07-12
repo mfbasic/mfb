@@ -10,6 +10,7 @@ collection data region.
 | `Integer` | 8 bytes |
 | `Float` | 8 bytes |
 | `Fixed` | 8 bytes |
+| `Money` | 8 bytes (signed i64, base-10 scaled ×100000) |
 
 Payloads in the data region are aligned so every payload begins at an offset
 valid for that payload's type. Padding bytes are not observable. [[src/target/shared/code/builder_collection_layout.rs:collection_payload_alignment]]

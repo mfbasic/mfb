@@ -20,6 +20,7 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 6          = String
 7          = Byte
 8          = Error
+9          = Money
 0xFFFFFF00 = File      (handle/resource type)
 0xFFFFFEFF = Socket    (handle/resource type)
 0xFFFFFEFE = Listener  (handle/resource type)
@@ -27,7 +28,7 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 0xFFFFFEFC = TermSize  (builtin record)
 ```
 
-Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` is **retired** — it was the old `TerminalSize` and is now free. The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`10`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID]]
+Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` — the freed old `TerminalSize` slot — is now `Money`, the exact base-10 fixed-point scalar (its constant payload is the 8-byte little-endian scaled i64 raw). The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`10`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID]]
 
 `Error` is structural (fields `code`, `message`), and `TermColor`/`TermSize` are structural builtin records (`TermColor` has `r`/`g`/`b`; `TermSize` has `columns`/`rows`); referencing them interns those field-name strings but still resolves to the reserved id.
 

@@ -37,7 +37,9 @@ ArenaState (at x19)
   +32   U64  exitStatus       ; pending exit/result code used during teardown
   +40   U64  arenaStartTime   ; arena init time in ns (diagnostics + fill-seed mix)
   +48   U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
-  +56   U64  reserved
+  +56   U64  moneyRoundingMode ; per-thread Money arithmetic rounding: 0 = Commercial
+                              ; (half-away, default), 1 = Banker (half-even); inherited
+                              ; from the parent at thread spawn (money::setRounding)
   +64   U64  cleanupFailCount ; count of cleanup errors (audit)
   +72   U64  cleanupFailCode  ; last cleanup failure error code
   +80   U64  cleanupFailMsg   ; pointer to last cleanup failure message

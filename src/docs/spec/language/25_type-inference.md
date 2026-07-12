@@ -86,6 +86,8 @@ expression_compatible(E, A, expr) =
   | E=Byte  ∧ A=Integer ∧ expr = Number n ∧ n ≤ 255  ; small int literal → Byte
   | E=Fixed ∧ A∈{Integer,Float} ∧ expr = Number      ; numeric literal → Fixed
   | E=Fixed ∧ A∈{Integer,Float} ∧ expr = -Number     ; negated numeric literal → Fixed
+  | E=Money ∧ A∈{Integer,Float} ∧ expr = Number      ; decimal literal → Money
+  | E=Money ∧ A∈{Integer,Float} ∧ expr = -Number     ; negated decimal literal → Money
   | E=List OF Ee ∧ A=List OF _ ∧ expr = ListLiteral vs
         ∧ ∀ v ∈ vs: v is a numeric literal
         ∧ expression_compatible(Ee, lit_type(v), v)   ; recurse element-wise
@@ -101,11 +103,13 @@ Properties:
   each element). A general expression that merely *has* type `Integer` is never
   coerced; the small-int → `Byte` rule re-parses the literal text and bounds it
   at `255`.
-- `Fixed` accepts any numeric literal **unconditionally** (no range check at this
-  layer); range/precision rules for `Fixed` are in `./mfb spec language types`.
-- **Suffixed literals are intrinsically typed.** An `f`/`F`-suffixed literal
-  (`mfb spec language lexical-structure` §2.1) has `actual` = `Float`/`Fixed` from
-  its suffix, *not* the untyped shape. It is then checked by ordinary
+- `Fixed` and `Money` accept any numeric literal **unconditionally** (no range
+  check at this layer); range/precision rules for `Fixed`/`Money` are in
+  `./mfb spec language types`.
+- **Suffixed literals are intrinsically typed.** An `f`/`F`/`m`/`M`-suffixed literal
+  (`mfb spec language lexical-structure` §2.1) has `actual` = `Float`/`Fixed`/`Money`
+  from its suffix, *not* the untyped shape (`m` and `M` both yield `Money`, since
+  there is only one money type). It is then checked by ordinary
   assignability, so a Fixed `2F` into a `Float` slot fails (no `Float`←`Fixed`
   coercion exists), while a Float `2f` into a `Fixed` slot still coerces via the
   `E=Fixed ∧ A=Float ∧ expr=Number` rule. The suffix therefore *wins over* an

@@ -242,9 +242,10 @@ severity is `error`.
 
 The low block (`0001`-`0011`) validates `project.json`; the high block
 (`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
-registry's only `info`, and `2-200-0009` one of exactly three `warn` rules
-(with `2-201-0017 PRIVATE_SHADOWS_PUBLIC` and
-`2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`); every other rule is `error`.
+registry's only `info`, and `2-200-0009` one of exactly four `warn` rules
+(with `2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
+`2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`, and
+`2-203-0108 TYPE_MONEY_LITERAL_PRECISION`); every other rule is `error`.
 [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
@@ -370,6 +371,10 @@ Scheme*).
 | `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call |
 | `2-203-0104` | `TYPE_INLINE_TRAP_DEAD_HANDLER` | warn | inline TRAP handler is unreachable — the guarded call cannot fail |
 | `2-203-0103` | `EXPORT_IN_EXECUTABLE` | error | EXPORT is only valid in a package project; use PUBLIC (the default) in an executable |
+| `2-203-0105` | `TYPE_MONEY_LITERAL_OVERFLOW` | error | numeric literal is outside the Money range |
+| `2-203-0106` | `TYPE_MONEY_LITERAL_UNDERFLOW` | error | numeric literal is outside the Money range |
+| `2-203-0107` | `TYPE_MONEY_OPERATION_INVALID` | error | operation is not valid for Money operands |
+| `2-203-0108` | `TYPE_MONEY_LITERAL_PRECISION` | warn | Money literal has more than 5 fractional digits and is rounded |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |

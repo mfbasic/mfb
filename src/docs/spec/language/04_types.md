@@ -7,6 +7,7 @@
 | `Integer` | 64-bit signed |
 | `Float` | 64-bit IEEE float |
 | `Fixed` | 64-bit binary fixed-point, signed 32/32 split |
+| `Money` | 64-bit signed base-10 fixed-point, 5 decimal places, exact |
 | `Boolean` | `TRUE` / `FALSE` |
 | `String` | UTF-8, immutable |
 | `Byte` | unsigned 8-bit |
@@ -24,6 +25,33 @@ LET z = toFixed("1.25")  ' Fixed, fallible parse
 ```
 
 `Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `77050010`.
+
+### `Money`
+
+`Money` is a 64-bit signed integer carrier interpreted as an **exact** base-10 fixed-point value scaled to **5 decimal places** (one unit = `0.00001`; `1.00000` is raw `100000`). Its range is `-92233720368547.75808` through `92233720368547.75807`. Because the scale is base-10, every decimal amount within range is represented exactly — this is the type for auditable cent accounting, where `Fixed`'s binary fractions would drift. The 8-byte storage layout is specified by `./mfb spec memory scalar-storage`; the `.mfp` wire type id is in `./mfb spec package`. A decimal literal acquires type `Money` from an expected `Money` type (`LET a AS Money = 1.25`) or from an `m`/`M` suffix (`1.25m`), mirroring `f`=Float / `F`=Fixed. A literal outside the range is `TYPE_MONEY_LITERAL_OVERFLOW`/`UNDERFLOW`; a literal with more than 5 fractional digits whose extra digits change the stored value warns `TYPE_MONEY_LITERAL_PRECISION` and is rounded half-away-from-zero.
+
+`Money` is not "another number format" — it is a **financial quantity with a currency dimension**, and its algebra is *dimensional*:
+
+| Operator | Valid → result | Compile error |
+|----------|----------------|---------------|
+| `+`, `-` | `M , M → M` | `M , k` and `k , M` |
+| `*` | `M , k → M` ; `k , M → M` | `M , M` |
+| `/` | `M , k → M` ; `M , M → Float` | `k , M` |
+| `DIV` | `M , M → Float` ; `M , k → Float` | `k , M` |
+| `MOD` | `M , M → M` | `M , k` and `k , M` |
+| `^` | — | any `M` operand |
+| unary `-` | `M → M` | — |
+| `= <> < > <= >=` | `M , M → Boolean` | `M , k` and `k , M` |
+
+where `k` is any dimensionless numeric (`Integer`, `Byte`, `Float`, `Fixed`). Every disallowed pairing is rejected at compile time with `TYPE_MONEY_OPERATION_INVALID`; there is **no implicit conversion** into or out of `Money` — every crossing is an explicit `toMoney(...)` / `to*(money)` call.
+
+Three framing points:
+
+- **The dimension is money-vs-dimensionless, not currency safety.** `Money` is a *unitless* currency amount; nothing stops a program from adding a USD amount to a EUR amount. Tracking real-world currencies is the program's job.
+- **`DIV` is the explicit Float escape.** `M DIV k` and `M DIV M` return `Float` like every other numeric pair (`DIV` is fractional division language-wide); writing `DIV` against a `Money` is a deliberate dimension exit, exactly parallel to calling `toFloat`. `M / M` likewise returns `Float`: a ratio of two amounts is dimensionless and inherently non-terminating (`100.00m / 3.00m` has no exact finite value in *any* type), so the only choice is which inexact type — `Float` wins because it is what margins/growth/percentages feed into and it has the dynamic range.
+- **Division drift & the allocation idiom.** `M / k` rounds to the 5th decimal, so the shares of a split need not re-sum to the total. The standard idiom gives the remainder to the last share: `last = total - share * (n - 1)`. `money::round(value, decimals)` settles an amount to fewer places under the current rounding mode.
+
+`Money` arithmetic rounding (for `M / k`, `M * Float`, `M * Fixed`, and the conversions) follows a **runtime-configurable mode**: the default `Commercial` (round half away from zero) or `Banker` (round half to even), selected via `money::setRounding`. Overflow past the i64 raw range fails with `ErrOverflow` (`77050010`); a non-Float divide/MOD by zero fails with `ErrInvalidArgument` (`77050002`); a non-finite `Float` operand fails with `ErrInvalidFormat` (`77050003`). `Money * Float` is **inherently inexact** (a `Float` rate is approximate; large products lose low digits past f64's 2⁵³ exact-integer range) — callers needing exactness use `Money * Fixed` or `Money * Integer`.
 
 Fixed > Float > Integer > Byte
 
@@ -45,6 +73,8 @@ Fixed > Float > Integer > Byte
 | `Float`      | `Integer`     | `Float`                        | `Float` |
 | `Float`      | `Fixed`       | `Fixed`                        | `Float` |
 | `Float`      | `Float`       | `Float`                        | `Float` |
+
+This promotion table applies only to the four dimensionless numerics. `Money` does **not** promote against them — it obeys the dimensional algebra table in §4.1's `Money` section instead (same-dimension add/subtract, scalar scaling, `M/M` ratio), and every off-table pairing is a compile error.
 
 Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`. `=` and `<>` also accept any two compatible comparable operands. The ordering operators `<`, `>`, `<=`, and `>=` additionally accept two `String` operands, which are ordered lexicographically by Unicode scalar value (see §4.11); mixed `String`/numeric ordering is a type error.
 
@@ -373,6 +403,7 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 |------|---------|
 | `Integer`, `Byte` | `0` |
 | `Float`, `Fixed` | `0.0` |
+| `Money` | `0.00000` |
 | `Boolean` | `FALSE` |
 | `String` | `""` |
 | `Nothing` | `NOTHING` |
@@ -382,22 +413,22 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 
 Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
-The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by `ir::verify` (`is_defaultable`). [[src/ir/verify/mod.rs:is_defaultable]]
+The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by `ir::verify` (`is_defaultable`). [[src/ir/verify/mod.rs:is_defaultable]]
 
 ## 4.11 Comparable and Orderable Types
 
-Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. [[src/syntaxcheck/types.rs:is_comparable]] The built-in `Error` and `ErrorLoc` record shapes are comparable (their fields are all comparable). `List`, `Map`, unions, functions, lambdas, threads, resource handles, and the internal fallible-result type are not comparable. Record comparability is computed structurally with a recursion guard: a record that reaches itself only through non-comparable members (a cycle through `List`/`Map`/`UNION`) is not comparable, and a resource-wrapped `TYPE` is never comparable.
+Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. [[src/syntaxcheck/types.rs:is_comparable]] `Money` is comparable and orderable **only against another `Money`**: a `Money`-vs-scalar comparison (`money = 5`, `money < 3`) is a compile error (`TYPE_MONEY_OPERATION_INVALID`) — use `money = toMoney(5)`. The built-in `Error` and `ErrorLoc` record shapes are comparable (their fields are all comparable). `List`, `Map`, unions, functions, lambdas, threads, resource handles, and the internal fallible-result type are not comparable. Record comparability is computed structurally with a recursion guard: a record that reaches itself only through non-comparable members (a cycle through `List`/`Map`/`UNION`) is not comparable, and a resource-wrapped `TYPE` is never comparable.
 
 `Map` keys must be comparable. List helpers such as `find`, `contains`, and `replace` require comparable element types.
 
-A narrower set of types is **orderable** — for these a total order is defined and the ordering operators apply. Orderable types are `Integer`, `Float`, `Fixed`, `Byte`, and `String`. `Boolean`, `Nothing`, enums, unions, and records are comparable but not orderable. Helpers such as `collections::sort` and `collections::sortBy` require an orderable element or key type.
+A narrower set of types is **orderable** — for these a total order is defined and the ordering operators apply. Orderable types are `Integer`, `Float`, `Fixed`, `Money`, `Byte`, and `String`. `Boolean`, `Nothing`, enums, unions, and records are comparable but not orderable. (`Money` orders only against `Money`, as above.) Helpers such as `collections::sort` and `collections::sortBy` require an orderable element or key type.
 
 | Property | Types |
 |----------|-------|
-| Comparable (`=`, `<>`) | `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enums, records of comparable fields |
-| Orderable (`<`, `>`, `<=`, `>=`) | `Integer`, `Float`, `Fixed`, `Byte`, `String` |
+| Comparable (`=`, `<>`) | `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`, `Byte`, `Nothing`, enums, records of comparable fields |
+| Orderable (`<`, `>`, `<=`, `>=`) | `Integer`, `Float`, `Fixed`, `Money`, `Byte`, `String` |
 
-For the purpose of these operators, "numeric" means `Integer`, `Float`, `Fixed`, `Byte`, or `Unknown` — `Unknown` is admitted as numeric so a prior type error does not cascade into a second one. [[src/syntaxcheck/types.rs:is_numeric]] Equality operators `=` and `<>` accept any two numeric operands directly, with **no** compatibility requirement between them: any cross-numeric pairing such as `Integer = Float`, `Byte <> Fixed`, or `Float = Fixed` is accepted and returns `Boolean`. Equality also accepts any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` require either two numeric operands or two `String` operands. Two `String` operands are ordered **lexicographically by Unicode scalar value**: the strings are compared scalar by scalar, the first differing position decides, and if one string is a prefix of the other the shorter compares less. This order is deterministic and identical across all targets — it does not depend on host locale, collation, or libc. It is not a locale or human collation and is not grapheme-cluster aware; callers needing locale-aware or case-insensitive ordering normalize or `strings::caseFold` first and sort the result. Mixed `String`/numeric ordering is a compile-time type error.
+For the purpose of these operators, "numeric" means `Integer`, `Float`, `Fixed`, `Money`, `Byte`, or `Unknown` — `Unknown` is admitted as numeric so a prior type error does not cascade into a second one. [[src/syntaxcheck/types.rs:is_numeric]] Equality operators `=` and `<>` accept any two numeric operands directly, with **no** compatibility requirement between them: any cross-numeric pairing such as `Integer = Float`, `Byte <> Fixed`, or `Float = Fixed` is accepted and returns `Boolean`. **`Money` is the one exception**: because it is dimensioned, a comparison with a `Money` operand requires *both* operands to be `Money` — `money = 5` is `TYPE_MONEY_OPERATION_INVALID` (§4.1). Equality also accepts any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` require either two numeric operands or two `String` operands. Two `String` operands are ordered **lexicographically by Unicode scalar value**: the strings are compared scalar by scalar, the first differing position decides, and if one string is a prefix of the other the shorter compares less. This order is deterministic and identical across all targets — it does not depend on host locale, collation, or libc. It is not a locale or human collation and is not grapheme-cluster aware; callers needing locale-aware or case-insensitive ordering normalize or `strings::caseFold` first and sort the result. Mixed `String`/numeric ordering is a compile-time type error.
 
 ## 4.12 Compile-time numeric-literal range checks
 
@@ -410,6 +441,8 @@ Numeric **literals** are range-checked statically, as a separate phase from the 
 **Float.** A literal stored into a `Float` is parsed as `f64` and checked for finiteness: a value that parses to a non-finite `f64` is rejected. A non-finite negated literal is `TYPE_FLOAT_LITERAL_UNDERFLOW`; a non-finite positive literal is `TYPE_FLOAT_LITERAL_OVERFLOW`. A finite `f64` always passes. [[src/ir/verify/mod.rs:check_const_literal]]
 
 **Fixed.** A literal stored into a `Fixed` is parsed as `f64`, the sign applied, and checked against the static binary bound: `value < -2147483648.0` is `TYPE_FIXED_LITERAL_UNDERFLOW` and `value >= 2147483648.0` is `TYPE_FIXED_LITERAL_OVERFLOW`. Values inside `[-2147483648.0, 2147483648.0)` pass. [[src/ir/verify/mod.rs:check_const_literal]]
+
+**Money.** A literal stored into a `Money` is converted with the **exact** base-10 converter (no `f64` bound — `Money` is exact decimal), sign applied, and checked against the i64 raw range: a positive magnitude outside `92233720368547.75807` is `TYPE_MONEY_LITERAL_OVERFLOW`; a negated magnitude past `-92233720368547.75808` is `TYPE_MONEY_LITERAL_UNDERFLOW` (the most-negative `Money` has no positive-magnitude literal and is folded from `-92233720368547.75808`). A literal with more than 5 fractional digits whose extra digits change the stored value additionally warns `TYPE_MONEY_LITERAL_PRECISION` (the value is rounded half-away-from-zero); trailing zeros and exactly-representable literals are silent. [[src/ir/verify/mod.rs:check_const_literal]]
 
 ## See Also
 
