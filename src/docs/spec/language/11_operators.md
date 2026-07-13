@@ -34,14 +34,14 @@ Operator edge cases:
 - Comparison operators do **not** chain specially. `a < b < c` parses left-associatively as `(a < b) < c`; since `a < b` is `Boolean` and `Boolean` is not orderable, this is normally a type error (`TYPE_BINARY_OPERATOR_MISMATCH`). There is no Python-style chained-comparison sugar.
 - `&` has lower precedence than `+` and `-`, so `a & b + c` parses as `a & (b + c)`.
 - `&` requires both operands to already be `String`; there is no implicit `toString` coercion. `1 & "x"` is a type error — call `toString` explicitly.
-- `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`. It is the only right-associative operator (`parse_power` recurses on its right operand).
-- `WITH target { ... }` is parsed at the unary level (`parse_unary` in `src/ast/expr.rs`), at the same depth as unary `-`; its `target` is parsed as a member-access chain (`parse_member_access`), so `WITH` binds looser than `.`, calls, and constructors but is part of the unary tier rather than a primary expression.
-- Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation. (`parse_power`'s left operand is `parse_unary`, so the `-` binds first.)
+- `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`. It is the only right-associative operator (the parser recurses on its right operand). [[src/ast/expr.rs:parse_power]]
+- `WITH target { ... }` is parsed at the unary level, at the same depth as unary `-`; its `target` is parsed as a member-access chain, so `WITH` binds looser than `.`, calls, and constructors but is part of the unary tier rather than a primary expression. [[src/ast/expr.rs:parse_unary]] [[src/ast/expr.rs:parse_member_access]]
+- Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation. (The exponentiation parse takes a unary expression as its left operand, so the `-` binds first.)
 - `AND`/`OR`/`XOR` require `Boolean` operands; there is no truthiness coercion from numbers or other types. These are **logical** (Boolean) operators only; the operator set intentionally omits *integer* bitwise operations. Bitwise AND/OR/XOR/NOT, shifts, rotates, and the bit-counting/byte-swap operations on a 64-bit `Integer` live in the built-in `bits` package (`bits::band`, `bits::bor`, `bits::bxor`, `bits::bnot`, `bits::sl`/`sr`/`sra`, `bits::rl32`/`rr32`/`rl64`/`rr64`, `bits::clz`/`ctz`/`popCount`, `bits::bswap16`/`bswap32`/`bswap64` — see `./mfb man bits`), because `AND`/`OR`/`XOR`/`NOT` are reserved logical-operator keywords and so cannot also name the bitwise members.
 - `NOT` is a prefix unary operator that binds tighter than `AND`/`OR`/`XOR` but looser than the comparison operators, so `NOT a = b` parses as `NOT (a = b)`.
 - Checked numeric failures from operators are ordinary failures and therefore auto-propagate unless handled by a `TRAP`.
 - `/`, `MOD`, and `^` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
-- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (`emit_float_fmod` in `builder_numeric.rs` — the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract (`emit_fixed_binary` in `builder_numeric.rs`), failing with `ErrInvalidArgument` (`77050002`) on a zero divisor.
+- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. [[src/target/shared/code/builder_numeric.rs:emit_float_fmod]] A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract, failing with `ErrInvalidArgument` (`77050002`) on a zero divisor. [[src/target/shared/code/builder_numeric.rs:emit_fixed_binary]]
 
 Pipeline (`|>`) notes:
 
@@ -51,3 +51,9 @@ Pipeline (`|>`) notes:
 ```basic
 LET result = nums |> collections::filter(_, isEven) |> collections::transform(_, square) |> collections::sum(_)
 ```
+
+## See Also
+
+* ./mfb spec language types — the numeric promotion table `/`, `MOD`, and `^` follow
+* ./mfb spec language error-model — checked numeric operator failures that auto-propagate
+* ./mfb man bits — the integer bitwise, shift, and rotate operations the logical keywords exclude

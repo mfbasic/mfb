@@ -47,8 +47,8 @@ of emission so label and symbol offsets are known before patching.
 
 Each row gives the op's mnemonic, its required fields, and the base 32-bit word
 the encoder ORs operand bits into. Field placement is `Rd = bits[4:0]`,
-`Rn = bits[9:5]`, `Rm = bits[20:16]` unless noted. Every encoder lives in
-`encode/emitter.rs`. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
+`Rn = bits[9:5]`, `Rm = bits[20:16]` unless noted. Every op has a dedicated
+encoder. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
 
 | Op | Mnemonic | Fields | Base word | Notes |
 |----|----------|--------|-----------|-------|
@@ -220,8 +220,8 @@ those from `cmgt_v`+`bsl_v` (lane select) and integer shifts instead. A per-lane
 error mask (e.g. `fcmlt_zero_v` for a negative `sqrt` lane) is reduced to a GPR
 with two `umov_x_from_v` extracts ORed together — there is no horizontal-reduce
 op in the set. Shift-immediate ops encode the amount in `immhb=bits[22:16]`. Every
-new op's exact word is pinned by `encodes_neon_vector_ops` in `encode/tests.rs`, which
-asserts against the system assembler (`as -arch arm64`) output.
+new op's exact word is pinned by an encoder test that
+asserts against the system assembler (`as -arch arm64`) output.[[src/arch/aarch64/encode/tests.rs:encodes_neon_vector_ops]]
 
 ## Worked encodings
 

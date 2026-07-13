@@ -1,10 +1,12 @@
 # Standard Package Semantics
 
-The semantic and algorithmic *models* of the standard packages that are
-implemented as injected MFBASIC source (plus a few Rust seam helpers): the regex
-engine, the date/time model, the CSV dialect, the JSON data model, the HTTP
-client, the URL model, and the `math::` PCG64 RNG. These are the parts a faithful
-reimplementation needs that the per-function API reference does not capture.
+The semantic and algorithmic *models* of the standard packages — those
+implemented as injected MFBASIC source, plus those backed by native seam helpers:
+the regex engine, the date/time model, the CSV dialect, the JSON data model, the
+HTTP client, the URL model, the `math::` PCG64 RNG, the bit-operation primitives,
+the exact base-10 `money::` model, and the OS environment/introspection surface.
+These are the parts a faithful reimplementation needs that the per-function API
+reference does not capture.
 
 The per-function API of each package — signatures, parameters, return types,
 errors — is owned by `./mfb man <package>` (e.g. `./mfb man regex`). This package
@@ -38,6 +40,14 @@ built-in injection chain.
   `read` rule, the block-until-queued `write` rule, `available`/`xruns` meanings,
   the static-direction/non-sendable/no-duplex consequences, the AudioQueue and
   ALSA backends, and the error model.
+- `bits` — the integer bit-operation model: operand width and two's-complement
+  representation, the logical/shift/rotate/bit-count/byte-swap op families and
+  their exact semantics, and the single-native-instruction determinism guarantee.
+- `money` — the exact base-10 fixed-point model behind the `Money` type: the
+  fixed scale, the per-arena rounding-mode state, and `money::round` behavior.
+- `os` — the environment and process-introspection model: the raising vs
+  non-raising accessors, the `environ` snapshot, the build-target constants, and
+  the may-fail host lookups.
 
 ## See Also
 

@@ -1,7 +1,7 @@
 # Type Inference and Assignability
 
-MFBASIC infers expression types in `src/syntaxcheck/inference.rs`. Inference is **partially
-bidirectional**: a single entry point, `infer_expression_with_expected`, threads
+MFBASIC infers expression types during source-syntax checking. Inference is **partially
+bidirectional**: a single entry point, `infer_expression_with_expected`, threads[[src/syntaxcheck/inference.rs]]
 an optional *expected* (contextual) type down to a few syntactic positions, while
 everything else synthesizes types **bottom-up**. There is no general unification,
 no type variables, and no least-upper-bound; the only "widening" steps are
@@ -166,7 +166,7 @@ Key points:
   `binding::Type` annotation. Two *registered* user types that merely share a
   trailing segment are **not** compatible unless they resolve to the same
   `TypeInfo`; the bare-name match only bridges a case where one side is
-  unregistered. See `./mfb spec language type-name-encoding`.
+  unregistered. See `./mfb spec architecture type-name-encoding`.
 - **Union subsumption is the only nominal widening.** If the *expected* user type
   is a `UNION`, any *actual* type whose (bare) name is one of its variant names
   is compatible — assigning a variant value into the union slot. No other
@@ -241,6 +241,6 @@ elements are validated separately (`./mfb spec language collections`,
 * ./mfb spec language operators — full operator typing and numeric promotion
 * ./mfb spec language functions — overloading, default args, signatures
 * ./mfb spec architecture monomorphization — overload resolution that consumes inferred types
-* ./mfb spec language type-name-encoding — bare/qualified user-type name forms
+* ./mfb spec architecture type-name-encoding — bare/qualified user-type name forms
 * ./mfb spec language collections — list/map element rules and resource elements
 * ./mfb spec language resource-management — the `RES` ownership-axis marker

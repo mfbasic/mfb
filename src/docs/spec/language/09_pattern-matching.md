@@ -33,3 +33,9 @@ END MATCH
 - A call scrutinee auto-unwraps to its value; to handle its failure locally, use an inline `TRAP` (see §8.4). `CASE Ok`, `CASE Error`, and `CASE Err` are not valid match arms (`TYPE_RESULT_NOT_MATCHABLE`) — a failure is never matched, only trapped. (Internally, a `Result`-typed scrutinee suppresses the secondary `TYPE_MATCH_NOT_EXHAUSTIVE` cascade, since its arms already reported `TYPE_RESULT_NOT_MATCHABLE`.)
 
 > Implementer note: `MATCH` over a fallible resource transfer (`thread.send` / `thread.transfer`) is a special case. The compiler reuses the standard union `CASE Error(e)` arm but, on the failure path, rebinds the moved resource into the case local so it can be retried. This sits at the intersection with the threading/resource specs; the surface pattern syntax is unchanged.
+
+## See Also
+
+* ./mfb spec language types — the union and enum types `MATCH` binds and checks for exhaustiveness
+* ./mfb spec language error-model — why a `Result` is trapped, never matched
+* ./mfb spec package verifier-rules — where `MATCH` exhaustiveness is enforced on the IR

@@ -4,8 +4,8 @@ The object plan is a second, independent model of the native image, separate
 from the bytes the linker actually emits. It is a JSON-serializable description
 of the *planned* container — segments, sections, symbol table, relocations — and
 exists to validate that the `NativePlan` is structurally sound before the code
-plan and linker materialize real bytes. It is built by
-`os::<platform>::object::lower_plan` from a `NativePlan`.
+plan and linker materialize real bytes. It is built from a `NativePlan` by the
+platform object-plan builder.
 [[src/os/linux/object.rs:lower_plan]]
 
 The object plan is never consumed by the linker. The linker works only from the
@@ -15,23 +15,23 @@ entry) cheaply and independently of the byte encoder.
 
 ## When it runs
 
-`lower_plan` is invoked in two situations:
+The object-plan builder is invoked in two situations:
 
-- As a validation gate during every executable build:
-  `os::<platform>::validate_native_object_plan(&native_plan)` builds the object
-  plan and runs `validate()` on it, discarding the JSON. This runs after
-  `native_plan.validate()` and before code lowering.
+- As a validation gate during every executable build: the platform object-plan
+  validator builds the object plan and validates it, discarding the JSON. This
+  runs after the native-plan validation and before code lowering.
 - As an inspectable artifact: `mfb build` with the native-object-plan output
-  selection writes `<project>.nobj` (the `lower_plan` result serialized via
-  `to_json`). Normal executable builds do not write this file.
+  selection writes `<project>.nobj` (the builder result serialized to JSON).
+  Normal executable builds do not write this file.
 
 Because the object plan is a parallel model and not an input to the linker, any
 change to symbol naming, section layout, or relocation kinds must be reflected in
-*both* `object.rs` and `link.rs` to keep the gate meaningful.
+*both* the object-plan model and the linker to keep the gate meaningful.
 
 ## Shape
 
-`NativeObjectPlan` (`src/os/macos/object.rs`, `src/os/linux/object.rs`) records:
+`NativeObjectPlan` records:
+[[src/os/macos/object.rs]] [[src/os/linux/object.rs]]
 
 ```text
 target            "macos-aarch64" | "linux-aarch64"
@@ -85,3 +85,9 @@ macOS additionally checks section layout:
 - Every code unit has a non-empty operation list.
 
 A failed check aborts the build before any bytes are encoded.
+
+## See Also
+
+* ./mfb spec linker pipeline — where the object-plan gate sits in the stage sequence
+* ./mfb spec linker failure-rules — the structural errors this gate rejects
+* ./mfb spec linker symbols-and-relocations — the symbol and relocation model it validates

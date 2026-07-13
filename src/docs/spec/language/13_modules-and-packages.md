@@ -6,7 +6,7 @@ Directories inside a source root do not create package boundaries or package
 namespaces. Additional packages are introduced only through the importing
 project's `project.json` `packages` array.
 
-Visibility (`Visibility` enum in `src/ast.rs`; default is `Public`):
+Visibility (default is `PUBLIC`): [[src/ast/types.rs:Visibility]]
 - `PRIVATE` — file-local (opt in explicitly). A `PRIVATE` top-level declaration is
   scoped to its own file: two files may each declare a `PRIVATE` symbol of the same
   name without colliding (the compiler renames each to a file-unique internal name
@@ -21,14 +21,14 @@ Visibility (`Visibility` enum in `src/ast.rs`; default is `Public`):
   in an executable).
 
 Within a single build, `PUBLIC` and `EXPORT` are treated **identically** by
-`visible_from` (`src/resolver/mod.rs`, `src/syntaxcheck/mod.rs`): both are visible across
+the visibility check: [[src/resolver/mod.rs:visible_from]] [[src/syntaxcheck/mod.rs:visible_from]] both are visible across
 files in the project, and only `PRIVATE` is file-local. The `PUBLIC`/`EXPORT`
 distinction matters only for what is written into the compiled `.mfp` package
 (the exported-symbol flag), not for in-project name resolution. This is why a
 cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 `PUBLIC`/`EXPORT` or the project is built as a single file.
 
-Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` (`effective_field_visibility`, `src/syntaxcheck/helpers.rs`) — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types.
+Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/syntaxcheck/helpers.rs:effective_field_visibility]]
 
 Only project-visible top-level `FUNC` declarations may use `ISOLATED` — i.e.
 `PUBLIC` (the default) or `EXPORT`, not `PRIVATE`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
@@ -73,17 +73,16 @@ io::print(toString(shapes::area(shapes::Circle[2.0])))
 
 The import graph is resolved at compile time. Imports are not transitive: when
 the compiler installs a dependency it reads only that package's exported type
-names (`install_package_type_names`, `src/resolver.rs`) and never re-processes
+names [[src/resolver/packages.rs:install_package_type_names]] and never re-processes
 the dependency's own imports, so transitivity does not occur structurally. (Note
 to implementers: the compiler does **not** currently detect or diagnose an
 import *cycle* — there is no circular-dependency check on the import graph;
 recursive-record cycle detection is unrelated.)
 
 `IMPORT packageName` resolves a package, not an arbitrary source file. The
-compiler resolves the first identifier in the import using this order
-(`resolve_imported_package`, `src/resolver.rs`):
+compiler resolves the first identifier in the import using this order: [[src/resolver/packages.rs:resolve_imported_package]]
 
-1. A built-in package supplied by the toolchain, such as `io` (`is_builtin_import`);
+1. A built-in package supplied by the toolchain, such as `io`;
    resolution returns immediately.
 2. Otherwise the package **must** appear by `name` in the importing project's own
    `project.json` `packages` array. If no such dependency is declared,

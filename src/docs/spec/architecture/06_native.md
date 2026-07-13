@@ -2,10 +2,10 @@
 
 The native executable back end: lowering IR through NIR, plans, AArch64 encoding, and OS linking.
 
-Native executable generation is implemented under `src/target`,
-`src/target/shared`, `src/arch`, and `src/os`.
+Native executable generation is implemented across the target layer, the shared
+target support, the architecture backends, and the OS layer.[[src/target]][[src/target/shared]][[src/arch]][[src/os]]
 
-The active native backend registry is in `src/target.rs`:[[src/target.rs:NativeBackend]]
+The active native backend registry lists:[[src/target.rs:NativeBackend]]
 
 - `macos-aarch64`
 - `linux-aarch64`
@@ -19,22 +19,22 @@ The native executable pipeline is:
 
 ```text
 IR
-  -> target/shared/lower.rs
-  -> target/shared/nir/
-  -> target/shared/validate.rs
-  -> target/<os>_<arch>/plan.rs
-  -> target/shared/plan/
-  -> os/<os>/object.rs
-  -> target/<os>_<arch>/code.rs
-  -> target/shared/code/ (directory module: mod.rs + builder_*.rs submodules)
-  -> arch/<arch>/encode/
-  -> os/<os>/link/
+  -> shared IR-to-native lowering
+  -> native IR (NIR)
+  -> native validation
+  -> per-target native plan
+  -> shared planner
+  -> OS object/container plan
+  -> per-target native code plan
+  -> shared code generator
+  -> architecture encoding
+  -> OS linking
   -> <project>.out
 ```
 
 ## Native IR
 
-Native IR, or NIR, is defined in `src/target/shared/nir/`.
+Native IR, or NIR, is defined by the native-IR layer.[[src/target/shared/nir/]]
 
 NIR is close to the shared IR but adds native build concerns:
 
@@ -50,10 +50,10 @@ also rewrites supported built-in calls into runtime-call forms where needed.
 
 ## Runtime Helper Selection
 
-Runtime-helper detection is implemented in `src/target/shared/runtime/`.
+Runtime-helper detection is handled by the runtime-helper layer.[[src/target/shared/runtime/]]
 
 The compiler scans IR values for calls into built-in packages. It records
-which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
+which helper families are needed (the `RuntimeHelper` enum):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
 - `crypto`
 - `datetime`
@@ -164,7 +164,7 @@ owned by `./mfb spec memory runtime-helper-abi`.
 
 ## Native Validation
 
-Native validation is implemented in `src/target/shared/validate.rs`.
+Native validation is handled by the native validator.[[src/target/shared/validate.rs]]
 
 It validates:
 
@@ -183,12 +183,8 @@ validation.
 
 ## Native Plan
 
-Native planning is implemented by platform-specific wrappers in:
-
-- `src/target/macos_aarch64/plan.rs`
-- `src/target/linux_aarch64/plan.rs`
-
-Both use the shared planner in `src/target/shared/plan/`.
+Native planning is implemented by platform-specific wrappers, one per target,
+that both delegate to a shared planner.[[src/target/macos_aarch64/plan.rs]][[src/target/linux_aarch64/plan.rs]][[src/target/shared/plan/]]
 
 The native plan records:
 
@@ -208,10 +204,7 @@ The native plan records:
 
 ## Native Object Plan
 
-OS object/container planning is implemented in:
-
-- `src/os/macos/object.rs`
-- `src/os/linux/object.rs`
+OS object/container planning is implemented per OS.[[src/os/macos/object.rs]][[src/os/linux/object.rs]]
 
 The object plan is still a JSON planning artifact, not the final executable
 container. It describes how the already planned native code will be arranged in
@@ -236,12 +229,8 @@ layout. The concrete segment/section regions are owned by
 
 ## Native Code Plan
 
-Native code planning is implemented by platform-specific wrappers in:
-
-- `src/target/macos_aarch64/code.rs`
-- `src/target/linux_aarch64/code.rs`
-
-Both use the shared code generator in `src/target/shared/code/`.
+Native code planning is implemented by platform-specific wrappers, one per
+target, that both delegate to a shared code generator.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/target/shared/code/]]
 
 The native code plan records:
 
@@ -272,8 +261,8 @@ The code generator also adds:
 Lowerings do not name physical temporary registers directly. `allocate_register`
 mints an integer **virtual register**, carried in the instruction stream as the
 sentinel `%vN`; `allocate_fp_register` mints a floating-point virtual register
-`%fN`. After a function is fully lowered, a coloring pass
-(`src/target/shared/code/regalloc`) rewrites every virtual register to a physical
+`%fN`. After a function is fully lowered, a coloring pass rewrites every virtual
+register to a physical
 register, before the peephole pass and `finalize_frame` (which expect physical
 names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
 
@@ -322,10 +311,10 @@ loop, is never promoted (its slot stays authoritative).
 The allocator is split into two layers so every backend reuses the
 core:
 
-- **ISA-neutral core** (`src/target/shared/code/regalloc`): the virtual-register
+- **ISA-neutral core**: the virtual-register
   representation, the rewrite pass, and the pluggable `AllocationStrategy`
-  interface. It names no physical registers.
-- **Per-ISA register model** (`src/arch/<isa>/regmodel.rs`): the `RegisterModel`
+  interface. It names no physical registers.[[src/target/shared/code/regalloc]]
+- **Per-ISA register model**: the `RegisterModel`
   trait answers every register question — the allocatable banks and their class
   (integer `x0`–`x30` vs FP/SIMD `d0`–`d31`, where `d_n` aliases the low 64 bits
   of the NEON `v_n`), the caller/callee-saved partition per class, ABI-pinned and
@@ -348,10 +337,9 @@ register model.
 
 ### The CodegenPlatform Seam
 
-The shared code generator (`src/target/shared/code/mod.rs`) is OS-independent.
+The shared code generator is OS-independent.[[src/target/shared/code/mod.rs]]
 Everything that differs between macOS and Linux is funnelled through the
-`CodegenPlatform` trait, implemented by `src/target/macos_aarch64/code.rs` and
-`src/target/linux_aarch64/code.rs`.[[src/target/shared/code/types.rs:CodegenPlatform]]
+`CodegenPlatform` trait, implemented once per OS.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/target/shared/code/types.rs:CodegenPlatform]]
 
 The seam carries two kinds of platform knowledge: ABI struct layouts queried as
 scalar accessors, and `emit_*` methods that splice platform-specific
@@ -396,7 +384,7 @@ verbatim on Linux via libc).[[src/target/macos_aarch64/code.rs:emit_random_bytes
 
 ## AArch64 Encoding
 
-Architecture-specific instruction encoding is under `src/arch/aarch64`.
+Architecture-specific instruction encoding is handled by the AArch64 encoder.[[src/arch/aarch64]]
 
 The encoder consumes the native code plan and produces an `EncodedImage` with:
 
@@ -412,8 +400,8 @@ native code plan.
 
 ## Linking and Executable Writing
 
-The final OS-specific executable writers are `src/os/macos/link/` and
-`src/os/linux/link/`. Both patch relocations in the encoded text, resolve the
+The final OS-specific executable writers are per OS.[[src/os/macos/link/]][[src/os/linux/link/]]
+Both patch relocations in the encoded text, resolve the
 entry symbol to a text offset, encode the OS executable container, and write the
 output. macOS emits a single Mach-O `<project>.out`; Linux emits one ELF per
 flavor (`<project>-glibc.out`, `<project>-musl.out`) and chooses static vs.

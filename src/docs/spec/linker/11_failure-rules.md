@@ -46,3 +46,9 @@ during the package merge into IR (see `package-linking`), not in the linker —
 since packages are merged, not externally linked, an unresolved package symbol
 becomes an unresolved internal symbol and is caught by the object-plan gate or
 the symbol-resolution checks above.
+
+## See Also
+
+* ./mfb spec linker object-plan — the structural gate that raises many of these failures
+* ./mfb spec linker symbols-and-relocations — the symbol and relocation invariants enforced
+* ./mfb spec linker pipeline — the stages at which these failures abort the build

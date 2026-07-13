@@ -4,7 +4,7 @@ All access is via free functions — **no indexing brackets, no key brackets**. 
 
 List literals use the declared or otherwise expected `List OF T` element type when one is available; otherwise the element type is inferred from the first item. Every element must be compatible with that element type. This allows annotated lists of union members, such as `LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]`.
 
-**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec language type-inference`) for the directional compatibility rule. Element-type inference direction is computed by `infer_list_literal`, but the mismatch itself is rejected on the IR by `ir::verify`. [[src/syntaxcheck/inference.rs:infer_list_literal]] [[src/ir/verify/mod.rs:1488]]
+**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec architecture type-inference`) for the directional compatibility rule. Element-type inference direction is computed during type inference, but the mismatch itself is rejected on the IR by the semantic verifier. [[src/syntaxcheck/inference.rs:infer_list_literal]] [[src/ir/verify/mod.rs]] [[src/syntaxcheck/inference.rs:infer_list_literal]] [[src/ir/verify/mod.rs:1488]]
 
 ```basic
 LET list  = [1, 2, 3]                          ' List OF Integer (literal)
@@ -32,9 +32,9 @@ pts = collections::append(pts, v)               ' in-place append on the mutable
 The global `len` is always available. Every other helper lives in the
 `collections` package and requires `IMPORT collections` (a built-in package, so
 no manifest dependency is needed). The package members fall into two
-implementation groups (`src/builtins/collections.rs`).
+implementation groups. [[src/builtins/collections.rs]]
 
-**Native members** (`NATIVE_MEMBERS`) — code-generated list/map primitives whose
+**Native members** — code-generated list/map primitives whose
 IR target is dequalified back to the bare native name:
 `collections::get`, `collections::getOr`, `collections::set`,
 `collections::append`, `collections::prepend`, `collections::insert`,
@@ -46,8 +46,8 @@ IR target is dequalified back to the bare native name:
 here are the **List** overloads only; their `String` overloads live in
 `strings::`. [[src/builtins/collections.rs:NATIVE_MEMBERS]]
 
-**Source generics** (`FUNCTIONS`) — generic MFBASIC functions defined in
-`src/builtins/collections_package.mfb` and injected when the package is imported.
+**Source generics** — generic MFBASIC functions defined in a bundled MFBASIC
+source companion and injected when the package is imported. [[src/builtins/collections_package.mfb]]
 A call `collections::sort(x)` is rewritten to `__collections_sort(x)` during
 monomorphization and instantiated like any generic function:
 `collections::sort`, `collections::sortBy`, `collections::take`,
@@ -57,18 +57,17 @@ monomorphization and instantiated like any generic function:
 `collections::zip`, `collections::chunks`, `collections::window`,
 `collections::distinct`, `collections::merge`, `collections::partition`.
 
-Comparability/orderability constraints (enforced on the IR by `ir::verify`):
+Comparability/orderability constraints (enforced on the IR by the semantic verifier):
 
 - `collections::contains`, `collections::find`, and `collections::replace`
   require a **comparable** element type.
 - A `Map OF K TO V` key type `K` must be comparable, enforced by
-  `ir::verify`'s `check_map_key_comparable` ("Map key type"); a resource
-  handle may never be a `Map` key.
+  the semantic verifier ("Map key type"); a resource
+  handle may never be a `Map` key. [[src/ir/verify/mod.rs:check_map_key_comparable]]
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
   `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
   record whose fields are all comparable. `List`, `Map`, function values,
-  `Result`, resources, threads, and `UNION` types are not comparable
-  (`is_comparable_with_seen`).
+  `Result`, resources, threads, and `UNION` types are not comparable. [[src/ir/verify/mod.rs:is_comparable_with_seen]]
 - `collections::sort`/`collections::sortBy` order their elements/keys with the
   `<` operator, so the element (or key) type must be orderable; `distinct`
   relies on `contains` and therefore requires a comparable element type.
@@ -76,8 +75,7 @@ Comparability/orderability constraints (enforced on the IR by `ir::verify`):
 `collections::zip` produces a `List OF Pair OF A, B`, and
 `collections::partition` produces a `Partition OF T`. `Pair OF A, B` (fields
 `first`, `second`) and `Partition OF T` (fields `matched`, `unmatched`) are
-compiler-owned generic record templates in the always-in-scope builtin prelude
-(`builtin_prelude_file`, `src/ast/manifest.rs`); they are constructed and field-accessed
+compiler-owned generic record templates in the always-in-scope builtin prelude; [[src/ast/manifest.rs:builtin_prelude_file]] they are constructed and field-accessed
 like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the
 compiler-owned record yielded when iterating a `Map` with `FOR EACH`.
 
@@ -94,4 +92,4 @@ memory spec, "Collections" (`./mfb spec memory collections`).
 * ./mfb spec memory collections — the native `List`/`Map` memory layout
 * ./mfb man collections — collection built-in help
 * ./mfb spec language types — collection type forms and defaults
-* ./mfb spec language type-inference — directional expression-compatibility rule behind bare list-literal element synthesis
+* ./mfb spec architecture type-inference — directional expression-compatibility rule behind bare list-literal element synthesis

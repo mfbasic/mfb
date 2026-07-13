@@ -42,8 +42,8 @@ synthesizer — not a device call. It renders an `AudioNote` to mono `s16le` PCM
 48 kHz and returns it as the same `List OF Byte` layout `write` consumes, so a
 rendered tone plays with no conversion. It opens no hardware and never raises.
 Unlike the native surface, `render` and its two value records (`AudioEnvelope`,
-`AudioNote`) live in the package's MFBASIC source companion
-(`src/builtins/audio_package.mfb`), injected on `IMPORT audio` exactly like
+`AudioNote`) live in the package's MFBASIC source companion,[[src/builtins/audio_package.mfb]]
+injected on `IMPORT audio` exactly like
 `net`'s `Url`. `AudioEnvelope` and `AudioNote` are ordinary value records the
 program constructs (`AudioEnvelope[...]`, `AudioNote[...]`) — unlike the
 device-owned `AudioDevice`.

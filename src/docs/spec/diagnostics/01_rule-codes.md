@@ -162,7 +162,7 @@ A full example:
    4 |   1, 2,
    5 |   3)
      |          ^
-src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                foo expects 2 arguments but 3 were supplied
 ```
 

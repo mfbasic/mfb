@@ -94,14 +94,14 @@ The compiler must diagnose:
 - Binding a borrowed collection element of resource type with `RES` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`), or otherwise treating such a borrow as an owner.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
-`.mfp` packages must preserve enough ownership metadata for import-time checking and Binary Representation semantic verification (§21).
+`.mfp` packages must preserve enough ownership metadata for import-time checking and Binary Representation semantic verification (see `./mfb spec package verifier-rules`).
 At minimum, exported type shape metadata must remain sufficient to reconstruct copyability, resource/thread containment, and drop-sensitive ownership checks when imported packages participate in move analysis.
 
 ## 14.9 Move tracking
 
-Use-after-move (§14.1, §14.8) is detected on the **typed IR** by `ir::verify`'s
-resource-move pass — the same checker that runs on decoded `.mfp` packages, so
-a crafted package cannot smuggle a double-free past it. The check is
+Use-after-move (§14.1, §14.8) is detected on the **typed IR** by the IR semantic
+verifier's resource-move pass — the same checker that runs on decoded `.mfp`
+packages, so a crafted package cannot smuggle a double-free past it. The check is
 resource-linearity: a *move* is the transfer of a resource's close obligation —
 a call to the resource type's registered close op with the binding as its first
 argument, a `RETURN` of a resource binding, or `RES new = old` (which transfers

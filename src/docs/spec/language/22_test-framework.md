@@ -1,4 +1,4 @@
-# 27. Test Framework (`TESTING` blocks + `mfb test`)
+# 22. Test Framework (`TESTING` blocks + `mfb test`)
 
 A `TESTING … END TESTING` block declares tests for the program it lives beside.
 Under an ordinary `mfb build` the blocks are **dropped before codegen** — the

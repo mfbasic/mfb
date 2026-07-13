@@ -41,9 +41,9 @@ renderer escapes the same characters as `\u00xx`.[[src/audit/json.rs:write_strin
 | `2` | Usage error (bad option / `--format` value) |
 | `3` | Unreadable or malformed input (manifest/parse/resolve/syntaxcheck failure) |
 
-Exit `2` is raised by the caller in `src/main.rs` when `parse_options` returns
-`Err`; exit `3` is returned when any front-end stage fails; `0`/`1` are decided by
-whether any finding has `severity == "error"`.[[src/audit/mod.rs:run]]
+Exit `2` is raised by the caller when option parsing fails; exit `3` is returned
+when any front-end stage fails; `0`/`1` are decided by whether any finding has
+`severity == "error"`.[[src/main.rs:parse_options]] [[src/audit/mod.rs:run]]
 
 ## JSON Document Shape
 
@@ -287,5 +287,5 @@ of the manifest `packages[]` request tuples (`name`, `ident`, `version`, `pin`,
 * ./mfb spec architecture commands — the `mfb audit` command surface and other CLI commands
 * ./mfb spec package verifier-rules — the package verification this audit reports as `verifier`/signature status
 * ./mfb spec package container-format — the `.mfp` header and signature-type encoding behind dependency/package fields
-* ./mfb spec language tooling-and-auditability — the source-level fallibility, `TRAP`, and resource model this audit analyzes
+* ./mfb spec tooling auditability — the source-level fallibility, `TRAP`, and resource model this audit analyzes
 * ./mfb spec diagnostics error-codes — runtime/build error codes (distinct from these `AUDIT-*` finding codes)

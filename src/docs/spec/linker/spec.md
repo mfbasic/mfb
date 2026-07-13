@@ -17,10 +17,10 @@ lowers the program, its installed packages, runtime helpers, and platform
 imports into an in-memory native image, then the target-specific linker encodes
 the final executable container (Mach-O or ELF) and writes it to disk itself.
 
-The macOS backend targets aarch64 only; the Linux backend targets both aarch64
-and x86_64. The macOS backend emits one Mach-O executable; the Linux backend
-emits two ELF executables (glibc and musl flavors) for console builds, or one
-for app-mode builds.
+The macOS backend targets aarch64 only; the Linux backend targets aarch64,
+x86_64, and riscv64. The macOS backend emits one Mach-O executable; the Linux
+backend emits ELF executables (the glibc and musl flavors where both are
+supported for console builds, or one for app-mode builds).
 [[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
 
 ## Reading order
@@ -40,10 +40,10 @@ The topics below follow the native linking pipeline.
   the encoded image.
 - `static-and-dynamic-output` contrasts an import-free image with the
   dynamic-loading metadata an image with imports requires.
-- `macos-aarch64`, `linux-aarch64`, and `linux-x86_64` specify the concrete
-  backends — Mach-O with ad-hoc code signing for macOS, and ELF with its glibc and
-  musl flavors and symbol versioning for Linux (aarch64 and x86-64). Each covers
-  its app-mode output.
+- `macos-aarch64`, `linux-aarch64`, `linux-x86_64`, and `linux-riscv64` specify
+  the concrete backends — Mach-O with ad-hoc code signing for macOS, and ELF with
+  its glibc/musl flavors and symbol versioning for Linux (aarch64, x86-64, and
+  riscv64). Each covers its app-mode output.
 - `package-linking` describes how installed `.mfp` package exports reach the
   executable (merged into IR, not linked as external symbols).
 - `failure-rules` lists the conditions under which the linker must fail rather

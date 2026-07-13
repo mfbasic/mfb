@@ -125,3 +125,9 @@ definition.
 > *constructing* an imported type by qualified name (`shape::Circle[radius := 10.0]`)
 > fails with `TYPE_UNKNOWN_VALUE`. The single-package form above is the working
 > subset.
+
+## See Also
+
+* ./mfb spec language error-model — the auto-propagation and `FAIL` shown in the example
+* ./mfb spec language collections — the `List`/`Map` operations the example uses
+* ./mfb spec language types — the record `TYPE` and conversions in the example

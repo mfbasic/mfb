@@ -2,8 +2,8 @@
 
 Every type in MFBASIC is carried between compiler stages as a single **flat
 string** — never a structured AST node. The parser builds this string when it
-reads a type annotation; the resolver, monomorphizer, source checker
-(`syntaxcheck`), and the IR — including the `ir::verify` semantic checker — all
+reads a type annotation; the resolver, monomorphizer, source checker,
+and the IR — including the IR semantic verifier — all
 **re-derive structure by prefix-stripping and separator-splitting** the same
 string. This document is the canonical contract for that encoding. A mismatch in
 spacing, keyword casing, or separator width silently breaks every consumer, so
@@ -179,8 +179,8 @@ Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
 (a `", "` split). [[src/monomorph/helpers.rs:split_top_level_to]]
 [[src/monomorph/helpers.rs:func_type_parts]] Any new type shape must be added in lockstep
 to **all** of: `parse_type_name`, `resolve_type_name`, `concrete_type_name`
-(plus its sibling substitution passes), the source checker (`syntaxcheck`), and
-the `ir::verify` semantic checker — there is no shared parser to change in one
+(plus its sibling substitution passes), the source checker, and
+the IR semantic verifier — there is no shared parser to change in one
 place.
 
 ## See Also
@@ -190,4 +190,4 @@ place.
 * ./mfb spec language functions — `FUNC(...) AS R` and `ISOLATED` callables
 * ./mfb spec language resource-management — the `RES` transfer marker (§15.6)
 * ./mfb spec architecture monomorphization — the stage that parses and rebuilds these strings
-* ./mfb spec language type-inference — how inferred types are spelled in this encoding
+* ./mfb spec architecture type-inference — how inferred types are spelled in this encoding

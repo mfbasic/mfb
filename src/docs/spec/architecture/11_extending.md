@@ -25,3 +25,10 @@ every layer that observes or emits that behavior:
 This checklist follows the repository's completion rule: compiler output alone
 does not prove a runtime feature works. Executable behavior must be validated by
 running the generated program or by another observable runtime result.
+
+## See Also
+
+* ./mfb spec architecture frontend — the resolver, monomorphization, and checker layers steps 3–5 touch
+* ./mfb spec architecture flows — the end-to-end build sequence these layers compose into
+* ./mfb spec package binary-representation — the MFPC lowering and encoding step 7 updates
+* ./mfb spec package verifier-rules — the IR semantic rules a new feature must satisfy

@@ -178,9 +178,9 @@ The current declaration kinds in `ABI_INDEX` are exactly the kinds `encode_expor
 5 = exported enum type
 ```
 
-`AbiIndex::from_project` emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose `abi_export_kind` is set (kinds `3`/`4`/`5`). Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
+The ABI index emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[repository/src/abi.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
 
-Because `ABI_INDEX` lives inside `packageBinaryRepr`, plan-23's `packageBinaryHash` and the package signature already cover it — no header change is needed to trust it. The registry parses this section from a published package (string pool + `ABI_INDEX` only) and serves the resulting `{ "<symbol>": "<hex abiHash>" }` map as the `abiIndex` field of `GET /index` (plan-10-B1). `mfb pkg check-abi` builds the working tree, reads its `ABI_INDEX`, and diffs it against the latest published version's served map, naming every changed or dropped symbol (both break the superset relation the resolver relies on).[[repository/src/abi.rs:parse_abi_index]][[src/cli/pkg.rs:check_abi]]
+Because `ABI_INDEX` lives inside `packageBinaryRepr`, the `packageBinaryHash` and the package signature already cover it — no header change is needed to trust it. The registry parses this section from a published package (string pool + `ABI_INDEX` only) and serves the resulting `{ "<symbol>": "<hex abiHash>" }` map as the `abiIndex` field of `GET /index`. `mfb pkg check-abi` builds the working tree, reads its `ABI_INDEX`, and diffs it against the latest published version's served map, naming every changed or dropped symbol (both break the superset relation the resolver relies on).[[repository/src/abi.rs:parse_abi_index]][[src/cli/pkg.rs:check_abi]]
 
 The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16). For a **function or sub** (`function_sig_hash`) the remaining input is: [[src/binary_repr/reader.rs:function_sig_hash]]
 
@@ -200,3 +200,9 @@ For an exported **type** (`type_sig_hash`) the input is `MFBABI\0`, `abiFormatVe
 `dependencyAbiCount` is validated against `IMPORT_TABLE` by package import name and package ident (`validate_abi_index` requires the sorted `(name, ident)` sets to match). Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, and the reader requires the dependency edge's `version`/`pin`/used-symbol list to match the corresponding `IMPORT_TABLE` entry exactly. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section.
 
 A future ABI index version may add the missing declaration kinds (constants, globals, native wrappers, standalone resource entries) and richer per-declaration hashes; v1 as implemented covers callable functions and the three user type kinds.
+
+## See Also
+
+* ./mfb spec package binary-representation — the section framing these metadata tables live in
+* ./mfb spec package type-table — a metadata table referencing the string pool
+* ./mfb spec package constant-pool — another indexed metadata table

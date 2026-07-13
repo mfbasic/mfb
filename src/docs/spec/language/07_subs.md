@@ -15,13 +15,12 @@ may share a name when their parameter lists differ by arity or by parameter type
 A `SUB` still has an error channel — it can `FAIL`, auto-propagate, and drop
 resources on the way out — but it produces nothing on success. `EXIT SUB` is the
 value-less early success exit, and fall-through to `END SUB` succeeds. `RETURN`
-and `RETURN NOTHING` are compile errors in a `SUB` (`SUB_RETURN_FORBIDDEN`,
-`src/syntaxcheck/checking.rs`); `RETURN` is for value-producing `FUNC` bodies, and `EXIT
+and `RETURN NOTHING` are compile errors in a `SUB` (`SUB_RETURN_FORBIDDEN`); [[src/syntaxcheck/checking.rs]] `RETURN` is for value-producing `FUNC` bodies, and `EXIT
 SUB` outside a `SUB` is `EXIT_SUB_IN_FUNC`. A `SUB` call may not be used in value
 position: `LET x = aSub()` is a compile error (the call site checks the callee's
-`FunctionKind::Sub` against value-less-call permission).
+sub kind against value-less-call permission).
 
-For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, B, ...) AS Nothing`. The compiler records a `SUB`'s signature with return type `Nothing` (`collect_functions` in `src/syntaxcheck/mod.rs`, `FunctionKind::Sub => Type::Nothing`), so naming a `SUB` yields a `FUNC(...) AS Nothing` value directly. This lets effect-only callbacks work without wrapper functions:
+For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, B, ...) AS Nothing`. The compiler records a `SUB`'s signature with return type `Nothing`, [[src/syntaxcheck/mod.rs:collect_functions]] so naming a `SUB` yields a `FUNC(...) AS Nothing` value directly. This lets effect-only callbacks work without wrapper functions:
 
 ```basic
 SUB printItem(x AS Integer)
@@ -46,3 +45,9 @@ io::print("saved")
 ```
 
 Value-producing callbacks still require a value-producing `FUNC`. A `SUB` is valid for APIs such as `forEach` that expect `FUNC(T) AS Nothing`; it is not valid for APIs such as `transform` that infer and collect a result value.
+
+## See Also
+
+* ./mfb spec language functions — `FUNC` overloading and the value-producing calls a `SUB` is contrasted with
+* ./mfb spec language error-model — `FAIL`, auto-propagation, and inline `TRAP` a `SUB` participates in
+* ./mfb spec language types — the `Nothing` unit type and the `FUNC(...) AS Nothing` callback bridge

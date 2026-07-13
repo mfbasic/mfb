@@ -1,4 +1,4 @@
-# 23. Documentation (`DOC` blocks)
+# 21. Documentation (`DOC` blocks)
 
 A `DOC … END DOC` block attaches compiler-validated documentation to a
 declaration. Because compiled `.mfp` packages ship without source, documentation
@@ -71,3 +71,9 @@ mfb pkg doc <name-or-path> [--out file] ' from a compiled .mfp doc section
 implicitly-internal declarations). `mfb pkg doc` renders only what the package
 persisted. A package compiled without any exported `DOC` block yields a minimal
 "no documentation available" page and exits zero.
+
+## See Also
+
+* ./mfb spec package doc-section — how validated `DOC` blocks are persisted in the `.mfp` binary
+* ./mfb spec tooling doc-html — rendering `DOC` blocks into generated HTML docs
+* ./mfb spec architecture frontend — where `DOC` validation runs, before monomorphization

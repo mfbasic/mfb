@@ -53,3 +53,10 @@ convention.
 There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`). `EXIT` and
 `CONTINUE` are structured, lexically scoped loop/routine exits, not arbitrary
 jumps.
+
+## See Also
+
+* ./mfb spec language collections — the `List`/`Map` sources `FOR EACH` iterates
+* ./mfb spec language pattern-matching — `MATCH`, the replacement for `SELECT CASE`
+* ./mfb spec language subs — `EXIT SUB` and the sub/func exit rules
+* ./mfb spec language error-model — `EXIT PROGRAM` bypassing `TRAP` and running lexical cleanup

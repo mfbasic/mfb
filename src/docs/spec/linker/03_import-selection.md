@@ -1,10 +1,8 @@
 # Import And Library Selection
 
-Platform import decisions are made during native planning, in the shared entry
-`plan::lower_module_for_platform` (`src/target/shared/plan.rs`); the per-target
-`plan::lower_module` wrappers (`src/target/macos_aarch64/plan.rs`,
-`src/target/linux_aarch64/plan.rs`) delegate to it. The concrete
-`(library, symbol)` selection lives in the per-target `plan.rs` platform object.
+Platform import decisions are made during native planning, in the shared
+module-lowering entry; the per-target wrappers delegate to it. The concrete
+`(library, symbol)` selection lives in the per-target platform object.
 The linker does not pick libraries; it only materializes what the plan recorded.
 [[src/target/shared/plan/lower.rs:lower_module_for_platform]]
 
@@ -85,8 +83,7 @@ flavor lists `libm.so` as a needed library.
 ## Native `LINK` bindings
 
 A source-level `LINK` declaration binds a user-named external native function.
-These are not resolved as ordinary platform imports. Instead
-(`src/target/shared/code/link_thunk.rs`):
+These are not resolved as ordinary platform imports. Instead:
 
 - The backend emits a per-program load-time initializer `_mfb_linker_init` that
   `dlopen`s each distinct `LINK` library and `dlsym`s each symbol into a writable

@@ -5,9 +5,9 @@ The build-related CLI commands and the build modes they select.
 The CLI supports these build-related commands:
 
 - `mfb init <location>` creates an executable project with `project.json` and
-  `src/main.mfb`.
+  a `main.mfb` source file.
 - `mfb init-pkg <location>` creates a package project with `project.json` and
-  `src/lib.mfb`.
+  a `lib.mfb` source file.
 - `mfb build [location]` validates and emits the primary artifact for the
   project kind.
 - `mfb build -ast [location]` writes `<name>.ast`.
@@ -53,24 +53,24 @@ are emitted through the package binary representation path instead.
 
 `mfb fmt [--check] [--indent N] [location]` formats every `.mfb` file selected
 by the project manifest (or a single `.mfb` file) in place, normalizing block
-indentation and keyword capitalization. The formatter is purely lexical
-(`src/fmt.rs`): it re-tokenizes raw text to preserve comments, blank lines, and
+indentation and keyword capitalization. The formatter is purely lexical: it
+re-tokenizes raw text to preserve comments, blank lines, and
 string contents. `DOC` and `LINK` blocks are re-indented from their own nesting
 but keep their text and casing (prose bodies; the contextual `return` in `ABI`
 lines). `--indent` sets the indent width (default `2`); `--check` writes nothing
 and exits non-zero with an `FMT_CHECK_FAILED` diagnostic when any file is not
-already formatted.[[src/fmt.rs:format_source]]
+already formatted.[[src/fmt.rs]][[src/fmt.rs:format_source]]
 
 ## Other commands
 
-The CLI also exposes non-build commands handled in `src/main.rs`: `mfb help`;
+The CLI also exposes non-build commands: `mfb help`;
 `mfb pkg add|info|verify|publish|doc` (package management, see the `packages`
 topic); `mfb repo register|auth` (repository-owner key registration and
 authentication); `mfb doc [--out file] [location]` and `mfb pkg doc` (HTML
-documentation rendering via `src/doc.rs`); `mfb audit [--format text|json]
-[--locked] [path]` (project audit reporting via `src/audit`); `mfb man [package]
-[function]` (built-in help, `src/docs/man`); and `mfb spec` (this embedded
-specification, `src/docs/spec`). These are not part of the build pipeline.
+documentation rendering); `mfb audit [--format text|json]
+[--locked] [path]` (project audit reporting); `mfb man [package]
+[function]` (built-in help); and `mfb spec` (this embedded
+specification). These are not part of the build pipeline.[[src/main.rs]][[src/doc.rs]][[src/audit]][[src/docs/man]][[src/docs/spec]]
 
 ## See Also
 

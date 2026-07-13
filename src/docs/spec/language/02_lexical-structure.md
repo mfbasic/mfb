@@ -61,7 +61,7 @@ A string carrying an embedded NUL (`\0`) is truncated at the NUL when handed to 
 
 ## 2.3 `DOC` blocks
 
-A `DOC` keyword at the start of a statement begins a documentation block whose body is captured **verbatim** as a single token, not tokenized as code, up to a matching `END DOC` line (`EXAMPLE`/`END EXAMPLE` regions inside the block are tracked so an `END DOC` inside an example is not treated as the terminator). The `DOC` keyword line may carry only whitespace-separated attribute words (e.g. `DOC INTERNAL`); if it carries anything else (`DOC = 1`, `DOC(x)`), the lexer rolls back and treats `DOC` as an ordinary identifier. An unterminated block reports `DOC_UNTERMINATED`. The full `DOC` surface and rendering are specified in §23.
+A `DOC` keyword at the start of a statement begins a documentation block whose body is captured **verbatim** as a single token, not tokenized as code, up to a matching `END DOC` line (`EXAMPLE`/`END EXAMPLE` regions inside the block are tracked so an `END DOC` inside an example is not treated as the terminator). The `DOC` keyword line may carry only whitespace-separated attribute words (e.g. `DOC INTERNAL`); if it carries anything else (`DOC = 1`, `DOC(x)`), the lexer rolls back and treats `DOC` as an ordinary identifier. An unterminated block reports `DOC_UNTERMINATED`. The full `DOC` surface and rendering are specified in §21.
 
 ## 2.4 Internal-file lexing and the `#` sigil
 

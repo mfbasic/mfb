@@ -1,7 +1,8 @@
 # macOS aarch64
 
-The macOS backend (`src/os/macos/link.rs`) writes a Mach-O executable directly,
-with no host linker. Console builds emit one file:
+The macOS backend writes a Mach-O executable directly, with no host linker.
+Console builds emit one file:
+[[src/os/macos/link.rs]]
 
 ```text
 <project>.out

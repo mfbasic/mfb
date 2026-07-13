@@ -54,7 +54,7 @@ used later for structure decisions. The `Sig` variants are: [[src/fmt.rs:Sig]]
 
 | `Sig` | Produced by |
 |-------|-------------|
-| `Kw(Keyword)` | A word that `lexer::lookup_keyword` recognizes (and casing was not suppressed). |
+| `Kw(Keyword)` | A word recognized as a keyword (and casing was not suppressed). |
 | `Underscore` | A lone `_` (line-continuation marker when last on the line). |
 | `DoubleColon` | `::` (used to detect a `FUNC name AS pkg::func` re-export alias). |
 | `LParen` | `(` (used to tell `FUNC(…)` type annotations / parameterized funcs from aliases). |
@@ -62,8 +62,8 @@ used later for structure decisions. The `Sig` variants are: [[src/fmt.rs:Sig]]
 
 ### Casing rules
 
-A bare word is uppercased iff `lexer::lookup_keyword` recognizes it **and** none
-of the suppression rules below apply. The match is case-insensitive, so already
+A bare word is uppercased iff it is a recognized keyword **and** none
+of the suppression rules below apply.[[src/lexer.rs:lookup_keyword]] The match is case-insensitive, so already
 upper or mixed-case keywords are normalized. [[src/fmt.rs:scan_line]]
 
 - **Suppression after `.` and `::`.** A `.` or `::` token sets a `suppress` flag
@@ -288,4 +288,4 @@ non-zero. [[src/rules/table.rs:FMT_CHECK_FAILED]] [[src/cli/fmt.rs:format_path]]
 * ./mfb spec tooling source-selection — how `selected_source_paths` builds the `.mfb` input set
 * ./mfb spec architecture commands — build modes and where `fmt` sits among the commands
 * ./mfb spec diagnostics rule-codes — the `FMT_CHECK_FAILED` diagnostic and its code
-* ./mfb spec language tooling-and-auditability — the keyword-casing convention the formatter enforces
+* ./mfb spec tooling auditability — the keyword-casing convention the formatter enforces

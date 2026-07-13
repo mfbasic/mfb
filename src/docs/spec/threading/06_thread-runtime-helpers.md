@@ -46,9 +46,9 @@ applied when the runtime call is lowered: [[src/target/shared/code/builder_value
 
 `thread::poll` and `thread::isRunning`/`waitFor`/`cancel` are parent-only;
 `thread::isCancelled` is worker-only. (`thread::transfer`/`thread::accept` first
-lower to the internal `thread.transferResource`/`thread.acceptResource` targets in
-`ir.rs`, then `builder_values.rs` applies the worker-direction split to
-`emitResource`/`readResource`.)
+lower to the internal `thread.transferResource`/`thread.acceptResource` targets
+during IR lowering, then the value builder applies the worker-direction split to
+`emitResource`/`readResource`.) [[src/ir/lower.rs]] [[src/target/shared/code/builder_values.rs]]
 
 ## `thread::start`
 
@@ -94,3 +94,10 @@ x1 = input value
 If the stored result references worker-arena storage, the worker arena remains
 owned by the control block until the result is materialized for the parent or the
 completed thread is released.
+
+## See Also
+
+* ./mfb spec threading control-block — the control block these helpers operate on
+* ./mfb spec threading queue-semantics — the queue helpers behind send/poll/receive
+* ./mfb spec memory runtime-helper-abi — the calling convention these helper symbols follow
+* ./mfb man thread — the source `thread::` surface these lower from

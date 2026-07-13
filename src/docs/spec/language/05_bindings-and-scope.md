@@ -40,7 +40,7 @@ Rules:
   A `MUT` *may* omit its initializer, but only when its declared type has a
   defined default value: `MUT x AS T` (no value) starts at `T`'s default, and a
   non-defaultable `T` is `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` (enforced on the IR
-  by `ir::verify`'s `is_defaultable`). `RES` resources are not defaultable and must be bound
+  by the semantic verifier). [[src/ir/verify/mod.rs:is_defaultable]] `RES` resources are not defaultable and must be bound
   to a producing expression.
 - **Lexical, hierarchical scope.** Inner blocks may read and use bindings from
   enclosing scopes, but may **not** re-declare (shadow) a name already in scope —
@@ -150,3 +150,10 @@ the trap binding itself is confined to the handler. An inline `expr TRAP e …`
 handler works the same way at expression granularity: it clones the locals
 visible at that point and adds the handler binding `e`.
 [[src/resolver/resolution.rs:resolve_function]] [[src/resolver/resolution.rs:resolve_expression]]
+
+## See Also
+
+* ./mfb spec language resource-management — `RES` ownership, `STATE`, and drop semantics referenced throughout
+* ./mfb spec language memory-semantics — the lexical scope-drop cleanup that ends bindings at `END`
+* ./mfb spec language types — defaultable types behind `MUT x AS T` and collection value semantics
+* ./mfb spec architecture frontend — the resolver that implements the flat per-function scope model

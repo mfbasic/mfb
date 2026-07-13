@@ -4,8 +4,8 @@ The `vector` package provides nine fixed-width math-vector value records and a
 set of overloaded geometry, interpolation, utility, and 2D functions over them.
 Like `datetime`/`net`, the behaviour is injected MFBASIC source;
 only the type registration, the per-call return-type metadata, and the
-public-call → internal-implementation mapping are on the Rust side
-(`src/builtins/vector.rs`). This topic specifies the value model, the dispatch
+public-call → internal-implementation mapping are on the compiler
+side. This topic specifies the value model, the dispatch
 model, the per-function formulas, the Integer rounding rule, and the determinism
 guarantee — the *behaviour behind* the API, not the per-function signatures
 (those are `./mfb man vector`). [[src/builtins/vector_package.mfb]] [[src/builtins/vector.rs]]
@@ -121,5 +121,5 @@ by value. [[src/builtins/vector.rs:constant_components]]
 ## See Also
 
 * ./mfb man vector — the per-function API reference
-* ./mfb spec memory records — value-record layout (vectors add none)
+* ./mfb spec memory heap-values — value-record layout (vectors add none)
 * ./mfb man math — the deterministic scalar `sqrt`/trig the package builds on

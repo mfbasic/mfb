@@ -30,7 +30,7 @@ Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/sh
 | bold | 24 | bold flag |
 | underline | 32 | underline flag |
 | cursorVisible | 40 | cursor-visible flag |
-| gridHeader | 48 | console shadow-grid header pointer (plan-35 D2; 0 while off) |
+| gridHeader | 48 | console shadow-grid header pointer (0 while off) |
 | (reserved) | 56 | one reserved slot (future: scroll region / damage rect) |
 
 The GUI `term::on`/`off`/`setForeground`/`setBackground`/`setBold`/
@@ -43,7 +43,7 @@ the setters maintain. [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_hel
 `store_term_state` is the one-line writer: `mov x9, #value; str x9, [x19,
 term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
 
-## Retained double-buffered surface + mandatory present (plan-35)
+## Retained double-buffered surface + mandatory present
 
 While TUI mode is on, `term::` is a **retained, double-buffered** surface with one
 programming model across the console and app backends. Drawing calls —
@@ -57,7 +57,7 @@ cursor moves + coalesced SGR runs + glyphs); in app mode it coalesces the frame
 into one surface redraw. `term::off` performs a final `term::sync` before restoring
 the user's screen, so the last drawn frame is always shown. **A program that draws
 without a following `term::sync()` displays nothing** — the mandatory-present
-contract (plan-35 D1). `term::sync` is a clean no-op while TUI mode is off.
+contract. `term::sync` is a clean no-op while TUI mode is off.
 
 ### Shared cell model
 
@@ -73,7 +73,7 @@ mutates cells. The macOS `TermCell` (16 B) already has this shape; GTK packs the
 same fields into its parallel arrays. Byte layout is per-backend; the *semantics*
 are shared.
 
-### Console shadow-grid header block (D2)
+### Console shadow-grid header block
 
 The console has no view to hold a grid, so `term::on` allocates one arena block
 (`ARENA_ALLOC_SYMBOL`) sized to `term::terminalSize()` and stores its base pointer
@@ -94,8 +94,8 @@ offset            field
 `_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames
 the present reallocs the block and forces a full repaint (`life` re-queries the
 size each loop). Slot 56 stays reserved. The console grid writer + diff presenter
-are emitted as neutral `abi::` codegen (plan-35 D3), so one implementation is
-shared across aarch64/x86/riscv and stays byte-deterministic (bug-87).
+are emitted as neutral `abi::` codegen, so one implementation is
+shared across aarch64/x86/riscv and stays byte-deterministic.
 
 ## macOS: `TermView : NSView`
 
@@ -194,7 +194,7 @@ window resize via the `setFrameSize:` hook below. [[src/target/macos_aarch64/app
 ### `setFrameSize:` — grid resize on window resize
 
 `void setFrameSize:(NSSize newSize)` overrides `NSView`'s so a live window resize
-reflows the grid instead of clipping at the init dimensions (plan-35-D). It calls
+reflows the grid instead of clipping at the init dimensions. It calls
 `super setFrameSize:` (via `objc_msgSendSuper`, `struct objc_super{receiver=self,
 super_class=NSView}`) to actually resize the view, then recomputes
 `cols = floor(w/cellW)`, `rows = floor(h/cellH)` (each clamped `>= 1`) from the
@@ -251,10 +251,10 @@ serialized in program order with the other surface ops. Iterates
   `cells + (row*cols+col)*16` — glyph (u32), fg/bg from `TV_CUR_FG`/`TV_CUR_BG`
   (u32), bold/underline from `TV_CUR_BOLD`/`TV_CUR_UNDERLINE` (u8); advance the
   cursor.
-- the writer does **not** request a redraw. Redraw is **present-driven**
-  (plan-35-D): the surface repaints only on the next `term::sync`/`io::flush`, so a
+- the writer does **not** request a redraw. Redraw is **present-driven**:
+  the surface repaints only on the next `term::sync`/`io::flush`, so a
   program that draws without a following present shows nothing new (mandatory
-  present, plan-35 D1).
+  present).
 
 ### `term_scroll` and `term_clear`
 
@@ -292,7 +292,7 @@ reads `active` off `x19`). Otherwise, with a window attached: [[src/target/macos
    waitUntilDone:YES]` — force the TermView to draw its last frame synchronously
    *before* the content-view swap, so a program that drew then `term::off`d
    without a trailing `term::sync` still shows its final frame (the mandatory
-   present, plan-35-D). `display` marks the whole view dirty and repaints it now.
+   present). `display` marks the whole view dirty and repaints it now.
 2. `scroll = objc_getAssociatedObject(app, &SCROLLVIEW_KEY)`;
    `setContentView:scroll` on the main thread — restores the transcript.
 3. `transcript = objc_getAssociatedObject(app, &TEXTVIEW_KEY)`;
@@ -313,8 +313,8 @@ cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app
 
 The Linux backend is the analog of the macOS `TermView` but structurally
 different. The drawing area is created up front, held off-window by a ref, and
-swapped in as the window child on `term::on`. Redraw is **present-driven**
-(plan-35-E): `term::sync` / `io::flush` / `term::off` schedule the single
+swapped in as the window child on `term::on`. Redraw is **present-driven**:
+`term::sync` / `io::flush` / `term::off` schedule the single
 coalesced repaint; a program that draws without a following present shows nothing
 new. `io::terminalSize` and interactive resize are implemented — the drawing
 area's `resize` signal reflows the active `cols`/`rows`. Cursor rendering is

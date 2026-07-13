@@ -18,17 +18,22 @@ structured control flow, and operator precedence. `collections`, `modules-and-pa
 visibility and package resolution, the ownership/copy/move/drop model, resource
 handles, and isolated thread workers. `native-libraries` specifies `LINK` bindings;
 `builtin-functions` lists the built-ins; `grammar` is the abridged EBNF;
-`worked-example` shows complete programs; and `build-artifacts`, `tooling-and-auditability`,
-and `documentation` cover `.mfp` packages and verification, the audit/format/test
-tooling, and `DOC` blocks. Three deeper-dive topics specify cross-cutting
-front-end contracts: `type-name-encoding` (the canonical flat type-string grammar
-every pass parses), `type-inference` (expected-type propagation, literal coercion,
-and the assignability lattice), and `escape-analysis` (the resource-float
-decision procedure behind §15).
+`worked-example` shows complete programs; and `documentation` and `test-framework`
+cover `DOC` blocks and the `TESTING` / `mfb test` framework.
+
+The compiler-internal contracts that used to live here — the canonical type-string
+grammar, the inference/coercion lattice, and the resource-float decision procedure —
+are now specified with the rest of the front end in the `architecture` package
+(`type-name-encoding`, `type-inference`, `escape-analysis`), and the auditability
+tooling in the `tooling` package. See the links below.
 
 ## See Also
 
 * ./mfb spec architecture — how the compiler processes this language
+* ./mfb spec architecture type-inference — inference, coercion, and the assignability lattice
+* ./mfb spec architecture type-name-encoding — the canonical flat type-string grammar
+* ./mfb spec architecture escape-analysis — the resource-float decision procedure behind §15
+* ./mfb spec tooling auditability — surfacing the language's implicit fallible control flow
 * ./mfb spec memory — the runtime memory model for language values
 * ./mfb spec package — the package and ABI format for compiled modules
 * ./mfb spec threading — isolated thread workers

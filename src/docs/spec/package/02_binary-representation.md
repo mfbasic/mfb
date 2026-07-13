@@ -71,7 +71,7 @@ Sections may appear in any order. The current reader (`read_binary_repr_package`
 
 Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions (the `FUNCTION_TABLE` entry format, however, still carries the legacy register/cleanup fields — see `functions`).
 
-Ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no `SECTION_NATIVE_LINK_TABLE` (or debug/source-map/audit) constant in `src/binary_repr/mod.rs`. In particular, native `LINK` metadata is **not** carried in a `NATIVE_LINK_TABLE` section; it rides as an optional trailer inside the `IR` payload (see `native-bindings`).
+Ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no `SECTION_NATIVE_LINK_TABLE` (or debug/source-map/audit) constant defined in the binary-representation section table. [[src/binary_repr/mod.rs]] In particular, native `LINK` metadata is **not** carried in a `NATIVE_LINK_TABLE` section; it rides as an optional trailer inside the `IR` payload (see `native-bindings`).
 
 Sections the current compiler actually emits, via `BinaryReprProject::encode`: [[src/binary_repr/writer.rs:encode]]
 
@@ -113,3 +113,10 @@ DOC
 ```
 
 A package that contains resource types — including native `LINK` resources — emits `RESOURCE_TABLE`. A package with at least one exported `DOC` block (or a `PACKAGE` doc block) emits the optional `DOC` section.
+
+## See Also
+
+* ./mfb spec architecture binary-representation — the structured-control-flow framing this on-disk layout serializes
+* ./mfb spec package ir-section — the concrete node encoding of the IR payload
+* ./mfb spec package metadata-encoding — the metadata tables carried in the sections
+* ./mfb spec package container-format — the `.mfp` header wrapping this payload

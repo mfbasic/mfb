@@ -409,3 +409,10 @@ from `capacity`, never `count` — is what keeps that headroom unobservable.
 - Whether future layout versions should also inline the **non-flat** nested
   collection payloads that still remain 8-byte pointer handles (flat nested
   collections are already inlined).
+
+## See Also
+
+* ./mfb spec language collections — the source-level `List`/`Map` operations over this layout
+* ./mfb spec memory heap-values — the uniform heap value representation
+* ./mfb spec memory arenas — where collection storage is allocated and freed
+* ./mfb man collections — collection built-in help

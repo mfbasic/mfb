@@ -2,7 +2,7 @@
 
 The `.mfp` reader runs before a package can be imported or merged. This page separates three things an implementer must not conflate:
 
-1. **Import-time checks** — what the current reader (`src/binary_repr/`, `src/main.rs`) actually enforces when it opens a `.mfp`.
+1. **Import-time checks** — what the current reader actually enforces when it opens a `.mfp`. [[src/binary_repr/]] [[src/main.rs]]
 2. **Compile-time guarantees** — invariants established when the package *source* was compiled, and therefore assumed (not re-derived) on import.
 3. **Not yet enforced** — invariants the format anticipates but the current reader does not check.
 
@@ -21,7 +21,7 @@ Current compiler source of truth:
 * Signature-header consistency: `(signatureType, signatureLength)` must be `(0, 0)` or `(1, 64)`; the declared signature length must not run past end-of-file.
 * Exact `binaryReprLength` — the payload must end exactly at end-of-file (no short count, no trailing bytes).
 * Trust-chain completeness: a signed package must carry `identKey`, `signingKey`, `proof`, `proofSig`, `attestation`, and `attestationSig`; an unsigned package must carry none of them.
-* Header identity matches the manifest identity (`validate_container_manifest_identity`): `name`, `ident`, `version`, `identKey`, and the manifest fingerprints against the fingerprints derived from the header `identKey`/`signingKey`.
+* Header identity matches the manifest identity: `name`, `ident`, `version`, `identKey`, and the manifest fingerprints against the fingerprints derived from the header `identKey`/`signingKey`. [[src/binary_repr/reader.rs:validate_container_manifest_identity]]
 
 The import-time reader does **not** verify the cryptographic signature, proof, attestation, or `packageBinaryHash`; that is the package manager's build-time verification chain (below). It also does not validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
 
@@ -70,7 +70,7 @@ opt-in. [[src/cli/build.rs:classify_installed_package]]
 
 Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to native code when it is *merged* into a consuming build. At that point — after every imported package's IR and the importer's own IR are merged into one project, and before any code is emitted — the **complete semantic verifier** runs over the merged IR. A crafted `.mfp` carries hand-serialized IR that never passed any source check, so this pass re-establishes the semantic invariants codegen would otherwise trust. A failure aborts the build with a `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` error; the invalid IR is never lowered. [[src/target/shared/nir/lower.rs:merge_packages]] [[src/ir/verify/mod.rs:check]]
 
-`ir::verify` is the **single source of truth for every semantic rule** — it is the sole rejecter of those rules on *both* the source-lowered IR and decoded package IR. The decoded package payload is fully typed (every value node carries its result type; §"Expressions" of the IR-section page) and carries the declaration-fidelity fields (`explicit_type`, `file`) the rules need, so the checker resolves each node's type from the node itself rather than re-inferring the whole expression tree.
+The IR-level semantic verifier is the **single source of truth for every semantic rule** — it is the sole rejecter of those rules on *both* the source-lowered IR and decoded package IR. [[src/ir/verify/mod.rs]] The decoded package payload is fully typed (every value node carries its result type; §"Expressions" of the IR-section page) and carries the declaration-fidelity fields (`explicit_type`, `file`) the rules need, so the checker resolves each node's type from the node itself rather than re-inferring the whole expression tree.
 
 Those annotations are **attacker-controlled**, though, so a computed node's self-reported type is never taken on faith: each is reconciled against an independent source of truth, and a disagreement is a `PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE` rejection. A `Call`/`CallResult` node must agree with the callee's declared return type; a `MemberAccess` with the declared type of the field it reads; a `Binary`/`Unary` node with the type its operands produce (`Boolean` for comparisons and logical operators, `String` for `&`, the shared operand type for arithmetic). Without this, a `String`-returning call annotated as a record made a member read typecheck against a foreign layout, and one annotated `Integer` made `result - 5` emit an integer subtract over a string pointer. A type that genuinely cannot be derived, or an `Unknown` marker on either side, is left unchecked and never rejects. [[src/ir/verify/mod.rs:check_call_result_type]]
 
@@ -110,7 +110,7 @@ The format anticipates these, but the current reader does **not** check them. An
 
 ## See Also
 
-* ./mfb spec architecture frontend — the two-checker split (`syntaxcheck` vs `ir::verify`)
+* ./mfb spec architecture frontend — the two-checker split (the source checker vs the IR-level semantic verifier)
 * ./mfb spec package ir-section — the decoded IR payload the verifier operates on (fully typed, `explicit_type`/`file` fields)
 * ./mfb spec language error-model — typing, `Result`, and effect-agreement guarantees
 * ./mfb spec language resource-management — resource linearity and drop-once guarantees

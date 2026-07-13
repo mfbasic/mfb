@@ -283,7 +283,7 @@ macOS app runtime:
 - **`io::printError` styling.** stderr runs *are* prefixed with `"[stderr] "`
   (`STR_STDERR_PREFIX`) in the transcript chunk; no distinct `GtkTextTag` styling
   is applied.
-- **Interactive resize is implemented** (plan-35-E): the drawing area's `resize`
+- **Interactive resize is implemented**: the drawing area's `resize`
   signal recomputes the active `cols`/`rows` and forces a full redraw, so
   `term::terminalSize` tracks the live window.
 

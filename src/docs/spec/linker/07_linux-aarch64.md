@@ -1,8 +1,8 @@
 # Linux aarch64
 
-The Linux backend (`src/os/linux/link.rs`) is cross-compiled and writes ELF64
-aarch64 executables directly. It does not invoke `ld`, `gold`, `lld`, `gcc`,
-`clang`, or any host linker. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+The Linux backend is cross-compiled and writes ELF64 aarch64 executables
+directly. It does not invoke `ld`, `gold`, `lld`, `gcc`, `clang`, or any host
+linker. [[src/os/linux/link.rs]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 A console build emits two flavors, one per dynamic loader / library naming:
 

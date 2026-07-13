@@ -388,7 +388,7 @@ Thread OF RES Res TO Out             ' resource plane only (message slot is Noth
 
 ## 4.9 Type Inference
 
-`LET` and `MUT` infer when initialized; explicit `AS` otherwise required. The full inference, coercion, and assignability rules — including how untyped numeric literals acquire a type from the expected type — are specified by `./mfb spec language type-inference`. The canonical text spelling of each type used in diagnostics is specified by `./mfb spec language type-name-encoding`.
+`LET` and `MUT` infer when initialized; explicit `AS` otherwise required. The full inference, coercion, and assignability rules — including how untyped numeric literals acquire a type from the expected type — are specified by `./mfb spec architecture type-inference`. The canonical text spelling of each type used in diagnostics is specified by `./mfb spec architecture type-name-encoding`.
 
 ```basic
 LET name = "world"        ' inferred String
@@ -413,7 +413,7 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 
 Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
-The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by `ir::verify` (`is_defaultable`). [[src/ir/verify/mod.rs:is_defaultable]]
+The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by the semantic verifier. [[src/ir/verify/mod.rs:is_defaultable]] [[src/ir/verify/mod.rs:is_defaultable]]
 
 ## 4.11 Comparable and Orderable Types
 
@@ -432,7 +432,7 @@ For the purpose of these operators, "numeric" means `Integer`, `Float`, `Fixed`,
 
 ## 4.12 Compile-time numeric-literal range checks
 
-Numeric **literals** are range-checked statically, as a separate phase from the runtime numeric conversions described in §4.1. This static phase rejects a literal whose value cannot be represented in the type it is being stored into, before any code runs; it is distinct from `toByte`/`toInteger`/`toFixed` runtime conversions, which fail with runtime error codes. A static literal-range violation is a compile error in the `TYPE_*_LITERAL_*` family, not a runtime `Err*`. The check applies to a bare numeric literal and to a literal under a unary `-`; it does not constant-fold larger expressions. It runs on the typed IR in the semantic checker (relocated from the source checker in plan-20), so it guards decoded package IR too. [[src/ir/verify/mod.rs:check_literal_range]] [[src/ir/verify/mod.rs:check_const_literal]]
+Numeric **literals** are range-checked statically, as a separate phase from the runtime numeric conversions described in §4.1. This static phase rejects a literal whose value cannot be represented in the type it is being stored into, before any code runs; it is distinct from `toByte`/`toInteger`/`toFixed` runtime conversions, which fail with runtime error codes. A static literal-range violation is a compile error in the `TYPE_*_LITERAL_*` family, not a runtime `Err*`. The check applies to a bare numeric literal and to a literal under a unary `-`; it does not constant-fold larger expressions. It runs on the typed IR in the semantic checker, so it guards decoded package IR too. [[src/ir/verify/mod.rs:check_literal_range]] [[src/ir/verify/mod.rs:check_const_literal]]
 
 **Integer.** An integer-looking literal (no `.`) that does not parse as `i64` is rejected with `TYPE_INTEGER_LITERAL_OVERFLOW`. A negated integer literal `-N` is accepted when `N` parses as `u64` and `N <= i64::MAX + 1`; that is, `-9223372036854775808` (the most-negative `Integer`) is accepted even though `9223372036854775808` on its own overflows, because the minus sign is folded into the range check. A negated literal outside that bound is also `TYPE_INTEGER_LITERAL_OVERFLOW`. [[src/ir/verify/mod.rs:check_const_literal]] [[src/ir/verify/mod.rs:check_negated_const_literal]]
 
@@ -450,6 +450,6 @@ Numeric **literals** are range-checked statically, as a separate phase from the 
 * ./mfb spec memory fallible-call-abi — native result register ABI
 * ./mfb spec memory collections — runtime `List`/`Map` storage
 * ./mfb spec language collections — collection operations and semantics
-* ./mfb spec language type-inference — inference, coercion, and assignability rules
-* ./mfb spec language type-name-encoding — canonical text spelling of types in diagnostics
+* ./mfb spec architecture type-inference — inference, coercion, and assignability rules
+* ./mfb spec architecture type-name-encoding — canonical text spelling of types in diagnostics
 * ./mfb man types — type-related built-in help

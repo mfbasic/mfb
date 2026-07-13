@@ -1,7 +1,7 @@
 # Internal Symbol Naming
 
 The built-in packages `json`, `regex`, and `collections` are injected into every
-build as MFBASIC **source** (`src/builtins/*.mfb`), so their private helpers live
+build as MFBASIC **source**, so their private helpers live[[src/builtins/]]
 in the same name space as user code. To keep those helpers from colliding with —
 or being impersonated by — symbols the user authors, the compiler rewrites them to
 an **unforgeable** sigil form during lexing and carries that form unchanged

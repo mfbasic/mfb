@@ -83,7 +83,8 @@ A directory root is walked depth-first via `read_dir`. [[src/ast/manifest.rs:col
   [[src/ast/manifest.rs:matches_source_patterns]]
 
 Glob patterns are matched against the **root-relative** path. With root `src` and
-include `pkg/**/*.mfb`, the file `src/pkg/keep.mfb` is tested as `pkg/keep.mfb`.
+include `pkg/**/*.mfb`, a file stored under the `src` root at `pkg/keep.mfb` is
+tested as `pkg/keep.mfb`.
 
 `read_dir` iteration order is OS-dependent; determinism comes only from the
 per-entry and final display-path sorts, never from walk order.

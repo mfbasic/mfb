@@ -2,8 +2,8 @@
 
 How installed `.mfp` package dependencies are added, verified, and linked into a build.
 
-Package dependency handling is split between `src/main.rs`, `src/binary_repr/`,
-and `src/target/shared/nir/`.
+Package dependency handling is split across the CLI, the binary-representation
+layer, and the native-IR layer.[[src/main.rs]][[src/binary_repr/]][[src/target/shared/nir/]]
 
 ## Installing Packages
 
@@ -24,13 +24,13 @@ The package entry written to `project.json` includes:
 - `pin`, the concrete pinned package version (compared for exact string match)
 - `source`, the original URL
 
-Other `pkg` subcommands (`src/main.rs`) round out package management:
+Other `pkg` subcommands round out package management:[[src/main.rs]]
 
 - `mfb pkg info <package>` prints metadata from a compiled `.mfp`.
 - `mfb pkg publish <owner_name> <package>` builds, signs, and publishes a package
   project under a registered repository owner.
 - `mfb pkg doc <name-or-path> [--out file]` renders HTML documentation from a
-  compiled package via `src/doc.rs`.
+  compiled package.[[src/doc.rs]]
 
 ## Verifying Packages
 
@@ -40,7 +40,7 @@ Pinned dependencies must match the installed package header version.
 
 ### Verify Status Model
 
-For each declared dependency, `verify_package_dependency` locates the installed
+For each declared dependency, the verifier locates the installed
 package in one of two forms and reports a status:
 
 1. A compiled package at `packages/<name>.mfp`. Its MFP header (`name`,
@@ -52,7 +52,7 @@ package in one of two forms and reports a status:
 The compiled `.mfp` file is checked first; the source-package manifest is the
 fallback. If neither exists, the status is `InvalidPackage`.[[src/cli/pkg.rs:verify_package_dependency]]
 
-`package_dependency_status` produces one of three outcomes:[[src/cli/pkg.rs:package_dependency_status]]
+The dependency-status check produces one of three outcomes:[[src/cli/pkg.rs:package_dependency_status]]
 
 - `InvalidPackage` — the installed `name` does not equal the declared name, the
   installed package could not be read or parsed, or both sides carry a non-empty
@@ -86,7 +86,7 @@ external function signatures under qualified names such as:
 packageName.exportName
 ```
 
-These signatures are passed into `ir::lower_project_with_external_functions`
+These signatures are passed into IR lowering
 so calls to package functions survive lowering with proper function types.[[src/ir/lower.rs:lower_project_with_external_functions]]
 
 For native executable builds, the package's bodies are not left as external

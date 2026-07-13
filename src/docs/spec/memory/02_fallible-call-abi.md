@@ -33,3 +33,9 @@ the null sentinel. The two conversions bridge the forms: trapping materializes a
 `FAIL <error>` / `emit_load_error_fields` loads `x1`/`x2`/`x3` back from the
 `Error` value's `code`/`message`/`source` fields (offset → absolute, mapping a
 0 offset back to a null pointer). [[src/target/shared/code/builder_codegen_primitives.rs:emit_load_error_fields]]
+
+## See Also
+
+* ./mfb spec language error-model — the `Result` and error semantics this register ABI implements
+* ./mfb spec memory runtime-helper-abi — the runtime-helper calling convention this pairs with
+* ./mfb spec memory native-calling-convention — the general native register conventions

@@ -69,3 +69,9 @@ RETURN  ( a + b )
 ```
 
 i.e. an `IrOp::Return` whose value is an `IrValue::Binary { op: Add, left: a, right: b }`. There are no registers or opcodes — the consumer decodes this back to IR and lowers it through `IR → NIR → native`. If `a + b` overflows at runtime, the checked `Add` produces `ErrOverflow` (`77050010`) and the function returns `Err` (or routes to a `TRAP` region if one encloses it).
+
+## See Also
+
+* ./mfb spec package container-format — the `MFPHeader` shown in the example
+* ./mfb spec package binary-representation — the payload section structure illustrated
+* ./mfb spec package compact-summary — the condensed table reference

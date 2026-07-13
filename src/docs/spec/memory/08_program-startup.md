@@ -192,22 +192,21 @@ inject libc/syscall staging into shared streams use the role banks as well
 (Darwin's syscall number is `%sysnr_darwin` → `x16`, since the seam is ISA-wide
 and Linux's `%sysnr` realizes `x8`). Because `d0`–`d7` sit *inside* the FP
 allocatable file, the register allocator's occupancy analysis parses the
-scratch tokens directly (`regalloc::analysis`), at exactly the index of their
-realization, so coloring is unchanged.
+scratch tokens directly, at exactly the index of their
+realization, so coloring is unchanged. [[src/target/shared/code/regalloc/analysis.rs]]
 
 Two guards enforce the invariant with **no allowlist**:
 
-* a source scan (`shared lowering names no physical register`) — no file under
-  `src/target/shared/` except the two that define the physical namespace
-  (`abi.rs`, the realization tables; `regalloc/analysis.rs`, the occupancy
+* a source scan (`shared lowering names no physical register`) — no file in
+  shared lowering except the two that define the physical namespace
+  (the realization tables and the occupancy
   parsers) may spell a physical register of any class or ISA, quoted or
-  `format!`-constructed;
-* an always-on stream assertion (`regalloc::find_physical_operand`) at every
-  point a shared stream is finished — the pre-selection seam
-  (`run_register_allocation`), the hand-built helper finalizer
-  (`finalize_vreg_body_with_locals`), the entry stub, and the thread
+  dynamically constructed; [[src/target/shared/]] [[src/target/shared/code/abi.rs]] [[src/target/shared/code/regalloc/analysis.rs]]
+* an always-on stream assertion at every
+  point a shared stream is finished — the pre-selection seam, the hand-built
+  helper finalizer, the entry stub, and the thread
   trampoline. A physical name in a shared stream is a build error (an ICE for
-  helper bodies), not a silent miscompile.
+  helper bodies), not a silent miscompile. [[src/target/shared/code/regalloc/mod.rs:find_physical_operand]] [[run_register_allocation]] [[finalize_vreg_body_with_locals]]
 
 Standalone per-target streams (the macOS app-mode views, the GTK app
 functions, the TLS block trampolines) are target-native machine floor with

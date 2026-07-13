@@ -1,8 +1,8 @@
 # Documentation HTML (mfb doc)
 
 `mfb doc` and `mfb pkg doc` render a package's documentation to a single
-self-contained HTML file. Both share one rendering core (`src/doc.rs`): a source
-of declarations is normalized into a `DocPage`, and `render_html` emits the page.
+self-contained HTML file. Both share one rendering core: a source
+of declarations is normalized into a `DocPage`, and the renderer emits the page.[[src/doc.rs:render_html]]
 The two commands differ only in where the `DocPage` comes from — parsed `.mfb`
 source vs. a compiled `.mfp` package's `doc` section. This topic specifies the
 `DocPage` assembly rules, the HTML structure, the embedded stylesheet, and the
@@ -264,11 +264,10 @@ with the `No documentation is available.` body. This path is unique to
 ### `mfb doc [--out <file>] [location]`
 
 Renders from source. `location` defaults to the current directory (`.`). If it is
-a directory, the project manifest is validated, the project is parsed and resolved
-(`resolver::resolve_project`), and `from_source` runs over the whole
-`AstProject`; if it is a single file, that file is parsed into a one-file project
-and its DOC blocks are validated (`resolver::validate_project_docs`). `--out`
-defaults to `doc.html`.
+a directory, the project manifest is validated and the project is parsed and
+resolved, and the renderer runs over the whole resolved project; if it is a single
+file, that file is parsed into a one-file project and its DOC blocks are validated.
+`--out` defaults to `doc.html`. [[src/resolver/mod.rs:resolve_project]] [[src/resolver/mod.rs:validate_project_docs]]
 
 [[src/cli/doc.rs:run_doc_command]] [[src/cli/doc.rs:build_source_doc_page]]
 

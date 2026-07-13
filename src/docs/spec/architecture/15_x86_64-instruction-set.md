@@ -14,8 +14,8 @@ from AArch64. The register set and ABI are canonical in
 
 ## The op vocabulary is shared, not separate
 
-x86-64 reuses the **same closed `CodeOp` enum** defined in `src/arch/ops.rs`
-(imported as `crate::arch::ops::CodeOp` throughout the x86 backend). There
+x86-64 reuses the **same closed `CodeOp` enum**, shared throughout the x86
+backend. There
 is one neutral op set for both ISAs; the x86 encoder dispatches on
 `instruction.op.mnemonic()`. The only x86-specific additions to the shared enum
 are the branch variants `X86Jae`, `X86Jp`, `X86Jnp`, `X86Ja`, `X86Jb`, `X86Jbe`,
@@ -23,11 +23,10 @@ are the branch variants `X86Jae`, `X86Jp`, `X86Jnp`, `X86Ja`, `X86Jb`, `X86Jbe`,
 [[src/arch/x86_64/select.rs:1]] [[src/arch/ops.rs:CodeOp]] The encoder
 rejects any op it cannot yet encode with a clear `Err`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 
-The backend lives under `src/arch/x86_64/`: `backend.rs` (the `X86_64_BACKEND`
-singleton), `select.rs` (instruction selection), `regmodel.rs` (the register
-model), `reloc.rs` (relocation-intent mapping), and `encode/` (the machine-code
-encoder). The platform crate `src/target/linux_x86_64/` supplies the program
-entry, thread trampoline, arena mmap/munmap, and app-mode hooks. [[src/arch/x86_64/mod.rs:14]] [[src/target/linux_x86_64/code.rs:backend]]
+The backend is organized into a backend singleton, instruction selection, the
+register model, relocation-intent mapping, and the machine-code
+encoder. The platform layer supplies the program
+entry, thread trampoline, arena mmap/munmap, and app-mode hooks. [[src/arch/x86_64/]] [[src/arch/x86_64/mod.rs:14]] [[src/target/linux_x86_64/]] [[src/target/linux_x86_64/code.rs:backend]]
 
 ## Instruction selection
 
@@ -100,9 +99,9 @@ synthetic zero token (`xzr`/`x31`) decodes to the sentinel `16` ("no register"),
 used by explicit-carry ops for a "no carry-in" operand. `xmm0`–`xmm15` are
 decoded by `fp_reg`. [[src/arch/x86_64/encode/operand.rs:reg]] [[src/arch/x86_64/encode/operand.rs:fp_reg]]
 
-**Encoding correctness gate.** `src/arch/x86_64/encode/tests.rs` asserts each op's
+**Encoding correctness gate.** An encoder test asserts each op's
 exact byte sequence (for example `mov rax,rbx` = `48 89 D8`). Unlike AArch64's
-`encodes_neon_vector_ops`, these are **hand-verified against the x86-64 instruction
+NEON encoding test, these are **hand-verified against the x86-64 instruction
 reference, not asserted against a system assembler.** [[src/arch/x86_64/encode/tests.rs:1]]
 
 ## Register model

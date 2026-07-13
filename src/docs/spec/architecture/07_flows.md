@@ -17,14 +17,14 @@ For an executable project, `mfb build` performs this sequence:[[src/cli/build.rs
 6. Monomorphize the AST.
 7. Resolve the concrete AST.
 8. Validate the executable entry point.
-9. Source-syntax check the concrete AST (`syntaxcheck`) — only lowering-erased
+9. Source-syntax check the concrete AST — only lowering-erased
    source syntax (named-argument binding, EXIT/inline-TRAP boundaries, lambda
    capture escape, package metadata); all semantic rules are enforced later on
    the IR.
 10. Read installed package files from `packages/<name>.mfp`.
 11. Read package export signatures.
 12. Lower the concrete AST to IR with external package function types, then run
-    IR semantic verification (`ir::verify`) — the single source of truth for
+    IR semantic verification — the single source of truth for
     every semantic rule, over both source-lowered and decoded-package IR.
 13. Select the native backend for the requested target.
 14. Validate backend support.
@@ -62,12 +62,12 @@ For a package project, `mfb build` performs this sequence:
 6. Monomorphize the AST.
 7. Resolve the concrete AST.
 8. Skip executable entry-point selection.
-9. Source-syntax check the concrete AST (`syntaxcheck`) — lowering-erased source
+9. Source-syntax check the concrete AST — lowering-erased source
    syntax only; semantic rules are enforced later on the IR.
 10. Read installed package files from `packages/<name>.mfp` and their export
     signatures (packages may depend on other packages).
 11. Lower the concrete AST to IR with external package function types, then run
-    IR semantic verification (`ir::verify`) over the lowered IR.
+    IR semantic verification over the lowered IR.
 12. Build binary representation metadata from the manifest.
 13. Lower IR to MFPC package binary representation.
 14. Validate package metadata and MFPC payload magic.
@@ -85,3 +85,10 @@ The default output file is:
 Package projects do not support native intermediate outputs. Use plain
 `mfb build` for `.mfp` emission or `-ast`, `-ir`, and `-br` for front-end and
 binary representation inspection.
+
+## See Also
+
+* ./mfb spec architecture commands — the `mfb build` command and output modes these flows drive
+* ./mfb spec architecture frontend — the shared parse/resolve/monomorphize/verify front end both flows enter
+* ./mfb spec linker pipeline — the native back-end stage sequence the executable flow feeds
+* ./mfb spec package binary-representation — the `.mfp` payload the package flow emits

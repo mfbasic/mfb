@@ -48,8 +48,9 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
 
 The usage block printed by `help` is the `USAGE` constant.[[src/main.rs:USAGE]]
-`init` writes `project.json` (kind `executable`) + `src/main.mfb`; `init-pkg`
-writes `project.json` (kind `package`) + `src/lib.mfb`. Both refuse to overwrite
+`init` writes `project.json` (kind `executable`) + a `main.mfb` under the `src`
+source root; `init-pkg` writes `project.json` (kind `package`) + a `lib.mfb`
+under `src`. Both refuse to overwrite
 an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]]
 
 ## `build` Flags
@@ -229,9 +230,9 @@ pinned `server.pub`, and the `ident pin` line compares against the working
 project's pinned `identKey` when the package is declared there. This command
 is not a pre-publish step; nothing is uploaded.
 
-`print_package_info` decodes the `.mfp` header (`read_mfp_header`) and binary
-representation info (`binary_repr::read_package_info`) and prints fixed sections
-in order.[[src/cli/pkg.rs:print_package_info]] Every empty string renders as
+`pkg info` decodes the `.mfp` header and binary
+representation info and prints fixed sections
+in order.[[src/cli/pkg.rs:print_package_info]][[src/binary_repr/mod.rs:read_package_info]] Every empty string renders as
 `<empty>` (`empty_marker`); the content hash is the lowercase hex of the package
 content hash. The layout:
 

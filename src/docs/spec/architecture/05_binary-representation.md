@@ -2,8 +2,8 @@
 
 The Binary Representation: the IR exposed as a versioned on-disk contract, and the MFP package container.
 
-Binary Representation generation is implemented in `src/binary_repr/`.
-MFP package wrapping is implemented in `src/target/package_mfp/mod.rs`.
+Binary Representation generation is handled by the binary-representation layer.[[src/binary_repr/]]
+MFP package wrapping is handled by the package writer.[[src/target/package_mfp/mod.rs]]
 
 ## What the Binary Representation Is
 
@@ -13,8 +13,8 @@ interface.** The in-memory IR (see the `ir` topic — `IrProject` / `IrFunction`
 free to change between builds. The Binary Representation is a defined, versioned
 binary *serialization* of that model: control flow stays nested, expressions stay
 as trees, and the structure is preserved faithfully — there is no lowering to a
-flat opcode/register machine. `src/binary_repr/` encodes IR → Binary
-Representation and decodes Binary Representation → IR.
+flat opcode/register machine. The binary-representation layer encodes IR → Binary
+Representation and decodes Binary Representation → IR.[[src/binary_repr/]]
 
 The two are related but **not the same thing**, and the distinction is the whole
 point of the boundary:
@@ -50,13 +50,12 @@ cleanup metadata, and the ABI hashes package readers use for dependency checks.
 This is the canonical description of how a native executable build folds its
 installed `.mfp` dependencies back into IR. Because the Binary Representation is
 a faithful, structure-preserving serialization of IR, an executable build does
-**not** keep package bodies as external symbols: `nir::merge_packages`
-(`src/target/shared/nir/`) decodes each installed package's binary
-representation back into IR (`binary_repr::read_package_ir_with_identity`),
-prefixes every package symbol with a per-package identity
-(`ir::prefix_package_symbols`), merges the functions, types, globals, and
+**not** keep package bodies as external symbols: package merging
+decodes each installed package's binary
+representation back into IR, prefixes every package symbol with a per-package
+identity, merges the functions, types, globals, and
 constants into the application IR, and rewrites the consumer's `package.symbol`
-references to the identity-prefixed definitions (`ir::apply_package_identity`).
+references to the identity-prefixed definitions.
 Package functions therefore flow through the single `IR → NIR → native` codegen
 as ordinary merged functions (emitted under the normal `_mfb_fn_…` symbol
 namespace), not as `_mfb_pkg_*` imports. The only true NIR imports are native
@@ -68,14 +67,14 @@ over the MFPC container; its byte derivation is documented in
 
 ## MFP Package Container
 
-Package projects emit a `.mfp` file through `target::write_package`.
+Package projects emit a `.mfp` file through the package writer.
 
 The package path is:
 
 ```text
 IR
-  -> binary_repr::build_binary_repr_bytes
-  -> package_mfp::build_package_bytes
+  -> binary-representation encoding
+  -> MFP container wrapping
   -> <package>.mfp
 ```
 
@@ -106,10 +105,10 @@ accepts both forms; the on-disk signature-header byte encoding is owned by
 Every user-visible `Error` carries an `ErrorLoc source` recording where it
 originated. The location flows through every layer:
 
-- **AST** (`src/ast/`): `Expression::Call`/`Binary`/`Unary` and `Statement::For`
+- **AST**: `Expression::Call`/`Binary`/`Unary` and `Statement::For`
   carry an internal `(line, column)`; the source file is the enclosing `AstFile`.
-  These are not serialized to the `.ast` JSON.
-- **IR** (`src/ir/`): every `IrOp`, `IrMatchCase`, and declaration node
+  These are not serialized to the `.ast` JSON.[[src/ast/]]
+- **IR**: every `IrOp`, `IrMatchCase`, and declaration node
   (`IrFunction`/`IrParam`/`IrType`/`IrField`/`IrVariant`/`IrBinding`) carries an
   `IrSourceLoc { line, column }`, and computed value nodes carry their result
   type; each `IrFunction` also carries its source `file` and `resource_owners`,
@@ -121,16 +120,16 @@ originated. The location flows through every layer:
   `loc`, result-type, and `explicit_type` fields are not serialized to the
   `.ir` JSON debug dump but **are** encoded into the Binary Representation, so
   an imported package's functions retain their own source locations and stay
-  checkable without re-inference.
-- **NIR** (`src/target/shared/nir/`): mirrors the IR fields (`NirSourceLoc`,
-  `NirFunction::file`).
-- **Native runtime** (`src/target/shared/code`): the code generator tracks the
+  checkable without re-inference.[[src/ir/]]
+- **NIR**: mirrors the IR fields (`NirSourceLoc`,
+  `NirFunction::file`).[[src/target/shared/nir/]]
+- **Native runtime**: the code generator tracks the
   current function file and the current node location and builds a real
   `ErrorLoc` at every error origin (user `error(...)`, arithmetic
   overflow/divide-by-zero, failing built-in/helper calls). The origin is then
   carried through the fallible-call result ABI — owned by
   `./mfb spec memory fallible-call-abi` — and materialized into the 3-field
-  `Error` when a result traps.
+  `Error` when a result traps.[[src/target/shared/code]]
 
 ## See Also
 

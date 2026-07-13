@@ -58,14 +58,12 @@ stores, by field type:
   `recordBase + offset`; the offset is relative to the record base, so a whole-
   block `memcpy` is a correct deep copy and the inlined `String` comes along.
 - **flat composite** — a nested record, a data `Union`, a `List`/`Map`, or a
-  `Result OF T` whose own payloads are all flat (`type_is_flat`), plus the built-in
+  `Result OF T` whose own payloads are all flat, plus the built-in
   flat records `Error`/`ErrorLoc`: inlined recursively as a `U64` block-relative
   offset into the data region, exactly like a `String`. The field read recovers
   `recordBase + offset`, and because the inlined block's own offsets are relative
   to that same base, a whole-block `memcpy` deep-copies the entire tree. A field is
-  inlined into the data region iff it is a `String` or a flat composite — see
-  `record_field_is_inlined` / `type_is_flat`
-  (`builder_collection_layout.rs`). [[src/target/shared/code/builder_collection_layout.rs:record_field_is_inlined]]
+  inlined into the data region iff it is a `String` or a flat composite. [[src/target/shared/code/builder_collection_layout.rs:record_field_is_inlined]]
 - **non-flat composite** — a **resource** `Union`, a `List`/`Map` carrying a
   resource or recursive payload, a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
@@ -147,7 +145,7 @@ pointer fields). The union is variable-length, so a `List`/`Map` of a data union
 stores each union block inline by its runtime `size`.
 
 A **resource** union (all variants are resource handles; a union is all-data or
-all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION` in `rules.rs`) is
+all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
 **not** reshaped [[src/rules/table.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.

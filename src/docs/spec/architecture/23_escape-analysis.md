@@ -31,15 +31,15 @@ collection-valued expressions — never on inferred types. [[src/escape.rs:analy
 It is consumed by **IR lowering**, which records the result per function as
 `resource_owners` — carried into the IR (and serialized into `.mfp` packages)
 so the resource-ownership rules run on the typed IR, on both the source and
-package paths. The escape decisions are what let `ir::verify`
+package paths. The escape decisions are what let the IR semantic verifier
 distinguish an owner from a borrow (`RES b = a` moves; a resource parameter or
 `FOR EACH` element borrows) without re-deriving ownership.
 
 ```text
-ir/lower.rs: resource_owners: escape::analyze_function(function).owners().clone()
+resource_owners = <escape analysis of the function> -> owners
 ```
 
-There is a single implementation in `src/escape.rs`; the analyzer is invoked,
+There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
 logic. [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
 

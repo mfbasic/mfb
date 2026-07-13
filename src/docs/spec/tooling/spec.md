@@ -26,6 +26,8 @@ registry/signing workflow behind `pkg publish`/`repo`/`build --sign` is
 - `doc-html` — the `mfb doc` / `pkg doc` HTML rendering model.
 - `cli-reference` — every command, flag, and exit code, the `pkg info` output,
   and the embedded `spec`/`man` terminal rendering.
+- `auditability` — the rationale and catalogue for surfacing the language's
+  implicit fallible control flow, plus the language-server design target.
 
 ## See Also
 

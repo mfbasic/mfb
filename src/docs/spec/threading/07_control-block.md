@@ -85,3 +85,9 @@ without receiving them. For queued resource handles, the runtime uses the
 resource close function recorded in package metadata. For queued composite
 values, the runtime uses the type metadata table to walk owned fields or payloads
 that require cleanup.
+
+## See Also
+
+* ./mfb spec threading thread-runtime-helpers — the helpers that read and write this block
+* ./mfb spec threading queue-semantics — the inbound and outbound queue handles it holds
+* ./mfb spec threading error-propagation — the result tag/value/error fields it stores

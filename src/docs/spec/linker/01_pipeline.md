@@ -1,44 +1,41 @@
 # Pipeline
 
 Native executable output flows through a fixed sequence of stages, each with a
-concrete in-compiler type. The target backend (`src/target/macos_aarch64/`,
-`src/target/linux_aarch64/`) owns the pipeline; the linker (`src/os/macos/`,
-`src/os/linux/`) is its final target-specific stage.
+concrete in-compiler type. The target backend owns the pipeline; the linker is
+its final target-specific stage.
+[[src/target/macos_aarch64/]] [[src/target/linux_aarch64/]] [[src/os/macos/]] [[src/os/linux/]]
 
 ```text
-IrProject            (src/ir.rs)                         language IR
-  -> NirModule       (src/target/shared/nir.rs)          native IR, packages merged in
-  -> NativePlan      (src/target/shared/plan.rs)          symbol/import/call plan
+IrProject                                                language IR
+  -> NirModule                                           native IR, packages merged in
+  -> NativePlan                                          symbol/import/call plan
        -> object plan validation gate (see object-plan)
-  -> NativeCodePlan  (src/target/shared/code/mod.rs)      concrete aarch64 instructions
-  -> EncodedImage    (src/arch/aarch64/encode.rs)         text/data/symbols/relocs/imports
-  -> target linker   (src/os/<platform>/link.rs)          container encoding
+  -> NativeCodePlan                                      concrete aarch64 instructions
+  -> EncodedImage                                        text/data/symbols/relocs/imports
+  -> target linker                                       container encoding
   -> executable file(s)
 ```
+[[src/ir.rs]] [[src/target/shared/nir.rs]] [[src/target/shared/plan.rs]] [[src/target/shared/code/mod.rs]] [[src/arch/aarch64/encode.rs]] [[src/os/link.rs]]
 
 ## Stage producers
 
-The backend `write_executable` (e.g. `src/target/macos_aarch64/mod.rs`) runs the
-stages in order:
+The backend's executable writer runs the stages in order:
 
-1. `lower::lower_project` lowers `IrProject` to a `NirModule`. Installed packages
+1. The lowering stage lowers `IrProject` to a `NirModule`. Installed packages
    are decoded and merged here, not linked later (see `package-linking`).
-2. `validate::validate_nir` and `validate::validate_capabilities` reject NIR the
-   backend cannot lower.
-3. `plan::lower_module` produces the `NativePlan`: the set of functions, data
+2. The NIR and capability validation stages reject NIR the backend cannot lower.
+3. The planning stage produces the `NativePlan`: the set of functions, data
    objects, calls, and platform imports with their final symbol names.
-4. `native_plan.validate()` then `os::<platform>::validate_native_object_plan`
-   run the structural checks (the object-plan gate).
-5. `code::lower_module` produces the `NativeCodePlan`: concrete aarch64
-   instructions per function plus relocation requests. `native_code.validate()`
+4. The plan's own validation then the platform object-plan validation run the
+   structural checks (the object-plan gate).
+5. The code-lowering stage produces the `NativeCodePlan`: concrete aarch64
+   instructions per function plus relocation requests. A code-plan validation
    follows.
-6. `arch::aarch64::encode::encode` assembles the `EncodedImage`: encoded `text`
-   and `data` byte vectors, internal `symbols`, `relocations`, the import table,
-   the entry symbol, an `initializers` list, and optional `signing_metadata`.
-7. The backend attaches executable signing metadata
-   (`image.signing_metadata = …`) and calls the platform linker
-   (`os::<platform>::write_linked_executable`, or the app-bundle / per-flavor
-   variants).
+6. The encoder assembles the `EncodedImage`: encoded `text` and `data` byte
+   vectors, internal `symbols`, `relocations`, the import table, the entry
+   symbol, an `initializers` list, and optional `signing_metadata`.
+7. The backend attaches executable signing metadata and calls the platform
+   linker (or the app-bundle / per-flavor variants).
 
 [[src/target/shared/lower.rs:lower_project]] [[src/arch/aarch64/encode/mod.rs:encode]]
 
@@ -61,3 +58,10 @@ The entry symbol of every encoded image is `_main`; the language entry routine
 is reached from there. App-mode builds repurpose `_main` as a toolkit bootstrap
 that spawns a worker thread running the language entry (see the platform
 topics).
+
+## See Also
+
+* ./mfb spec architecture native — the native back end that owns this pipeline
+* ./mfb spec linker object-plan — the validation gate between `NativePlan` and code
+* ./mfb spec linker symbols-and-relocations — the symbol, relocation, and import model the `EncodedImage` carries
+* ./mfb spec linker package-linking — where installed packages are decoded and merged in

@@ -8,19 +8,19 @@ program IR before lowering, so package code flows through the same
 
 ## How exports reach the executable
 
-The merge happens in `nir::merge_packages` (`src/target/shared/nir.rs`):
+The merge happens in the package-merge step of native lowering:
 
 1. Before native lowering, the compiler reads each installed package header and
    exported ABI metadata and registers external function signatures under
    qualified names (`packageName.exportName`) so calls survive language lowering
    with proper types.
 2. For a native executable build, each installed package's binary representation
-   is decoded back into IR (`binary_repr::read_package_ir_with_identity`).
-3. Every package symbol is prefixed with a per-package identity
-   (`ir::prefix_package_symbols`) so two packages cannot collide, and the
-   functions, types, globals, and constants are merged into the application IR.
+   is decoded back into IR.
+3. Every package symbol is prefixed with a per-package identity so two packages
+   cannot collide, and the functions, types, globals, and constants are merged
+   into the application IR.
 4. The consumer's `package.symbol` references are rewritten to the
-   identity-prefixed definitions (`ir::apply_package_identity`).
+   identity-prefixed definitions.
 
 [[src/target/shared/nir/lower.rs:merge_packages]]
 
@@ -39,10 +39,9 @@ Native `LINK` bindings (declared in `language native-libraries`) are wired at th
 NIR/symbol level by two backend-defined internal symbols rather than by external
 linkage.
 
-* `LINK_INIT_SYMBOL` (`_mfb_linker_init`) is the per-program load-time
-  initializer: it runs `dlopen`/`dlsym` to resolve every linked native symbol
-  before `main`.
-* `link_thunk_symbol(alias, name)` produces one marshaling thunk per `LINK`
+* `_mfb_linker_init` is the per-program load-time initializer: it runs
+  `dlopen`/`dlsym` to resolve every linked native symbol before `main`.
+* The per-function thunk producer emits one marshaling thunk per `LINK`
   function, named `_mfb_linker_<alias>_<name>` (each `alias`/`name` component is
   escaped so **every** byte that is not `[A-Za-z0-9]` — including `_` itself —
   becomes a `_XX` two-hex-digit escape, so an interior `_` cannot collide with
@@ -50,10 +49,10 @@ linkage.
 
 [[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]] [[src/target/shared/nir/mod.rs:link_thunk_symbol]]
 
-NIR lowering routes calls to these thunks through the ordinary import path:
-`link_routing_imports` emits a synthetic `NirImport` (package `"link"`) for every
-`LINK` function, mapping the qualified call name `alias.name` to its
-`link_thunk_symbol`. Re-export aliases route to the same thunk as their `LINK`
+NIR lowering routes calls to these thunks through the ordinary import path: it
+emits a synthetic import (package `"link"`) for every `LINK` function, mapping
+the qualified call name `alias.name` to its thunk symbol. Re-export aliases
+route to the same thunk as their `LINK`
 target; each alias is registered under both `binding.alias` (as importers see it)
 and the bare alias name (as the defining project sees it), so either form
 resolves.
@@ -61,10 +60,9 @@ resolves.
 [[src/target/shared/nir/lower.rs:link_routing_imports]]
 
 The object plan does not treat these as unresolved imports. When the module has
-any `LINK` functions, `plan.rs` collects `LINK_INIT_SYMBOL` plus one
-`link_thunk_symbol` per function into `link_symbols`, which the plan records as
-DEFINED local symbols the backend emits — not external symbols to be satisfied at
-link time.
+any `LINK` functions, the planning stage collects the initializer symbol plus
+one thunk symbol per function, which the plan records as DEFINED local symbols
+the backend emits — not external symbols to be satisfied at link time.
 
 [[src/target/shared/plan/mod.rs:link_symbols]]
 

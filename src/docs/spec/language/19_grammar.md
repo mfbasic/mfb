@@ -191,3 +191,9 @@ mapLit         = "Map" "OF" type "TO" type "{" [ mapEntries ] "}" ;
 mapEntries     = mapEntry { "," mapEntry } ;
 mapEntry       = expr ":=" expr ;
 ```
+
+## See Also
+
+* ./mfb spec language lexical-structure — the tokens the grammar's terminals refer to
+* ./mfb spec language operators — operator precedence not encoded in this abridged grammar
+* ./mfb spec architecture frontend — the parser that implements this grammar

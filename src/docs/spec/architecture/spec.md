@@ -9,9 +9,9 @@ the package/container formats by the `package` spec
 build actually consumes are described in the `frontend` topic.
 
 The compiler is a single Rust binary named `mfb`. The command-line entry point
-is `src/main.rs`. It owns project-level orchestration, manifest validation,
+owns project-level orchestration, manifest validation,
 package-management commands, build-mode selection, and high-level error
-handling.
+handling.[[src/main.rs]]
 
 ## Pipeline shape
 
@@ -29,12 +29,12 @@ project.json
   -> entry-point validation
   -> source-syntax checking
   -> IR
-  -> IR semantic verification (ir::verify)
+  -> IR semantic verification
 ```
 
 Semantic validation is split by where the rule can be seen: the source
-front end (`syntaxcheck`) checks only source-*syntax* rules — constructs lowering
-erases — while `ir::verify` is the single source of truth for every *semantic*
+front end checks only source-*syntax* rules — constructs lowering
+erases — while the IR semantic verifier is the single source of truth for every *semantic*
 rule, running on the typed IR of both the program being built and every decoded
 `.mfp` package (see `frontend` and `package binary-representation`).
 
@@ -70,18 +70,23 @@ splits into `binary-representation` (packages) and `native` (executables). The
 and `extending` are quick references. The deeper-dive topics specify individual
 stages in reimplementable detail: `monomorphization` (template instantiation,
 symbol mangling, overload resolution, between `frontend` and `ir`), `native-ir`
-(the NIR representation and IR→NIR lowering), `aarch64-instruction-set` and
-`x86_64-instruction-set` (the two backends' instruction repertoires and
-encodings), `mir-instruction-set` (the
+(the NIR representation and IR→NIR lowering), `aarch64-instruction-set`,
+`x86_64-instruction-set`, and `riscv64-instruction-set` (the three backends'
+instruction repertoires and encodings), `mir-instruction-set` (the
 target-neutral machine IR the backend lowers to and selects from, under active
 construction), `math-kernels` (the in-tree `Float`/
 `Fixed` math kernels, their accuracy/determinism contract, and validation),
 `internal-naming` (the unforgeable sigil scheme for built-in package internals),
-and `ir-json-artifact` (the `<name>.ir` debug serialization).
+and `ir-json-artifact` (the `<name>.ir` debug serialization). Three front-end
+contract topics complete the set: `type-name-encoding` (the canonical flat
+type-string grammar every front-end pass parses), `type-inference` (expected-type
+propagation, literal coercion, and the assignability lattice), and `escape-analysis`
+(the resource-float decision procedure the `RES`/cleanup lowering reproduces).
 
 ## See Also
 
 * ./mfb spec language — the MFBASIC language reference
+* ./mfb spec language types — the source-level type system these front-end contracts serve
 * ./mfb spec package — the `.mfp` container and binary-representation format
 * ./mfb spec memory — the runtime value memory model
 * ./mfb spec linker — the native object and link pipeline

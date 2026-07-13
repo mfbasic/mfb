@@ -79,3 +79,9 @@ bit 2 = resource consume     (reserved; not currently emitted)
 ```
 
 `lower_function` sets only bit 0, and only when the parameter has a default (in which case `defaultConst` is also populated). The borrow/consume bits are defined by the format but are **not currently produced** — no `BORROW`/`MOVE` source syntax exists, and resource ownership is enforced by the compiler rather than encoded in these per-parameter bits today.
+
+## See Also
+
+* ./mfb spec package ir-section — where function bodies now live, apart from these describing entries
+* ./mfb spec language functions — the source `FUNC`/`SUB` declarations these entries describe
+* ./mfb spec package type-table — the signature types entries reference

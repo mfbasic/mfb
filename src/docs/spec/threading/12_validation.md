@@ -48,3 +48,9 @@ Required coverage includes:
 
 Acceptance tests should include `.run` goldens when behavior is observable
 through stdout/stderr or exit code.
+
+## See Also
+
+* ./mfb spec language test-framework — the test harness these runtime tests build on
+* ./mfb spec threading source-model — the `thread::` surface under test
+* ./mfb man thread — the thread package these tests exercise

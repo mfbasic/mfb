@@ -1,6 +1,6 @@
 # Monomorphization
 
-The monomorphizer (`src/monomorph/`) takes the parsed, initially-resolved AST
+The monomorphizer takes the parsed, initially-resolved AST[[src/monomorph/]]
 and produces a fully **concrete** AST: every template type and template function
 is expanded into a concrete declaration per instantiation, every overloaded call
 is rewritten to a single mangled callee symbol, and every `collections::` call is
@@ -61,7 +61,7 @@ groups a package's exported `Func`/`Sub` symbols by the substring before the
 first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
 
 The grammar of the type-token strings that `sanitize_type_name` flattens (and
-that `unify_type` parses) is canonical in `./mfb spec language type-name-encoding`.
+that `unify_type` parses) is canonical in `./mfb spec architecture type-name-encoding`.
 
 ## Template instantiation
 
@@ -230,7 +230,7 @@ metadata, since the importer has no AST for them.
 
 1. Records the qualifier prefixes `binding.` and `package.` for later
    normalization.
-2. Reads the package's exports (`binary_repr::read_package_exports`).
+2. Reads the package's exports.[[src/binary_repr/]]
 3. Keeps only `Func`/`Sub` exports, groups them by base name (split on `$`).
 4. Records `(param_types, package.mangledName)` **only** for a base name with
    ≥2 exports — a non-overloaded import resolves by its bare name and is skipped.
@@ -264,7 +264,7 @@ Non-collections calls return the callee unchanged.
 
 * ./mfb spec architecture frontend — pass ordering and the double resolve
 * ./mfb spec architecture ir — what consumes the concrete AST
-* ./mfb spec language type-name-encoding — the type-string grammar these algorithms parse
+* ./mfb spec architecture type-name-encoding — the type-string grammar these algorithms parse
 * ./mfb spec language templates — source template semantics
 * ./mfb spec language functions — overload source rules
-* ./mfb spec language type-inference — the broader inference model
+* ./mfb spec architecture type-inference — the broader inference model

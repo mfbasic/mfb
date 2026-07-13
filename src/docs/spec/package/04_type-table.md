@@ -174,3 +174,9 @@ bit 0 = isolated
 ```
 
 The current compiler writes `1` when the function type is `ISOLATED`, otherwise `0`; no other bits are produced. (The payload is empty for a function-type entry that could not be parsed back from its canonical name.)
+
+## See Also
+
+* ./mfb spec package metadata-encoding — the string-pool and index conventions the table uses
+* ./mfb spec architecture type-name-encoding — the canonical type spelling behind these entries
+* ./mfb spec language types — the source-level types these IDs represent

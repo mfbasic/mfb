@@ -106,9 +106,9 @@ fields are **present in `PackedProperty` and embedded**, but the runtime case
 and decomposition algorithms do **not** read them. Case mapping and NFD use the
 separate flattened mapping tables (below) instead; the seqindex fields are
 carried for parity with utf8proc and are dead at runtime — no runtime offset
-constant nor emit helper exists for them. The offset constants in
-`private/unicode.rs` for the fields that *are* read are a parallel definition of
-the same layout and must stay in sync with `PackedProperty::encode_le`.
+constant nor emit helper exists for them. The compiler-side offset constants for
+the fields that *are* read are a parallel definition of
+the same layout and must stay in sync with how `PackedProperty` is encoded.
 [[src/target/shared/code/private/unicode.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans:
@@ -187,10 +187,10 @@ entries/sequences symbols and the entry count differ.
 
 ## Embedding: data objects and symbols
 
-`unicode_runtime_data_objects` emits all fourteen tables as raw, read-only
+A compiler pass emits all fourteen tables as raw, read-only
 `CodeDataObject`s, but only when the module actually uses a Unicode-aware
-builtin (`module_uses_unicode_runtime_tables` gates inclusion). Each table's
-bytes come from a hex serializer in `unicode_runtime_tables.rs`; sizes and
+builtin (a usage check gates inclusion). Each table's
+bytes come from a hex serializer; sizes and
 alignments are fixed per table (u16 tables align 2, u32 / record tables align
 4). [[src/target/shared/code/data_objects.rs:unicode_runtime_data_objects]]
 [[src/target/shared/code/module_analysis.rs:module_uses_unicode_runtime_tables]]
