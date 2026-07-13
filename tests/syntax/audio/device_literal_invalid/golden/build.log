@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/audio/device_literal_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET d AS AudioDevice = AudioDevice["x", "y", TRUE, FALSE, FALSE, FALSE]
+     | ^
+tests/syntax/audio/device_literal_invalid/src/main.mfb:4 error[2-203-0039 TYPE_READ_ONLY_RECORD_CONSTRUCTOR]: read-only record cannot be constructed
+               TYPE `AudioDevice` is compiler-owned and cannot be constructed.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET d AS AudioDevice = AudioDevice["x", "y", TRUE, FALSE, FALSE, FALSE]
+     | ^
+tests/syntax/audio/device_literal_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+[exit 1]

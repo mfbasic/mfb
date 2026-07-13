@@ -1,0 +1,7 @@
+IMPORT audio
+
+FUNC main AS Integer
+  audio::close()
+  audio::close(42)
+  RETURN 0
+END FUNC

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/audio/write_input_invalid
+   4 |   RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+   5 |   LET pcm AS List OF Byte = audio::read(mic, 480)
+   6 |   audio::write(mic, pcm)
+     | ^
+tests/syntax/audio/write_input_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `audio.write` has argument type(s) (AudioInput, List OF Byte), expected AudioOutput, List OF Byte.
+[exit 1]

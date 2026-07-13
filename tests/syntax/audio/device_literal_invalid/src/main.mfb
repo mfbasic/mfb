@@ -1,0 +1,6 @@
+IMPORT audio
+
+FUNC main AS Integer
+  LET d AS AudioDevice = AudioDevice["x", "y", TRUE, FALSE, FALSE, FALSE]
+  RETURN 0
+END FUNC

@@ -1594,6 +1594,7 @@ impl<'a> Monomorphizer<'a> {
         try_pkg!(builtins::http::resolve_call(callee, &arg_types));
         try_pkg!(builtins::term::resolve_call(callee)); // no arg_types param
         try_pkg!(builtins::tls::resolve_call(callee, &arg_types));
+        try_pkg!(builtins::audio::resolve_call(callee, &arg_types));
         try_pkg!(builtins::vector::resolve_call(callee, &arg_types));
         try_pkg!(builtins::thread::resolve_call(callee, &arg_types));
         None

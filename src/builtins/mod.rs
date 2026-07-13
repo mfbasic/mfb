@@ -1,3 +1,4 @@
+pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
 pub(crate) mod crypto;
@@ -28,7 +29,8 @@ pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
-        "bits"
+        "audio"
+            | "bits"
             | "collections"
             | "crypto"
             | "csv"
@@ -53,7 +55,8 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    crypto::is_builtin_type(name)
+    audio::is_builtin_type(name)
+        || crypto::is_builtin_type(name)
         || datetime::is_builtin_type(name)
         || fs::is_builtin_type(name)
         || http::is_builtin_type(name)
@@ -93,6 +96,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // `is_builtin_type(member)` check would accept any cross pairing (`io.Url`,
     // `csv.Thread`) because that predicate ORs every package together (bug-98).
     let belongs = match package {
+        "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
         "datetime" => datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
@@ -282,7 +286,8 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    general::call_return_type_name(name)
+    audio::call_return_type_name(name)
+        .or_else(|| general::call_return_type_name(name))
         .or_else(|| collections::call_return_type_name(name))
         .or_else(|| strings::call_return_type_name(name))
         .or_else(|| math::call_return_type_name(name))
@@ -319,7 +324,8 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
-    collections::is_collections_call(name)
+    audio::is_audio_call(name)
+        || collections::is_collections_call(name)
         || general::is_general_call(name)
         || strings::is_strings_call(name)
         || math::is_math_call(name)
@@ -426,7 +432,9 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 /// by selecting the overload first, then binding names within it; every other
 /// builtin uses the merged per-position table of [`call_param_names`].
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    net::call_param_name_overloads(name).or_else(|| datetime::call_param_name_overloads(name))
+    audio::call_param_name_overloads(name)
+        .or_else(|| net::call_param_name_overloads(name))
+        .or_else(|| datetime::call_param_name_overloads(name))
 }
 
 /// Pick the overload a call selects, given how many arguments were passed
@@ -453,7 +461,8 @@ pub(crate) fn select_param_name_overload<'a>(
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    general::call_param_names(name)
+    audio::call_param_names(name)
+        .or_else(|| general::call_param_names(name))
         .or_else(|| collections::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))

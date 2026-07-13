@@ -2259,6 +2259,15 @@ fn expression_type(
                 return builtins::tls::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::audio::is_audio_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::audio::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::http::is_http_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2470,6 +2479,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::regex::expected_arguments(callee))
         .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::tls::argument_types(callee))
+        .or_else(|| builtins::audio::argument_types(callee))
         .or_else(|| builtins::crypto::argument_types(callee))
         .or_else(|| builtins::http::expected_arguments(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
@@ -2984,6 +2994,26 @@ fn lower_expression_with_expected(
                         .and_then(|argument| expression_type(argument, locals, context))
                         .filter(|type_| type_ == builtins::tls::TLS_LISTENER_TYPE)
                         .map(|_| builtins::tls::CLOSE_LISTENER.to_string())
+                })
+                .or_else(|| {
+                    // `audio::` rewrites the overloads whose *body* differs while
+                    // no user error is reachable onto their own internal
+                    // runtime-helper name: the named-device opens, timed
+                    // `read`/`poll`, and per-direction `close` (plan-33-A §5).
+                    // The target is a runtime helper, not a source companion, so
+                    // it is not internalized.
+                    if !builtins::audio::is_audio_call(&canonical_callee) {
+                        return None;
+                    }
+                    let arg_types: Vec<String> = arguments
+                        .iter()
+                        .map(call_arg_value)
+                        .map(|argument| {
+                            expression_type(argument, locals, context).unwrap_or_default()
+                        })
+                        .collect();
+                    builtins::audio::implementation_name(&canonical_callee, &arg_types)
+                        .map(str::to_string)
                 })
                 .or_else(|| {
                     builtins::datetime::implementation_name(&canonical_callee, args.len())
@@ -3730,6 +3760,7 @@ impl TypeIndex {
         if let Some(type_) = builtins::io::builtin_type_fields(type_name)
             .or_else(|| builtins::net::builtin_type_fields(type_name))
             .or_else(|| builtins::term::builtin_type_fields(type_name))
+            .or_else(|| builtins::audio::builtin_type_fields(type_name))
             .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
             .map(|(_, type_)| (*type_).to_string())
         {

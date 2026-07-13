@@ -4057,6 +4057,7 @@ fn read_only_record_type(type_name: &str) -> bool {
     type_name == builtins::term::TERM_COLOR_TYPE
         || type_name == builtins::term::TERM_SIZE_TYPE
         || type_name == builtins::net::ADDRESS_TYPE
+        || type_name == builtins::audio::AUDIO_DEVICE_TYPE
         || type_name.starts_with("MapEntry OF ")
 }
 
@@ -4204,6 +4205,7 @@ fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static s
     builtins::io::builtin_type_fields(name)
         .or_else(|| builtins::net::builtin_type_fields(name))
         .or_else(|| builtins::term::builtin_type_fields(name))
+        .or_else(|| builtins::audio::builtin_type_fields(name))
 }
 
 /// Record every `Closure { name, captures }` site's captured-slot count so the

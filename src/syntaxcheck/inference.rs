@@ -757,6 +757,7 @@ impl<'a> SyntaxChecker<'a> {
             if let Some(field_type) = builtins::io::builtin_type_fields(&type_name)
                 .or_else(|| builtins::net::builtin_type_fields(&type_name))
                 .or_else(|| builtins::term::builtin_type_fields(&type_name))
+                .or_else(|| builtins::audio::builtin_type_fields(&type_name))
                 .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
                 .map(|(_, type_name)| self.parse_type(type_name))
             {

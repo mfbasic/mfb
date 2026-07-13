@@ -279,6 +279,15 @@ impl TypeModel {
                 );
             }
         }
+        if let Some(fields) = builtins::audio::builtin_type_fields("AudioDevice") {
+            record_fields.insert(
+                "AudioDevice".to_string(),
+                fields
+                    .iter()
+                    .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
+                    .collect(),
+            );
+        }
         for type_name in ["TermColor", "TermSize"] {
             if let Some(fields) = builtins::term::builtin_type_fields(type_name) {
                 record_fields.insert(

@@ -1,0 +1,8 @@
+IMPORT audio
+
+FUNC main AS Integer
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  LET pcm AS List OF Byte = audio::read(out, 480)
+  audio::close(out)
+  RETURN 0
+END FUNC

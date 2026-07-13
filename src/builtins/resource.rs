@@ -160,6 +160,32 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
+        super::audio::AUDIO_INPUT_TYPE.to_string(),
+        ResourceInfo {
+            close_function: super::audio::resource_close_function(super::audio::AUDIO_INPUT_TYPE)
+                .expect("AudioInput has a built-in close op")
+                .to_string(),
+            // A capture stream is driven from its owning thread (blocking read /
+            // OS callback ring); not thread-sendable in v1 (plan-33-A §4).
+            sendable: false,
+            close_may_fail: true,
+            kind: ResourceKind::Builtin,
+        },
+    );
+    entries.insert(
+        super::audio::AUDIO_OUTPUT_TYPE.to_string(),
+        ResourceInfo {
+            close_function: super::audio::resource_close_function(super::audio::AUDIO_OUTPUT_TYPE)
+                .expect("AudioOutput has a built-in close op")
+                .to_string(),
+            // A playback stream blocks on write from its owning thread; not
+            // thread-sendable in v1 (plan-33-A §4).
+            sendable: false,
+            close_may_fail: true,
+            kind: ResourceKind::Builtin,
+        },
+    );
+    entries.insert(
         super::tls::TLS_SOCKET_TYPE.to_string(),
         ResourceInfo {
             close_function: super::tls::resource_close_function(super::tls::TLS_SOCKET_TYPE)

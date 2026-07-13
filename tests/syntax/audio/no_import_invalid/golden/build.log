@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/audio/no_import_invalid
+   1 | FUNC main AS Integer
+   2 |   LET devs = audio::devices()
+     | ^
+tests/syntax/audio/no_import_invalid/src/main.mfb:2 error[2-201-0014 SYMBOL_UNKNOWN_IMPORT]: package-qualified symbol uses an unknown import
+               Package `audio` is used but not imported in this file.
+[exit 1]

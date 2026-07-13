@@ -2,6 +2,20 @@ use super::*;
 
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
+        AUDIO_DEVICES_SPEC,
+        AUDIO_OPEN_INPUT_SPEC,
+        AUDIO_OPEN_INPUT_DEVICE_SPEC,
+        AUDIO_OPEN_OUTPUT_SPEC,
+        AUDIO_OPEN_OUTPUT_DEVICE_SPEC,
+        AUDIO_READ_SPEC,
+        AUDIO_READ_TIMEOUT_SPEC,
+        AUDIO_WRITE_SPEC,
+        AUDIO_POLL_SPEC,
+        AUDIO_POLL_TIMEOUT_SPEC,
+        AUDIO_AVAILABLE_SPEC,
+        AUDIO_XRUNS_SPEC,
+        AUDIO_CLOSE_INPUT_SPEC,
+        AUDIO_CLOSE_OUTPUT_SPEC,
         CRYPTO_RANDOM_BYTES_SPEC,
         CRYPTO_GENERATE_P256_RAW_SPEC,
         CRYPTO_GENERATE_P384_RAW_SPEC,

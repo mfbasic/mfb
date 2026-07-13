@@ -35,6 +35,9 @@ const BUILTIN_TYPES: &[&str] = &[
     builtins::net::DATAGRAM_TEXT_TYPE,
     builtins::tls::TLS_SOCKET_TYPE,
     builtins::tls::TLS_LISTENER_TYPE,
+    builtins::audio::AUDIO_INPUT_TYPE,
+    builtins::audio::AUDIO_OUTPUT_TYPE,
+    builtins::audio::AUDIO_DEVICE_TYPE,
 ];
 
 pub fn resolve_project(

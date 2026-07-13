@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET devs = audio::devices()
+  RETURN 0
+END FUNC

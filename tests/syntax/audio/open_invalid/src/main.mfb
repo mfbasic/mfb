@@ -1,0 +1,8 @@
+IMPORT audio
+
+FUNC main AS Integer
+  LET missing = audio::openOutput()
+  LET wrongType = audio::openOutput("hi", 2, 512)
+  LET tooMany = audio::openOutput(48000, 2, 512, 4, 5)
+  RETURN 0
+END FUNC

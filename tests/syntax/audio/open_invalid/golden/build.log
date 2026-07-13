@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/audio/open_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = audio::openOutput()
+     | ^
+tests/syntax/audio/open_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `audio.openOutput` has 0 argument(s), expected 3 to 4.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = audio::openOutput()
+     | ^
+tests/syntax/audio/open_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing = audio::openOutput()
+   5 |   LET wrongType = audio::openOutput("hi", 2, 512)
+     | ^
+tests/syntax/audio/open_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `audio.openOutput` has argument type(s) (String, Integer, Integer), expected Integer, Integer, Integer or AudioDevice, Integer, Integer, Integer.
+   3 | FUNC main AS Integer
+   4 |   LET missing = audio::openOutput()
+   5 |   LET wrongType = audio::openOutput("hi", 2, 512)
+     | ^
+tests/syntax/audio/open_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing = audio::openOutput()
+   5 |   LET wrongType = audio::openOutput("hi", 2, 512)
+   6 |   LET tooMany = audio::openOutput(48000, 2, 512, 4, 5)
+     | ^
+tests/syntax/audio/open_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `audio.openOutput` has 5 argument(s), expected 3 to 4.
+   4 |   LET missing = audio::openOutput()
+   5 |   LET wrongType = audio::openOutput("hi", 2, 512)
+   6 |   LET tooMany = audio::openOutput(48000, 2, 512, 4, 5)
+     | ^
+tests/syntax/audio/open_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
