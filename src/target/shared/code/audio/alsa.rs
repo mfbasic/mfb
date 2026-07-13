@@ -664,9 +664,12 @@ fn lower_write(
         abi::and_registers("%v12", "%v13", "%v11"),
         abi::compare_immediate("%v12", "0"),
         abi::branch_ne(&invalid),
-        // src = byteList + HEADER + total*ENTRY ; totalFrames = total/bpf
+        // src = byteList + HEADER + CAPACITY*ENTRY (the data region starts past
+        // the CAPACITY-sized entry array; an append-built list has spare
+        // capacity, so COUNT*ENTRY would mis-address it). totalFrames = total/bpf.
+        abi::load_u64("%v12", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v13", "%v14"),
+        abi::multiply_registers("%v14", "%v12", "%v14"),
         abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v14", abi::ARG[1], "%v14"),
         abi::store_u64("%v14", abi::stack_pointer(), SRC_OFF),

@@ -723,8 +723,13 @@ fn lower_write(
         abi::store_u64("%v12", abi::stack_pointer(), CAP_OFF),
         abi::load_u64("%v13", abi::ARG[1], COLLECTION_OFFSET_COUNT),
         abi::store_u64("%v13", abi::stack_pointer(), TOTAL_OFF),
+        // The byte payload starts past the CAPACITY-sized entry array, not the
+        // COUNT-sized one: an append-built list carries spare capacity, so
+        // HEADER + CAPACITY*ENTRY is the data-region base (byteList + count*ENTRY
+        // would land in the middle of the entry array — bug: static playback).
+        abi::load_u64("%v12", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v13", "%v14"),
+        abi::multiply_registers("%v14", "%v12", "%v14"),
         abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v14", abi::ARG[1], "%v14"),
         abi::store_u64("%v14", abi::stack_pointer(), QUEUE_OFF), // src base
