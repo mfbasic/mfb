@@ -45,6 +45,7 @@ pub(super) fn emit_errno_error_mapping(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, instructions, relocations);
+    instructions.push(abi::branch(done));
 }
 
 /// Filesystem-context errno mapping for path-based helpers.

@@ -1,0 +1,51 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug159_listdir_notdir_error",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "probe",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/bug159_regfile" }, { "kind": "const", "type": "String", "value": "x" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "fs.listDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/bug159_regfile" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "no-error\n" }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 13,
+      "name": "err",
+      "body": [
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }] }] } },
+      { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "\n" }] } },
+      { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 21, "value": { "kind": "call", "type": "Integer", "target": "probe", "args": [] } }
+    ]
+  }
+  ]
+}

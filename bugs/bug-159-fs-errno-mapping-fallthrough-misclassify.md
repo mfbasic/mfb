@@ -3,7 +3,8 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — wrong error code (and wrong message) from six fs builtins on any errno outside ENOENT/EACCES/EEXIST.
 Class: Correctness.
-Status: Open
+Status: FIXED
+Regression Test: `tests/rt-behavior/fs/bug159_listdir_notdir_error` (`fs::listDirectory` on a regular file → ENOTDIR → ErrOutput 77020002, not ErrInvalidArgument)
 
 ## Finding
 

@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness (silent wrong value from a core language construct)
 
-Status: Open
-Regression Test: _(none yet)_
+Status: FIXED
+Regression Test: `tests/rt-behavior/general/bug156_return_with_literal_coercion` (RETURN Fixed/Money + WITH-update Fixed field → 5.00/3.00/9.00/2.00)
 
 Two IR-lowering sites lower a sub-expression with `lower_expression` (no expected
 type) where the surrounding context has a known declared type, so an unsuffixed

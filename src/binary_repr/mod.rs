@@ -416,6 +416,10 @@ struct AbiSerializer<'a> {
     bytes: Vec<u8>,
     type_refs: HashMap<u32, u32>,
     next_ref: u32,
+    /// Current composite-type recursion depth, capped at `MAX_TYPE_GRAPH_DEPTH`
+    /// so an untrusted deep-but-acyclic type chain cannot overflow the stack
+    /// (bug-153). `type_refs` only grows, so it cannot serve as a depth gauge.
+    depth: usize,
 }
 
 struct BinaryReprProject {

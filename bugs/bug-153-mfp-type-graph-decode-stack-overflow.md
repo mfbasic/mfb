@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security (untrusted-input DoS)
 
-Status: Open
-Regression Test: _(none yet)_
+Status: FIXED
+Regression Test: `binary_repr::tests` — `deep_acyclic_type_chain_is_rejected_not_overflow` (decode path) and `abi_serializer_rejects_deep_acyclic_type_chain` (serialize path)
 
 Decoding the TYPE_TABLE of a `.mfp` package walks composite type references
 recursively. The PKG-04 cycle guard rejects a type id that references *itself*

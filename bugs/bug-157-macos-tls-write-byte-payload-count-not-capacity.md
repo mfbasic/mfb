@@ -3,7 +3,8 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — silent wrong data over a TLS connection on macOS.
 Class: Correctness (CAPACITY-vs-COUNT, same class as commit e7b48c0f).
-Status: Open
+Status: FIXED
+Regression Test: `tests/macos_tls_write_capacity.rs` (macOS-gated; mfb TLS server + `openssl s_client` peer receives the exact capacity>count byte payload)
 
 ## Finding
 

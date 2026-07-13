@@ -1,0 +1,14 @@
+IMPORT io
+
+' bug-155: toInt's 2-arg overload is toInt(text, base). Its merged param-name
+' table must accept `text` at position 0, so the documented named-argument form
+' binds. Both orders and the positional form must all yield 255.
+FUNC main AS Integer
+  io::print(toString(toInt(text := "ff", base := 16)))
+  io::print("\n")
+  io::print(toString(toInt(base := 16, text := "ff")))
+  io::print("\n")
+  io::print(toString(toInt("ff", 16)))
+  io::print("\n")
+  RETURN 0
+END FUNC

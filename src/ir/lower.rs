@@ -902,12 +902,17 @@ fn lower_statement(
         }
         Statement::Return { value, .. } => vec![IrOp::Return {
             value: value.as_ref().map(|value| {
-                let base = lower_expression(value, locals, context);
+                // Coerce a bare numeric literal to the declared return type,
+                // exactly as `LET`/constructor-arg lowering does — otherwise an
+                // unsuffixed literal returned from a `Fixed`/`Money`/`Float`
+                // function is classified as `Integer` and its raw bits are
+                // reinterpreted as the destination type (bug-156).
+                let expected = context.current_return_type.clone();
+                let base = lower_expression_with_expected(value, expected.as_deref(), locals, context);
                 // Implicitly wrap a returned member constructor into the
                 // function's declared union return type, so the wrap is explicit
                 // in the IR (and faithfully serialized into Binary Representation) rather
                 // than re-derived during native codegen.
-                let expected = context.current_return_type.clone();
                 wrap_union_value(base, value, expected.as_deref(), locals, context)
             }),
             loc,
@@ -3292,16 +3297,30 @@ fn lower_expression_with_expected(
         Expression::WithUpdate { target, updates } => {
             let type_ =
                 expression_type(target, locals, context).unwrap_or_else(|| "Unknown".to_string());
-            IrValue::WithUpdate {
-                type_: type_,
-                target: Box::new(lower_expression(target, locals, context)),
-                updates: updates
-                    .iter()
-                    .map(|update| IrRecordUpdate {
+            let lowered_target = Box::new(lower_expression(target, locals, context));
+            let lowered_updates = updates
+                .iter()
+                .map(|update| {
+                    // Coerce a bare numeric literal to the record field's
+                    // declared type, mirroring `lower_constructor_args` — else an
+                    // unsuffixed literal updating a `Fixed`/`Money` field is typed
+                    // `Integer` and reinterpreted as raw bits (bug-156).
+                    let field_type = context.type_index.record_field_type(&type_, &update.field);
+                    IrRecordUpdate {
                         field: update.field.clone(),
-                        value: lower_expression(&update.value, locals, context),
-                    })
-                    .collect(),
+                        value: lower_expression_with_expected(
+                            &update.value,
+                            field_type.as_deref(),
+                            locals,
+                            context,
+                        ),
+                    }
+                })
+                .collect();
+            IrValue::WithUpdate {
+                type_,
+                target: lowered_target,
+                updates: lowered_updates,
             }
         }
         Expression::ListLiteral(values) => {

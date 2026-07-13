@@ -1,5 +1,13 @@
 use super::*;
 
+/// Maximum depth of the composite type-reference graph an untrusted `.mfp` may
+/// encode. Real type graphs are shallow; a crafted long *linear* chain of
+/// distinct composite types (List OF id → List OF id → …) would otherwise recurse
+/// one native stack frame per link and overflow the stack before any signature is
+/// trusted (bug-153). The cycle guards (`in_progress` / `type_refs`) only reject
+/// *repeated* ids, not a deep acyclic chain, so a separate depth cap is required.
+pub(super) const MAX_TYPE_GRAPH_DEPTH: usize = 256;
+
 pub(super) fn doc_kind_name(kind: u16) -> &'static str {
     match kind {
         DOC_KIND_SUB => "sub",
@@ -666,6 +674,16 @@ pub(super) fn decode_type_name(
     // `AbiSerializer::serialize_type`'s `type_refs` guard — and reject re-entry.
     if !in_progress.insert(id) {
         return Err(format!("cyclic type id {id}"));
+    }
+    // Depth cap (bug-153): `in_progress` holds exactly the ids on the active
+    // recursion path (each is removed as its subtree unwinds), so its size is the
+    // current depth. A deep-but-acyclic chain passes the cycle guard above but
+    // must still be rejected before it overflows the native stack.
+    if in_progress.len() > MAX_TYPE_GRAPH_DEPTH {
+        in_progress.remove(&id);
+        return Err(format!(
+            "type graph too deep (exceeds {MAX_TYPE_GRAPH_DEPTH})"
+        ));
     }
     let result = decode_type_name_body(id, raw, strings, decoded, in_progress);
     in_progress.remove(&id);
@@ -1339,10 +1357,27 @@ impl<'a> AbiSerializer<'a> {
             bytes: Vec::new(),
             type_refs: HashMap::new(),
             next_ref: 0,
+            depth: 0,
         }
     }
 
     pub(super) fn serialize_type(&mut self, id: u32) -> Result<(), String> {
+        // Depth cap (bug-153): reject a deep acyclic type chain before it
+        // overflows the native stack. The `type_refs` cycle guard only rejects
+        // repeated ids, so a separate counter is needed. Balanced decrement on
+        // the success path; an over-deep graph aborts the whole serialization.
+        self.depth += 1;
+        if self.depth > MAX_TYPE_GRAPH_DEPTH {
+            return Err(format!(
+                "type graph too deep (exceeds {MAX_TYPE_GRAPH_DEPTH})"
+            ));
+        }
+        let result = self.serialize_type_inner(id);
+        self.depth -= 1;
+        result
+    }
+
+    fn serialize_type_inner(&mut self, id: u32) -> Result<(), String> {
         if let Some(primitive) = primitive_type_name(id) {
             self.put_u8(1);
             self.put_u32(id);

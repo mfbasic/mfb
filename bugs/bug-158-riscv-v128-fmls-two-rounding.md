@@ -3,7 +3,8 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — riscv-only accuracy divergence in the SIMD transcendental kernels.
 Class: Correctness (float fusion contract).
-Status: Open
+Status: FIXED
+Regression Test: `arch::riscv64::v128::tests::fmla_fuses_and_fmls_subtracts` (FMlsV now scalarizes to a single fused `fnmsub_d`, no `fmul_d`/`fsub_d`). ULP HW re-validation on riscv still recommended.
 
 ## Finding
 

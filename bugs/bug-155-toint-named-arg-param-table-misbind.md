@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (named-argument binding)
 
-Status: Open
-Regression Test: _(none yet)_
+Status: FIXED
+Regression Test: `tests/rt-behavior/general/bug155_toInt_named_args` (both named orders + positional all yield 255)
 
 `toInt` is overloaded: the 1-arg form is `toInt(value)`, the 2-arg form is
 `toInt(text AS String, base AS Integer)` (documented at

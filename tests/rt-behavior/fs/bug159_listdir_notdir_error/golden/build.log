@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/fs/bug159_listdir_notdir_error
+Wrote AST to tests/rt-behavior/fs/bug159_listdir_notdir_error/bug159_listdir_notdir_error.ast
+Wrote IR to tests/rt-behavior/fs/bug159_listdir_notdir_error/bug159_listdir_notdir_error.ir
+[exit 0]
+$ mfb build tests/rt-behavior/fs/bug159_listdir_notdir_error
+Wrote executable to tests/rt-behavior/fs/bug159_listdir_notdir_error/bug159_listdir_notdir_error.out
+[exit 0]
+$ tests/rt-behavior/fs/bug159_listdir_notdir_error/bug159_listdir_notdir_error.out
+77020002
+
+
+[exit 0]

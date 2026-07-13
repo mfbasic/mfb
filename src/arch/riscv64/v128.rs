@@ -336,15 +336,19 @@ pub(crate) fn scalarize_v128(
                 fsd(&mut out, FT0, &d, h);
             }
         }
-        // Fused multiply-subtract: dst -= lhs*rhs.
+        // Fused multiply-subtract: dst -= lhs*rhs (single rounding, per the op's
+        // contract in mir.rs). `fnmsub_d` = NMSUB = addend − lhs*rhs, i.e.
+        // d − a*b in one rounding — the scalarized fmul+fsub used two (bug-158).
         FMlsV => {
             let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
             for h in 0..2 {
+                fld(&mut out, FT0, &d, h);
                 fld(&mut out, FT1, &a, h);
                 fld(&mut out, FT2, &b, h);
-                out.push(ci("fmul_d", &[("dst", FT1), ("lhs", FT1), ("rhs", FT2)]));
-                fld(&mut out, FT0, &d, h);
-                out.push(ci("fsub_d", &[("dst", FT0), ("lhs", FT0), ("rhs", FT1)]));
+                out.push(ci(
+                    "fnmsub_d",
+                    &[("dst", FT0), ("addend", FT0), ("lhs", FT1), ("rhs", FT2)],
+                ));
                 fsd(&mut out, FT0, &d, h);
             }
         }
@@ -833,9 +837,12 @@ mod tests {
         let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
         let mla = scalarize_v128(CodeOp::FMlaV, &fields, &big());
         assert_eq!(count(&mla, "fmadd_d"), 2);
+        // bug-158: dst -= lhs*rhs must be a single fused rounding (`fnmsub_d` =
+        // addend − lhs*rhs), not a fmul+fsub pair (two roundings).
         let mls = scalarize_v128(CodeOp::FMlsV, &fields, &big());
-        assert_eq!(count(&mls, "fmul_d"), 2);
-        assert_eq!(count(&mls, "fsub_d"), 2);
+        assert_eq!(count(&mls, "fnmsub_d"), 2);
+        assert_eq!(count(&mls, "fmul_d"), 0);
+        assert_eq!(count(&mls, "fsub_d"), 0);
     }
 
     #[test]

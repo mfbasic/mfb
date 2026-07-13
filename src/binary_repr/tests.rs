@@ -711,6 +711,50 @@ mod sections_tests {
     }
 
     #[test]
+    fn deep_acyclic_type_chain_is_rejected_not_overflow() {
+        // bug-153: a long *linear* chain of distinct composite types (id N →
+        // List OF id(N-1) → … → List OF Integer) passes the cycle guard (no id
+        // repeats) but must be rejected by the depth cap before it overflows the
+        // native stack. Build one link past the cap.
+        let links = MAX_TYPE_GRAPH_DEPTH + 5;
+        let mut raw: HashMap<u32, (u16, u32, Vec<u8>)> = HashMap::new();
+        for i in 0..links {
+            let id = FIRST_TABLE_TYPE_ID + i as u32;
+            // Link 0 (deepest) points at a primitive; every other at the next id.
+            let child = if i == 0 {
+                TYPE_INTEGER
+            } else {
+                FIRST_TABLE_TYPE_ID + (i - 1) as u32
+            };
+            raw.insert(id, (4, 0, child.to_le_bytes().to_vec())); // kind 4 = List
+        }
+        let strings: Vec<String> = Vec::new();
+        let head = FIRST_TABLE_TYPE_ID + (links - 1) as u32;
+        let err = decode_type_name(
+            head,
+            &raw,
+            &strings,
+            &mut HashMap::new(),
+            &mut HashSet::new(),
+        )
+        .expect_err("deep chain must be rejected");
+        assert!(err.contains("too deep"), "unexpected error: {err}");
+
+        // A shallow chain well within the cap still decodes (the cap must not
+        // reject legitimate graphs).
+        let shallow_head = FIRST_TABLE_TYPE_ID + 3;
+        let name = decode_type_name(
+            shallow_head,
+            &raw,
+            &strings,
+            &mut HashMap::new(),
+            &mut HashSet::new(),
+        )
+        .expect("a shallow chain decodes");
+        assert!(name.starts_with("List OF "));
+    }
+
+    #[test]
     fn thread_types_round_trip_with_and_without_resource() {
         let mut strings = StringPool::new();
         let mut types = TypeTable::new();
@@ -1496,6 +1540,28 @@ mod reader_tests {
         .unwrap();
         assert_ne!(hash_prim, hash_list);
         assert_ne!(hash_list, hash_func);
+    }
+
+    #[test]
+    fn abi_serializer_rejects_deep_acyclic_type_chain() {
+        // bug-153: serialize_type must reject a deep-but-acyclic type graph via
+        // the depth cap. `type_refs` only guards *cycles* (repeated ids), so a
+        // long linear chain of distinct composites would otherwise recurse one
+        // native frame per link and overflow the stack before any hash is formed.
+        let mut strings = StringPool::new();
+        let mut types = TypeTable::new();
+        let deep_name = format!("{}Integer", "List OF ".repeat(MAX_TYPE_GRAPH_DEPTH + 5));
+        let head = types.type_id(&mut strings, &deep_name);
+        let constants = ConstPool::new();
+        let err = type_sig_hash(
+            head,
+            BinaryReprExportKind::Type,
+            &strings.values,
+            &types,
+            &constants,
+        )
+        .expect_err("deep chain must be rejected, not overflow the stack");
+        assert!(err.contains("too deep"), "unexpected error: {err}");
     }
 }
 

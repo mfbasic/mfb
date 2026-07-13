@@ -1439,8 +1439,13 @@ pub(super) fn lower_tls_write_macos(
         ins.extend([
             abi::load_u64("%v10", abi::ARG[1], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), DLEN),
+            // The byte payload begins past the CAPACITY-sized entry array, not the
+            // COUNT-sized one: an append-built list carries spare capacity, so
+            // COUNT*ENTRY would mis-address it (byte payload base is
+            // HEADER + CAPACITY*ENTRY). Mirrors the OpenSSL path (bug-157).
+            abi::load_u64("%v14", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
             abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("%v13", "%v10", "%v12"),
+            abi::multiply_registers("%v13", "%v14", "%v12"),
             abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
             abi::add_registers("%v11", abi::ARG[1], "%v13"),
             abi::store_u64("%v11", abi::stack_pointer(), DATA),

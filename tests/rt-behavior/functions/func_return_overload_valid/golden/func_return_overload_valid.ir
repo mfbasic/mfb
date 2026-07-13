@@ -20,7 +20,7 @@
     ],
     "returns": "List OF Byte",
     "body": [
-    { "op": "return", "line": 6, "value": { "kind": "list", "type": "List OF Unknown", "values": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "65" }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "66" }] }] } }
+    { "op": "return", "line": 6, "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "65" }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "66" }] }] } }
     ]
   },
   {

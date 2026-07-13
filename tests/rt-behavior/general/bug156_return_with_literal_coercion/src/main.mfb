@@ -1,0 +1,31 @@
+IMPORT io
+
+' bug-156: an unsuffixed numeric literal returned from a Fixed/Money function,
+' or WITH-updating a Fixed field, must coerce to the declared type (not be read
+' as raw Integer bits → 0.00). Expect 5.00 / 3.00 / 9.00 / 2.00.
+FUNC getf AS Fixed
+  RETURN 5
+END FUNC
+
+FUNC getm AS Money
+  RETURN 3
+END FUNC
+
+TYPE Point
+  x AS Fixed
+  y AS Fixed
+END TYPE
+
+FUNC main AS Integer
+  io::print(toString(getf()))
+  io::print("\n")
+  io::print(toString(getm()))
+  io::print("\n")
+  LET p AS Point = Point[1F, 2F]
+  LET q AS Point = WITH p { x := 9 }
+  io::print(toString(q.x))
+  io::print("\n")
+  io::print(toString(q.y))
+  io::print("\n")
+  RETURN 0
+END FUNC

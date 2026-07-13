@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness (x86-only miscompile of a core builtin)
 
-Status: Open
-Regression Test: _(none yet — see Validation)_
+Status: FIXED
+Regression Test: `arch::x86_64::encode::tests` — `add_carry_zero_token_rhs_adds_immediate_zero`, `add_carry_zero_token_rhs_no_carry_in_is_move`, `sub_borrow_zero_token_rhs_subtracts_immediate_zero`
 
 On linux-x86_64, the register-form `add_carry`/`sub_borrow` encoders do not treat
 a zero-token (`abi::ZERO` → `"xzr"`) `rhs` as zero: they emit the ALU op against

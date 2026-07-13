@@ -2067,21 +2067,49 @@ fn enc_add_carry(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
     let carry_in = reg(field(instruction, "carry_in")?)?;
+    // A zero-token (`abi::ZERO` → "xzr") rhs must contribute exactly 0. `reg`
+    // maps it to sentinel 16, which `alu_rr` would encode as `r8` (REX.R + reg 0),
+    // folding the caller's leftover `r8` into the sum — this corrupted the PCG64
+    // high state word on x86 (bug-154). Route zero-token rhs through the immediate
+    // form (add nothing / `adc dst,0`) instead.
+    let rhs_zero = is_zero_token(rhs);
     let mut bytes = Vec::new();
     if is_zero_token(carry_in) {
-        // mov dst,lhs ; add dst,rhs
-        if dst != lhs {
-            bytes.extend_from_slice(&enc_mov(dst, lhs));
+        // dst = lhs + rhs + 0
+        if rhs_zero {
+            // dst = lhs: a plain move (nothing to add).
+            if dst != lhs {
+                bytes.extend_from_slice(&enc_mov(dst, lhs));
+            }
+        } else if dst == rhs {
+            // dst already holds rhs; add lhs in place (add commutes) so the
+            // `mov dst,lhs` cannot clobber rhs before it is read (mirrors alu3).
+            bytes.extend_from_slice(&alu_rr(0x01, dst, lhs));
+        } else {
+            if dst != lhs {
+                bytes.extend_from_slice(&enc_mov(dst, lhs));
+            }
+            bytes.extend_from_slice(&alu_rr(0x01, dst, rhs)); // add dst, rhs
         }
-        bytes.extend_from_slice(&alu_rr(0x01, dst, rhs)); // add dst, rhs
     } else {
         // Set CF = carry_in (domain {0,1}) without modifying carry_in: bt carry_in, 0.
         bytes.extend_from_slice(&enc_bt_imm0(carry_in)); // CF = bit0(carry_in)
-        if dst != lhs {
-            bytes.extend_from_slice(&enc_mov(dst, lhs));
+        if rhs_zero {
+            // dst = lhs + 0 + CF : mov dst,lhs ; adc dst,0 (imm form: 0x81 /2).
+            if dst != lhs {
+                bytes.extend_from_slice(&enc_mov(dst, lhs));
+            }
+            bytes.extend_from_slice(&enc_alu_imm32(2, dst, 0)); // adc dst, 0
+        } else if dst == rhs {
+            // dst holds rhs; adc lhs in place (adc commutes over lhs/rhs).
+            bytes.extend_from_slice(&alu_rr(0x11, dst, lhs));
+        } else {
+            if dst != lhs {
+                bytes.extend_from_slice(&enc_mov(dst, lhs));
+            }
+            // adc dst, rhs : 0x11 /r (MR form)
+            bytes.extend_from_slice(&alu_rr(0x11, dst, rhs));
         }
-        // adc dst, rhs : 0x11 /r (MR form)
-        bytes.extend_from_slice(&alu_rr(0x11, dst, rhs));
     }
     // A carry_out of the zero token ("discard the carry", the last-limb
     // convention) must emit no setcc at all: `enc_setcc_to(16, ...)` computes
@@ -2107,12 +2135,44 @@ fn enc_sub_borrow(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
     let borrow_in = reg(field(instruction, "borrow_in")?)?;
+    // A zero-token rhs must subtract exactly 0 — sentinel 16 would otherwise
+    // encode as `r8` (bug-154, symmetric with enc_add_carry). Latent today: no
+    // shared caller passes `xzr` as sub_borrow's rhs.
+    let rhs_zero = is_zero_token(rhs);
     let mut bytes = Vec::new();
     if is_zero_token(borrow_in) {
+        // dst = lhs - rhs - 0
+        if rhs_zero {
+            // dst = lhs (nothing to subtract).
+            if dst != lhs {
+                bytes.extend_from_slice(&enc_mov(dst, lhs));
+            }
+        } else if dst == rhs {
+            // dst holds rhs; `dst = lhs - rhs = -(rhs) + lhs` (sub does not
+            // commute), mirroring alu3's dst==rhs guard.
+            bytes.extend_from_slice(&enc_neg(dst));
+            bytes.extend_from_slice(&alu_rr(0x01, dst, lhs)); // add dst, lhs
+        } else {
+            if dst != lhs {
+                bytes.extend_from_slice(&enc_mov(dst, lhs));
+            }
+            bytes.extend_from_slice(&alu_rr(0x29, dst, rhs)); // sub dst, rhs
+        }
+    } else if rhs_zero {
+        // dst = lhs - 0 - borrow : bt borrow,0 ; mov dst,lhs ; sbb dst,0.
+        bytes.extend_from_slice(&enc_bt_imm0(borrow_in));
         if dst != lhs {
             bytes.extend_from_slice(&enc_mov(dst, lhs));
         }
-        bytes.extend_from_slice(&alu_rr(0x29, dst, rhs)); // sub dst, rhs
+        bytes.extend_from_slice(&enc_alu_imm32(3, dst, 0)); // sbb dst, 0
+    } else if dst == rhs {
+        // dst = lhs - rhs - borrow with dst aliasing rhs has no scratch-free
+        // 2-op form (neg would clobber CF = borrow_in); no current caller emits
+        // it. Reject rather than emit wrong bytes (alu3 rejects its gaps too).
+        return Err(
+            "x86-64 sub_borrow with dst aliasing rhs and a register borrow-in is not handled"
+                .to_string(),
+        );
     } else {
         bytes.extend_from_slice(&enc_bt_imm0(borrow_in)); // bt borrow_in,0 → CF=borrow_in (non-destructive)
         if dst != lhs {

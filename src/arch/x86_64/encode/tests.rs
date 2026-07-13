@@ -555,6 +555,68 @@ fn sub_borrow_no_borrow_in() {
     );
 }
 
+#[test]
+fn add_carry_zero_token_rhs_adds_immediate_zero() {
+    // bug-154: the PCG64 seed carry-propagation step
+    // (entry_and_arena.rs:1994) emits add_carry(hi, ZERO, hi, ZERO, carry) —
+    // dst=lhs=hi, rhs=xzr, carry_in=carry. A zero-token rhs must add exactly 0;
+    // it must NOT be encoded as `r8` (sentinel 16 & 7 == 0 + REX.R). Expect:
+    // bt r10,0 (49 0F BA E2 00) ; adc rbx,0 (48 81 D3 00 00 00 00) ;
+    // carry_out=xzr → no setcc.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "rbx"),
+                ("rhs", "xzr"),
+                ("carry_in", "r10")
+            ]
+        ),
+        [0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x81, 0xD3, 0x00, 0x00, 0x00, 0x00]
+    );
+}
+
+#[test]
+fn add_carry_zero_token_rhs_no_carry_in_is_move() {
+    // bug-154: carry_in=xzr and rhs=xzr with dst != lhs is just dst = lhs
+    // (nothing added). mov rbx,rdi (48 89 FB) ; carry_out=xzr → no setcc.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "rdi"),
+                ("rhs", "xzr"),
+                ("carry_in", "xzr")
+            ]
+        ),
+        [0x48, 0x89, 0xFB]
+    );
+}
+
+#[test]
+fn sub_borrow_zero_token_rhs_subtracts_immediate_zero() {
+    // bug-154 (symmetric, latent today): a zero-token rhs must subtract exactly
+    // 0. bt r10,0 (49 0F BA E2 00) ; sbb rbx,0 (48 81 DB 00 00 00 00) ;
+    // borrow_out=xzr → no setcc.
+    assert_eq!(
+        bytes(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "xzr"),
+                ("lhs", "rbx"),
+                ("rhs", "xzr"),
+                ("borrow_in", "r10")
+            ]
+        ),
+        [0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x81, 0xDB, 0x00, 0x00, 0x00, 0x00]
+    );
+}
+
 /// Encode and return the error string (the `Encoded` Ok value has no `Debug`).
 fn enc_err(ins: &CodeInstruction) -> String {
     match encode_instruction(ins) {

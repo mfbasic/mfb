@@ -101,7 +101,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         LEN => Some(&[&["value"]]),
         TYPE_NAME => Some(&[&["value"]]),
         TO_STRING => Some(&[&["value"], &["precision", "decimals"]]),
-        TO_INT => Some(&[&["value"], &["text", "base"]]),
+        TO_INT => Some(&[&["value", "text"], &["base"]]),
         TO_FLOAT => Some(&[&["value"]]),
         TO_FIXED => Some(&[&["value"]]),
         TO_BYTE => Some(&[&["value"]]),

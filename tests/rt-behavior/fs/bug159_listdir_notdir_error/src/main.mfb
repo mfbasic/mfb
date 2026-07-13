@@ -1,0 +1,22 @@
+IMPORT io
+IMPORT fs
+
+' bug-159: fs::listDirectory on a regular file fails with ENOTDIR (errno 20),
+' which is outside the ENOENT/EACCES/EEXIST set the generic errno mapper names.
+' Before the fix, the catch-all fell through to ErrInvalidArgument (77050002);
+' it must return ErrOutput (77020002).
+FUNC probe AS Integer
+  fs::writeText("target/bug159_regfile", "x")
+  LET names AS List OF String = fs::listDirectory("target/bug159_regfile")
+  io::print("no-error\n")
+  RETURN 0
+  TRAP(err)
+    io::print(toString(err.code))
+    io::print("\n")
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RETURN probe()
+END FUNC

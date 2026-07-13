@@ -1,0 +1,69 @@
+{
+  "project": "bug156_return_with_literal_coercion",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "getf",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Fixed",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "5" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "getm",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Money",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Fixed", "line": 15 },
+      { "visibility": null, "name": "y", "type": "Fixed", "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "getf", "arguments": [] }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "\n" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "getm", "arguments": [] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "\n" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1F" }, { "kind": "number", "value": "2F" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Point", "value": { "kind": "with", "target": { "kind": "identifier", "value": "p" }, "updates": [{ "field": "x", "value": { "kind": "number", "value": "9" } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "x" }] }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "\n" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "y" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "\n" }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 30 }
+      ]
+    }
+    ]
+  }
+  ]
+}

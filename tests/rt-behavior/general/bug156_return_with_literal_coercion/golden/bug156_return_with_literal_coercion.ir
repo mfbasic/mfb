@@ -1,0 +1,70 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug156_return_with_literal_coercion",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "x", "type": "Fixed" },
+    { "visibility": null, "line": 16, "name": "y", "type": "Fixed" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "getf",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Fixed",
+    "body": [
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Fixed", "value": "5" } }
+    ]
+  },
+  {
+    "name": "getm",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Money",
+    "body": [
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Money", "value": "3" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "getf", "args": [] }] }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "\n" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "getm", "args": [] }] }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "\n" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "p", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Fixed", "value": "1" }, { "kind": "const", "type": "Fixed", "value": "2" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "q", "type": "Point", "value": { "kind": "with", "type": "Point", "target": { "kind": "local", "name": "p" }, "updates": [{ "field": "x", "value": { "kind": "const", "type": "Fixed", "value": "9" } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Fixed", "target": { "kind": "local", "name": "q" }, "member": "x" }] }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "\n" }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Fixed", "target": { "kind": "local", "name": "q" }, "member": "y" }] }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "\n" }] } },
+    { "op": "return", "line": 30, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
