@@ -79,6 +79,7 @@ pub(in crate::target::shared::code) const AUDIO_OUTPUT_CALLBACK_SYMBOL: &str =
 pub(in crate::target::shared::code) const AUDIO_INPUT_CALLBACK_SYMBOL: &str =
     "_mfb_rt_audio_input_callback";
 
+mod alsa;
 mod macos;
 
 pub(in crate::target::shared::code) use macos::{
@@ -103,9 +104,11 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
     if platform.target().contains("macos") {
         return macos::lower_audio_macos(call, symbol, platform_imports, platform);
     }
-    // Linux/ALSA backend lands in plan-33-C.
-    Err(format!(
-        "native code plan does not emit runtime call '{call}' for {}",
-        platform.target()
-    ))
+    alsa::lower_audio_alsa(call, symbol, platform_imports, platform)
+}
+
+/// C-string data objects (the `libasound.so.2` soname + ALSA symbol names) the
+/// Linux backend references for its `dlopen`/`dlsym`.
+pub(in crate::target::shared::code) fn alsa_data_objects() -> Vec<CodeDataObject> {
+    alsa::data_objects()
 }

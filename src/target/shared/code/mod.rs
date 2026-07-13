@@ -579,6 +579,16 @@ pub(crate) fn lower_module_for_platform(
             data_objects.extend(tls::tls_cstring_data_objects(tls_server));
         }
     }
+    // The Linux audio backend references read-only C strings (the libasound
+    // soname + ALSA symbol names) for its dlopen/dlsym.
+    if !platform.target().contains("macos")
+        && native_plan
+            .runtime_symbols
+            .iter()
+            .any(|symbol| symbol.starts_with("_mfb_rt_audio_"))
+    {
+        data_objects.extend(audio::alsa_data_objects());
+    }
     // NIST-EC helpers reference read-only C strings (framework paths + dlsym
     // names) for their load-time dlopen/dlsym.
     if native_plan

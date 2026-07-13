@@ -252,6 +252,24 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: spec.symbol.to_string(),
             })
             .collect(),
+            call if crate::builtins::audio::is_audio_call(call) => {
+                // The Linux audio backend resolves libasound.so.2 at first use
+                // via dlopen/dlsym (never a DT_NEEDED — plan-33-C §3.1), so a
+                // binary that mentions `audio` still execs where alsa-lib is
+                // absent. `free` releases device-hint strings; `clock_gettime`
+                // bounds a timed read; the state page is mmap/munmap'd.
+                [
+                    "dlopen",
+                    "dlsym",
+                    "free",
+                    "clock_gettime",
+                    "mmap",
+                    "munmap",
+                ]
+                .into_iter()
+                .map(|symbol| self.libc_import(symbol, spec.symbol))
+                .collect()
+            }
             call if crate::builtins::net::is_net_call(call) => {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
