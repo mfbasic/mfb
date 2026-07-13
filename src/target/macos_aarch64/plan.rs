@@ -588,6 +588,106 @@ impl plan::NativePlanPlatform for Platform {
                     })
                     .collect()
             }
+            call if crate::builtins::audio::is_audio_call(call) => {
+                // Per-spec framework imports (plan-33-B §5): a program that only
+                // enumerates devices pulls CoreAudio + CoreFoundation, never
+                // AudioToolbox. Each stream helper additionally imports the
+                // AudioQueue symbols and pthread mutex/cond.
+                let mut imports: Vec<(&str, &str)> = Vec::new();
+                let core_audio = |imports: &mut Vec<(&str, &str)>| {
+                    imports.push(("CoreAudio", "_AudioObjectGetPropertyData"));
+                    imports.push(("CoreAudio", "_AudioObjectGetPropertyDataSize"));
+                };
+                let cf_read = |imports: &mut Vec<(&str, &str)>| {
+                    imports.push(("CoreFoundation", "_CFStringGetCString"));
+                    imports.push(("CoreFoundation", "_CFRelease"));
+                };
+                let pthread = |imports: &mut Vec<(&str, &str)>| {
+                    for s in [
+                        "_pthread_mutex_init",
+                        "_pthread_mutex_lock",
+                        "_pthread_mutex_unlock",
+                        "_pthread_mutex_destroy",
+                        "_pthread_cond_init",
+                        "_pthread_cond_signal",
+                        "_pthread_cond_wait",
+                        "_pthread_cond_destroy",
+                    ] {
+                        imports.push(("libSystem", s));
+                    }
+                };
+                let audio_queue = |imports: &mut Vec<(&str, &str)>| {
+                    for s in [
+                        "_AudioQueueNewOutput",
+                        "_AudioQueueNewInput",
+                        "_AudioQueueAllocateBuffer",
+                        "_AudioQueueEnqueueBuffer",
+                        "_AudioQueueStart",
+                        "_AudioQueueStop",
+                        "_AudioQueueFlush",
+                        "_AudioQueueDispose",
+                    ] {
+                        imports.push(("AudioToolbox", s));
+                    }
+                };
+                match call {
+                    "audio.devices" => {
+                        core_audio(&mut imports);
+                        cf_read(&mut imports);
+                    }
+                    "audio.openInput" | "audio.openInputDevice" => {
+                        audio_queue(&mut imports);
+                        pthread(&mut imports);
+                        // §4.5 default-input-device precheck.
+                        core_audio(&mut imports);
+                        if call == "audio.openInputDevice" {
+                            imports.push(("AudioToolbox", "_AudioQueueSetProperty"));
+                            imports.push(("CoreFoundation", "_CFStringCreateWithCString"));
+                            imports.push(("CoreFoundation", "_CFRelease"));
+                        }
+                    }
+                    "audio.openOutput" | "audio.openOutputDevice" => {
+                        audio_queue(&mut imports);
+                        pthread(&mut imports);
+                        if call == "audio.openOutputDevice" {
+                            imports.push(("AudioToolbox", "_AudioQueueSetProperty"));
+                            imports.push(("CoreFoundation", "_CFStringCreateWithCString"));
+                            imports.push(("CoreFoundation", "_CFRelease"));
+                        }
+                    }
+                    "audio.write" => {
+                        imports.push(("AudioToolbox", "_AudioQueueEnqueueBuffer"));
+                        pthread(&mut imports);
+                    }
+                    "audio.read" | "audio.readTimeout" => {
+                        pthread(&mut imports);
+                        if call == "audio.readTimeout" {
+                            imports.push(("libSystem", "_pthread_cond_timedwait_relative_np"));
+                        }
+                    }
+                    "audio.poll" | "audio.pollTimeout" | "audio.available" | "audio.xruns" => {
+                        pthread(&mut imports);
+                        if call == "audio.pollTimeout" {
+                            imports.push(("libSystem", "_pthread_cond_timedwait_relative_np"));
+                        }
+                    }
+                    "audio.closeInput" | "audio.closeOutput" => {
+                        imports.push(("AudioToolbox", "_AudioQueueStop"));
+                        imports.push(("AudioToolbox", "_AudioQueueFlush"));
+                        imports.push(("AudioToolbox", "_AudioQueueDispose"));
+                        pthread(&mut imports);
+                    }
+                    _ => {}
+                }
+                imports
+                    .into_iter()
+                    .map(|(library, symbol)| PlatformImport {
+                        library: library.to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: spec.symbol.to_string(),
+                    })
+                    .collect()
+            }
             call if crate::builtins::tls::is_tls_call(call) => {
                 // The macOS TLS backend resolves Network.framework (and, for the
                 // server side, Security.framework + CoreFoundation) entirely

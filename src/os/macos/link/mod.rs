@@ -308,6 +308,14 @@ fn dylib_path(library: &str) -> Result<String, String> {
     Ok(match library {
         "libSystem" => "/usr/lib/libSystem.B.dylib".to_string(),
         "Network" => "/System/Library/Frameworks/Network.framework/Network".to_string(),
+        // Audio (plan-33-B §5): AudioQueue backend static framework imports.
+        "AudioToolbox" => {
+            "/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox".to_string()
+        }
+        "CoreAudio" => "/System/Library/Frameworks/CoreAudio.framework/CoreAudio".to_string(),
+        "CoreFoundation" => {
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation".to_string()
+        }
         "AppKit" => "/System/Library/Frameworks/AppKit.framework/AppKit".to_string(),
         "Foundation" => "/System/Library/Frameworks/Foundation.framework/Foundation".to_string(),
         "libobjc" => "/usr/lib/libobjc.A.dylib".to_string(),

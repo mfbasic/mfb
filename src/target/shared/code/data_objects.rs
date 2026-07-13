@@ -278,6 +278,36 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
+    // Audio helpers raise ErrAudioUnavailable / ErrAudioDevice, and validate
+    // parameters with ErrInvalidArgument (plan-33-A §7). Emit whenever any
+    // `audio.*` call is present (surface or internal).
+    if module_uses_any_call(
+        module,
+        &[
+            "audio.devices",
+            "audio.openInput",
+            "audio.openInputDevice",
+            "audio.openOutput",
+            "audio.openOutputDevice",
+            "audio.read",
+            "audio.readTimeout",
+            "audio.write",
+            "audio.poll",
+            "audio.pollTimeout",
+            "audio.available",
+            "audio.xruns",
+            "audio.closeInput",
+            "audio.closeOutput",
+        ],
+    ) {
+        for value in [
+            ERR_AUDIO_UNAVAILABLE_MESSAGE,
+            ERR_AUDIO_DEVICE_MESSAGE,
+            ERR_INVALID_ARGUMENT_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")
         || module_uses_migrated(module, "get")

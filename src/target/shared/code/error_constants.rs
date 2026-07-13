@@ -151,6 +151,15 @@ pub(crate) const ERR_FLOAT_INF_SYMBOL: &str = "_mfb_str_error_float_inf";
 pub(crate) const ERR_FLOAT_OVERFLOW_CODE: &str = "77050015";
 pub(crate) const ERR_FLOAT_OVERFLOW_MESSAGE: &str = "Floating-point arithmetic overflowed to infinity.";
 pub(crate) const ERR_FLOAT_OVERFLOW_SYMBOL: &str = "_mfb_str_error_float_overflow";
+// Audio (plan-33-A §7). Raised by the plan-33-B/C backend helper bodies; the
+// registry rows in `02_error-codes.md` land with plan-33-A so `errorCode::`
+// resolves. `77050016` is `ErrAuthenticationFailed` (crypto).
+pub(crate) const ERR_AUDIO_UNAVAILABLE_CODE: &str = "77050017";
+pub(crate) const ERR_AUDIO_UNAVAILABLE_MESSAGE: &str = "Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied).";
+pub(crate) const ERR_AUDIO_UNAVAILABLE_SYMBOL: &str = "_mfb_str_error_audio_unavailable";
+pub(crate) const ERR_AUDIO_DEVICE_CODE: &str = "77050018";
+pub(crate) const ERR_AUDIO_DEVICE_MESSAGE: &str = "Audio device open, configuration, or stream operation failed.";
+pub(crate) const ERR_AUDIO_DEVICE_SYMBOL: &str = "_mfb_str_error_audio_device";
 
 // -- Network (7707) ---------------------------------------------------------
 pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";

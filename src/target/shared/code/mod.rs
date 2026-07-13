@@ -2274,6 +2274,29 @@ fn lower_runtime_helper(
                 relocations,
             })
         }
+        call if call.starts_with("audio.") => {
+            let (frame, instructions, relocations, stack_slots) =
+                audio::lower_audio_helper(call, symbol, platform_imports, platform)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
         call if call.starts_with("tls.") => {
             let (frame, instructions, relocations, stack_slots) = match call {
                 "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
@@ -2890,6 +2913,7 @@ mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
 mod builder_vector_inline;
+mod audio;
 mod crypto;
 mod crypto_ec;
 mod datetime;
@@ -3093,6 +3117,16 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_TLS_FAILED_CODE,
             ERR_TLS_FAILED_MESSAGE,
             ERR_TLS_FAILED_SYMBOL,
+        ),
+        (
+            ERR_AUDIO_UNAVAILABLE_CODE,
+            ERR_AUDIO_UNAVAILABLE_MESSAGE,
+            ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        ),
+        (
+            ERR_AUDIO_DEVICE_CODE,
+            ERR_AUDIO_DEVICE_MESSAGE,
+            ERR_AUDIO_DEVICE_SYMBOL,
         ),
     ]
 }

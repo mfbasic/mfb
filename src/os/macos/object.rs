@@ -621,6 +621,15 @@ fn dylib_for_library(library: &str) -> Result<String, String> {
     match library {
         "libSystem" => Ok("/usr/lib/libSystem.B.dylib".to_string()),
         "Network" => Ok("/System/Library/Frameworks/Network.framework/Network".to_string()),
+        // Audio (plan-33-B §5): the AudioQueue backend statically imports these
+        // three frameworks (no dlopen on macOS).
+        "AudioToolbox" => {
+            Ok("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox".to_string())
+        }
+        "CoreAudio" => Ok("/System/Library/Frameworks/CoreAudio.framework/CoreAudio".to_string()),
+        "CoreFoundation" => {
+            Ok("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation".to_string())
+        }
         "AppKit" => Ok("/System/Library/Frameworks/AppKit.framework/AppKit".to_string()),
         "Foundation" => {
             Ok("/System/Library/Frameworks/Foundation.framework/Foundation".to_string())
@@ -1302,6 +1311,18 @@ mod tests {
             "/usr/lib/libobjc.A.dylib"
         );
         assert_eq!(dylib_for_library("libz").unwrap(), "/usr/lib/libz.1.dylib");
+        assert_eq!(
+            dylib_for_library("AudioToolbox").unwrap(),
+            "/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox"
+        );
+        assert_eq!(
+            dylib_for_library("CoreAudio").unwrap(),
+            "/System/Library/Frameworks/CoreAudio.framework/CoreAudio"
+        );
+        assert_eq!(
+            dylib_for_library("CoreFoundation").unwrap(),
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+        );
         assert!(dylib_for_library("nope")
             .expect_err("unknown")
             .contains("does not know dylib"));
