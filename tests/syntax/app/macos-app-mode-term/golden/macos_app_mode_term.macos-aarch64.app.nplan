@@ -5,7 +5,7 @@
   "buildMode": "macos-app",
   "project": "macos_app_mode_term",
   "entrySymbol": "_mfb_fn_main",
-  "runtimeSymbols": ["_mfb_rt_term_term_on", "_mfb_rt_term_term_clear", "_mfb_rt_term_term_setForeground", "_mfb_rt_term_term_setBackground", "_mfb_rt_term_term_setBold", "_mfb_rt_term_term_setUnderline", "_mfb_rt_term_term_showCursor", "_mfb_rt_term_term_hideCursor", "_mfb_rt_term_term_moveTo", "_mfb_rt_io_io_write", "_mfb_rt_term_term_isOn", "_mfb_rt_term_term_getForeground", "_mfb_rt_term_term_getBackground", "_mfb_rt_term_term_getBold", "_mfb_rt_term_term_getUnderline", "_mfb_rt_term_term_terminalSize", "_mfb_rt_io_io_print", "_mfb_rt_term_term_off"],
+  "runtimeSymbols": ["_mfb_rt_term_term_on", "_mfb_rt_term_term_clear", "_mfb_rt_term_term_setForeground", "_mfb_rt_term_term_setBackground", "_mfb_rt_term_term_setBold", "_mfb_rt_term_term_setUnderline", "_mfb_rt_term_term_showCursor", "_mfb_rt_term_term_hideCursor", "_mfb_rt_term_term_moveTo", "_mfb_rt_io_io_write", "_mfb_rt_term_term_isOn", "_mfb_rt_term_term_getForeground", "_mfb_rt_term_term_getBackground", "_mfb_rt_term_term_getBold", "_mfb_rt_term_term_getUnderline", "_mfb_rt_term_term_terminalSize", "_mfb_rt_io_io_print", "_mfb_rt_term_term_off", "_mfb_rt_term_term_sync"],
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
@@ -22,6 +22,8 @@
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_off" },
   { "library": "libSystem", "symbol": "_tcsetattr", "requiredBy": "_mfb_rt_term_term_off" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_sync" },
+  { "library": "libSystem", "symbol": "_ioctl", "requiredBy": "_mfb_rt_term_term_sync" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_msgSendSuper", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
