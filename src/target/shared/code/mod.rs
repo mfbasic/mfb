@@ -878,6 +878,20 @@ pub(crate) fn lower_module_for_platform(
     {
         code_functions.push(audio::lower_audio_output_callback(&platform_imports, platform)?);
     }
+    if platform.target().contains("macos")
+        && runtime_symbols.iter().any(|symbol| {
+            matches!(
+                symbol.as_str(),
+                "_mfb_rt_audio_audio_openInput"
+                    | "_mfb_rt_audio_audio_openInputDevice"
+                    | "_mfb_rt_audio_audio_read"
+                    | "_mfb_rt_audio_audio_readTimeout"
+                    | "_mfb_rt_audio_audio_closeInput"
+            )
+        })
+    {
+        code_functions.push(audio::lower_audio_input_callback(&platform_imports, platform)?);
+    }
     if runtime_symbols
         .iter()
         .any(|symbol| symbol == "_mfb_rt_fs_fs_readBytes")

@@ -71,6 +71,11 @@ pub(super) fn lower_audio_macos(
         "audio.devices" => lower_devices(symbol, platform_imports, platform),
         "audio.openOutput" => lower_open_output(symbol, false, platform_imports, platform),
         "audio.openOutputDevice" => lower_open_output(symbol, true, platform_imports, platform),
+        "audio.openInput" => lower_open_input(symbol, false, platform_imports, platform),
+        "audio.openInputDevice" => lower_open_input(symbol, true, platform_imports, platform),
+        "audio.read" => lower_read(symbol, false, platform_imports, platform),
+        "audio.readTimeout" => lower_read(symbol, true, platform_imports, platform),
+        "audio.closeInput" => lower_close_input(symbol, platform_imports, platform),
         "audio.write" => lower_write(symbol, platform_imports, platform),
         "audio.available" => lower_query(symbol, Query::Available, platform_imports, platform),
         "audio.xruns" => lower_query(symbol, Query::Xruns, platform_imports, platform),
@@ -265,6 +270,8 @@ fn lower_open_output(
         abi::store_u64(abi::ZERO, "%v15", S_STARTED),
         abi::store_u64(abi::ZERO, "%v15", S_FREE_TOP),
         abi::store_u64(abi::ZERO, "%v15", S_RING_CAP),
+        abi::move_immediate("%v9", "Integer", &STATE_PAGE.to_string()),
+        abi::store_u64("%v9", "%v15", S_MAP_SIZE),
     ]);
     // pthread_mutex_init(state+S_MUTEX, NULL); pthread_cond_init(state+S_COND, NULL)
     emit_pthread1(symbol, "pthread_mutex_init", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
@@ -395,7 +402,7 @@ fn emit_select_device(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    // kAudioQueueProperty_CurrentDevice = 'aqcd' = 0x61716364 = 1634230116.
+    // kAudioQueueProperty_CurrentDevice = 'aqcd' = 0x61716364 = 1634820964.
     // Build a CFString from the device id, set it, release it.
     let copy_loop = format!("{symbol}_uid_copy");
     let copy_done = format!("{symbol}_uid_copy_done");
@@ -434,7 +441,7 @@ fn emit_select_device(
         // AudioQueueSetProperty(queue, 'aqcd', &cfref, 8)
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::ARG[1], "Integer", "1634230116"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1634820964"),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), UID_CFREF_OFF),
         abi::move_immediate(abi::ARG[3], "Integer", "8"),
     ]);
@@ -888,7 +895,7 @@ fn lower_close_output(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", H_CLOSED),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
-        abi::move_immediate(abi::ARG[1], "Integer", &STATE_PAGE.to_string()),
+        abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
     platform.emit_libc_call("munmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
@@ -948,12 +955,10 @@ fn lower_query(
         abi::multiply_registers("%v12", "%v12", "%v13"),
         abi::branch(&have),
         abi::label(&is_input),
-        abi::load_u64("%v12", "%v10", S_RING_HEAD),
-        abi::load_u64("%v13", "%v10", S_RING_TAIL),
-        abi::subtract_registers("%v12", "%v12", "%v13"),
+        abi::load_u64("%v12", "%v10", S_RING_FILL),
         abi::load_u64("%v13", "%v9", H_BYTES_PER_FRAME),
-        // frames = bytes / bytesPerFrame; bytesPerFrame is 2 (mono) or 4 (stereo).
-        // Shift right by 1 or 2. channels==1 → >>1, channels==2 → >>2.
+        // frames = fill / bytesPerFrame; bytesPerFrame is 2 (mono) or 4 (stereo),
+        // so >>1 then a further >>1 when stereo.
         abi::shift_right_immediate("%v12", "%v12", 1),
         abi::compare_immediate("%v13", "2"),
         abi::branch_eq(&have),
@@ -1043,6 +1048,782 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], CB_FRAME);
     Ok(CodeFunction {
         name: "runtime.audio.outputCallback".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame,
+        stack_slots,
+        instructions,
+        relocations,
+    })
+}
+
+// Input/read frame offsets (read never builds the ASBD/UID buffers, so it
+// reuses that region for the timespec/clock scratch).
+const TS_OFF: usize = 128; // relative timespec (16 B)
+const CLK_OFF: usize = 144; // clock_gettime result (16 B)
+const FINAL_LIST_OFF: usize = 160; // right-sized result for a partial timed read
+const DEADLINE_OFF: usize = 56; // absolute deadline (ns)
+const PAYLOAD_OFF: usize = 64; // byte-list payload cursor
+const NEED_OFF: usize = 72; // requested bytes
+const LIST_PTR_OFF: usize = 80; // result list ptr
+const GOT_OFF: usize = 88; // bytes accumulated so far
+const FRAMES_OFF: usize = 96; // requested frames
+const TIMEOUT_OFF: usize = 104; // timeoutMs
+// openInput-only scratch (device path uses UID buffers; default path uses these).
+const PRECHK_ADDR: usize = 440;
+const PRECHK_SIZE: usize = 456;
+const PRECHK_ID: usize = 464;
+const RINGCAP_OFF: usize = 472;
+const MAPSIZE_OFF: usize = 480;
+const READ_FRAMES_MAX: &str = "1048576";
+const TIMEOUT_MAX: &str = "86400000";
+
+/// Allocate a `List OF Byte` of `count` bytes (count in `count_off`), filling the
+/// header + entry array; the byte payload (at list + HEADER + count*ENTRY) is
+/// left uninitialized. Stores the list pointer at `list_off`.
+fn emit_alloc_byte_list(
+    symbol: &str,
+    tag: &str,
+    count_off: usize,
+    list_off: usize,
+    alloc_fail: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let entry_loop = format!("{symbol}_{tag}_bl_entry");
+    let entry_done = format!("{symbol}_{tag}_bl_entry_done");
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), count_off),
+        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("%v12", "%v10", "%v11"),
+        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), "%v12", "%v10"), // + count payload bytes
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    emit_alloc(symbol, instructions, relocations, alloc_fail);
+    instructions.extend([
+        abi::move_register("%v15", abi::RET[1]),
+        abi::store_u64("%v15", abi::stack_pointer(), list_off),
+        abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
+        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate("%v9", "Byte", "1"),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64("%v10", abi::stack_pointer(), count_off),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
+        // entry array: entry[i] = { USED, value_offset=i, value_length=1 }
+        abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE), // entry cursor
+        abi::move_immediate("%v13", "Integer", "0"), // i
+        abi::label(&entry_loop),
+        abi::compare_registers("%v13", "%v10"),
+        abi::branch_ge(&entry_done),
+        abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64("%v13", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate("%v14", "Integer", "1"),
+        abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("%v13", "%v13", 1),
+        abi::branch(&entry_loop),
+        abi::label(&entry_done),
+    ]);
+}
+
+/// openInput(sampleRate, channels, bufferFrames) or the device overload.
+fn lower_open_input(
+    symbol: &str,
+    device: bool,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let invalid = format!("{symbol}_invalid");
+    let dev_fail = format!("{symbol}_dev_fail");
+    let unavailable = format!("{symbol}_unavailable");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let buf_loop = format!("{symbol}_buf_loop");
+    let buf_done = format!("{symbol}_buf_done");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    if device {
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), DEVID_OFF),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::ARG[3], abi::stack_pointer(), BF_OFF),
+        ]);
+    } else {
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), BF_OFF),
+        ]);
+    }
+    emit_validate_open(symbol, SR_OFF, CH_OFF, BF_OFF, &invalid, &mut instructions);
+    // §4.5: for the default overload, require a default input device.
+    if !device {
+        instructions.extend([
+            abi::move_immediate("%v9", "Integer", SEL_DEFIN),
+            abi::store_u32("%v9", abi::stack_pointer(), PRECHK_ADDR),
+            abi::move_immediate("%v9", "Integer", SCOPE_GLOBAL),
+            abi::store_u32("%v9", abi::stack_pointer(), PRECHK_ADDR + 4),
+            abi::store_u32(abi::ZERO, abi::stack_pointer(), PRECHK_ADDR + 8),
+            abi::move_immediate("%v9", "Integer", "4"),
+            abi::store_u32("%v9", abi::stack_pointer(), PRECHK_SIZE),
+            abi::store_u32(abi::ZERO, abi::stack_pointer(), PRECHK_ID),
+            abi::move_immediate(abi::return_register(), "Integer", SYS_OBJECT),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PRECHK_ADDR),
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),
+            abi::add_immediate(abi::ARG[4], abi::stack_pointer(), PRECHK_SIZE),
+            abi::add_immediate(abi::ARG[5], abi::stack_pointer(), PRECHK_ID),
+        ]);
+        platform.emit_libc_call("AudioObjectGetPropertyData", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&unavailable),
+            abi::load_u32("%v9", abi::stack_pointer(), PRECHK_ID),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&unavailable),
+        ]);
+    }
+    // bytesPerFrame, ringCap, mapSize.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
+        abi::move_immediate("%v10", "Integer", "2"),
+        abi::multiply_registers("%v9", "%v9", "%v10"),
+        abi::store_u64("%v9", abi::stack_pointer(), BPF_OFF),
+        // ringCap = bufferFrames * bytesPerFrame * NUM_BUFFERS
+        abi::load_u64("%v11", abi::stack_pointer(), BF_OFF),
+        abi::multiply_registers("%v11", "%v11", "%v9"),
+        abi::move_immediate("%v12", "Integer", &NUM_BUFFERS.to_string()),
+        abi::multiply_registers("%v11", "%v11", "%v12"),
+        abi::store_u64("%v11", abi::stack_pointer(), RINGCAP_OFF),
+        // mapSize = round_up(S_RING + ringCap, STATE_PAGE)
+        abi::add_immediate("%v11", "%v11", S_RING),
+        abi::add_immediate("%v11", "%v11", STATE_PAGE - 1),
+        abi::shift_right_immediate("%v11", "%v11", 14),
+        abi::shift_left_immediate("%v11", "%v11", 14),
+        abi::store_u64("%v11", abi::stack_pointer(), MAPSIZE_OFF),
+        // AudioHandle.
+        abi::move_immediate(abi::return_register(), "Integer", &H_RECORD_SIZE.to_string()),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register("%v15", abi::RET[1]),
+        abi::store_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate("%v9", "Integer", KIND_INPUT),
+        abi::store_u64("%v9", "%v15", H_KIND),
+        abi::store_u64(abi::ZERO, "%v15", H_CLOSED),
+        abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
+        abi::store_u64("%v9", "%v15", H_SAMPLE_RATE),
+        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
+        abi::store_u64("%v9", "%v15", H_CHANNELS),
+        abi::load_u64("%v9", abi::stack_pointer(), BPF_OFF),
+        abi::store_u64("%v9", "%v15", H_BYTES_PER_FRAME),
+        abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
+        abi::store_u64("%v9", "%v15", H_BUFFER_FRAMES),
+        // mmap(0, mapSize, PROT, FLAGS, -1, 0)
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), MAPSIZE_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", MMAP_PROT),
+        abi::move_immediate(abi::ARG[3], "Integer", MMAP_FLAGS),
+        abi::bitwise_not(abi::ARG[4], abi::ZERO),
+        abi::move_immediate(abi::ARG[5], "Integer", "0"),
+    ]);
+    platform.emit_libc_call("mmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::add_immediate("%v9", abi::return_register(), 1),
+        abi::compare_immediate("%v9", MAP_FAILED_CMP),
+        abi::branch_eq(&dev_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
+        abi::store_u64(abi::return_register(), "%v15", H_STATE),
+        abi::load_u64("%v15", abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, "%v15", S_XRUNS),
+        abi::store_u64(abi::ZERO, "%v15", S_CLOSED),
+        abi::store_u64(abi::ZERO, "%v15", S_STARTED),
+        abi::store_u64(abi::ZERO, "%v15", S_RING_HEAD),
+        abi::store_u64(abi::ZERO, "%v15", S_RING_TAIL),
+        abi::store_u64(abi::ZERO, "%v15", S_RING_FILL),
+        abi::load_u64("%v9", abi::stack_pointer(), RINGCAP_OFF),
+        abi::store_u64("%v9", "%v15", S_RING_CAP),
+        abi::load_u64("%v9", abi::stack_pointer(), MAPSIZE_OFF),
+        abi::store_u64("%v9", "%v15", S_MAP_SIZE),
+    ]);
+    emit_pthread1(symbol, "pthread_mutex_init", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(symbol, "pthread_cond_init", STATE_OFF, S_COND, platform, platform_imports, &mut instructions, &mut relocations)?;
+    // ASBD.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
+        abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], "%v9"),
+        abi::store_double(abi::FP_SCRATCH[0], abi::stack_pointer(), ASBD_OFF),
+        abi::move_immediate("%v9", "Integer", FORMAT_LPCM),
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 8),
+        abi::move_immediate("%v9", "Integer", FORMAT_FLAGS),
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 12),
+        abi::load_u64("%v9", abi::stack_pointer(), BPF_OFF),
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 16),
+        abi::move_immediate("%v10", "Integer", "1"),
+        abi::store_u32("%v10", abi::stack_pointer(), ASBD_OFF + 20),
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 24),
+        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 28),
+        abi::move_immediate("%v9", "Integer", "16"),
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 32),
+        abi::store_u32(abi::ZERO, abi::stack_pointer(), ASBD_OFF + 36),
+        // AudioQueueNewInput(&asbd, callback, handle, NULL, NULL, 0, &osobject)
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), ASBD_OFF),
+    ]);
+    emit_data_address(symbol, abi::ARG[1], AUDIO_INPUT_CALLBACK_SYMBOL, &mut instructions, &mut relocations);
+    instructions.extend([
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::ARG[4], "Integer", "0"),
+        abi::move_immediate(abi::ARG[5], "Integer", "0"),
+        abi::load_u64(abi::ARG[6], abi::stack_pointer(), STATE_OFF),
+        abi::add_immediate(abi::ARG[6], abi::ARG[6], S_OSOBJECT),
+    ]);
+    platform.emit_libc_call("AudioQueueNewInput", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_fail),
+    ]);
+    if device {
+        emit_select_device(symbol, &dev_fail, platform, platform_imports, &mut instructions, &mut relocations)?;
+    }
+    // Allocate NUM_BUFFERS buffers and enqueue each (input buffers must be
+    // enqueued to receive captured data).
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), I_OFF),
+        abi::label(&buf_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::compare_immediate("%v9", &NUM_BUFFERS.to_string()),
+        abi::branch_eq(&buf_done),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+        abi::load_u64("%v11", abi::stack_pointer(), BF_OFF),
+        abi::load_u64("%v12", abi::stack_pointer(), BPF_OFF),
+        abi::multiply_registers("%v11", "%v11", "%v12"),
+        abi::move_register(abi::ARG[1], "%v11"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), BUFPTR_OFF),
+    ]);
+    platform.emit_libc_call("AudioQueueAllocateBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_fail),
+        // AudioQueueEnqueueBuffer(queue, buf, 0, NULL)
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+    ]);
+    platform.emit_libc_call("AudioQueueEnqueueBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_fail),
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::branch(&buf_loop),
+        abi::label(&buf_done),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", "%v10", S_STARTED),
+        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+    ]);
+    platform.emit_libc_call("AudioQueueStart", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_fail),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&invalid),
+    ]);
+    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&unavailable));
+    emit_fail(symbol, ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&dev_fail));
+    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&done));
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// read(input, frames[, timeoutMs]). Drains the ring incrementally into the
+/// pre-allocated result across multiple callback fills, so the ring can be small
+/// relative to a large read. On timeout expiry, returns the whole frames
+/// gathered so far (possibly none) in a right-sized list.
+fn lower_read(
+    symbol: &str,
+    timeout: bool,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let invalid = format!("{symbol}_invalid");
+    let dev_fail = format!("{symbol}_dev_fail");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let drain_loop = format!("{symbol}_drain");
+    let drain_done = format!("{symbol}_drain_done");
+    let wait_data = format!("{symbol}_wait");
+    let have_data = format!("{symbol}_have");
+    let copy_loop = format!("{symbol}_copy");
+    let copy_wrap_ok = format!("{symbol}_copy_wrap");
+    let copy_done = format!("{symbol}_copy_done");
+    let chunk_ok = format!("{symbol}_chunk_ok");
+    let ret_full = format!("{symbol}_ret_full");
+    let fin_loop = format!("{symbol}_fin");
+    let fin_done = format!("{symbol}_fin_done");
+    let tw_ready = format!("{symbol}_tw_ready");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_OFF),
+    ]);
+    if timeout {
+        instructions.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFF));
+    }
+    instructions.extend([
+        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&dev_fail),
+        abi::load_u64("%v10", abi::return_register(), H_STATE),
+        abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v10", abi::return_register(), H_BYTES_PER_FRAME),
+        abi::store_u64("%v10", abi::stack_pointer(), BPF_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), FRAMES_OFF),
+        abi::compare_immediate("%v9", "1"),
+        abi::branch_lt(&invalid),
+        abi::move_immediate("%v11", "Integer", READ_FRAMES_MAX),
+        abi::compare_registers("%v9", "%v11"),
+        abi::branch_gt(&invalid),
+        abi::multiply_registers("%v12", "%v9", "%v10"),
+        abi::store_u64("%v12", abi::stack_pointer(), NEED_OFF),
+    ]);
+    if timeout {
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+            abi::move_immediate("%v11", "Integer", TIMEOUT_MAX),
+            abi::compare_registers("%v9", "%v11"),
+            abi::branch_gt(&invalid),
+        ]);
+    }
+    // Allocate the result (sized for the full request) before the lock, and cache
+    // its payload base. `got` accumulates across ring fills.
+    emit_alloc_byte_list(symbol, "main", NEED_OFF, LIST_PTR_OFF, &alloc_fail, &mut instructions, &mut relocations);
+    instructions.extend([
+        abi::load_u64("%v11", abi::stack_pointer(), LIST_PTR_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
+        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("%v13", "%v9", "%v13"),
+        abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
+        abi::add_registers("%v11", "%v11", "%v13"),
+        abi::store_u64("%v11", abi::stack_pointer(), PAYLOAD_OFF), // payload base
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF),
+    ]);
+    emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    if timeout {
+        // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6).
+        instructions.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "6"),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
+        ]);
+        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
+            abi::move_immediate("%v10", "Integer", "1000000000"),
+            abi::multiply_registers("%v9", "%v9", "%v10"),
+            abi::load_u64("%v11", abi::stack_pointer(), CLK_OFF + 8),
+            abi::add_registers("%v9", "%v9", "%v11"),
+            abi::load_u64("%v12", abi::stack_pointer(), TIMEOUT_OFF),
+            abi::move_immediate("%v13", "Integer", "1000000"),
+            abi::multiply_registers("%v12", "%v12", "%v13"),
+            abi::add_registers("%v9", "%v9", "%v12"),
+            abi::store_u64("%v9", abi::stack_pointer(), DEADLINE_OFF),
+        ]);
+    }
+    instructions.extend([
+        abi::label(&drain_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), NEED_OFF),
+        abi::compare_registers("%v9", "%v11"),
+        abi::branch_ge(&drain_done),
+        // wait for data
+        abi::label(&wait_data),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v9", "%v10", S_RING_FILL),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&have_data),
+    ]);
+    if timeout {
+        instructions.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "6"),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
+        ]);
+        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
+            abi::move_immediate("%v10", "Integer", "1000000000"),
+            abi::multiply_registers("%v9", "%v9", "%v10"),
+            abi::load_u64("%v11", abi::stack_pointer(), CLK_OFF + 8),
+            abi::add_registers("%v9", "%v9", "%v11"), // now
+            abi::load_u64("%v12", abi::stack_pointer(), DEADLINE_OFF),
+            abi::compare_registers("%v9", "%v12"),
+            abi::branch_ge(&drain_done), // expired
+            abi::subtract_registers("%v12", "%v12", "%v9"), // remaining
+            abi::move_immediate("%v13", "Integer", "1000000000"),
+            abi::unsigned_divide_registers("%v14", "%v12", "%v13"),
+            abi::store_u64("%v14", abi::stack_pointer(), TS_OFF),
+            abi::multiply_registers("%v14", "%v14", "%v13"),
+            abi::subtract_registers("%v14", "%v12", "%v14"),
+            abi::store_u64("%v14", abi::stack_pointer(), TS_OFF + 8),
+            abi::label(&tw_ready),
+            abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+            abi::add_immediate(abi::return_register(), "%v10", S_COND),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
+            abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TS_OFF),
+        ]);
+        platform.emit_libc_call("pthread_cond_timedwait_relative_np", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::branch(&wait_data));
+    } else {
+        instructions.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+            abi::add_immediate(abi::return_register(), "%v10", S_COND),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
+        ]);
+        platform.emit_libc_call("pthread_cond_wait", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::branch(&wait_data));
+    }
+    // have_data: chunk = min(need-got, fill); copy chunk bytes from ring[tail] to
+    // payload[got], wrapping; advance tail/fill/got.
+    instructions.extend([
+        abi::label(&have_data),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v13", "%v10", S_RING_FILL),
+        abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), GOT_OFF),
+        abi::subtract_registers("%v9", "%v9", "%v11"), // remaining = need-got
+        abi::compare_registers("%v9", "%v13"),
+        abi::branch_le(&chunk_ok),
+        abi::move_register("%v9", "%v13"), // chunk = fill
+        abi::label(&chunk_ok),
+        // dst = payload + got
+        abi::load_u64("%v12", abi::stack_pointer(), PAYLOAD_OFF),
+        abi::add_registers("%v12", "%v12", "%v11"),
+        abi::add_immediate("%v14", "%v10", S_RING), // ring base
+        abi::load_u64("%v16", "%v10", S_RING_TAIL),
+        abi::load_u64("%v20", "%v10", S_RING_CAP),
+        abi::move_immediate("%v17", "Integer", "0"), // i
+        abi::label(&copy_loop),
+        abi::compare_registers("%v17", "%v9"),
+        abi::branch_ge(&copy_done),
+        abi::add_registers("%v18", "%v14", "%v16"),
+        abi::load_u8("%v19", "%v18", 0),
+        abi::add_registers("%v18", "%v12", "%v17"),
+        abi::store_u8("%v19", "%v18", 0),
+        abi::add_immediate("%v16", "%v16", 1),
+        abi::compare_registers("%v16", "%v20"),
+        abi::branch_lt(&copy_wrap_ok),
+        abi::move_immediate("%v16", "Integer", "0"),
+        abi::label(&copy_wrap_ok),
+        abi::add_immediate("%v17", "%v17", 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        // tail = %v16; fill -= chunk; got += chunk
+        abi::store_u64("%v16", "%v10", S_RING_TAIL),
+        abi::load_u64("%v13", "%v10", S_RING_FILL),
+        abi::subtract_registers("%v13", "%v13", "%v9"),
+        abi::store_u64("%v13", "%v10", S_RING_FILL),
+        abi::load_u64("%v11", abi::stack_pointer(), GOT_OFF),
+        abi::add_registers("%v11", "%v11", "%v9"),
+        abi::store_u64("%v11", abi::stack_pointer(), GOT_OFF),
+        abi::branch(&drain_loop),
+        abi::label(&drain_done),
+    ]);
+    emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    // If we filled the request, return the pre-allocated result; otherwise (timed
+    // partial) build a right-sized list of `got` bytes.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), NEED_OFF),
+        abi::compare_registers("%v9", "%v11"),
+        abi::branch_ge(&ret_full),
+    ]);
+    emit_alloc_byte_list(symbol, "final", GOT_OFF, FINAL_LIST_OFF, &alloc_fail, &mut instructions, &mut relocations);
+    instructions.extend([
+        // copy `got` bytes from the oversized payload into the final payload.
+        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), FINAL_LIST_OFF),
+        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("%v13", "%v9", "%v13"),
+        abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
+        abi::add_registers("%v11", "%v11", "%v13"), // final payload
+        abi::load_u64("%v12", abi::stack_pointer(), PAYLOAD_OFF), // source payload
+        abi::move_immediate("%v17", "Integer", "0"),
+        abi::label(&fin_loop),
+        abi::compare_registers("%v17", "%v9"),
+        abi::branch_ge(&fin_done),
+        abi::add_registers("%v18", "%v12", "%v17"),
+        abi::load_u8("%v19", "%v18", 0),
+        abi::add_registers("%v18", "%v11", "%v17"),
+        abi::store_u8("%v19", "%v18", 0),
+        abi::add_immediate("%v17", "%v17", 1),
+        abi::branch(&fin_loop),
+        abi::label(&fin_done),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), FINAL_LIST_OFF),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&ret_full),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), LIST_PTR_OFF),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&invalid),
+    ]);
+    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&dev_fail));
+    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&done));
+    instructions.push(abi::return_());
+    let _ = tw_ready;
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// closeInput(input): drop captured data, stop, dispose, destroy, munmap.
+fn lower_close_input(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let already = format!("{symbol}_already");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&already),
+        abi::load_u64("%v10", abi::return_register(), H_STATE),
+        abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
+    ]);
+    // Set closed under the mutex first (a racing callback must not touch the ring).
+    emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", "%v10", S_CLOSED),
+    ]);
+    emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+    ]);
+    platform.emit_libc_call("AudioQueueStop", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+    ]);
+    platform.emit_libc_call("AudioQueueDispose", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(symbol, "pthread_cond_destroy", STATE_OFF, S_COND, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(symbol, "pthread_mutex_destroy", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", "%v10", H_CLOSED),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
+    ]);
+    platform.emit_libc_call("munmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::label(&already),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// The AudioQueue input callback (C-ABI, 6 args): copies the captured buffer into
+/// the ring (discarding oldest whole frames on overrun, xruns++), signals, and
+/// re-enqueues the buffer.
+pub(in crate::target::shared::code) fn lower_audio_input_callback(
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<CodeFunction, String> {
+    const CB_FRAME: usize = 128;
+    const CB_HANDLE: usize = 8;
+    const CB_AQ: usize = 16;
+    const CB_BUF: usize = 24;
+    const CB_STATE: usize = 32;
+    const CB_N: usize = 40;
+    const CB_SRC: usize = 48;
+    let symbol = AUDIO_INPUT_CALLBACK_SYMBOL;
+    let closed_exit = format!("{symbol}_closed");
+    let no_overrun = format!("{symbol}_no_overrun");
+    let copy_loop = format!("{symbol}_copy");
+    let copy_done = format!("{symbol}_copy_done");
+    let no_wrap = format!("{symbol}_no_wrap");
+    let head_ok = format!("{symbol}_head_ok");
+    let tail_ok = format!("{symbol}_tail_ok");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), CB_HANDLE),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), CB_AQ),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), CB_BUF),
+        abi::load_u64("%v9", abi::return_register(), H_STATE),
+        abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
+    ]);
+    emit_pthread1(symbol, "pthread_mutex_lock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), CB_STATE),
+        abi::load_u64("%v9", "%v10", S_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed_exit),
+        // n = buffer->mAudioDataByteSize; src = buffer->mAudioData
+        abi::load_u64("%v11", abi::stack_pointer(), CB_BUF),
+        abi::load_u32("%v9", "%v11", 16),
+        abi::store_u64("%v9", abi::stack_pointer(), CB_N),
+        abi::load_u64("%v12", "%v11", 8),
+        abi::store_u64("%v12", abi::stack_pointer(), CB_SRC),
+        // overrun: if fill + n > ringCap, drop oldest whole frames.
+        abi::load_u64("%v13", "%v10", S_RING_FILL),
+        abi::load_u64("%v14", "%v10", S_RING_CAP),
+        abi::add_registers("%v15", "%v13", "%v9"), // fill + n
+        abi::compare_registers("%v15", "%v14"),
+        abi::branch_le(&no_overrun),
+        // drop = (fill+n) - ringCap, rounded up to a whole frame.
+        abi::subtract_registers("%v15", "%v15", "%v14"),
+        abi::load_u64("%v16", abi::stack_pointer(), CB_HANDLE),
+        abi::load_u64("%v16", "%v16", H_BYTES_PER_FRAME),
+        abi::add_registers("%v15", "%v15", "%v16"),
+        abi::subtract_immediate("%v15", "%v15", 1),
+        abi::unsigned_divide_registers("%v15", "%v15", "%v16"),
+        abi::multiply_registers("%v15", "%v15", "%v16"), // drop bytes
+        // tail = (tail + drop) mod ringCap
+        abi::load_u64("%v17", "%v10", S_RING_TAIL),
+        abi::add_registers("%v17", "%v17", "%v15"),
+        abi::compare_registers("%v17", "%v14"),
+        abi::branch_lt(&tail_ok),
+        abi::subtract_registers("%v17", "%v17", "%v14"),
+        abi::label(&tail_ok),
+        abi::store_u64("%v17", "%v10", S_RING_TAIL),
+        // fill -= drop
+        abi::load_u64("%v13", "%v10", S_RING_FILL),
+        abi::subtract_registers("%v13", "%v13", "%v15"),
+        abi::store_u64("%v13", "%v10", S_RING_FILL),
+        // xruns++
+        abi::load_u64("%v18", "%v10", S_XRUNS),
+        abi::add_immediate("%v18", "%v18", 1),
+        abi::store_u64("%v18", "%v10", S_XRUNS),
+        abi::label(&no_overrun),
+        // copy n bytes from src into ring at head, wrapping.
+        abi::load_u64("%v9", abi::stack_pointer(), CB_N),
+        abi::load_u64("%v12", abi::stack_pointer(), CB_SRC),
+        abi::add_immediate("%v19", "%v10", S_RING), // ring base
+        abi::load_u64("%v16", "%v10", S_RING_HEAD),
+        abi::load_u64("%v14", "%v10", S_RING_CAP),
+        abi::move_immediate("%v17", "Integer", "0"), // copied
+        abi::label(&copy_loop),
+        abi::compare_registers("%v17", "%v9"),
+        abi::branch_ge(&copy_done),
+        abi::add_registers("%v18", "%v12", "%v17"), // src+copied
+        abi::load_u8("%v20", "%v18", 0),
+        abi::add_registers("%v18", "%v19", "%v16"), // ring+head
+        abi::store_u8("%v20", "%v18", 0),
+        abi::add_immediate("%v16", "%v16", 1),
+        abi::compare_registers("%v16", "%v14"),
+        abi::branch_lt(&head_ok),
+        abi::move_immediate("%v16", "Integer", "0"),
+        abi::label(&head_ok),
+        abi::add_immediate("%v17", "%v17", 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::store_u64("%v16", "%v10", S_RING_HEAD),
+        // fill += n
+        abi::load_u64("%v13", "%v10", S_RING_FILL),
+        abi::load_u64("%v9", abi::stack_pointer(), CB_N),
+        abi::add_registers("%v13", "%v13", "%v9"),
+        abi::store_u64("%v13", "%v10", S_RING_FILL),
+        // signal
+        abi::add_immediate(abi::return_register(), "%v10", S_COND),
+    ]);
+    platform.emit_libc_call("pthread_cond_signal", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(symbol, "pthread_mutex_unlock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    // Re-enqueue the buffer.
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CB_AQ),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), CB_BUF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+    ]);
+    platform.emit_libc_call("AudioQueueEnqueueBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::return_());
+    // Closed path: unlock and return without touching the ring or re-enqueuing.
+    instructions.push(abi::label(&closed_exit));
+    let _ = no_wrap;
+    emit_pthread1(symbol, "pthread_mutex_unlock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], CB_FRAME);
+    Ok(CodeFunction {
+        name: "runtime.audio.inputCallback".to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),

@@ -663,8 +663,12 @@ impl plan::NativePlanPlatform for Platform {
                     }
                     "audio.read" | "audio.readTimeout" => {
                         pthread(&mut imports);
+                        // The input callback (re-)enqueues buffers; it is emitted
+                        // alongside read, so it needs the AudioQueue import too.
+                        imports.push(("AudioToolbox", "_AudioQueueEnqueueBuffer"));
                         if call == "audio.readTimeout" {
                             imports.push(("libSystem", "_pthread_cond_timedwait_relative_np"));
+                            imports.push(("libSystem", "_clock_gettime"));
                         }
                     }
                     "audio.poll" | "audio.pollTimeout" | "audio.available" | "audio.xruns" => {

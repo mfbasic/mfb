@@ -39,8 +39,10 @@ pub(super) const S_OSOBJECT: usize = 280; // AudioQueueRef (macOS) / snd_pcm_t* 
 pub(super) const S_FREE_TOP: usize = 288; // count of free output buffers
 pub(super) const S_FREE_BUFS: usize = 296; // [NUM_BUFFERS] AudioQueueBufferRef -> 296..328
 pub(super) const S_RING_CAP: usize = 328;
-pub(super) const S_RING_HEAD: usize = 336;
-pub(super) const S_RING_TAIL: usize = 344;
+pub(super) const S_RING_HEAD: usize = 336; // wrapped write index [0, ringCap)
+pub(super) const S_RING_TAIL: usize = 344; // wrapped read index [0, ringCap)
+pub(super) const S_MAP_SIZE: usize = 352; // total mmap length, for munmap
+pub(super) const S_RING_FILL: usize = 360; // bytes currently buffered
 pub(super) const S_RING: usize = 384; // input ring payload (page-area)
 
 // `AudioState` bookkeeping fits in the first page; output uses no ring so one
@@ -74,10 +76,14 @@ pub(super) use super::tls::{emit_alloc, emit_data_address, emit_fail};
 // its address; mod.rs registers the body when an output program is built.
 pub(in crate::target::shared::code) const AUDIO_OUTPUT_CALLBACK_SYMBOL: &str =
     "_mfb_rt_audio_output_callback";
+pub(in crate::target::shared::code) const AUDIO_INPUT_CALLBACK_SYMBOL: &str =
+    "_mfb_rt_audio_input_callback";
 
 mod macos;
 
-pub(in crate::target::shared::code) use macos::lower_audio_output_callback;
+pub(in crate::target::shared::code) use macos::{
+    lower_audio_input_callback, lower_audio_output_callback,
+};
 
 /// Dispatch an `audio.*` runtime-helper body to the platform backend.
 pub(in crate::target::shared::code) fn lower_audio_helper(

@@ -1,0 +1,35 @@
+IMPORT audio
+IMPORT collections
+IMPORT io
+
+SUB main()
+  LET devices AS List OF AudioDevice = audio::devices()
+  LET outDev AS List OF AudioDevice = collections::filter(devices, LAMBDA(d AS AudioDevice) -> d.canOutput)
+  LET inDev AS List OF AudioDevice = collections::filter(devices, LAMBDA(d AS AudioDevice) -> d.canInput)
+
+  IF len(outDev) = 0 THEN
+    io::print("No audio output devices found")
+    EXIT PROGRAM 0
+  END IF
+  
+  MUT selOutDev AS AudioDevice = collections::get(outDev, 0)
+  IF len(outDev) > 1 THEN
+    io::print("Select the output device: ")
+    MUT idx = 0
+    FOR EACH dev IN outDev
+      io::print("  " & toString(idx) & ") " & dev.name)
+      idx = idx + 1
+    NEXT
+    DO
+      idx = -1
+      LET userInput = io::input("Device >")
+      idx = toInt(userInput) TRAP
+        RESUME -1
+      END TRAP
+      IF idx > len(outDev) -1 THEN
+        idx = -1
+      END IF
+    UNTIL idx <> -1
+  END IF
+
+END SUB
