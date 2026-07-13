@@ -243,7 +243,11 @@ fn split_top_level_to_str(body: &str) -> Option<(&str, &str)> {
                 depth = depth.saturating_sub(1);
                 index += 1;
             }
-            _ if depth == 0 && body[index..].starts_with(" TO ") => {
+            // `is_char_boundary` guards the slice: `.mfp`-decoded type strings are
+            // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
+            // byte where `body[index..]` would panic (bug-169). A non-boundary
+            // byte never begins ` TO ` nor a keyword, so skipping it is correct.
+            _ if depth == 0 && body.is_char_boundary(index) && body[index..].starts_with(" TO ") => {
                 if pending > 0 {
                     pending -= 1;
                     index += 4;
@@ -251,7 +255,10 @@ fn split_top_level_to_str(body: &str) -> Option<(&str, &str)> {
                     return Some((&body[..index], &body[index + 4..]));
                 }
             }
-            _ if depth == 0 && type_owns_a_to_separator(body, index) => {
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && type_owns_a_to_separator(body, index) =>
+            {
                 pending += 1;
                 index += 1;
             }

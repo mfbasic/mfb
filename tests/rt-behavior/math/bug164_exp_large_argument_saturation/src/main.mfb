@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT math
+
+' bug-164: for |x| far beyond the exp overflow/underflow thresholds the
+' Cody-Waite reduction loses all precision and the 2^n biased-exponent scaling
+' wraps, so extreme finite arguments produced a wrong finite value or a spurious
+' ErrFloatInf. Saturating clamps (x > ~709.78 -> +Inf, x < ~-745.13 -> +0.0) fix
+' both ends: an underflow reports a clean 0.0, an overflow reports the honest
+' ErrFloatInf. The near-boundary cases (710 / -745.2) stay consistent with
+' bug-130's boundary behaviour.
+FUNC classify(x AS Float) AS String
+  LET r = math::exp(x)
+  IF r > 0.0 THEN
+    RETURN "finite-positive"
+  END IF
+  RETURN "zero"
+  TRAP(e)
+    RETURN "trap:" & toString(e.code)
+  END TRAP
+END FUNC
+FUNC main() AS Integer
+  io::print(classify(-1.0e16))
+  io::print(classify(1.0e16))
+  io::print(classify(-745.2))
+  io::print(classify(710.0))
+  RETURN 0
+END FUNC

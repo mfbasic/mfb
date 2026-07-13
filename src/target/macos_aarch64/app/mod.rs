@@ -291,6 +291,12 @@ const SEL_DISPLAY: (&str, &str) = ("_mfb_macapp_sel_display", "display");
 /// (plan-35-D Phase 2).
 const SEL_SET_FRAME_SIZE: (&str, &str) = ("_mfb_macapp_sel_setFrameSize", "setFrameSize:");
 const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "mfbWriteString:");
+/// `mfbClear:` — the main-thread grid-clear entry point. `term::clear` mutates
+/// the cell buffer, which the main thread's `setFrameSize:` can realloc/free
+/// concurrently, so the clear must be marshaled onto the main thread like
+/// `mfbWriteString:` rather than run on the worker (bug-165). Its IMP is the
+/// existing [`TERM_CLEAR_SYMBOL`] helper (reads only `self`, ignores `_cmd`/obj).
+const SEL_MFB_CLEAR: (&str, &str) = ("_mfb_macapp_sel_mfbClear", "mfbClear:");
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
 /// IMP for the TermView `mfbWriteString:` main-thread write entry point.
@@ -676,6 +682,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_DISPLAY,
         SEL_SET_FRAME_SIZE,
         SEL_MFB_WRITE_STRING,
+        SEL_MFB_CLEAR,
         SEL_ACCEPTS_FIRST_RESPONDER,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,

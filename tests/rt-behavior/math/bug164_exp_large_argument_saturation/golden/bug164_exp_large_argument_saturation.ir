@@ -1,0 +1,62 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug164_exp_large_argument_saturation",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "classify",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 11, "type": "Float", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 12, "mutable": false, "name": "r", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "math.exp", "args": [{ "kind": "local", "name": "x" }] } },
+    {
+      "op": "if",
+      "line": 13,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } },
+      "then": [
+      { "op": "return", "line": 14, "value": { "kind": "const", "type": "String", "value": "finite-positive" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "String", "value": "zero" } },
+    {
+      "op": "trap",
+      "line": 17,
+      "name": "e",
+      "body": [
+      { "op": "return", "line": 18, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "trap:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0e16" } }] }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "const", "type": "Float", "value": "1.0e16" }] }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "745.2" } }] }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "classify", "args": [{ "kind": "const", "type": "Float", "value": "710.0" }] }] } },
+    { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

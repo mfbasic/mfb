@@ -27,6 +27,12 @@ const LN2: f64 = 0.693_147_180_559_945_309_417_232_121_458_18;
 /// the reduction exact, so this only moves the rounding of `x/ln2` by ≤1 ULP —
 /// validated ≤1 ULP by `runtime_ulp.py exp`).
 const INV_LN2: f64 = 1.442_695_040_888_963_407_359_924_681_001_89;
+/// `exp` overflow/underflow guards (bug-164). Above `ln(DBL_MAX)` the true result
+/// overflows to `+Inf`; below `ln(2^-1075)` it rounds to `+0.0`. Beyond these the
+/// Cody-Waite reduction and `2^n` scaling produce garbage, so out-of-range lanes
+/// are saturated directly. Values match glibc's `o_threshold` / `u_threshold`.
+const EXP_OVERFLOW_THRESHOLD: f64 = 709.782_712_893_383_973_096;
+const EXP_UNDERFLOW_THRESHOLD: f64 = -745.133_219_101_941_108_42;
 /// fdlibm two-part `ln2` so `n*ln2` reconstructs past double precision.
 const LN2_HI: f64 = 6.931_471_803_691_238_164_90e-01;
 const LN2_LO: f64 = 1.908_214_929_270_587_700_02e-10;
@@ -494,6 +500,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_eor(&k.v21, &k.v21, &k.v21));
                 self.broadcast_i64(&k.v23, -1022);
                 self.emit(abi::vector_eor(&k.v24, &k.v24, &k.v24)); // overflow (inf) mask
+                // bug-164 large-argument clamp: the Cody-Waite reduction and the
+                // 2^n biased-exponent scaling both break down once |x| leaves the
+                // representable exp range (the reduced r loses all precision and the
+                // exponent field wraps). v25/v26 hold the exact overflow/underflow
+                // thresholds and v27 holds +Inf so `emit_exp_body` can saturate
+                // out-of-range lanes to +Inf / +0.0 before the finiteness check.
+                self.broadcast_f64(&k.v25, EXP_OVERFLOW_THRESHOLD);
+                self.broadcast_f64(&k.v26, EXP_UNDERFLOW_THRESHOLD);
+                self.broadcast_f64(&k.v27, f64::INFINITY);
             }
             FloatKernel::Log | FloatKernel::Log10 => {
                 self.broadcast_f64(&k.v16, SQRT_HALF);
@@ -958,8 +973,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[6], 52)); // 2^n1
         self.emit(abi::vector_add(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], &k.v20)); // n2+1023
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], 52)); // 2^n2
+        // bug-164: capture the overflow/underflow lane masks from the original x
+        // (still live in VEC_SCRATCH[0]) before the scaling overwrites it. v25 =
+        // overflow threshold, v26 = underflow threshold.
+        self.emit(abi::vector_fcmgt(&k.v28, abi::VEC_SCRATCH[0], &k.v25)); // x > overflow
+        self.emit(abi::vector_fcmgt(&k.v29, &k.v26, abi::VEC_SCRATCH[0])); // x < underflow
         self.emit(abi::vector_fmul(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6])); // P(r)·2^n1
         self.emit(abi::vector_fmul(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[7])); // ·2^n2
+        // Saturate out-of-range lanes: overflow -> +Inf (v27), underflow -> +0.0
+        // (v21). The +Inf lanes then flow through the finiteness check below and
+        // report ErrFloatInf (an honest overflow); the +0.0 lanes stay finite.
+        self.emit_vsel(abi::VEC_SCRATCH[0], &k.v28, &k.v27);
+        self.emit_vsel(abi::VEC_SCRATCH[0], &k.v29, &k.v21);
         // ErrFloatInf iff the actual result overflowed to +/-Inf: result*0 is NaN
         // only for a non-finite result (NaN inputs were already masked above).
         self.emit(abi::vector_fmul(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0], &k.v21)); // result*0

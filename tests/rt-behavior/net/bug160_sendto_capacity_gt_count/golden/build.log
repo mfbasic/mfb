@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/net/bug160_sendto_capacity_gt_count
+Wrote AST to tests/rt-behavior/net/bug160_sendto_capacity_gt_count/bug160_sendto_capacity_gt_count.ast
+Wrote IR to tests/rt-behavior/net/bug160_sendto_capacity_gt_count/bug160_sendto_capacity_gt_count.ir
+[exit 0]
+$ mfb build tests/rt-behavior/net/bug160_sendto_capacity_gt_count
+Wrote executable to tests/rt-behavior/net/bug160_sendto_capacity_gt_count/bug160_sendto_capacity_gt_count.out
+[exit 0]
+$ tests/rt-behavior/net/bug160_sendto_capacity_gt_count/bug160_sendto_capacity_gt_count.out
+3
+65
+66
+67
+[exit 0]

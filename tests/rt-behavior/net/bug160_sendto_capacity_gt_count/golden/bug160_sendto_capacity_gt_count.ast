@@ -1,0 +1,44 @@
+{
+  "project": "bug160_sendto_capacity_gt_count",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "net", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "net.bindUdp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "net.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "2000" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "net.bindUdp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "dest", "type": null, "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, { "kind": "number", "value": "0" }] }, "line": 15 },
+      { "kind": "binding", "mutable": true, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 16 },
+      { "kind": "assignment", "name": "payload", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "payload" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "65" }] }] }, "line": 17 },
+      { "kind": "assignment", "name": "payload", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "payload" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "66" }] }] }, "line": 18 },
+      { "kind": "assignment", "name": "payload", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "payload" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "67" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "net.sendTo", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "identifier", "value": "dest" }, { "kind": "identifier", "value": "payload" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "dg", "type": null, "value": { "kind": "call", "callee": "net.receiveFrom", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "16" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }, { "kind": "number", "value": "0" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }, { "kind": "number", "value": "1" }] }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }, { "kind": "number", "value": "2" }] }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "client" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,29 @@
+IMPORT collections
+IMPORT net
+IMPORT io
+
+' bug-160: net::sendTo read the List OF Byte payload region from COUNT instead of
+' CAPACITY, so an append-built list (which reserves spare capacity) had its data
+' pointer land inside the entry-descriptor array and transmitted descriptor bytes
+' rather than the real payload. Build the payload with `append` so capacity >
+' count and assert the peer receives the exact bytes.
+FUNC main AS Integer
+  RES server = net::bindUdp("127.0.0.1", 0)
+  net::setReadTimeout(server, 2000)
+  LET bound = net::localAddress(server)
+  RES client = net::bindUdp("127.0.0.1", 0)
+  LET dest = collections::get(net::lookup("127.0.0.1", bound.port), 0)
+  MUT payload AS List OF Byte = []
+  payload = collections::append(payload, toByte(65))
+  payload = collections::append(payload, toByte(66))
+  payload = collections::append(payload, toByte(67))
+  net::sendTo(client, dest, payload)
+  LET dg = net::receiveFrom(server, 16)
+  io::print(toString(len(dg.bytes)))
+  io::print(toString(collections::get(dg.bytes, 0)))
+  io::print(toString(collections::get(dg.bytes, 1)))
+  io::print(toString(collections::get(dg.bytes, 2)))
+  net::close(server)
+  net::close(client)
+  RETURN 0
+END FUNC

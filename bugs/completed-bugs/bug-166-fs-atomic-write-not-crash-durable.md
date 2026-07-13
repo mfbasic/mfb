@@ -3,7 +3,14 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — a successful "atomic" write can vanish or revert across a crash/power loss.
 Class: Correctness (durability).
-Status: Open
+Status: FIXED
+Resolution: after a successful rename, `lower_fs_atomic_write_helper` derives the
+parent directory from the final-path C-string (last-slash scan; "." / "/"
+special cases), opens it `O_RDONLY`, `fsync`s, and closes it before reporting Ok.
+Directory fsync is best-effort (the atomic rename already succeeded, so a
+non-fsyncable directory must not fail the write). `tests/fs_atomic_int_return.rs`
+updated (the new best-effort dir fsync carries no sign-extend seam, like the
+cleanup closes); durability contract documented in the fs man pages.
 
 ## Finding
 

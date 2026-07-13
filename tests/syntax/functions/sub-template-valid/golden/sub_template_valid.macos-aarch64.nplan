@@ -28,14 +28,14 @@
     ],
     "operations": ["eval call consume$Integer(Integer(42))", "eval call consume$String(String(ok))", "eval runtimeCall io io.print(String(ok))"],
     "calls": [
-    { "target": "consume$Integer", "symbol": "_mfb_fn_consume_Integer", "kind": "local", "stringLiterals": [] },
-    { "target": "consume$String", "symbol": "_mfb_fn_consume_String", "kind": "local", "stringLiterals": [] },
+    { "target": "consume$Integer", "symbol": "_mfb_fn_consume_24Integer", "kind": "local", "stringLiterals": [] },
+    { "target": "consume$String", "symbol": "_mfb_fn_consume_24String", "kind": "local", "stringLiterals": [] },
     { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": ["ok"] }
     ]
   },
   {
     "name": "consume$Integer",
-    "symbol": "_mfb_fn_consume_Integer",
+    "symbol": "_mfb_fn_consume_24Integer",
     "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
     "params": [
     { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
@@ -50,7 +50,7 @@
   },
   {
     "name": "consume$String",
-    "symbol": "_mfb_fn_consume_String",
+    "symbol": "_mfb_fn_consume_24String",
     "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
     "params": [
     { "name": "value", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 } }

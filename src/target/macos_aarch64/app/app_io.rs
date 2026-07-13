@@ -1068,7 +1068,7 @@ fn emit_app_clear(
     term_state_offset: usize,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
-    let frame = 16; // lr@0, x20(termView)@8
+    let frame = 32; // lr@0, x20(termView)@8, x21(mfbClear: sel)@16
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -1078,6 +1078,7 @@ fn emit_app_clear(
         0,
     ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
     asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
@@ -1089,11 +1090,22 @@ fn emit_app_clear(
     asm.push(abi::move_register("x20", "x0")); // termView or nil
     asm.push(abi::compare_immediate("x20", "0"));
     asm.push(abi::branch_eq(&done));
-    // clear the grid + cursor (our heap, worker-safe); no redraw — present-driven.
+    // Marshal the grid clear onto the main thread (bug-165): the cell buffer is
+    // realloc/free'd by `setFrameSize:` on the main thread during a live window
+    // resize, so mutating it directly from the worker is a use-after-free. Run it
+    // through the `mfbClear:` selector like `mfbWriteString:` does — no redraw, the
+    // repaint is present-driven (plan-35-D §3).
+    // [tv performSelectorOnMainThread:@selector(mfbClear:) withObject:nil waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_CLEAR.0);
+    asm.push(abi::move_register("x21", "x1")); // mfbClear: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // withObject: nil
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
     asm.push(abi::move_register("x0", "x20"));
-    asm.call_internal(TERM_CLEAR_SYMBOL);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label(&done));
-    emit_term_ok_return(&mut asm, frame, &[("x20", 8)]);
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8), ("x21", 16)]);
     (
         CodeFrame {
             stack_size: 0,

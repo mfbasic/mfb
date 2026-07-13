@@ -1399,7 +1399,7 @@ impl TypeEnv {
                 self.check_call_arity(target, args.len(), locals);
                 self.check_call_argument_types(target, args, locals);
                 self.check_builtin_call_args(target, args, locals);
-                self.check_call_result_type(target, value, locals);
+                self.check_call_result_type(target, value, args, locals);
             }
             IrValue::Constructor { type_, args } => {
                 for arg in args {
@@ -1420,8 +1420,11 @@ impl TypeEnv {
                     self.check_value(capture, locals);
                 }
             }
-            IrValue::UnionExtract { value, .. }
-            | IrValue::ResultIsOk { value }
+            IrValue::UnionExtract { type_, value } => {
+                self.check_value(value, locals);
+                self.check_union_extract(type_, value, locals);
+            }
+            IrValue::ResultIsOk { value }
             | IrValue::ResultValue { value, .. }
             | IrValue::ResultError { value } => {
                 self.check_value(value, locals);
@@ -3263,24 +3266,47 @@ impl TypeEnv {
     /// The callee's declared `returns` is the independent source of truth, so the
     /// annotation must agree with it. Both `Call` and `CallResult` annotate the
     /// callee's return type (a fallible call's `Result OF T` is unwrapped to `T`
-    /// by the node kind itself). Builtins have no `FnSig` and are skipped, as is
-    /// an indirect call through a local; `Unknown` on either side never rejects.
+    /// by the node kind itself). For an internal function the truth is its
+    /// `FnSig`; for a **builtin** (no `FnSig`) the truth is the arg-typed
+    /// return-type oracle `builtins::resolve_call_return_type` — the same resolver
+    /// the front end used to produce the annotation — so a crafted `.mfp` cannot
+    /// fabricate a record return on, say, `strings.length` and defeat the
+    /// downstream member-access check (bug-162). An indirect call through a local
+    /// is skipped; `Unknown` on either side never rejects.
     fn check_call_result_type(
         &self,
         target: &str,
         node: &IrValue,
+        args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
         if locals.contains_key(target) {
             return; // indirect call — no named signature
         }
-        let Some(sig) = self.functions.get(target) else {
-            return;
-        };
-        let Some(declared) = usable_type(Some(&sig.returns)) else {
-            return;
-        };
         let Some(annotated) = usable_type(node.annotated_type()) else {
+            return;
+        };
+        let declared = if let Some(sig) = self.functions.get(target) {
+            usable_type(Some(&sig.returns))
+        } else {
+            // Builtin: derive the expected return from the same arg-typed oracle
+            // the monomorphizer uses. Reconcile only when every argument type is
+            // known (`resource_base_type` strips a resource `STATE T` clause, as
+            // `check_builtin_call_args` does) so an inference gap never rejects.
+            let Some(arg_types) = args
+                .iter()
+                .map(|a| {
+                    self.infer_type(a, locals)
+                        .map(|t| resource_base_type(&t).to_string())
+                })
+                .collect::<Option<Vec<String>>>()
+            else {
+                return;
+            };
+            crate::builtins::resolve_call_return_type(target, &arg_types)
+                .and_then(|t| usable_type(Some(&t)))
+        };
+        let Some(declared) = declared else {
             return;
         };
         if !self.expression_compatible(&declared, &annotated, node) {
@@ -3782,6 +3808,30 @@ impl TypeEnv {
                 self.emit(
                     VERIFY_TYPE,
                     format!("`{member_type}` is not a variant of union `{union_type}`"),
+                );
+            }
+        }
+    }
+
+    /// Reject a `UnionExtract` whose extracted `type_` is not a variant of the
+    /// union its `value` is typed as — the read counterpart of `check_union_wrap`.
+    /// A crafted `.mfp` could otherwise extract a foreign variant's payload from a
+    /// union that never carries it, so codegen reads that variant's layout off the
+    /// wrong value (bug-162). Skipped when the value's type is unknown or is not a
+    /// union, so a legitimate extract never rejects.
+    fn check_union_extract(&self, type_: &str, value: &IrValue, locals: &HashMap<String, String>) {
+        if type_.is_empty() {
+            return;
+        }
+        let Some(union_type) = self.infer_type(value, locals) else {
+            return;
+        };
+        let union_type = resource_base_type(&union_type);
+        if let Some(variants) = self.union_variants(union_type) {
+            if !variants.contains(type_) {
+                self.emit(
+                    VERIFY_TYPE,
+                    format!("`{type_}` is not a variant of union `{union_type}`"),
                 );
             }
         }

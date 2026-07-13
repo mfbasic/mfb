@@ -3,7 +3,12 @@
 Last updated: 2026-07-12
 Severity: HIGH — arena free-list corruption on a failed timed thread send with a heap message.
 Class: Memory-safety.
-Status: Open
+Status: FIXED
+Resolution: `DATA_SIZE_OFFSET` moved from 48 to 56 in `thread_queue_write_helper`
+so the message-copy size no longer aliases the deadline timespec's tv_nsec (which
+`emit_thread_deadline`/`clock_gettime` write at sp+48). `FRAME_SIZE` 80 has room
+at 56. The read helper was already unaffected. A layout comment at the constant
+records the timespec [40,56) span so the alias cannot be reintroduced.
 
 ## Finding
 

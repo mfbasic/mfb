@@ -18,6 +18,13 @@ DESCRIPTION
   written one, so the replacement is all-or-nothing. The final rename is atomic
   when the host filesystem supports atomic rename.
 
+  The replacement is also crash-durable: after the rename the containing
+  directory is itself flushed to disk, so once this function returns
+  successfully the new file survives a crash or power loss and never reverts to
+  the previous contents. If the containing directory cannot be flushed the write
+  is still reported as successful, because the atomic rename has already
+  completed.
+
   The temporary file is created next to path with a name derived from path's
   final component plus a ".mfb-XXXXXX.tmp" suffix, where the host fills in the
   X markers to make the name unique. Creating the temporary in the same

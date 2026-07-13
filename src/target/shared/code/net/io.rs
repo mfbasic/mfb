@@ -1545,13 +1545,16 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
             abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET),
         ]);
     } else {
-        // x2 = List OF Byte: bytes live inline at collection + HEADER +
-        // count * ENTRY_SIZE.
+        // x2 = List OF Byte: bytes live inline in the data region, which begins
+        // past the CAPACITY-sized entry array at
+        // collection + HEADER + capacity * ENTRY_SIZE. Using count instead
+        // mis-addresses an append-built list that carries spare capacity.
         instructions.extend([
             abi::load_u64("%v10", abi::ARG[2], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), DLEN_OFFSET),
+            abi::load_u64("%v14", abi::ARG[2], COLLECTION_OFFSET_CAPACITY),
             abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("%v13", "%v10", "%v12"),
+            abi::multiply_registers("%v13", "%v14", "%v12"),
             abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
             abi::add_registers("%v11", abi::ARG[2], "%v13"),
             abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET),

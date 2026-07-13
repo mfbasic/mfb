@@ -3,7 +3,13 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — wrong finite result (or spurious ErrFloatInf) for large-magnitude `math::exp` arguments.
 Class: Correctness.
-Status: Open
+Status: FIXED
+Regression Test: `tests/rt-behavior/math/bug164_exp_large_argument_saturation`
+(`exp(-1e16)`→0, `exp(1e16)`→ErrFloatInf, `exp(-745.2)`→0, `exp(710)`→ErrFloatInf).
+`emit_exp_body` now captures overflow/underflow lane masks from `x` before the
+scaling overwrites it and saturates out-of-range lanes to +Inf / +0.0
+(thresholds `ln(DBL_MAX)` / `ln(2^-1075)`), matching glibc. bug-130's boundary
+cases (710/-800) are unchanged.
 
 ## Finding
 

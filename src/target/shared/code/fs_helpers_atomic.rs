@@ -612,6 +612,21 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // bug-166: durability of the rename itself requires fsyncing the containing
+    // directory — otherwise the directory-entry update can be lost across a
+    // crash/power loss even though the temp file's data was fsynced. Derive the
+    // parent directory from the final-path C-string, open it O_RDONLY, fsync, and
+    // close it before reporting Ok.
+    let dir_scan = vregs.next();
+    let dir_slash = vregs.next();
+    let dir_fd = vregs.next();
+    let dir_scan_loop = format!("{symbol}_dir_scan_loop");
+    let dir_scan_next = format!("{symbol}_dir_scan_next");
+    let dir_scan_done = format!("{symbol}_dir_scan_done");
+    let dir_root = format!("{symbol}_dir_root");
+    let dir_cwd = format!("{symbol}_dir_cwd");
+    let dir_open = format!("{symbol}_dir_open");
+    let dir_done = format!("{symbol}_dir_done");
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&rename_ok),
@@ -620,6 +635,58 @@ pub(super) fn lower_fs_atomic_write_helper(
         // `rename_error` instead and skips the unlink.
         abi::branch(&rename_failed),
         abi::label(&rename_ok),
+        // Scan `c_final` for the last '/' (47); `dir_slash` = 0 means none found.
+        // `c_final` already served the rename, so we are free to truncate it here.
+        abi::move_immediate(&dir_slash, "Integer", "0"),
+        abi::move_register(&dir_scan, &c_final),
+        abi::label(&dir_scan_loop),
+        abi::load_u8(&byte, &dir_scan, 0),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&dir_scan_done),
+        abi::compare_immediate(&byte, "47"),
+        abi::branch_ne(&dir_scan_next),
+        abi::move_register(&dir_slash, &dir_scan),
+        abi::label(&dir_scan_next),
+        abi::add_immediate(&dir_scan, &dir_scan, 1),
+        abi::branch(&dir_scan_loop),
+        abi::label(&dir_scan_done),
+        abi::compare_immediate(&dir_slash, "0"),
+        abi::branch_eq(&dir_cwd),
+        abi::compare_registers(&dir_slash, &c_final),
+        abi::branch_eq(&dir_root),
+        // "dir/file" -> NUL-terminate at the last slash so the string names the dir.
+        abi::store_u8(abi::ZERO, &dir_slash, 0),
+        abi::branch(&dir_open),
+        // "/file" -> the parent directory is the filesystem root "/".
+        abi::label(&dir_root),
+        abi::store_u8(abi::ZERO, &c_final, 1),
+        abi::branch(&dir_open),
+        // "file" (no slash) -> the parent directory is the current directory ".".
+        abi::label(&dir_cwd),
+        abi::move_immediate(&byte, "Byte", "46"),
+        abi::store_u8(&byte, &c_final, 0),
+        abi::store_u8(abi::ZERO, &c_final, 1),
+        abi::label(&dir_open),
+        // open(dir, O_RDONLY, 0)
+        abi::move_register(abi::return_register(), &c_final),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+    ]);
+    platform.emit_open_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    normalize_c_int_result(&mut instructions);
+    instructions.extend([
+        // Directory fsync is best-effort: the atomic rename already succeeded, so a
+        // directory that cannot be opened or fsynced must not fail the write.
+        abi::move_register(&dir_fd, abi::return_register()),
+        abi::compare_immediate(&dir_fd, "0"),
+        abi::branch_lt(&dir_done),
+        abi::move_register(abi::return_register(), &dir_fd),
+    ]);
+    platform.emit_sync_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::move_register(abi::return_register(), &dir_fd));
+    platform.emit_close_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::label(&dir_done),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&rename_error),

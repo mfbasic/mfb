@@ -3,7 +3,18 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — two Linux/ALSA audio defects: wrong/garbage poll timeout, and a crashing `devices()` enumeration.
 Class: Correctness + Memory-safety.
-Status: Open
+Status: FIXED (findings A and B — the two named MEDIUM defects)
+Resolution: Finding A — `lower_query` now spills the incoming `timeoutMs`
+(`ARG[1]`) to `FRAMES_OFF` at entry before any dlopen/libc call clobbers it, so
+`PollTimeout` reads the real timeout instead of uninitialized stack. Finding B —
+`lower_devices` reloads the hint by dereferencing `HINT_PTR_OFF` for the DESC
+`get_hint`, since `emit_string_from_cstr` reused `N_OFF` (which held the hint) as
+strlen scratch while building the id String; the DESC lookup no longer passes an
+integer as `const void* hint` (SIGSEGV). The batched LOW-severity items
+(readTimeout partial-result semantics, the unbounded device-id copy clamp, macOS
+`pollTimeout` dispatch parity, open-error resource leaks, dead labels) are
+tracked separately as bug-180 — they are latent/feature-level, not the crash/
+garbage-timeout defects that define this bug.
 
 ## Finding A — `pollTimeout` uses uninitialized `FRAMES_OFF` as the timeout
 

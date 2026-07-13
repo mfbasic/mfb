@@ -3,7 +3,11 @@
 Last updated: 2026-07-12
 Severity: HIGH — normal-case UDP datagram corruption (any append-built byte list).
 Class: Correctness (CAPACITY-vs-COUNT, same class as bug-157 / commit e7b48c0f).
-Status: Open
+Status: FIXED
+Regression Test: `tests/rt-behavior/net/bug160_sendto_capacity_gt_count` (an
+append-built, capacity>count `List OF Byte` is `sendTo`'d to a local UDP socket;
+the peer receives the exact bytes `[65,66,67]`). Fix loads
+`COLLECTION_OFFSET_CAPACITY` for the data-region multiply, mirroring `net.write`.
 
 ## Finding
 

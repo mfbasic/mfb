@@ -211,16 +211,13 @@ fn patch_relocations(
             "internal" if relocation.kind == "branch26" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
+                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
                 write_u32(text, relocation.offset, word);
             }
             "data" if relocation.kind == "page21" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let pc = text_vmaddr + relocation.offset as u64;
-                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
-                let encoded = page_delta as u32;
-                let immlo = encoded & 0b11;
-                let immhi = (encoded >> 2) & 0x7ffff;
+                let (immlo, immhi) = adrp_page21(pc, target)?;
                 let rd = read_u32(text, relocation.offset) & 0x1f;
                 write_u32(
                     text,
@@ -249,7 +246,7 @@ fn patch_relocations(
                     ));
                 };
                 let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
+                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
                 write_u32(text, relocation.offset, word);
             }
             "external" if relocation.kind == "page21" => {
@@ -261,10 +258,7 @@ fn patch_relocations(
                     ));
                 };
                 let pc = text_vmaddr + relocation.offset as u64;
-                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
-                let encoded = page_delta as u32;
-                let immlo = encoded & 0b11;
-                let immhi = (encoded >> 2) & 0x7ffff;
+                let (immlo, immhi) = adrp_page21(pc, target)?;
                 let rd = read_u32(text, relocation.offset) & 0x1f;
                 write_u32(
                     text,
@@ -445,7 +439,7 @@ fn append_import_stubs(
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
         let got_vmaddr = VM_BASE + layout.data_const_file_offset as u64 + (index * 8) as u64;
-        emit_import_stub(text, stub_vmaddr, got_vmaddr);
+        emit_import_stub(text, stub_vmaddr, got_vmaddr)?;
         locations.stubs.insert(import.symbol.clone(), stub_vmaddr);
         locations
             .got_entries
@@ -454,17 +448,19 @@ fn append_import_stubs(
     Ok(locations)
 }
 
-fn emit_import_stub(text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
-    let page_delta = ((got_vmaddr & !0xfff) as i64 - (stub_vmaddr & !0xfff) as i64) >> 12;
-    let encoded = page_delta as u32;
-    let immlo = encoded & 0b11;
-    let immhi = (encoded >> 2) & 0x7ffff;
+fn emit_import_stub(
+    text: &mut Vec<u8>,
+    stub_vmaddr: u64,
+    got_vmaddr: u64,
+) -> Result<(), String> {
+    let (immlo, immhi) = adrp_page21(stub_vmaddr, got_vmaddr)?;
     put_u32(text, 0x9000_0010 | (immlo << 29) | (immhi << 5));
     put_u32(
         text,
         0xf940_0210 | ((((got_vmaddr & 0xfff) / 8) as u32) << 10),
     );
     put_u32(text, 0xd61f_0200);
+    Ok(())
 }
 
 fn symbol_vmaddr(
@@ -488,9 +484,32 @@ fn align(value: usize, alignment: usize) -> usize {
     value.div_ceil(alignment) * alignment
 }
 
-fn branch_imm26(source: usize, target: usize) -> u32 {
+fn branch_imm26(source: usize, target: usize) -> Result<u32, String> {
     let delta = target as isize - source as isize;
-    ((delta / 4) as i32 as u32) & 0x03ff_ffff
+    // A `BL`/`B` imm26 is a signed 26-bit word offset: ±2^25 words = ±128 MiB.
+    // Masking without a reach check silently wraps an over-range branch into a
+    // wrong instruction (bug-168); error instead, matching the riscv path.
+    if delta % 4 != 0 || !(-(1 << 27)..(1 << 27)).contains(&delta) {
+        return Err(format!(
+            "macOS linker: branch displacement {delta} exceeds the ±128 MiB reach of BL/B"
+        ));
+    }
+    Ok(((delta / 4) as i32 as u32) & 0x03ff_ffff)
+}
+
+/// Encode an `ADRP` page displacement, reach-checked (bug-168). The immediate is
+/// a signed 21-bit count of 4 KiB pages (±2^20 pages = ±4 GiB); an over-range
+/// delta must error rather than truncate to a wrong page. Returns `(immlo,
+/// immhi)`.
+fn adrp_page21(pc: u64, target: u64) -> Result<(u32, u32), String> {
+    let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
+    if !(-(1 << 20)..(1 << 20)).contains(&page_delta) {
+        return Err(format!(
+            "macOS linker: ADRP page displacement {page_delta} exceeds the ±4 GiB reach of ADRP"
+        ));
+    }
+    let encoded = page_delta as u32;
+    Ok((encoded & 0b11, (encoded >> 2) & 0x7ffff))
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {

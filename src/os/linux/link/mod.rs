@@ -111,16 +111,13 @@ fn patch_relocations(
             "internal" if relocation.kind == "branch26" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
+                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
                 write_u32(text, relocation.offset, word);
             }
             "data" if relocation.kind == "page21" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let pc = text_vmaddr + relocation.offset as u64;
-                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
-                let encoded = page_delta as u32;
-                let immlo = encoded & 0b11;
-                let immhi = (encoded >> 2) & 0x7ffff;
+                let (immlo, immhi) = adrp_page21(pc, target)?;
                 let rd = read_u32(text, relocation.offset) & 0x1f;
                 write_u32(
                     text,
@@ -149,7 +146,7 @@ fn patch_relocations(
                     ));
                 };
                 let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
+                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
                 write_u32(text, relocation.offset, word);
             }
             // Imported data global addressed through its GOT slot (plan-linker.md
@@ -163,10 +160,7 @@ fn patch_relocations(
                     ));
                 };
                 let pc = text_vmaddr + relocation.offset as u64;
-                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
-                let encoded = page_delta as u32;
-                let immlo = encoded & 0b11;
-                let immhi = (encoded >> 2) & 0x7ffff;
+                let (immlo, immhi) = adrp_page21(pc, target)?;
                 let rd = read_u32(text, relocation.offset) & 0x1f;
                 write_u32(
                     text,
@@ -200,7 +194,7 @@ fn patch_relocations(
             "internal" if relocation.kind == "call_pc32" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
-                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                let rel = rel32(target, site)?;
                 write_u32(text, relocation.offset, rel as u32);
             }
             // x86-64 `call sym@PLT` to an imported libc function: the rel32
@@ -214,7 +208,7 @@ fn patch_relocations(
                     ));
                 };
                 let site = text_vmaddr + relocation.offset as u64;
-                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                let rel = rel32(target, site)?;
                 write_u32(text, relocation.offset, rel as u32);
             }
             // x86-64 imported data global via GOTPCREL: the rel32 targets the
@@ -231,13 +225,13 @@ fn patch_relocations(
                     ));
                 };
                 let site = text_vmaddr + relocation.offset as u64;
-                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                let rel = rel32(target, site)?;
                 write_u32(text, relocation.offset, rel as u32);
             }
             "data" if relocation.kind == "data_pc32" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
-                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                let rel = rel32(target, site)?;
                 write_u32(text, relocation.offset, rel as u32);
             }
             // --- RISC-V (plan-99) ----------------------------------------------
@@ -452,16 +446,18 @@ fn emit_import_stub(
         text.push(0xff);
         text.push(0x25);
         let rip = stub_vmaddr + 6;
-        let disp = (got_vmaddr as i64 - rip as i64) as i32;
+        let delta = got_vmaddr as i64 - rip as i64;
+        let disp = i32::try_from(delta).map_err(|_| {
+            format!(
+                "linux-x86_64 linker: PLT stub displacement {delta} exceeds the ±2 GiB reach of rel32"
+            )
+        })?;
         text.extend_from_slice(&disp.to_le_bytes());
         text.extend_from_slice(&[0xcc; 6]);
         return Ok(());
     }
     // aarch64: adrp x16, GOT_page; ldr x16, [x16, GOT_off]; br x16.
-    let page_delta = ((got_vmaddr & !0xfff) as i64 - (stub_vmaddr & !0xfff) as i64) >> 12;
-    let encoded = page_delta as u32;
-    let immlo = encoded & 0b11;
-    let immhi = (encoded >> 2) & 0x7ffff;
+    let (immlo, immhi) = adrp_page21(stub_vmaddr, got_vmaddr)?;
     put_u32(text, 0x9000_0010 | (immlo << 29) | (immhi << 5));
     put_u32(
         text,
@@ -508,9 +504,44 @@ fn put_dynamic(bytes: &mut Vec<u8>, tag: u64, value: u64) {
     put_u64(bytes, value);
 }
 
-fn branch_imm26(source: usize, target: usize) -> u32 {
+fn branch_imm26(source: usize, target: usize) -> Result<u32, String> {
     let delta = target as isize - source as isize;
-    ((delta / 4) as i32 as u32) & 0x03ff_ffff
+    // A `BL`/`B` imm26 is a signed 26-bit word offset: ±2^25 words = ±128 MiB.
+    // Masking without a reach check silently wraps an over-range branch into a
+    // wrong instruction (bug-168); mirror `riscv_hi_lo` and return an error.
+    if delta % 4 != 0 || !(-(1 << 27)..(1 << 27)).contains(&delta) {
+        return Err(format!(
+            "linux-aarch64 linker: branch displacement {delta} exceeds the ±128 MiB reach of BL/B"
+        ));
+    }
+    Ok(((delta / 4) as i32 as u32) & 0x03ff_ffff)
+}
+
+/// Encode an `ADRP` page displacement, reach-checked (bug-168). The immediate is
+/// a signed 21-bit count of 4 KiB pages (±2^20 pages = ±4 GiB); an over-range
+/// delta must error rather than truncate to a wrong page. Returns `(immlo,
+/// immhi)` ready to splice into the instruction word.
+fn adrp_page21(pc: u64, target: u64) -> Result<(u32, u32), String> {
+    let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
+    if !(-(1 << 20)..(1 << 20)).contains(&page_delta) {
+        return Err(format!(
+            "linux-aarch64 linker: ADRP page displacement {page_delta} exceeds the ±4 GiB reach of ADRP"
+        ));
+    }
+    let encoded = page_delta as u32;
+    Ok((encoded & 0b11, (encoded >> 2) & 0x7ffff))
+}
+
+/// Compute a RIP-relative `rel32` displacement, erroring when it exceeds the ±2
+/// GiB reach of a 32-bit displacement (bug-168) instead of silently wrapping.
+/// `site` is the address of the 4-byte disp32 field; rip is `site + 4`.
+fn rel32(target: u64, site: u64) -> Result<i32, String> {
+    let delta = target as i64 - (site as i64 + 4);
+    i32::try_from(delta).map_err(|_| {
+        format!(
+            "linux-x86_64 linker: RIP-relative displacement {delta} exceeds the ±2 GiB reach of rel32"
+        )
+    })
 }
 
 fn align(value: usize, alignment: usize) -> usize {

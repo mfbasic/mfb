@@ -944,6 +944,12 @@ fn lower_query(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        // Spill the incoming `timeoutMs` (ARG[1]) before any dlopen/libc call
+        // clobbers it; the `PollTimeout` arm reloads it from `FRAMES_OFF` as the
+        // `snd_pcm_wait` timeout. Without this store that slot is uninitialized
+        // stack (bug-167 finding A). `FRAMES_OFF` is otherwise unused in this
+        // function, so the store is harmless for the other queries.
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_OFF),
         abi::load_u64("%v9", abi::return_register(), H_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -1021,8 +1027,6 @@ fn lower_query(
     emit_fail(symbol, ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_SYMBOL, &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    // For PollTimeout the second arg is timeoutMs; it arrives in ARG[1] and we
-    // stored the handle from ARG[0]. Stage the timeout into FRAMES_OFF.
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
     Ok((frame, instructions, relocations, stack_slots))
 }
@@ -1240,7 +1244,13 @@ fn lower_devices(
     platform.emit_libc_call("free", symbol, platform_imports, &mut instructions, &mut relocations)?;
     // name = get_hint(hint, "DESC")
     emit_alsa_call(symbol, "snd_device_name_get_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
-        ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), N_OFF));
+        // Reload the hint by dereferencing HINT_PTR_OFF rather than reading N_OFF:
+        // `emit_string_from_cstr` reused N_OFF as strlen scratch while building the
+        // id String, so N_OFF now holds the id length, not the hint pointer. Using
+        // it here passed libasound an integer as `const void* hint` (bug-167
+        // finding B: SIGSEGV / empty device name).
+        ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), HINT_PTR_OFF));
+        ins.push(abi::load_u64(abi::return_register(), abi::return_register(), 0));
         emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_hint_desc", ins, &mut Vec::new());
     })?;
     instructions.push(abi::move_register("%v9", abi::return_register()));

@@ -137,11 +137,17 @@ fn assert_helper_normalized(target: &str, func: &Value) {
         }
     }
 
-    // Every `fsync` in these helpers is a checked, relationally-compared site.
+    // The durable data `fsync` is a checked, relationally-compared site and must
+    // carry the seam. The parent-directory `fsync` added for crash durability
+    // (bug-166) is intentionally best-effort — the atomic rename already
+    // succeeded, so a directory that cannot be fsynced must not fail the write —
+    // and therefore carries no seam, exactly like the cleanup closes. The
+    // regression guard above (no sync/close result flows straight into a
+    // compare/branch) is what actually protects bug-44 on every site.
     assert!(
-        fsync_calls > 0 && narrowed_fsync == fsync_calls,
-        "{target}/{symbol}: expected every fsync ({fsync_calls}) to be \
-         sign-extended, got {narrowed_fsync}",
+        narrowed_fsync > 0,
+        "{target}/{symbol}: the checked data fsync is not sign-extended \
+         ({narrowed_fsync} of {fsync_calls} fsync site(s) narrowed)",
     );
     // At least the durable close is checked and narrowed (cleanup closes on the
     // error path are intentionally unchecked and carry no seam).

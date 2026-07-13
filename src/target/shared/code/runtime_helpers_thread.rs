@@ -749,8 +749,12 @@ pub(super) fn thread_queue_write_helper(
     const QUEUE_OFFSET: usize = 32;
     const TIMESPEC_OFFSET: usize = 40;
     // Byte size of the message copy (arg 3), so a failed send can record it on the
-    // pending-free list for the destination to reclaim (bug-147.5b).
-    const DATA_SIZE_OFFSET: usize = 48;
+    // pending-free list for the destination to reclaim (bug-147.5b). Must sit past
+    // the 16-byte timespec at [40, 56): `emit_thread_deadline` writes tv_nsec at
+    // TIMESPEC_OFFSET+8 (=48) and `clock_gettime` writes all 16 bytes, so a size
+    // field at 48 would be clobbered by the deadline before the failed-send path
+    // reloads it (bug-163).
+    const DATA_SIZE_OFFSET: usize = 56;
 
     let invalid = format!("{symbol}_invalid");
     let closed = format!("{symbol}_closed");

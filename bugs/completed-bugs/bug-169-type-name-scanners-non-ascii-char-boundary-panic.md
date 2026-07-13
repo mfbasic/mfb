@@ -3,7 +3,12 @@
 Last updated: 2026-07-12
 Severity: LOW — latent; unreachable from source (ASCII identifiers) but reachable via a crafted/decoded package type-name string.
 Class: Memory-safety (slice at non-char-boundary → panic).
-Status: Open
+Status: FIXED
+Resolution: all four scanners (`split_top_level_to` in resolver/resolution.rs,
+monomorph/helpers.rs, syntaxcheck/inference.rs, and `split_map_body` in
+syntaxcheck/types.rs) now guard the `body[index..]` slice with
+`body.is_char_boundary(index)` — a UTF-8 continuation byte begins neither ` TO `
+nor a `Map`/`Thread` keyword, so skipping it is correct and never panics.
 
 ## Finding
 

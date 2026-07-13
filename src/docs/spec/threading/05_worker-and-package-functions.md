@@ -17,8 +17,12 @@ the linker can resolve cross-package and worker entry points. There is **no**
 separate `_mfb_pkg_*` namespace: every merged package function — like the
 executable's own functions — routes through the ordinary `_mfb_fn_` namespace
 (`nir::function_symbol`). The symbol is `_mfb_fn_<fragment>`, where `<fragment>`
-is the function's merged IR name with every character outside ASCII letters,
-digits, and underscore replaced by underscore (`nir::symbol_fragment`). Because
+is the function's merged IR name with every byte outside ASCII letters and
+digits — including `_` itself — escaped to an unambiguous `_XX` two-hex-digit
+form (`nir::symbol_fragment`). Escaping the interior `_` keeps a mangled overload
+name such as `f$List$OF$Integer` distinct from a user function literally named
+`f_List_OF_Integer`, which the earlier fold-everything-to-`_` mapping collided at
+link time. Because
 the merge has already rewritten each package definition into its identity-prefixed
 `<id>.package.symbol` form, the resulting symbol is
 `_mfb_fn_<id>_package_symbol`. (Compiler-internal sigil-prefixed functions use a

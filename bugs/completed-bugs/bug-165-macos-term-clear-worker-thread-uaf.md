@@ -3,7 +3,13 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — use-after-free / heap corruption during window resize in a GUI TUI app.
 Class: Memory-safety.
-Status: Open
+Status: FIXED
+Resolution: `emit_app_clear` now marshals the grid clear onto the main thread via
+a new `mfbClear:` selector (`[tv performSelectorOnMainThread:@selector(mfbClear:)
+withObject:nil waitUntilDone:YES]`), serializing it with `setFrameSize:`/
+`drawRect:` like `mfbWriteString:`. The IMP is the existing `TERM_CLEAR_SYMBOL`
+helper (reads only `self`); the selector/method are registered in the bootstrap.
+macOS app-mode `.ncode` goldens regenerated.
 
 ## Finding
 

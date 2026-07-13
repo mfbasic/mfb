@@ -3,7 +3,12 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — link-time symbol aliasing → wrong function/global silently shadows another.
 Class: Correctness.
-Status: Open
+Status: FIXED
+Regression Test: `target::shared::nir::symbols::symbol_fragment_tests`
+(`mangled_overload_and_underscore_name_no_longer_collide`,
+`global_symbol_escapes_both_parts`). `symbol_fragment` now escapes every
+non-alphanumeric byte — including `_` — to `_XX` hex, matching
+`link_thunk_symbol` (bug-139.6). Spec `threading/05` updated.
 
 ## Finding
 

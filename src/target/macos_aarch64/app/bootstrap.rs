@@ -230,6 +230,14 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbClear:), imp, "v@:@") — main-thread grid
+    // clear (bug-165). The IMP is the existing TERM_CLEAR_SYMBOL helper, which
+    // reads only `self` (x0 = the TermView) and ignores `_cmd`/the object arg.
+    asm.load_selector(SEL_MFB_CLEAR.0);
+    asm.local_address("x2", TERM_CLEAR_SYMBOL);
+    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
     // TermView can become first responder and receive keyDown: in TUI mode.
     asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);

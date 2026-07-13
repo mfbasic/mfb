@@ -3,7 +3,14 @@
 Last updated: 2026-07-12
 Severity: MEDIUM — crafted package can fabricate a record return type on a builtin call, defeating the member-access type check.
 Class: Memory-safety / Security (trust boundary).
-Status: Open
+Status: FIXED
+Resolution: `check_call_result_type` now reconciles a builtin `Call`'s annotation
+against `builtins::resolve_call_return_type(target, arg_types)` — the same
+arg-typed oracle the monomorphizer uses (now shared, single-source). Added
+`check_union_extract` mirroring `check_union_wrap` for the `UnionExtract` read
+path. Acceptance (929 tests) stays green — the reconciliation never false-rejects
+legitimately-compiled IR because the front end produced the annotation from the
+same resolver.
 
 ## Finding
 

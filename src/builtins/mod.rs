@@ -285,6 +285,47 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
     )
 }
 
+/// Resolve a built-in call's return type from its package-qualified `callee`
+/// name and argument types, dispatching through each package's `resolve_call` in
+/// the same order the monomorphizer uses. Returns `None` for a non-built-in, an
+/// unknown name, or an argument-type combination that matches no overload.
+///
+/// This is the single arg-typed return-type oracle shared by monomorph lowering
+/// and `ir::verify` (which reconciles a decoded package's attacker-controlled
+/// `Call` annotation against it — bug-162).
+pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
+    macro_rules! try_pkg {
+        ($resolve:expr) => {
+            if let Some(resolved) = $resolve {
+                return Some(resolved.return_type.into_owned());
+            }
+        };
+    }
+    try_pkg!(general::resolve_call(callee, arg_types));
+    try_pkg!(collections::resolve_call(callee, arg_types));
+    try_pkg!(strings::resolve_call(callee, arg_types));
+    try_pkg!(math::resolve_call(callee, arg_types));
+    try_pkg!(bits::resolve_call(callee, arg_types));
+    try_pkg!(crypto::resolve_call(callee, arg_types));
+    try_pkg!(encoding::resolve_call(callee, arg_types));
+    try_pkg!(fs::resolve_call(callee, arg_types));
+    try_pkg!(io::resolve_call(callee, arg_types));
+    try_pkg!(json::resolve_call(callee, arg_types));
+    try_pkg!(csv::resolve_call(callee, arg_types));
+    try_pkg!(regex::resolve_call(callee, arg_types));
+    try_pkg!(datetime::resolve_call(callee, arg_types));
+    try_pkg!(money::resolve_call(callee, arg_types));
+    try_pkg!(net::resolve_call(callee, arg_types));
+    try_pkg!(os::resolve_call(callee, arg_types));
+    try_pkg!(http::resolve_call(callee, arg_types));
+    try_pkg!(term::resolve_call(callee)); // no arg_types param
+    try_pkg!(tls::resolve_call(callee, arg_types));
+    try_pkg!(audio::resolve_call(callee, arg_types));
+    try_pkg!(vector::resolve_call(callee, arg_types));
+    try_pkg!(thread::resolve_call(callee, arg_types));
+    None
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     audio::call_return_type_name(name)
         .or_else(|| general::call_return_type_name(name))

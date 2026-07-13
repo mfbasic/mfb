@@ -3,7 +3,14 @@
 Last updated: 2026-07-12
 Severity: LOW — all latent (require >128 MiB text, >±4 GiB data, or >4 GiB output).
 Class: Footgun / Correctness (silent truncation instead of a link error).
-Status: Open
+Status: FIXED
+Resolution: `branch_imm26` now returns `Result` and reach-checks the ±128 MiB
+BL/B range; new `adrp_page21` reach-checks the ±4 GiB ADRP page delta; new
+`rel32` reach-checks the ±2 GiB x86 displacement — all on both the Linux and
+macOS linkers, mirroring `riscv_hi_lo`. Mach-O section/linkedit/symtab/dyld_info
+file-offset casts route through a `u32_field` guard (bug-88 style). All latent
+(>128 MiB text / >±4 GiB data / >4 GiB image); normal builds are byte-identical
+(acceptance green).
 
 ## Finding
 

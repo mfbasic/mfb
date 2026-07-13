@@ -1560,7 +1560,6 @@ impl<'a> Monomorphizer<'a> {
         arguments: &[CallArg],
         context: &FunctionContext,
     ) -> Option<String> {
-        use crate::builtins;
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -1568,36 +1567,7 @@ impl<'a> Monomorphizer<'a> {
                     .unwrap_or_else(|| "Unknown".to_string())
             })
             .collect::<Vec<_>>();
-        macro_rules! try_pkg {
-            ($resolve:expr) => {
-                if let Some(resolved) = $resolve {
-                    return Some(resolved.return_type.into_owned());
-                }
-            };
-        }
-        try_pkg!(builtins::general::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::collections::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::strings::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::math::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::bits::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::crypto::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::encoding::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::fs::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::io::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::json::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::csv::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::regex::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::datetime::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::money::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::net::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::os::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::http::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::term::resolve_call(callee)); // no arg_types param
-        try_pkg!(builtins::tls::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::audio::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::vector::resolve_call(callee, &arg_types));
-        try_pkg!(builtins::thread::resolve_call(callee, &arg_types));
-        None
+        crate::builtins::resolve_call_return_type(callee, &arg_types)
     }
 
     fn expression_type(

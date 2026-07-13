@@ -196,6 +196,15 @@ pub(super) fn section(
     );
 }
 
+/// Narrow a `usize` Mach-O file offset / count / size to the u32 field the load
+/// command stores, panicking with a clear message instead of silently truncating
+/// a ≥4 GiB value into a wrong offset (bug-88 / bug-168). Reachable only for a
+/// >4 GiB output image, which the linker does not otherwise support; a wrapped
+/// offset would produce a structurally invalid, unloadable executable.
+fn u32_field(what: &str, value: usize) -> u32 {
+    u32::try_from(value).unwrap_or_else(|_| panic!("mach-o: {what} {value} exceeds u32"))
+}
+
 fn section_with_segment(
     bytes: &mut Vec<u8>,
     name: &str,
@@ -212,7 +221,7 @@ fn section_with_segment(
     fixed_name(bytes, segment_name);
     put_u64(bytes, addr);
     put_u64(bytes, size);
-    put_u32(bytes, offset as u32);
+    put_u32(bytes, u32_field("section file offset", offset));
     put_u32(bytes, align_power);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
@@ -225,17 +234,17 @@ fn section_with_segment(
 pub(super) fn linkedit_data(bytes: &mut Vec<u8>, command: u32, offset: usize, size: usize) {
     put_u32(bytes, command);
     put_u32(bytes, 16);
-    put_u32(bytes, offset as u32);
-    put_u32(bytes, size as u32);
+    put_u32(bytes, u32_field("linkedit_data offset", offset));
+    put_u32(bytes, u32_field("linkedit_data size", size));
 }
 
 pub(super) fn symtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0x2);
     put_u32(bytes, 24);
-    put_u32(bytes, linkedit.symtab_offset as u32);
-    put_u32(bytes, linkedit.symbol_count as u32);
-    put_u32(bytes, linkedit.string_offset as u32);
-    put_u32(bytes, linkedit.string_size as u32);
+    put_u32(bytes, u32_field("symtab offset", linkedit.symtab_offset));
+    put_u32(bytes, u32_field("symtab symbol count", linkedit.symbol_count));
+    put_u32(bytes, u32_field("symtab string offset", linkedit.string_offset));
+    put_u32(bytes, u32_field("symtab string size", linkedit.string_size));
 }
 
 pub(super) fn dysymtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
@@ -294,15 +303,15 @@ pub(super) fn dylib_command_size(name: &str) -> usize {
 pub(super) fn dyld_info(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0x8000_0022);
     put_u32(bytes, 48);
-    put_u32(bytes, linkedit.rebase_offset as u32);
-    put_u32(bytes, linkedit.rebase_size as u32);
-    put_u32(bytes, linkedit.fixups_offset as u32);
-    put_u32(bytes, linkedit.fixups_size as u32);
+    put_u32(bytes, u32_field("dyld_info rebase offset", linkedit.rebase_offset));
+    put_u32(bytes, u32_field("dyld_info rebase size", linkedit.rebase_size));
+    put_u32(bytes, u32_field("dyld_info fixups offset", linkedit.fixups_offset));
+    put_u32(bytes, u32_field("dyld_info fixups size", linkedit.fixups_size));
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
-    put_u32(bytes, linkedit.exports_offset as u32);
+    put_u32(bytes, u32_field("dyld_info exports offset", linkedit.exports_offset));
     put_u32(bytes, 0);
 }
 
