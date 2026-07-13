@@ -14,7 +14,7 @@
 
 `Fixed` is a binary fixed-point number with an integer part and a `1 / 2^32` fractional part (the 8-byte runtime storage layout is specified by `./mfb spec memory scalar-storage`). Its range is approximately `-2147483648.0` through `2147483647.9999999998`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result with code `77050010`; divide-by-zero and invalid numeric domains produce an error result with code `77050002`.
 
-The name `Fixed` is retained for deterministic binary fixed-point arithmetic. A future exact base-10 financial type, if added, should use a distinct name such as `Decimal` and must specify decimal scale, rounding, and overflow rules separately.
+The name `Fixed` is retained for deterministic binary fixed-point arithmetic. For exact base-10 financial arithmetic, use `Money` (see below), whose decimal scale, rounding, and overflow rules are specified separately.
 
 Numeric literals are initially untyped. Integer-looking literals default to `Integer` when there is no expected type. Decimal-looking literals default to `Float` when there is no expected type. When the expected type is `Fixed`, a decimal literal is rounded to the nearest representable `Fixed` value. There is no separate suffix syntax for `Fixed`; use an explicit annotation or conversion when needed:
 
