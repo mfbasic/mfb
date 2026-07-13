@@ -1472,9 +1472,11 @@ fn function_header_and_body_errors() {
 
 #[test]
 fn trap_header_errors() {
-    // TRAP without paren.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN 0\n  TRAP\n  END TRAP\nEND FUNC\n").is_err());
-    // TRAP without binding.
+    // Bare TRAP (no `(ident)` binding) is a valid function-level trap: plan-37
+    // makes the error binding optional. It parses at the AST level.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN 0\n  TRAP\n    RETURN 1\n  END TRAP\nEND FUNC\n").is_ok());
+    // TRAP with an empty binding `()` is still an error (an identifier is
+    // required once the `(` is present).
     assert!(try_parse("FUNC f AS Integer\n  RETURN 0\n  TRAP()\n  END TRAP\nEND FUNC\n").is_err());
     // TRAP unterminated.
     assert!(
@@ -2330,6 +2332,11 @@ fn inline_trap_error_paths() {
     // An inline TRAP that is well-formed on a bare expression statement.
     let json = project_json("FUNC f\n  risky() TRAP(e)\n    notify()\n  END TRAP\nEND FUNC\n");
     assert!(json.contains("\"kind\": \"trapped\""));
+    // plan-37: a bare inline TRAP (no `(e)` binding) parses to the same
+    // `trapped` node, with the synthesized `#err` binding.
+    let json = project_json("FUNC f AS Integer\n  LET n = risky() TRAP\n    RECOVER 0\n  END TRAP\n  RETURN n\nEND FUNC\n");
+    assert!(json.contains("\"kind\": \"trapped\""));
+    assert!(json.contains("\"binding\": \"#err\""));
     // A state assignment with an inline trap.
     let json = project_json(
         "FUNC f(RES h AS File STATE Integer)\n  h.state = risky() TRAP(e)\n    notify()\n  END TRAP\nEND FUNC\n",

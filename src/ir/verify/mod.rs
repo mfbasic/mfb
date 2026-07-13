@@ -1356,9 +1356,16 @@ impl TypeEnv {
                     // every path (syntaxcheck's TYPE_TRAP_FALLTHROUGH).
                     self.current_line.set(line);
                     if !self.block_always_returns(body, &branch) {
+                        // A bare `TRAP` synthesizes a `#`-sentinel name the user
+                        // never wrote; keep it out of diagnostics.
+                        let trap_label = if name == crate::ast::SYNTHETIC_TRAP_BINDING {
+                            "the TRAP handler".to_string()
+                        } else {
+                            format!("TRAP `{name}`")
+                        };
                         self.emit(
                             "TYPE_TRAP_FALLTHROUGH",
-                            format!("TRAP `{name}` must return, fail, or propagate."),
+                            format!("{trap_label} must return, fail, or propagate."),
                         );
                     }
                 }

@@ -25,7 +25,7 @@ SUB main()
     DO
       idx = -1
       LET userInput AS String = io::input("Device >")
-      idx = toInt(userInput) TRAP(e)
+      idx = toInt(userInput) TRAP
         RECOVER -1
       END TRAP
       IF idx < 0 OR idx > len(outDevices) - 1 THEN

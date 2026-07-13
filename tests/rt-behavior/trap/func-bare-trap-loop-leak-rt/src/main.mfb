@@ -1,0 +1,32 @@
+IMPORT io
+
+' plan-37 (§4): a bare function-level `TRAP` must free the caught Error on every
+' handler exit exactly as `TRAP(e)` does. The error has no user name but still
+' exists as a routed arena block registered for slot-keyed scope-drop (bug-151),
+' so it is dropped once per catch. This loop catches a fresh error every
+' iteration through a bare handler; correct output and no crash prove the drop is
+' exactly-once (a missed free leaks; a double-free corrupts). RSS-flatness is
+' verified out of band — a golden cannot assert it.
+FUNC boom(n AS Integer) AS Integer
+  FAIL error(600 + (n MOD 3), "boom " & toString(n MOD 3))
+  RETURN n
+END FUNC
+
+FUNC handle(n AS Integer) AS Integer
+  RETURN boom(n)
+TRAP
+  RETURN n MOD 3
+END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  MUT i AS Integer = 0
+  MUT sum AS Integer = 0
+  WHILE i < 20000
+    sum = sum + handle(i)
+    i = i + 1
+  WEND
+  io::print("sum=" & toString(sum))
+  io::print("one=" & toString(handle(1)))
+  RETURN 0
+END FUNC

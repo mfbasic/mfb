@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/trap/inline-bare-trap-illegal-position
+  11 | ' diagnostic the named form would produce.
+  12 | FUNC illegalBareTrapInInlineIf(v AS Integer) AS Integer
+  13 |   IF v > 0 THEN LET a = parsePositive(v) TRAP
+     |                                          ^^^^
+tests/syntax/trap/inline-bare-trap-illegal-position/src/main.mfb:13 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after binding.
+  14 |     RECOVER 0
+  15 |   END TRAP
+  16 |   RETURN 0
+     |   ^^^^^^
+tests/syntax/trap/inline-bare-trap-illegal-position/src/main.mfb:16 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               TRAP must appear at the bottom of the function after normal flow.
+[exit 1]

@@ -349,23 +349,38 @@ impl<'a> FileParser<'a> {
         subject: Expression,
         allow_else_terminator: bool,
     ) -> Option<Expression> {
-        if allow_else_terminator
-            || !self.check_keyword(Keyword::Trap)
-            || !self
-                .tokens
-                .get(self.current + 1)
-                .is_some_and(|token| matches!(token.kind, TokenKind::LParen))
-        {
+        // A postfix trap is recognized when `TRAP` is followed either by its
+        // `(ident)` binding or, for the bare form, by a statement terminator
+        // (newline / `:` / EOF). `TRAP` is a reserved keyword that can never
+        // begin a following statement, so a bare `TRAP` immediately after a
+        // completed binding/assignment/expr-statement is unambiguously a postfix
+        // trap. The `allow_else_terminator` guard still forbids attaching a trap
+        // inside an inline `IF … THEN …` branch.
+        let followed_by_trap = self.tokens.get(self.current + 1).is_some_and(|token| {
+            matches!(
+                token.kind,
+                TokenKind::LParen | TokenKind::Newline | TokenKind::Colon | TokenKind::Eof
+            )
+        });
+        if allow_else_terminator || !self.check_keyword(Keyword::Trap) || !followed_by_trap {
             return Some(subject);
         }
 
         let token = self.advance().clone();
-        self.advance();
-        let binding = self.consume_identifier("TRAP must bind an error identifier.")?;
-        if !self.consume_kind(TokenKind::RParen, "TRAP error binding must close with `)`.") {
-            self.synchronize();
-            return None;
-        }
+        // Parse the optional `(ident)`; a bare `TRAP` synthesizes the reserved
+        // name so the caught error stays internally bound (PROPAGATE works) with
+        // no name exposed to the user.
+        let binding = if self.check_kind(&TokenKind::LParen) {
+            self.advance();
+            let binding = self.consume_identifier("TRAP must bind an error identifier.")?;
+            if !self.consume_kind(TokenKind::RParen, "TRAP error binding must close with `)`.") {
+                self.synchronize();
+                return None;
+            }
+            binding
+        } else {
+            SYNTHETIC_TRAP_BINDING.to_string()
+        };
         self.consume_statement_end("Expected end of statement after TRAP header.");
         self.skip_separators();
 

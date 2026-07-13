@@ -1,0 +1,54 @@
+IMPORT io
+
+' plan-37: function-level bare `TRAP` (no `(e)` binding). A bare handler behaves
+' identically to an unused `TRAP(e)`: RETURN / EXIT SUB / FAIL / PROPAGATE all
+' work. PROPAGATE inside a bare handler still re-propagates the same caught Error
+' with its `code`, `message`, and `source` intact — the error stays internally
+' bound even though the user has no name for it.
+
+' Bare function-level trap that PROPAGATEs. When `toInt` fails the bare handler
+' re-raises the same Error to the caller.
+FUNC inner(s AS String) AS Integer
+  RETURN toInt(s)
+TRAP
+  PROPAGATE
+END TRAP
+END FUNC
+
+' Named catcher observes the propagated Error is byte-for-byte the origin's.
+FUNC outer(s AS String) AS String
+  LET n AS Integer = inner(s) TRAP(e)
+    RETURN "ERR code=" & toString(e.code) & " msg=" & e.message & " line=" & toString(e.source.line)
+  END TRAP
+  RETURN "OK " & toString(n)
+END FUNC
+
+' Bare function-level trap that RETURNs a default value from the handler.
+FUNC parseOr(s AS String) AS Integer
+  RETURN toInt(s)
+TRAP
+  RETURN -1
+END TRAP
+END FUNC
+
+' Bare function-level trap in a SUB that EXITs on failure. Normal flow diverges
+' (EXIT SUB) before the trap, as the trap contract requires.
+SUB announce(s AS String)
+  LET n AS Integer = toInt(s)
+  io::print("announce ok " & toString(n))
+  EXIT SUB
+TRAP
+  io::print("announce trapped, exiting")
+  EXIT SUB
+END TRAP
+END SUB
+
+FUNC main() AS Integer
+  io::print(outer("42"))
+  io::print(outer("bad"))
+  io::print("parseOr(7)=" & toString(parseOr("7")))
+  io::print("parseOr(x)=" & toString(parseOr("x")))
+  announce("9")
+  announce("nope")
+  RETURN 0
+END FUNC

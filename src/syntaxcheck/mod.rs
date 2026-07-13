@@ -1753,10 +1753,18 @@ impl<'a> SyntaxChecker<'a> {
                 &mut trap_locals,
                 Some(trap.name.as_str()),
             );
+            // A bare `TRAP` synthesizes a `#`-sentinel binding the user never
+            // named; refer to it as "the TRAP handler" instead of exposing the
+            // internal name in diagnostics.
+            let trap_label = if trap.name == crate::ast::SYNTHETIC_TRAP_BINDING {
+                "the TRAP handler".to_string()
+            } else {
+                format!("TRAP `{}`", trap.name)
+            };
             if trap_flow != Flow::AlwaysReturns {
                 self.report(
                     "TYPE_TRAP_FALLTHROUGH",
-                    &format!("TRAP `{}` must return, fail, or propagate.", trap.name),
+                    &format!("{trap_label} must return, fail, or propagate."),
                     file,
                     trap.line,
                 );
@@ -1765,8 +1773,8 @@ impl<'a> SyntaxChecker<'a> {
                 self.report(
                     "TYPE_TRAP_FALLTHROUGH",
                     &format!(
-                        "Normal flow in `{}` reaches TRAP `{}`; body paths before TRAP must end with RETURN or FAIL.",
-                        function.name, trap.name
+                        "Normal flow in `{}` reaches {trap_label}; body paths before TRAP must end with RETURN or FAIL.",
+                        function.name
                     ),
                     file,
                     trap.line,

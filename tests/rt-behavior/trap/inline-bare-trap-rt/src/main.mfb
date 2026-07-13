@@ -1,0 +1,44 @@
+IMPORT io
+
+' plan-37: inline postfix bare `TRAP` (no `(e)` binding), in every position the
+' inline trap is legal: a LET binding, a MUT binding, a plain assignment, and a
+' bare-expression statement. Each bare handler RECOVERs a default identically to
+' the `TRAP(e)` spelling.
+
+SUB report(label AS String, s AS String)
+  ' bare-expression-statement inline trap: the trapped call's value is discarded,
+  ' the handler RECOVERs a sentinel so the statement still succeeds.
+  toInt(s) TRAP
+    RECOVER -1
+  END TRAP
+  io::print(label & " expr-stmt ok")
+END SUB
+
+FUNC main() AS Integer
+  ' LET binding
+  LET a AS Integer = toInt("bad") TRAP
+    RECOVER -1
+  END TRAP
+  io::print("let=" & toString(a))
+
+  ' MUT binding
+  MUT b AS Integer = toInt("nope") TRAP
+    RECOVER -2
+  END TRAP
+  io::print("mut=" & toString(b))
+
+  ' plain assignment
+  b = toInt("still bad") TRAP
+    RECOVER -3
+  END TRAP
+  io::print("assign=" & toString(b))
+
+  ' the same forms succeed when the call succeeds (handler skipped)
+  LET c AS Integer = toInt("42") TRAP
+    RECOVER -9
+  END TRAP
+  io::print("ok=" & toString(c))
+
+  report("A", "zzz")
+  RETURN 0
+END FUNC

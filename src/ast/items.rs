@@ -165,21 +165,24 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_trap(&mut self) -> Option<Trap> {
         let token = self.advance().clone();
-        if !self.consume_kind(
-            TokenKind::LParen,
-            "TRAP must bind an error identifier with `TRAP(name)`.",
-        ) {
-            self.synchronize();
-            return None;
-        }
-        let Some(name) = self.consume_identifier("TRAP must bind an error identifier.") else {
-            self.synchronize();
-            return None;
+        // The `(ident)` binding is optional: a bare `TRAP` synthesizes a
+        // reserved, non-collidable name so the caught error stays internally
+        // bound (PROPAGATE and slot-keyed cleanup keep working) while the user
+        // has no name for it.
+        let name = if self.check_kind(&TokenKind::LParen) {
+            self.advance();
+            let Some(name) = self.consume_identifier("TRAP must bind an error identifier.") else {
+                self.synchronize();
+                return None;
+            };
+            if !self.consume_kind(TokenKind::RParen, "TRAP error binding must close with `)`.") {
+                self.synchronize();
+                return None;
+            }
+            name
+        } else {
+            SYNTHETIC_TRAP_BINDING.to_string()
         };
-        if !self.consume_kind(TokenKind::RParen, "TRAP error binding must close with `)`.") {
-            self.synchronize();
-            return None;
-        }
         self.consume_statement_end("Expected end of statement after TRAP header.");
         self.skip_separators();
 

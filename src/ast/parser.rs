@@ -5,6 +5,15 @@ pub(super) struct ParsedFile {
     pub(super) items: Vec<Item>,
 }
 
+/// Reserved error binding synthesized for a bare `TRAP` (one written without the
+/// `(ident)` binding, in either the function-level or inline postfix position).
+/// The `#` prefix is the internal-sentinel convention: the lexer can never emit
+/// it in a user identifier, so this name cannot collide with a real one. The
+/// caught `Error` stays internally bound to this name, so `PROPAGATE` and the
+/// slot-keyed scope-drop cleanup work identically to a named-but-unused
+/// `TRAP(e)`; the user simply has no name for it.
+pub const SYNTHETIC_TRAP_BINDING: &str = "#err";
+
 pub(super) struct FileParser<'a> {
     pub(super) path: &'a Path,
     pub(super) tokens: Vec<Token>,

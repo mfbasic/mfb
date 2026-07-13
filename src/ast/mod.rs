@@ -27,6 +27,7 @@ pub use manifest::{
 pub use types::*;
 
 use parser::{BlockTerminator, FileParser};
+pub use parser::SYNTHETIC_TRAP_BINDING;
 use serialize::{contains_placeholder, substitute_placeholder};
 
 #[cfg(test)]

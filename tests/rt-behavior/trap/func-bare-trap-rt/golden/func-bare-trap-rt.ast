@@ -1,0 +1,121 @@
+{
+  "project": "func-bare-trap-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "inner",
+      "line": 11,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 12 }
+      ],
+      "trap": {
+      "name": "#err",
+      "line": 13,
+      "body": [
+      { "kind": "propagate", "line": 14 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "outer",
+      "line": 19,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 19 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 20,
+        "expression": { "kind": "call", "callee": "inner", "arguments": [{ "kind": "identifier", "value": "s" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "right": { "kind": "string", "value": " msg=" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" } }, "right": { "kind": "string", "value": " line=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "source" }, "member": "line" }] } }, "line": 21 }
+        ]
+      }, "line": 20 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "OK " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "parseOr",
+      "line": 27,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 27 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 28 }
+      ],
+      "trap": {
+      "name": "#err",
+      "line": 29,
+      "body": [
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 30 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "announce",
+      "line": 36,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 36 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "announce ok " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }] }, "line": 38 },
+      { "kind": "exit", "target": "sub", "code": null, "line": 39 }
+      ],
+      "trap": {
+      "name": "#err",
+      "line": 40,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "announce trapped, exiting" }] }, "line": 41 },
+      { "kind": "exit", "target": "sub", "code": null, "line": 42 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 46,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "outer", "arguments": [{ "kind": "string", "value": "42" }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "outer", "arguments": [{ "kind": "string", "value": "bad" }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "parseOr(7)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "parseOr", "arguments": [{ "kind": "string", "value": "7" }] }] } }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "parseOr(x)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "parseOr", "arguments": [{ "kind": "string", "value": "x" }] }] } }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "announce", "arguments": [{ "kind": "string", "value": "9" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "announce", "arguments": [{ "kind": "string", "value": "nope" }] }, "line": 52 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 53 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,22 @@
+IMPORT io
+
+' plan-37 (§4): a bare *inline* `TRAP` must free the caught Error on every
+' handler exit exactly as `TRAP(e)` does. The inline path binds the routed error
+' as an owned `Error` local (owns_freeable_value scope-drop), so a bare inline
+' handler drops it once per catch even though the user has no name for it. This
+' loop catches a fresh error every iteration through a bare inline handler;
+' correct output and no crash prove the drop is exactly-once. RSS-flatness is
+' verified out of band — a golden cannot assert it.
+FUNC main() AS Integer
+  MUT i AS Integer = 0
+  MUT sum AS Integer = 0
+  WHILE i < 20000
+    MUT n AS Integer = toInt("bad") TRAP
+      RECOVER i MOD 3
+    END TRAP
+    sum = sum + n
+    i = i + 1
+  WEND
+  io::print("sum=" & toString(sum))
+  RETURN 0
+END FUNC

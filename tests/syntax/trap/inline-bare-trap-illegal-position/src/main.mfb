@@ -1,0 +1,21 @@
+IMPORT io
+
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(404, "missing")
+  RETURN v + 1
+END FUNC
+
+' A bare inline TRAP is illegal inside an inline `IF … THEN …` branch, exactly
+' like a named `TRAP(e)` there. The `allow_else_terminator` guard forbids
+' attaching the trap, so the `TRAP` keyword is left stray and rejected — the same
+' diagnostic the named form would produce.
+FUNC illegalBareTrapInInlineIf(v AS Integer) AS Integer
+  IF v > 0 THEN LET a = parsePositive(v) TRAP
+    RECOVER 0
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

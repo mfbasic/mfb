@@ -749,6 +749,18 @@ mod tests {
     }
 
     #[test]
+    fn bare_trap_block_indents_handler_both_positions() {
+        // plan-37: a bare `TRAP` (no `(e)` binding) opens and indents its handler
+        // exactly like `TRAP(e)`, in both the inline postfix and function-level
+        // positions, and round-trips unchanged.
+        let input = "FUNC f() AS Integer\nLET n = toInt(s) TRAP\nRECOVER 0\nEND TRAP\nRETURN n\nTRAP\nPROPAGATE\nEND TRAP\nEND FUNC\n";
+        let expected = "FUNC f() AS Integer\n  LET n = toInt(s) TRAP\n    RECOVER 0\n  END TRAP\n  RETURN n\n  TRAP\n    PROPAGATE\n  END TRAP\nEND FUNC\n";
+        assert_eq!(fmt(input), expected);
+        // Idempotent: formatting the already-formatted output is a no-op.
+        assert_eq!(fmt(expected), expected);
+    }
+
+    #[test]
     fn do_while_opens_one_block_not_two() {
         // The `WHILE` in `DO WHILE` is a condition, not a second block opener.
         let input = "DO WHILE running\nwork()\nLOOP\nlet after = 1\n";

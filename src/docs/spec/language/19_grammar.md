@@ -60,7 +60,12 @@ funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] "(" [ params ] 
                    block [ trap ] "END" "FUNC" ;
 subDecl        = declVis "SUB" ident [ templateParams ] "(" [ params ] ")"
                    block [ trap ] "END" "SUB" ;
-trap           = "TRAP" "(" ident ")" block "END" "TRAP" ;
+trap           = "TRAP" [ "(" ident ")" ] block "END" "TRAP" ;
+(* The `(ident)` error binding is OPTIONAL. A bare `TRAP` runs the handler
+   without naming the caught error; `PROPAGATE` still re-raises it. The same
+   optional binding applies to the inline postfix trap (§8.4, prose): the
+   `expr TRAP … END TRAP` attached to a LET/MUT binding, assignment, or
+   bare-expression statement may likewise omit `(ident)`. *)
 
 templateParams = "OF" ident { "," ident } ;
 params         = param { "," param } ;
