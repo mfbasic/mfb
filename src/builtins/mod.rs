@@ -695,6 +695,87 @@ mod tests {
         }
     }
 
+    /// The full import-gated package set. Kept in one place so the `is_builtin_import`
+    /// predicate and the `mfb spec language builtin-functions` §18 list cannot drift
+    /// apart (plan-33-D Phase 2 — the earlier `money` omission recurred because no
+    /// such test existed).
+    const ALL_BUILTIN_PACKAGES: &[&str] = &[
+        "audio",
+        "bits",
+        "collections",
+        "crypto",
+        "csv",
+        "datetime",
+        "encoding",
+        "errorCode",
+        "fs",
+        "http",
+        "io",
+        "json",
+        "math",
+        "money",
+        "net",
+        "os",
+        "regex",
+        "strings",
+        "term",
+        "thread",
+        "tls",
+        "vector",
+    ];
+
+    #[test]
+    fn every_package_is_a_builtin_import() {
+        for pkg in ALL_BUILTIN_PACKAGES {
+            assert!(is_builtin_import(pkg), "is_builtin_import missing {pkg}");
+        }
+        assert!(!is_builtin_import("audioo"));
+        assert!(!is_builtin_import("resource"));
+    }
+
+    #[test]
+    fn spec_section_18_package_list_matches_is_builtin_import() {
+        // Extract the backtick-quoted package names from §18's "package set the
+        // resolver recognizes is fixed:" sentence and assert it equals the
+        // canonical set exactly (no missing, no extra).
+        let doc = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/docs/spec/language/18_builtin-functions.md"),
+        )
+        .expect("read §18 spec");
+        let anchor = "The package set the resolver recognizes is fixed:";
+        let start = doc.find(anchor).expect("§18 package-set sentence");
+        // The sentence runs from the anchor to the citation marker that follows it.
+        let rest = &doc[start..];
+        let end = rest
+            .find("[[src/builtins/mod.rs:is_builtin_import]]")
+            .expect("§18 citation");
+        let sentence = &rest[..end];
+        let mut listed: Vec<String> = Vec::new();
+        let mut chars = sentence.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '`' {
+                let mut name = String::new();
+                for c in chars.by_ref() {
+                    if c == '`' {
+                        break;
+                    }
+                    name.push(c);
+                }
+                listed.push(name);
+            }
+        }
+        let mut expected: Vec<String> =
+            ALL_BUILTIN_PACKAGES.iter().map(|s| s.to_string()).collect();
+        listed.sort();
+        expected.sort();
+        assert_eq!(
+            listed, expected,
+            "§18 package list drifted from is_builtin_import; \
+             update src/docs/spec/language/18_builtin-functions.md"
+        );
+    }
+
     #[test]
     fn is_builtin_import_cases() {
         for pkg in [
