@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "closed_default_tls_drop_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "connectRefused",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "Result OF TlsSocket", "value": { "kind": "callResult", "type": "TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 19, "mutable": true, "name": "$trap_val1", "type": "TlsSocket", "value": null },
+    {
+      "op": "if",
+      "line": 19,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 19, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "TlsSocket", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 19, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "return", "line": 20, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+      ]
+    },
+    { "op": "bind", "line": 19, "mutable": false, "name": "sock", "type": "TlsSocket", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 26, "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "connectRefused", "args": [] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tls-failed=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "code" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "clean" }] } },
+    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

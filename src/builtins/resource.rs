@@ -301,6 +301,36 @@ mod tests {
     }
 
     #[test]
+    fn every_builtin_resource_has_a_close_op() {
+        // The closed-default (plan-38) relies on every built-in resource being
+        // closeable so scope-drop can no-op a closed-default record. Guard against
+        // a new built-in added without a registered close op (which would also
+        // need a closed-flag review at the canonical offset 8).
+        for (name, info) in builtin_resources() {
+            assert_eq!(info.kind, ResourceKind::Builtin, "{name} must be Builtin");
+            assert!(!info.close_function.is_empty(), "{name} has an empty close op");
+        }
+        // The full set of built-ins the closed-default must cover.
+        let registry = ResourceRegistry::with_builtins();
+        for name in [
+            "File",
+            "Socket",
+            "Listener",
+            "UdpSocket",
+            "AudioInput",
+            "AudioOutput",
+            "TlsSocket",
+            "TlsListener",
+        ] {
+            assert!(registry.is_resource(name), "{name} missing from registry");
+            assert!(
+                registry.close_function(name).is_some_and(|c| !c.is_empty()),
+                "{name} has no close op"
+            );
+        }
+    }
+
+    #[test]
     fn free_helpers_match_registry() {
         assert!(is_builtin_resource_type("File"));
         assert!(!is_builtin_resource_type("Nothing"));

@@ -39,12 +39,22 @@ const NW_STATE_READY: &str = "3";
 const NW_LISTENER_READY: &str = "2";
 const NW_LISTENER_FAILED: &str = "3";
 
-// The handle record: closed flag, nw_connection, dispatch queue, ctx pointer.
-const REC_CLOSED: usize = 0;
-const REC_CONN: usize = 8;
+// The handle record: nw_connection, closed flag, dispatch queue, ctx pointer.
+// The `closed` flag sits at the canonical resource closed-flag offset 8
+// (plan-38 F7) so the backend-independent closed-default (which zeroes the
+// record and sets offset 8) marks this record closed too. Before plan-38 the
+// closed flag was at offset 0 and offset 8 held `REC_CONN`; a closed-default
+// record then read as *open* and `close` dereferenced offset 8 (=1) as the
+// connection pointer → `nw_connection_cancel((void*)0x1)` SIGSEGV on the drop
+// path. Swapping the two offsets fixes it and satisfies the shared assert. All
+// record accesses go through these named constants, so the swap is transparent.
+const REC_CONN: usize = 0;
+const REC_CLOSED: usize = 8;
 const REC_QUEUE: usize = 16;
 const REC_CTX: usize = 24;
 const REC_SIZE: &str = "32";
+
+const _: () = assert!(REC_CLOSED == RESOURCE_OFFSET_CLOSED);
 
 // The shared block context (arena): semaphore, the captured signal fn, and
 // the slots each block writes before signaling.

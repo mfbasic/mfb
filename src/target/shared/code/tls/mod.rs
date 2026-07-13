@@ -33,6 +33,13 @@ pub(super) const TLS_LISTENER_OFFSET_FD: usize = 0;
 pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = 8;
 pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 16;
 
+// Both OpenSSL records place the `closed` flag at the canonical resource
+// closed-flag offset (plan-38), so the backend-independent closed-default sets
+// exactly the byte these guards read. The macOS Network.framework backend
+// carries its own `REC_CLOSED` assert in `macos.rs`.
+const _: () = assert!(TLS_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
+const _: () = assert!(TLS_LISTENER_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
+
 pub(super) const SOCK_STREAM: &str = "1";
 pub(super) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0
 pub(super) const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (1)

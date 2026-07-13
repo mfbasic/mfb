@@ -1,0 +1,49 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+' plan-38: the closed-resource default is an 80-byte arena record, zeroed except
+' the canonical `closed` flag at byte offset 8. It is materialized for the
+' error-path binding of a `RES x = <fallible> TRAP` and closed by scope-drop
+' when the handler diverges. This proves that drop is a crash-free, benign no-op
+' for a `File` and a `Socket`, and (plan-38 F2) that it does NOT log a spurious
+' "Cleanup failure" banner even though File/net `close` returns
+' ERR_RESOURCE_CLOSED on an already-closed record.
+'
+' The cleanup-failure ledger is only reported on the untrapped-error exit path,
+' so `main` drops both closed-default records first, then FAILs to reach that
+' report. Before F2, each drop bumped the ledger and the shutdown report printed
+' a spurious "Cleanup failure" banner after the real error; after F2 it does not.
+
+' A `File` whose fallible open fails: `f` becomes the closed-default. The
+' resource-typed handler must diverge; on RETURN, scope-drop closes the
+' closed-default File record.
+FUNC openMissingFile AS Integer
+  RES f AS File = fs::openFile("/mfb/plan38/definitely/missing/file.txt") TRAP(e)
+    RETURN e.code
+  END TRAP
+  ' Unreachable: the open above always fails.
+  RETURN 0
+END FUNC
+
+' A `Socket` whose connect is refused: `sock` becomes the closed-default. On the
+' diverging RETURN, scope-drop closes the closed-default Socket record.
+FUNC connectRefused AS Integer
+  RES sock AS Socket = net::connectTcp("127.0.0.1", 1, 500) TRAP(e)
+    RETURN e.code
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET fileCode AS Integer = openMissingFile()
+  LET sockCode AS Integer = connectRefused()
+  ' Both opens fail, so both codes are non-zero; the exact values are platform
+  ' errno-derived, so only the fact that a real error was trapped is asserted.
+  io::print("file-failed=" & toString(fileCode <> 0))
+  io::print("socket-failed=" & toString(sockCode <> 0))
+  ' Force the untrapped-error exit so the shutdown cleanup-failure audit runs.
+  ' With plan-38 F2 the two closed-default drops above are benign no-ops, so no
+  ' "Cleanup failure" banner follows this error.
+  FAIL error(700, "intentional exit to reach the cleanup audit")
+END FUNC

@@ -23,6 +23,15 @@ pub(super) const H_BUFFER_FRAMES: usize = 40;
 pub(super) const H_STATE: usize = 48; // -> mmap'd AudioState
 pub(super) const H_RECORD_SIZE: usize = 64;
 
+// The offset-8 `closed` mirror is the canonical resource closed-flag offset
+// (plan-38): the closed-default (`lower_default_value`) sets exactly this byte,
+// and the whole handle record fits inside the shared closed-default record so
+// the zeroed default covers it. `S_CLOSED` (in the mmap'd state) is the
+// authoritative flag; the guards read this arena-resident mirror, so offset 8 is
+// what the default needs.
+const _: () = assert!(H_CLOSED == RESOURCE_OFFSET_CLOSED);
+const _: () = assert!(H_RECORD_SIZE <= RESOURCE_RECORD_SIZE_BYTES);
+
 pub(super) const KIND_INPUT: &str = "1";
 pub(super) const KIND_OUTPUT: &str = "2";
 pub(super) const NUM_BUFFERS: usize = 4;

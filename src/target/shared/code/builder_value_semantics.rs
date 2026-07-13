@@ -111,7 +111,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&alloc_ok));
                 self.emit(abi::move_register(&record, abi::RET[1]));
                 // Zero the record (invalid internals), then mark it closed.
-                let bytes: usize = RESOURCE_RECORD_SIZE.parse().unwrap_or(80);
+                let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
                 let mut offset = 0;
                 while offset < bytes {
                     self.emit(abi::store_u64(abi::ZERO, &record, offset));
@@ -119,7 +119,10 @@ impl CodeBuilder<'_> {
                 }
                 let one = self.allocate_register()?;
                 self.emit(abi::move_immediate(&one, "Integer", "1"));
-                self.emit(abi::store_u64(&one, &record, 8)); // closed flag
+                // The single canonical closed-flag offset, shared by every
+                // built-in resource record (enforced by the compile-time asserts
+                // beside each per-resource closed-offset constant).
+                self.emit(abi::store_u64(&one, &record, RESOURCE_OFFSET_CLOSED)); // closed flag
                 Ok(ValueResult {
                     type_: type_.to_string(),
                     location: record,

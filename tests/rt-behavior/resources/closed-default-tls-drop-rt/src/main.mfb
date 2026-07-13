@@ -1,0 +1,30 @@
+IMPORT tls
+IMPORT io
+
+' plan-38 F7 regression: a closed-default `TlsSocket` must be safe to drop on
+' macOS. The macOS Network.framework TLS backend used to place its `closed` flag
+' at byte offset 0 while offset 8 held the nw_connection pointer. The
+' backend-independent closed-default sets offset 8, so on macOS a closed/defaulted
+' TLS record read as *open*, and `close` dereferenced offset 8 (= 1) as the
+' connection pointer -> nw_connection_cancel((void*)0x1) -> SIGSEGV. Moving the
+' macOS `closed` flag to the canonical offset 8 fixes it: the closed-default is
+' now seen as closed and `close` short-circuits. On Linux/OpenSSL the closed flag
+' was already at offset 8, so this test is a no-crash proof on every target.
+
+' The fallible connect is refused fast on a closed local port, so `sock` becomes
+' the closed-default record. The resource-typed handler must diverge; on the
+' RETURN, scope-drop closes the closed-default TLS record — before the fix this
+' SIGSEGV'd on macOS.
+FUNC connectRefused AS Integer
+  RES sock AS TlsSocket = tls::connect("127.0.0.1", 1, 500, "") TRAP(e)
+    RETURN e.code
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET code AS Integer = connectRefused()
+  io::print("tls-failed=" & toString(code <> 0))
+  io::print("clean")
+  RETURN 0
+END FUNC

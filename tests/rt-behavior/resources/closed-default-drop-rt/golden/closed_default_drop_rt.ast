@@ -1,0 +1,73 @@
+{
+  "project": "closed_default_drop_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "openMissingFile",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 22,
+        "expression": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/mfb/plan38/definitely/missing/file.txt" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 23 }
+        ]
+      }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "connectRefused",
+      "line": 31,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "Socket", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 32,
+        "expression": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "500" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 33 }
+        ]
+      }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 38,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "fileCode", "type": "Integer", "value": { "kind": "call", "callee": "openMissingFile", "arguments": [] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "sockCode", "type": "Integer", "value": { "kind": "call", "callee": "connectRefused", "arguments": [] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "file-failed=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "fileCode" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "socket-failed=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "sockCode" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 44 },
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "700" }, { "kind": "string", "value": "intentional exit to reach the cleanup audit" }] }, "line": 48 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1493,6 +1493,23 @@ impl CodeBuilder<'_> {
         let done = self.label("resource_cleanup_done");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&done));
+        // A close on an already-closed resource returns `ERR_RESOURCE_CLOSED`
+        // (File/net's deliberate bug-63 re-close error). On the *drop* path this
+        // is a benign no-op — the handle is already closed (e.g. the offset-8
+        // closed-default record materialized for a `RES x = <fallible> TRAP`
+        // error binding, or a program that already called `close`) — not a real
+        // cleanup failure, so it must not be logged in the arena
+        // cleanup-failure ledger (plan-38 F2). Every other non-OK close *is* a
+        // genuine failure and still records. Compare via a register (the code is
+        // an 8-digit value beyond the immediate range some backends allow).
+        let closed_code = self.temporary_vreg();
+        self.emit(abi::move_immediate(
+            &closed_code,
+            "Integer",
+            ERR_RESOURCE_CLOSED_CODE,
+        ));
+        self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &closed_code));
+        self.emit(abi::branch_eq(&done));
         self.record_secondary_cleanup_failure();
         self.emit(abi::label(&done));
         Ok(())

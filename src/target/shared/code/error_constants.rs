@@ -550,6 +550,27 @@ pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = 72;
 /// (ptr/pos/fill/at_eof). All resource kinds share the size so the generic
 /// thread-transfer copy stays uniform.
 pub(crate) const RESOURCE_RECORD_SIZE: &str = "80";
+/// `RESOURCE_RECORD_SIZE` as a `usize`, for compile-time layout checks (the
+/// string form above is what the arena-alloc immediate needs). Every per-backend
+/// resource record MUST fit inside this many zeroed bytes so the closed-default
+/// (`lower_default_value`) covers each real layout — see the asserts in the
+/// backend modules (`audio/mod.rs`, `tls/mod.rs`, `tls/macos.rs`).
+pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 80;
+
+/// Canonical byte offset of the `closed` flag in every built-in resource record.
+/// The closed-resource default (`lower_default_value`) sets exactly this byte;
+/// every resource op's closed-guard reads it. All per-resource closed-offset
+/// constants MUST equal this — enforced by the compile-time asserts here and in
+/// `audio/mod.rs`, `tls/mod.rs`, and `tls/macos.rs` (plan-38). This turns the
+/// de-facto offset-8 convention into a compiler-enforced invariant: a future
+/// resource whose closed flag drifts off offset 8 fails to compile.
+pub(crate) const RESOURCE_OFFSET_CLOSED: usize = 8;
+
+const _: () = assert!(FILE_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
+// The closed flag lives inside the zeroed default record, and the record covers
+// the full File layout (read-buffer fields are the last words).
+const _: () = assert!(RESOURCE_OFFSET_CLOSED + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(FILE_OFFSET_READ_AT_EOF + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 /// Block size of the lazily-allocated per-`File` read buffer, in bytes.
 pub(crate) const FILE_READ_BUFFER_CAPACITY: u64 = 16384;
 /// Capacity of a lazily-allocated per-`File` output buffer, in bytes.

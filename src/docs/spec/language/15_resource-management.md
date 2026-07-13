@@ -71,7 +71,9 @@ A resource union owns exactly one resource at a time (the active variant), so it
 
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
 
-A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead.
+A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead. Re-closing an already-closed handle during a drop is not such a failure — it is a benign no-op and is never reported as a drop-close failure.
+
+When a fallible resource-producing operation fails (for example the error binding of a `RES x = <fallible> TRAP` whose handler diverges), the binding is never left holding an invalid handle: it materializes as an **already-closed** handle. Its close op is therefore an idempotent no-op, and no unopened or null handle is ever exposed to a program or to the drop path. This makes every resource default *closed*, so an operation reaching such a value raises the resource-closed error and a drop of it is safe.
 
 This rule does not change the built-in `Error` shape: A secondary close failure is not directly inspectable by ordinary source code unless a future diagnostics API exposes cleanup metadata.
 
