@@ -638,6 +638,7 @@ impl plan::NativePlanPlatform for Platform {
                     "audio.openInput" | "audio.openInputDevice" => {
                         audio_queue(&mut imports);
                         pthread(&mut imports);
+                        imports.push(("libSystem", "_mmap"));
                         // §4.5 default-input-device precheck.
                         core_audio(&mut imports);
                         if call == "audio.openInputDevice" {
@@ -649,6 +650,7 @@ impl plan::NativePlanPlatform for Platform {
                     "audio.openOutput" | "audio.openOutputDevice" => {
                         audio_queue(&mut imports);
                         pthread(&mut imports);
+                        imports.push(("libSystem", "_mmap"));
                         if call == "audio.openOutputDevice" {
                             imports.push(("AudioToolbox", "_AudioQueueSetProperty"));
                             imports.push(("CoreFoundation", "_CFStringCreateWithCString"));
@@ -675,6 +677,7 @@ impl plan::NativePlanPlatform for Platform {
                         imports.push(("AudioToolbox", "_AudioQueueStop"));
                         imports.push(("AudioToolbox", "_AudioQueueFlush"));
                         imports.push(("AudioToolbox", "_AudioQueueDispose"));
+                        imports.push(("libSystem", "_munmap"));
                         pthread(&mut imports);
                     }
                     _ => {}

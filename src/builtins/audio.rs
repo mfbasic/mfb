@@ -132,13 +132,13 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         DEVICES => Some("List OF AudioDevice"),
-        OPEN_INPUT => Some(AUDIO_INPUT_TYPE),
-        OPEN_OUTPUT => Some(AUDIO_OUTPUT_TYPE),
-        READ => Some("List OF Byte"),
-        WRITE | CLOSE => Some("Nothing"),
+        OPEN_INPUT | OPEN_INPUT_DEVICE => Some(AUDIO_INPUT_TYPE),
+        OPEN_OUTPUT | OPEN_OUTPUT_DEVICE => Some(AUDIO_OUTPUT_TYPE),
+        READ | READ_TIMEOUT => Some("List OF Byte"),
+        WRITE | CLOSE | CLOSE_INPUT | CLOSE_OUTPUT => Some("Nothing"),
         // `poll` is `Boolean`, `available`/`xruns` are `Integer`, on either
         // direction; `resolve_call` returns the precise type per operand.
-        POLL => Some("Boolean"),
+        POLL | POLL_TIMEOUT => Some("Boolean"),
         AVAILABLE | XRUNS => Some("Integer"),
         _ => None,
     }

@@ -862,6 +862,22 @@ pub(crate) fn lower_module_for_platform(
     if register_signal_handlers {
         code_functions.push(lower_signal_handler(platform)?);
     }
+    // The macOS AudioQueue output callback (plan-33-B §3.2): emitted whenever an
+    // output stream is built, since openOutput takes its address. Runs on an
+    // ordinary AudioQueue thread.
+    if platform.target().contains("macos")
+        && runtime_symbols.iter().any(|symbol| {
+            matches!(
+                symbol.as_str(),
+                "_mfb_rt_audio_audio_openOutput"
+                    | "_mfb_rt_audio_audio_openOutputDevice"
+                    | "_mfb_rt_audio_audio_write"
+                    | "_mfb_rt_audio_audio_closeOutput"
+            )
+        })
+    {
+        code_functions.push(audio::lower_audio_output_callback(&platform_imports, platform)?);
+    }
     if runtime_symbols
         .iter()
         .any(|symbol| symbol == "_mfb_rt_fs_fs_readBytes")

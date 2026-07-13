@@ -12,6 +12,49 @@ use std::collections::HashMap;
 
 use super::*;
 
+// --- AudioHandle: arena record, pointer-sized reference (plan-33-A §5.1) ------
+// Identical layout for both resource types.
+pub(super) const H_KIND: usize = 0; // 1 = input, 2 = output
+pub(super) const H_CLOSED: usize = 8; // mirror; authoritative `closed` is in state
+pub(super) const H_SAMPLE_RATE: usize = 16;
+pub(super) const H_CHANNELS: usize = 24;
+pub(super) const H_BYTES_PER_FRAME: usize = 32; // channels * 2
+pub(super) const H_BUFFER_FRAMES: usize = 40;
+pub(super) const H_STATE: usize = 48; // -> mmap'd AudioState
+pub(super) const H_RECORD_SIZE: usize = 64;
+
+pub(super) const KIND_INPUT: &str = "1";
+pub(super) const KIND_OUTPUT: &str = "2";
+pub(super) const NUM_BUFFERS: usize = 4;
+
+// --- AudioState: one mmap'd page, NOT arena (an OS callback thread touches it) -
+// pthread_mutex_t (64 B) / pthread_cond_t (48 B) get 128 B each (§5.1). Compile-
+// time asserts below guard the reservations against the platform sizes.
+pub(super) const S_MUTEX: usize = 0;
+pub(super) const S_COND: usize = 128;
+pub(super) const S_XRUNS: usize = 256;
+pub(super) const S_CLOSED: usize = 264;
+pub(super) const S_STARTED: usize = 272;
+pub(super) const S_OSOBJECT: usize = 280; // AudioQueueRef (macOS) / snd_pcm_t* (Linux)
+pub(super) const S_FREE_TOP: usize = 288; // count of free output buffers
+pub(super) const S_FREE_BUFS: usize = 296; // [NUM_BUFFERS] AudioQueueBufferRef -> 296..328
+pub(super) const S_RING_CAP: usize = 328;
+pub(super) const S_RING_HEAD: usize = 336;
+pub(super) const S_RING_TAIL: usize = 344;
+pub(super) const S_RING: usize = 384; // input ring payload (page-area)
+
+// `AudioState` bookkeeping fits in the first page; output uses no ring so one
+// page suffices. Input sizes the mapping to `S_RING + ringCapacity`.
+pub(super) const STATE_PAGE: usize = 16384;
+
+// Build-time guards (plan-33-B §6): the pthread reservations must exceed the
+// platform sizes (macOS pthread_mutex_t = 64 B, pthread_cond_t = 48 B; glibc 40 /
+// 48). Both backends `pthread_*_init` these regions, so an undersized reservation
+// would corrupt the following fields.
+const _: () = assert!(S_COND - S_MUTEX >= 64, "mutex reservation too small");
+const _: () = assert!(S_XRUNS - S_COND >= 48, "cond reservation too small");
+const _: () = assert!(S_RING <= STATE_PAGE, "state bookkeeping exceeds one page");
+
 // The `AudioDevice` record: six word-slots, `String` fields as pointers.
 pub(super) const DEVICE_FIELD_ID: usize = 0;
 pub(super) const DEVICE_FIELD_NAME: usize = 8;
@@ -26,7 +69,15 @@ pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 #[allow(unused_imports)]
 pub(super) use super::tls::{emit_alloc, emit_data_address, emit_fail};
 
+// The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
+// on an ordinary internal thread when a played buffer is free. openOutput takes
+// its address; mod.rs registers the body when an output program is built.
+pub(in crate::target::shared::code) const AUDIO_OUTPUT_CALLBACK_SYMBOL: &str =
+    "_mfb_rt_audio_output_callback";
+
 mod macos;
+
+pub(in crate::target::shared::code) use macos::lower_audio_output_callback;
 
 /// Dispatch an `audio.*` runtime-helper body to the platform backend.
 pub(in crate::target::shared::code) fn lower_audio_helper(
