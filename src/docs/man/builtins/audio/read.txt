@@ -1,0 +1,64 @@
+NAME
+  read - capture PCM frames from an input stream
+
+SYNOPSIS
+  audio::read(input AS AudioInput, frames AS Integer) AS List OF Byte
+  audio::read(input AS AudioInput, frames AS Integer, timeoutMs AS Integer) AS List OF Byte
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Captures PCM from an AudioInput and returns it as a List OF Byte of raw
+  interleaved s16le samples. read is defined only over AudioInput; calling it on
+  an AudioOutput does not compile.
+
+  The two-argument form blocks until exactly frames frames are captured, then
+  returns frames * channels * 2 bytes. The three-argument form returns early when
+  timeoutMs elapses, yielding only whole frames — possibly an empty list, never a
+  partial frame, and never more than frames. A timeoutMs of 0 polls: it returns
+  whatever whole frames are already buffered without blocking.
+
+  A capture ring that fills drops the oldest frames and increments the stream's
+  xruns counter by one per event; read never blocks waiting for space.
+
+OVERLOADS
+  audio::read(input, frames)
+    Block until exactly frames frames are captured.
+
+  audio::read(input, frames, timeoutMs)
+    Return early after timeoutMs, with only the whole frames captured so far.
+
+PARAMETERS
+  input AS AudioInput
+    An open capture stream. Reading after close raises an error.
+  frames AS Integer
+    Number of frames to capture, in 1..1048576.
+  timeoutMs AS Integer
+    Maximum wait in milliseconds, in 0..86400000 (timed overload only). 0 polls.
+
+RETURN VALUE
+  List OF Byte
+    Interleaved s16le PCM. The blocking form returns exactly
+    frames * channels * 2 bytes; the timed form returns a whole-frame-aligned
+    list of at most that size, possibly empty.
+
+ERRORS
+  7-705-0002  ErrInvalidArgument   frames or timeoutMs is out of range.
+  7-705-0018  ErrAudioDevice       The stream failed or was closed.
+
+EXAMPLES
+  Poll for available frames without blocking:
+
+  IMPORT audio
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET now = audio::read(mic, 4800, 0)
+  audio::close(mic)
+
+SEE ALSO
+  mfb man audio openInput
+  mfb man audio poll
+  mfb man audio available

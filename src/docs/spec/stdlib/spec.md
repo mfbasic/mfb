@@ -34,6 +34,10 @@ built-in injection chain.
   geometry/interpolation/utility/2D functions over them: the value model, the
   type-resolved dispatch, the per-function formulas, the single round-half-away
   Integer rule, and the no-libm determinism guarantee.
+- `audio` — the raw `s16le` PCM model: the frame layout, the exact-or-timeout
+  `read` rule, the block-until-queued `write` rule, `available`/`xruns` meanings,
+  the static-direction/non-sendable/no-duplex consequences, the AudioQueue and
+  ALSA backends, and the error model.
 
 ## See Also
 

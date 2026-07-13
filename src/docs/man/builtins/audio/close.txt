@@ -1,0 +1,44 @@
+NAME
+  close - close a stream
+
+SYNOPSIS
+  audio::close(stream AS AudioInput) AS Nothing
+  audio::close(stream AS AudioOutput) AS Nothing
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Closes an audio stream and releases the underlying OS resource. Closing an
+  AudioOutput first drains any queued playback; closing an AudioInput drops any
+  buffered capture. close consumes the stream handle.
+
+  A stream is also closed automatically by lexical drop when its binding leaves
+  scope, so close is needed only to release a stream earlier. close is
+  idempotent: closing a stream that is already closed is a no-op, not an error.
+
+PARAMETERS
+  stream AS AudioInput or AudioOutput
+    The stream to close. It is consumed by the call.
+
+RETURN VALUE
+  Nothing
+    Returns once the stream is closed.
+
+ERRORS
+  7-705-0018  ErrAudioDevice       The stream could not be closed cleanly.
+
+EXAMPLES
+  Close a stream explicitly:
+
+  IMPORT audio
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  audio::write(out, pcm)
+  audio::close(out)
+
+SEE ALSO
+  mfb man audio openOutput
+  mfb man audio openInput

@@ -1,0 +1,69 @@
+NAME
+  openInput - open a capture stream
+
+SYNOPSIS
+  audio::openInput(sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioInput
+  audio::openInput(device AS AudioDevice, sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioInput
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Opens a capture stream and returns an AudioInput. The three-argument form
+  opens the system default input device; the four-argument form opens the device
+  named by an AudioDevice from audio::devices(). The stream delivers raw
+  interleaved s16le PCM: one frame is channels * 2 bytes.
+
+  The returned AudioInput is a move-only, non-sendable resource. Bind it with
+  RES; it is closed automatically by lexical drop, or explicitly with
+  audio::close. Read captured frames with audio::read.
+
+  On macOS, opening an input stream triggers microphone authorization, attributed
+  to the responsible terminal or IDE process. A denied microphone delivers
+  buffers of digital silence rather than an error: an all-zero capture is
+  indistinguishable from success by byte count alone, so verify a captured buffer
+  contains a nonzero sample before treating capture as working.
+
+OVERLOADS
+  audio::openInput(sampleRate, channels, bufferFrames)
+    Open the system default input device.
+
+  audio::openInput(device, sampleRate, channels, bufferFrames)
+    Open the input device identified by device (from audio::devices()).
+
+PARAMETERS
+  device AS AudioDevice
+    A device from audio::devices() with canInput set (device overload only).
+  sampleRate AS Integer
+    Sample rate in Hz, in 8000..192000.
+  channels AS Integer
+    1 (mono) or 2 (stereo).
+  bufferFrames AS Integer
+    Frames per OS buffer, in 64..8192.
+
+RETURN VALUE
+  AudioInput
+    An open capture stream.
+
+ERRORS
+  7-705-0002  ErrInvalidArgument   A parameter is out of range.
+  7-705-0018  ErrAudioDevice       The device could not be opened or configured.
+  7-705-0017  ErrAudioUnavailable  No input device is present, capture was
+                                   denied, or (Linux) the ALSA library could not
+                                   be resolved.
+
+EXAMPLES
+  Capture 100 ms of mono audio at 48 kHz:
+
+  IMPORT audio
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET pcm = audio::read(mic, 4800)
+  audio::close(mic)
+
+SEE ALSO
+  mfb man audio read
+  mfb man audio close
+  mfb man audio devices

@@ -1,0 +1,45 @@
+NAME
+  available - frames readable or writable without blocking
+
+SYNOPSIS
+  audio::available(stream AS AudioInput) AS Integer
+  audio::available(stream AS AudioOutput) AS Integer
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Returns the number of frames a stream can move immediately without blocking.
+  For an AudioInput it is the frames currently readable; for an AudioOutput it is
+  the frames writable before write would block. Use it to size a read, or to
+  decide how much to write, without blocking.
+
+PARAMETERS
+  stream AS AudioInput or AudioOutput
+    An open stream.
+
+RETURN VALUE
+  Integer
+    Frames readable (input) or writable (output) without blocking; never
+    negative.
+
+ERRORS
+  7-705-0018  ErrAudioDevice       The stream failed.
+
+EXAMPLES
+  Read exactly what is available:
+
+  IMPORT audio
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET n = audio::available(mic)
+  IF n > 0 THEN
+    LET pcm = audio::read(mic, n)
+  END IF
+  audio::close(mic)
+
+SEE ALSO
+  mfb man audio poll
+  mfb man audio read

@@ -1,0 +1,66 @@
+NAME
+  openOutput - open a playback stream
+
+SYNOPSIS
+  audio::openOutput(sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioOutput
+  audio::openOutput(device AS AudioDevice, sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioOutput
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Opens a playback stream and returns an AudioOutput. The three-argument form
+  opens the system default output device; the four-argument form opens the
+  device named by an AudioDevice obtained from audio::devices(). The stream
+  carries raw interleaved s16le PCM: one frame is channels * 2 bytes.
+
+  The returned AudioOutput is a move-only, non-sendable resource. Bind it with
+  RES; it is closed automatically by lexical drop, or explicitly with
+  audio::close. Feed it with audio::write, which blocks until every byte is
+  queued for playback.
+
+  bufferFrames sets the per-buffer latency the caller controls; it is not a
+  hard latency guarantee. On Linux the committed rate and channel count must
+  match the request exactly (no silent resampling) or the call raises.
+
+OVERLOADS
+  audio::openOutput(sampleRate, channels, bufferFrames)
+    Open the system default output device.
+
+  audio::openOutput(device, sampleRate, channels, bufferFrames)
+    Open the output device identified by device (from audio::devices()).
+
+PARAMETERS
+  device AS AudioDevice
+    A device from audio::devices() with canOutput set (device overload only).
+  sampleRate AS Integer
+    Sample rate in Hz, in 8000..192000.
+  channels AS Integer
+    1 (mono) or 2 (stereo).
+  bufferFrames AS Integer
+    Frames per OS buffer, in 64..8192. Need not be a power of two.
+
+RETURN VALUE
+  AudioOutput
+    An open playback stream.
+
+ERRORS
+  7-705-0002  ErrInvalidArgument   A parameter is out of range.
+  7-705-0018  ErrAudioDevice       The device could not be opened or configured.
+  7-705-0017  ErrAudioUnavailable  No output device is present, or (Linux) the
+                                   ALSA library could not be resolved.
+
+EXAMPLES
+  Open the default stereo output at 48 kHz:
+
+  IMPORT audio
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  audio::close(out)
+
+SEE ALSO
+  mfb man audio write
+  mfb man audio close
+  mfb man audio devices

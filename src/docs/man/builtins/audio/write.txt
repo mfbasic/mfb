@@ -1,0 +1,50 @@
+NAME
+  write - play PCM frames to an output stream
+
+SYNOPSIS
+  audio::write(output AS AudioOutput, bytes AS List OF Byte) AS Nothing
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Queues raw interleaved s16le PCM for playback on an AudioOutput, blocking until
+  every byte is queued. write is defined only over AudioOutput; calling it on an
+  AudioInput does not compile.
+
+  The byte-list length must be nonzero and a multiple of channels * 2 (one
+  frame). A length that is not a whole number of frames raises ErrInvalidArgument.
+  If the playback queue starves, the operating system emits silence and the
+  stream's xruns counter increments by one per underrun event; write itself does
+  not enqueue silence.
+
+PARAMETERS
+  output AS AudioOutput
+    An open playback stream. Writing after close raises an error.
+  bytes AS List OF Byte
+    Interleaved s16le PCM whose length is a nonzero multiple of channels * 2.
+
+RETURN VALUE
+  Nothing
+    Returns once every byte is queued for playback.
+
+ERRORS
+  7-705-0002  ErrInvalidArgument   The byte length is zero or not a whole number
+                                   of frames.
+  7-705-0018  ErrAudioDevice       The stream failed or was closed.
+
+EXAMPLES
+  Play a buffer of PCM:
+
+  IMPORT audio
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  audio::write(out, pcm)
+  audio::close(out)
+
+SEE ALSO
+  mfb man audio openOutput
+  mfb man audio available
+  mfb man audio xruns
