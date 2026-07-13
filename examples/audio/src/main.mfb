@@ -1,67 +1,6 @@
 IMPORT audio
 IMPORT collections
 IMPORT io
-IMPORT math
-IMPORT bits
-
-TYPE AudioEnvelope
-  attackFrames  AS Integer
-  decayFrames   AS Integer
-  holdFrames    AS Integer
-  releaseFrames AS Integer
-  sustainLevel  AS Integer
-END TYPE
-
-TYPE AudioNote
-  frequencyHz AS Float
-  noteFrames  AS Integer
-  envelope    AS AudioEnvelope
-  gainOverall AS Float
-END TYPE
-
-' Render a note to mono s16le PCM (48 kHz): a sine oscillator shaped by an
-' attack/decay/sustain(hold)/release envelope. The envelope amplitudes are in raw
-' sample units (0..32767); `gainOverall` scales the whole note (0..1). `noteFrames`
-' is the total length; the release is the final `releaseFrames`, the attack/decay
-' shape the onset, and the middle is held at `sustainLevel`.
-FUNC generate(note AS AudioNote) AS List OF Byte
-  MUT pcm AS List OF Byte = []
-  LET n AS Integer = note.noteFrames
-  LET a AS Integer = note.envelope.attackFrames
-  LET d AS Integer = note.envelope.decayFrames
-  LET r AS Integer = note.envelope.releaseFrames
-  LET peak AS Float = 32767.0
-  LET sustain AS Float = toFloat(note.envelope.sustainLevel)
-  LET releaseStart AS Integer = n - r
-  FOR i = 0 TO n - 1
-    ' Sine oscillator.
-    LET t AS Float = toFloat(i) / 48000.0
-    LET wave AS Float = math::sin(2.0 * math::pi * note.frequencyHz * t)
-    ' ADSR envelope amplitude (raw sample units).
-    MUT env AS Float = sustain
-    IF i < a THEN
-      env = peak * (toFloat(i) / toFloat(a))
-    ELSEIF i < a + d THEN
-      env = peak + (sustain - peak) * (toFloat(i - a) / toFloat(d))
-    ELSEIF i >= releaseStart THEN
-      env = sustain * (toFloat(n - i) / toFloat(r))
-    END IF
-    ' Mix, clamp to the s16 range, and encode little-endian.
-    MUT sample AS Integer = toInt(wave * env * note.gainOverall)
-    IF sample > 32767 THEN
-      sample = 32767
-    END IF
-    IF sample < -32768 THEN
-      sample = -32768
-    END IF
-    IF sample < 0 THEN
-      sample = sample + 65536
-    END IF
-    pcm = collections::append(pcm, toByte(bits::band(sample, 255)))
-    pcm = collections::append(pcm, toByte(bits::band(bits::sr(sample, 8), 255)))
-  NEXT
-  RETURN pcm
-END FUNC
 
 SUB main()
   LET devices AS List OF AudioDevice = audio::devices()
@@ -89,10 +28,11 @@ SUB main()
       idx = toInt(userInput) TRAP(e)
         RECOVER -1
       END TRAP
-      IF idx > len(outDevices) -1 THEN
+      IF idx < 0 OR idx > len(outDevices) - 1 THEN
         idx = -1
       END IF
     LOOP UNTIL idx <> -1
+    seloutDevices = collections::get(outDevices, idx)
   END IF
 
   io::print("Using device: " & seloutDevices.name)
@@ -103,17 +43,19 @@ SUB main()
     EXIT PROGRAM 0
   END TRAP
 
-  ' Build an A4 (440 Hz) note, ~1 s, with a plucked-ish ADSR envelope.
-  LET env AS AudioEnvelope = AudioEnvelope[2400, 4800, 31200, 9600, 12000]
-  LET note AS AudioNote = AudioNote[440.0, 48000, env, 0.8]
-  LET tone AS List OF Byte = generate(note)
-  io::print("Generated " & toString(len(tone)) & " bytes")
+  LET ttls = "T160 O4 V8 I triangle C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 ) G4 G F4 F E4 E D2 G4 G F4 F E4 E ( D2 ) C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 )"
+  audio::play(out, ttls)
 
-  audio::write(out, tone) TRAP(e)
-    io::print("Playback failed:\n" & e.message)
+  ' Play a short tune written in MML. `audio::play` parses the MML, renders it to
+  ' PCM, and writes it to the open output stream. Multiple strings are mixed as
+  ' independent tracks (here a triangle bass under a sine melody).
+  LET bass AS String = "T120 O2 L4 I triangle { C G }4"
+  LET lead AS String = "T120 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
+  LET tracks AS List OF String = [bass, lead]
+  audio::play(out, tracks) TRAP(e)
+    io::print("MML playback failed:\n" & e.message)
     EXIT PROGRAM 0
   END TRAP
 
-  audio::close(out)
   io::print("Done")
 END SUB

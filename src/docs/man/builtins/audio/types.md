@@ -8,6 +8,8 @@ the audio package types
 audio::AudioInput
 audio::AudioOutput
 audio::AudioDevice
+audio::AudioEnvelope
+audio::AudioNote
 ```
 
 ## Package
@@ -24,7 +26,8 @@ IMPORT audio
 
 ## Description
 
-The `audio` package defines two stream resource types and one plain record.
+The `audio` package defines two stream resource types, one plain device record,
+and two value records for tone synthesis.
 
 `AudioInput` and `AudioOutput` are opaque, owned, move-only, non-sendable
 resource handles — a capture stream and a playback stream respectively. Because
@@ -68,9 +71,37 @@ A description of one audio device, obtained only from `audio::devices()`.
 | `isDefaultInput` | `Boolean` | Whether this is the system default capture device. |
 | `isDefaultOutput` | `Boolean` | Whether this is the system default playback device. |
 
+### AudioEnvelope
+
+A linear ADSR amplitude envelope in raw s16 sample units (`0..32767`), passed to
+`audio::render` through an `AudioNote`. Unlike `AudioDevice`, it is an ordinary
+value record: construct it with `AudioEnvelope[...]`.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `attackFrames` | `Integer` | Frames of linear rise from silence to `peak` (32767). |
+| `decayFrames` | `Integer` | Frames of linear fall from `peak` to `sustainLevel`. |
+| `holdFrames` | `Integer` | Informational; the sustain fills whatever the note's length leaves between decay and release. |
+| `releaseFrames` | `Integer` | Frames of linear fall from `sustainLevel` to silence at the note's end. |
+| `sustainLevel` | `Integer` | Held amplitude between decay and release, in `0..32767`. |
+
+### AudioNote
+
+A single note for `audio::render` to synthesize: a sine at `frequencyHz` for
+`noteFrames` frames, shaped by `envelope` and scaled by `gainOverall`. A value
+record; construct it with `AudioNote[...]`.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `frequencyHz` | `Float` | Sine frequency in hertz. |
+| `noteFrames` | `Integer` | Total length in frames (one frame is 2 bytes of mono s16le at 48 kHz). |
+| `envelope` | `AudioEnvelope` | The amplitude envelope applied over the note. |
+| `gainOverall` | `Float` | Overall gain scaling the whole note, `0..1`. |
+
 ## See also
 
 - `mfb man audio`
 - `mfb man audio devices`
 - `mfb man audio openInput`
 - `mfb man audio openOutput`
+- `mfb man audio render`

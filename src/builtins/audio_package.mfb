@@ -1,0 +1,582 @@
+' Source companion for the built-in `audio` package: the note/envelope value
+' records and the `audio::render` tone renderer. Injected on `IMPORT audio`
+' (src/builtins/audio.rs:augmented_project), like `net`'s `Url` companion. The
+' native capture/playback surface (openInput/openOutput/read/write/...) is emitted
+' as runtime helpers; this file adds the pure-MFBASIC synthesis helpers.
+
+IMPORT audio
+IMPORT collections
+IMPORT math
+IMPORT bits
+IMPORT strings
+
+' An amplitude envelope in raw s16 sample units (0..32767), applied over a note's
+' frames: a linear attack, a linear decay to `sustainLevel`, a held sustain, and
+' a linear release. `holdFrames` is informational; the sustain fills whatever the
+' note's total length leaves between decay and release.
+EXPORT TYPE AudioEnvelope
+  attackFrames  AS Integer
+  decayFrames   AS Integer
+  holdFrames    AS Integer
+  releaseFrames AS Integer
+  sustainLevel  AS Integer
+END TYPE
+
+' A single note to synthesize: a sine at `frequencyHz` for `noteFrames` frames,
+' shaped by `envelope` and scaled by `gainOverall` (0..1).
+EXPORT TYPE AudioNote
+  frequencyHz AS Float
+  noteFrames  AS Integer
+  envelope    AS AudioEnvelope
+  gainOverall AS Float
+END TYPE
+
+' audio::render — render a note to mono s16le PCM at 48 kHz (the frame layout the
+' playback surface consumes: one frame is 2 bytes). A sine oscillator shaped by
+' the note's attack/decay/sustain/release envelope; the release is the final
+' `releaseFrames` and the middle is held at `sustainLevel`.
+FUNC __audio_render(note AS AudioNote) AS List OF Byte
+  MUT pcm AS List OF Byte = []
+  LET n AS Integer = note.noteFrames
+  LET a AS Integer = note.envelope.attackFrames
+  LET d AS Integer = note.envelope.decayFrames
+  LET r AS Integer = note.envelope.releaseFrames
+  LET peak AS Float = 32767.0
+  LET sustain AS Float = toFloat(note.envelope.sustainLevel)
+  LET releaseStart AS Integer = n - r
+  FOR i = 0 TO n - 1
+    LET t AS Float = toFloat(i) / 48000.0
+    LET wave AS Float = math::sin(2.0 * math::pi * note.frequencyHz * t)
+    MUT env AS Float = sustain
+    IF i < a THEN
+      env = peak * (toFloat(i) / toFloat(a))
+    ELSEIF i < a + d THEN
+      env = peak + (sustain - peak) * (toFloat(i - a) / toFloat(d))
+    ELSEIF i >= releaseStart THEN
+      env = sustain * (toFloat(n - i) / toFloat(r))
+    END IF
+    MUT sample AS Integer = toInt(wave * env * note.gainOverall)
+    IF sample > 32767 THEN
+      sample = 32767
+    END IF
+    IF sample < -32768 THEN
+      sample = -32768
+    END IF
+    IF sample < 0 THEN
+      sample = sample + 65536
+    END IF
+    pcm = collections::append(pcm, toByte(bits::band(sample, 255)))
+    pcm = collections::append(pcm, toByte(bits::band(bits::sr(sample, 8), 255)))
+  NEXT
+  RETURN pcm
+END FUNC
+
+' ============================================================================
+' audio::play — a small MML (Music Macro Language) sequencer.
+'
+' A track is a whitespace-separated string of tokens; every token is separated
+' by whitespace. Tokens: notes A..G (with a trailing + / - accidental, an inline
+' length, and trailing dots), R (rest of the current length), P<n> (a pause of
+' length n), O0..O6 / < / > (octave), L1..L64 (default length), T32..T255
+' (tempo), V0..V10 (volume), `I <name>` (instrument: square/triangle/sine/saw/
+' noise), ( .. ) legato, [ .. ] staccato, and { .. }<count> repeat (may nest).
+' Each track is isolated — no shared tempo/length/octave/etc. A play() call
+' pre-renders every track to PCM, mixes them, and writes the result. Invalid MML
+' raises ErrInvalidArgument (7-705-0002).
+'
+' Waveform codes: 0 sine, 1 square, 2 triangle, 3 saw, 4 noise.
+' All rendering is mono s16le at 48 kHz (one frame = 2 bytes), matching render().
+' ============================================================================
+
+' A single synthesized event. A rest has freq <= 0. `soundFrames` < `totalFrames`
+' leaves a trailing silence (staccato); fadeIn/fadeOut are short click-guard
+' ramps in frames (0 at the interior joins of a legato run).
+TYPE MmlEvent
+  freq        AS Float
+  totalFrames AS Integer
+  soundFrames AS Integer
+  gain        AS Float
+  wave        AS Integer
+  fadeIn      AS Integer
+  fadeOut     AS Integer
+END TYPE
+
+FUNC __mml_isDigit(ch AS String) AS Boolean
+  RETURN ch = "0" OR ch = "1" OR ch = "2" OR ch = "3" OR ch = "4" OR ch = "5" OR ch = "6" OR ch = "7" OR ch = "8" OR ch = "9"
+END FUNC
+
+' Parse an all-digits string to a non-negative Integer, or -1 if empty or not a
+' plain unsigned integer.
+FUNC __mml_parseUint(s AS String) AS Integer
+  IF len(s) = 0 THEN
+    RETURN -1
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < len(s)
+    IF NOT __mml_isDigit(strings::mid(s, i, 1)) THEN
+      RETURN -1
+    END IF
+    i = i + 1
+  WEND
+  LET v AS Integer = toInt(s) TRAP(e)
+    RETURN -1
+  END TRAP
+  RETURN v
+END FUNC
+
+' The chromatic offset of a note letter within an octave (C = 0). -1 if not A..G.
+FUNC __mml_noteSemitone(letter AS String) AS Integer
+  IF letter = "C" THEN
+    RETURN 0
+  ELSEIF letter = "D" THEN
+    RETURN 2
+  ELSEIF letter = "E" THEN
+    RETURN 4
+  ELSEIF letter = "F" THEN
+    RETURN 5
+  ELSEIF letter = "G" THEN
+    RETURN 7
+  ELSEIF letter = "A" THEN
+    RETURN 9
+  ELSEIF letter = "B" THEN
+    RETURN 11
+  END IF
+  RETURN -1
+END FUNC
+
+' The waveform code for an instrument name, or -1 if unknown.
+FUNC __mml_waveCode(name AS String) AS Integer
+  IF name = "sine" THEN
+    RETURN 0
+  ELSEIF name = "square" THEN
+    RETURN 1
+  ELSEIF name = "triangle" THEN
+    RETURN 2
+  ELSEIF name = "saw" THEN
+    RETURN 3
+  ELSEIF name = "noise" THEN
+    RETURN 4
+  END IF
+  RETURN -1
+END FUNC
+
+' Count trailing '.' characters starting at fromIdx; -1 if any non-dot appears.
+FUNC __mml_trailingDots(token AS String, fromIdx AS Integer) AS Integer
+  MUT count AS Integer = 0
+  MUT i AS Integer = fromIdx
+  WHILE i < len(token)
+    IF strings::mid(token, i, 1) <> "." THEN
+      RETURN -1
+    END IF
+    count = count + 1
+    i = i + 1
+  WEND
+  RETURN count
+END FUNC
+
+' Frames for a note of the given length (1..64) at tempo, with `dots` dots. A
+' quarter note (length 4) is one beat; one dot is x1.5, two dots x1.75, etc.
+FUNC __mml_frames(tempo AS Integer, lengthN AS Integer, dots AS Integer) AS Integer
+  LET wholeSeconds AS Float = (60.0 / toFloat(tempo)) * 4.0
+  LET base AS Float = wholeSeconds / toFloat(lengthN)
+  LET dotFactor AS Float = 2.0 - math::pow(0.5, toFloat(dots))
+  RETURN toInt(base * dotFactor * 48000.0)
+END FUNC
+
+' Parse `T120`/`O4`/`L8`/`V7` etc.: the integer after the leading command char,
+' validated to lo..hi. Raises on anything else.
+FUNC __mml_reqInt(token AS String, lo AS Integer, hi AS Integer, label AS String) AS Integer
+  LET v AS Integer = __mml_parseUint(strings::mid(token, 1, len(token) - 1))
+  IF v < lo OR v > hi THEN
+    FAIL error(77050002, "audio::play: " & label & " out of range in '" & token & "'")
+  END IF
+  RETURN v
+END FUNC
+
+' Build a rest event of `frames` total frames.
+FUNC __mml_rest(frames AS Integer) AS MmlEvent
+  RETURN MmlEvent[0.0, frames, 0, 0.0, 0, 0, 0]
+END FUNC
+
+' Parse a note token (`C`, `C+`, `D-`, `D16`, `C+8.`) into an event.
+FUNC __mml_note(token AS String, octave AS Integer, length AS Integer, tempo AS Integer, volume AS Integer, wave AS Integer, staccato AS Boolean) AS MmlEvent
+  LET semi AS Integer = __mml_noteSemitone(strings::mid(token, 0, 1))
+  IF semi < 0 THEN
+    FAIL error(77050002, "audio::play: unrecognized token '" & token & "'")
+  END IF
+  MUT idx AS Integer = 1
+  MUT accidental AS Integer = 0
+  IF idx < len(token) THEN
+    LET c AS String = strings::mid(token, idx, 1)
+    IF c = "+" THEN
+      accidental = 1
+      idx = idx + 1
+    ELSEIF c = "-" THEN
+      accidental = -1
+      idx = idx + 1
+    END IF
+  END IF
+  MUT digits AS String = ""
+  WHILE idx < len(token) AND __mml_isDigit(strings::mid(token, idx, 1))
+    digits = digits & strings::mid(token, idx, 1)
+    idx = idx + 1
+  WEND
+  MUT noteLen AS Integer = length
+  IF len(digits) > 0 THEN
+    noteLen = __mml_parseUint(digits)
+    IF noteLen < 1 OR noteLen > 64 THEN
+      FAIL error(77050002, "audio::play: note length out of range in '" & token & "'")
+    END IF
+  END IF
+  LET dots AS Integer = __mml_trailingDots(token, idx)
+  IF dots < 0 THEN
+    FAIL error(77050002, "audio::play: unrecognized token '" & token & "'")
+  END IF
+  LET midi AS Integer = 12 * (octave + 1) + semi + accidental
+  LET freq AS Float = 440.0 * math::pow(2.0, toFloat(midi - 69) / 12.0)
+  LET total AS Integer = __mml_frames(tempo, noteLen, dots)
+  MUT sound AS Integer = total
+  IF staccato THEN
+    sound = total / 2
+    IF sound < 1 THEN
+      sound = 1
+    END IF
+  END IF
+  RETURN MmlEvent[freq, total, sound, toFloat(volume) / 10.0, wave, 48, 48]
+END FUNC
+
+' Whether any token is a `{` (used to detect an unclosed group after expansion).
+FUNC __mml_hasOpen(tokens AS List OF String) AS Boolean
+  FOR EACH tk IN tokens
+    IF tk = "{" THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Expand every `{ .. }<count>` repeat, innermost first, into a flat token list.
+' Raises on an unbalanced brace or a count < 1.
+FUNC __mml_expand(tokens AS List OF String) AS List OF String
+  MUT work AS List OF String = tokens
+  MUT guard AS Boolean = TRUE
+  WHILE guard
+    MUT closeIdx AS Integer = -1
+    MUT i AS Integer = 0
+    WHILE i < len(work)
+      IF strings::mid(collections::get(work, i), 0, 1) = "}" THEN
+        closeIdx = i
+        i = len(work)
+      ELSE
+        i = i + 1
+      END IF
+    WEND
+    IF closeIdx < 0 THEN
+      IF __mml_hasOpen(work) THEN
+        FAIL error(77050002, "audio::play: unbalanced '{' in MML")
+      END IF
+      RETURN work
+    END IF
+    LET closeTk AS String = collections::get(work, closeIdx)
+    LET count AS Integer = __mml_parseUint(strings::mid(closeTk, 1, len(closeTk) - 1))
+    IF count < 1 THEN
+      FAIL error(77050002, "audio::play: repeat count must be >= 1 in '" & closeTk & "'")
+    END IF
+    MUT openIdx AS Integer = -1
+    MUT j AS Integer = closeIdx - 1
+    WHILE j >= 0
+      IF collections::get(work, j) = "{" THEN
+        openIdx = j
+        j = -1
+      ELSE
+        j = j - 1
+      END IF
+    WEND
+    IF openIdx < 0 THEN
+      FAIL error(77050002, "audio::play: '}' without matching '{' in MML")
+    END IF
+    MUT rebuilt AS List OF String = []
+    FOR k = 0 TO openIdx - 1
+      rebuilt = collections::append(rebuilt, collections::get(work, k))
+    NEXT
+    MUT rep AS Integer = 0
+    WHILE rep < count
+      FOR k = openIdx + 1 TO closeIdx - 1
+        rebuilt = collections::append(rebuilt, collections::get(work, k))
+      NEXT
+      rep = rep + 1
+    WEND
+    FOR k = closeIdx + 1 TO len(work) - 1
+      rebuilt = collections::append(rebuilt, collections::get(work, k))
+    NEXT
+    work = rebuilt
+  WEND
+  RETURN work
+END FUNC
+
+' Give a legato run (events[startIdx..end]) one attack at the front and one
+' release at the tail, with no fades at the interior joins so it sounds tied.
+FUNC __mml_applyLegato(events AS List OF MmlEvent, startIdx AS Integer) AS List OF MmlEvent
+  MUT out AS List OF MmlEvent = events
+  LET last AS Integer = len(out) - 1
+  MUT i AS Integer = startIdx
+  WHILE i <= last
+    MUT ev AS MmlEvent = collections::get(out, i)
+    MUT fi AS Integer = 0
+    MUT fo AS Integer = 0
+    IF i = startIdx THEN
+      fi = 48
+    END IF
+    IF i = last THEN
+      fo = 48
+    END IF
+    ev = WITH ev { fadeIn := fi, fadeOut := fo }
+    out = collections::set(out, i, ev)
+    i = i + 1
+  WEND
+  RETURN out
+END FUNC
+
+' Split a track string into non-empty tokens, then expand its repeats.
+FUNC __mml_tokens(mml AS String) AS List OF String
+  MUT tokens AS List OF String = []
+  FOR EACH tk IN strings::split(mml, " ")
+    IF len(tk) > 0 THEN
+      tokens = collections::append(tokens, tk)
+    END IF
+  NEXT
+  RETURN __mml_expand(tokens)
+END FUNC
+
+' Parse one MML track into a list of events. Raises on invalid MML.
+FUNC __mml_parse(mml AS String) AS List OF MmlEvent
+  LET flat AS List OF String = __mml_tokens(mml)
+  MUT events AS List OF MmlEvent = []
+  MUT tempo AS Integer = 120
+  MUT octave AS Integer = 4
+  MUT length AS Integer = 4
+  MUT volume AS Integer = 10
+  MUT wave AS Integer = 0
+  MUT expectName AS Boolean = FALSE
+  MUT inLegato AS Boolean = FALSE
+  MUT inStaccato AS Boolean = FALSE
+  MUT legatoStart AS Integer = 0
+  FOR EACH tk IN flat
+    IF expectName THEN
+      LET wc AS Integer = __mml_waveCode(tk)
+      IF wc < 0 THEN
+        FAIL error(77050002, "audio::play: unknown instrument '" & tk & "'")
+      END IF
+      wave = wc
+      expectName = FALSE
+    ELSEIF tk = "I" THEN
+      expectName = TRUE
+    ELSEIF tk = "(" THEN
+      IF inLegato OR inStaccato THEN
+        FAIL error(77050002, "audio::play: legato may not nest inside legato or staccato")
+      END IF
+      inLegato = TRUE
+      legatoStart = len(events)
+    ELSEIF tk = ")" THEN
+      IF NOT inLegato THEN
+        FAIL error(77050002, "audio::play: ')' without matching '('")
+      END IF
+      inLegato = FALSE
+      events = __mml_applyLegato(events, legatoStart)
+    ELSEIF tk = "[" THEN
+      IF inLegato OR inStaccato THEN
+        FAIL error(77050002, "audio::play: staccato may not nest inside legato or staccato")
+      END IF
+      inStaccato = TRUE
+    ELSEIF tk = "]" THEN
+      IF NOT inStaccato THEN
+        FAIL error(77050002, "audio::play: ']' without matching '['")
+      END IF
+      inStaccato = FALSE
+    ELSEIF tk = "<" THEN
+      octave = octave - 1
+      IF octave < 0 THEN
+        octave = 0
+      END IF
+    ELSEIF tk = ">" THEN
+      octave = octave + 1
+      IF octave > 6 THEN
+        octave = 6
+      END IF
+    ELSEIF strings::mid(tk, 0, 1) = "T" THEN
+      tempo = __mml_reqInt(tk, 32, 255, "tempo")
+    ELSEIF strings::mid(tk, 0, 1) = "O" THEN
+      octave = __mml_reqInt(tk, 0, 6, "octave")
+    ELSEIF strings::mid(tk, 0, 1) = "L" THEN
+      length = __mml_reqInt(tk, 1, 64, "length")
+    ELSEIF strings::mid(tk, 0, 1) = "V" THEN
+      volume = __mml_reqInt(tk, 0, 10, "volume")
+    ELSEIF strings::mid(tk, 0, 1) = "P" THEN
+      LET pauseLen AS Integer = __mml_reqInt(tk, 1, 64, "pause")
+      events = collections::append(events, __mml_rest(__mml_frames(tempo, pauseLen, 0)))
+    ELSEIF strings::mid(tk, 0, 1) = "R" THEN
+      LET dots AS Integer = __mml_trailingDots(tk, 1)
+      IF dots < 0 THEN
+        FAIL error(77050002, "audio::play: unrecognized token '" & tk & "'")
+      END IF
+      events = collections::append(events, __mml_rest(__mml_frames(tempo, length, dots)))
+    ELSE
+      events = collections::append(events, __mml_note(tk, octave, length, tempo, volume, wave, inStaccato))
+    END IF
+  NEXT
+  IF expectName THEN
+    FAIL error(77050002, "audio::play: 'I' with no instrument name")
+  END IF
+  IF inLegato THEN
+    FAIL error(77050002, "audio::play: unclosed legato '('")
+  END IF
+  IF inStaccato THEN
+    FAIL error(77050002, "audio::play: unclosed staccato '['")
+  END IF
+  RETURN events
+END FUNC
+
+' Clamp a click-guard ramp to at most half the sounding length.
+FUNC __mml_clampFade(fade AS Integer, sound AS Integer) AS Integer
+  MUT f AS Integer = fade
+  IF f > sound / 2 THEN
+    f = sound / 2
+  END IF
+  IF f < 0 THEN
+    f = 0
+  END IF
+  RETURN f
+END FUNC
+
+' Advance a 31-bit LCG (glibc constants) for deterministic noise.
+FUNC __mml_lcg(seed AS Integer) AS Integer
+  RETURN bits::band(seed * 1103515245 + 12345, 2147483647)
+END FUNC
+
+' Synthesize events into a list of signed s16 samples.
+FUNC __mml_synth(events AS List OF MmlEvent) AS List OF Integer
+  MUT out AS List OF Integer = []
+  FOR EACH ev IN events
+    IF ev.freq <= 0.0 THEN
+      FOR i = 0 TO ev.totalFrames - 1
+        out = collections::append(out, 0)
+      NEXT
+    ELSE
+      LET sound AS Integer = ev.soundFrames
+      LET fadeIn AS Integer = __mml_clampFade(ev.fadeIn, sound)
+      LET fadeOut AS Integer = __mml_clampFade(ev.fadeOut, sound)
+      MUT noiseSeed AS Integer = 305419896
+      FOR i = 0 TO ev.totalFrames - 1
+        MUT si AS Integer = 0
+        IF i < sound THEN
+          LET t AS Float = toFloat(i) / 48000.0
+          LET phase AS Float = ev.freq * t
+          LET frac AS Float = phase - toFloat(math::floor(phase))
+          MUT w AS Float = 0.0
+          IF ev.wave = 0 THEN
+            w = math::sin(2.0 * math::pi * phase)
+          ELSEIF ev.wave = 1 THEN
+            IF frac < 0.5 THEN
+              w = 1.0
+            ELSE
+              w = -1.0
+            END IF
+          ELSEIF ev.wave = 2 THEN
+            w = 4.0 * math::abs(frac - 0.5) - 1.0
+          ELSEIF ev.wave = 3 THEN
+            w = 2.0 * frac - 1.0
+          ELSE
+            noiseSeed = __mml_lcg(noiseSeed)
+            w = toFloat(noiseSeed MOD 65536) / 32768.0 - 1.0
+          END IF
+          MUT amp AS Float = 1.0
+          IF i < fadeIn THEN
+            amp = toFloat(i) / toFloat(fadeIn)
+          ELSEIF i >= sound - fadeOut THEN
+            amp = toFloat(sound - i) / toFloat(fadeOut)
+          END IF
+          si = toInt(w * amp * ev.gain * 32767.0)
+          IF si > 32767 THEN
+            si = 32767
+          ELSEIF si < -32768 THEN
+            si = -32768
+          END IF
+        END IF
+        out = collections::append(out, si)
+      NEXT
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' Render one MML track to signed s16 samples.
+FUNC __mml_render_samples(mml AS String) AS List OF Integer
+  RETURN __mml_synth(__mml_parse(mml))
+END FUNC
+
+' Mix several sample tracks by summing (with clamping), padding shorter tracks
+' with silence.
+FUNC __mml_mix(tracks AS List OF List OF Integer) AS List OF Integer
+  MUT maxLen AS Integer = 0
+  FOR EACH tr IN tracks
+    IF len(tr) > maxLen THEN
+      maxLen = len(tr)
+    END IF
+  NEXT
+  MUT out AS List OF Integer = []
+  FOR i = 0 TO maxLen - 1
+    MUT acc AS Integer = 0
+    FOR EACH tr IN tracks
+      IF i < len(tr) THEN
+        acc = acc + collections::get(tr, i)
+      END IF
+    NEXT
+    IF acc > 32767 THEN
+      acc = 32767
+    ELSEIF acc < -32768 THEN
+      acc = -32768
+    END IF
+    out = collections::append(out, acc)
+  NEXT
+  RETURN out
+END FUNC
+
+' Encode signed s16 samples as little-endian s16le bytes.
+FUNC __mml_encode(samples AS List OF Integer) AS List OF Byte
+  MUT pcm AS List OF Byte = []
+  FOR EACH s IN samples
+    MUT v AS Integer = s
+    IF v < 0 THEN
+      v = v + 65536
+    END IF
+    pcm = collections::append(pcm, toByte(bits::band(v, 255)))
+    pcm = collections::append(pcm, toByte(bits::band(bits::sr(v, 8), 255)))
+  NEXT
+  RETURN pcm
+END FUNC
+
+' Encode the samples and write them to the open output stream. A no-op for empty
+' PCM. The stream is borrowed — the caller keeps and closes it. The stream must be
+' 48 kHz mono (what the sequencer renders).
+SUB __audio_play_samples(RES out AS AudioOutput, samples AS List OF Integer)
+  IF len(samples) = 0 THEN
+    EXIT SUB
+  END IF
+  audio::write(out, __mml_encode(samples))
+END SUB
+
+' audio::play(output, mml) — parse a single MML track and write it to the stream.
+SUB __audio_play(RES out AS AudioOutput, mml AS String)
+  __audio_play_samples(out, __mml_render_samples(mml))
+END SUB
+
+' audio::play(output, tracks) — parse each track, mix them, and write to the
+' stream. Each track is isolated: tempo/length/octave/volume/instrument do not
+' carry between tracks.
+SUB __audio_play_tracks(RES out AS AudioOutput, tracks AS List OF String)
+  MUT rendered AS List OF List OF Integer = []
+  FOR EACH tk IN tracks
+    rendered = collections::append(rendered, __mml_render_samples(tk))
+  NEXT
+  __audio_play_samples(out, __mml_mix(rendered))
+END SUB

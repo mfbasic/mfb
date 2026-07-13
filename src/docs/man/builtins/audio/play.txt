@@ -1,0 +1,82 @@
+NAME
+  play - parse and play MML music on an output stream
+
+SYNOPSIS
+  audio::play(output AS AudioOutput, mml AS String)
+  audio::play(output AS AudioOutput, tracks AS List OF String)
+
+PACKAGE
+  audio
+
+IMPORTS
+  IMPORT audio
+
+DESCRIPTION
+  Plays music written in MML (Music Macro Language). play pre-renders every track
+  to mono s16le PCM at 48 kHz, mixes the tracks, and writes the audio to output. It
+  blocks until playback is queued. Invalid MML raises an error before anything is
+  written. The stream is borrowed: the caller owns it and closes it (open it at
+  48 kHz mono, the format the sequencer renders).
+
+  A track is a string of whitespace-separated tokens; every token must be
+  separated by whitespace (so `C E G`, never `CEG`). The single-track overload
+  takes one String; the multi-track overload takes a List OF String and plays the
+  tracks together. Each track is fully isolated — tempo, length, octave, volume,
+  and instrument set in one track never carry into another.
+
+  Tokens (all case-sensitive; note letters are upper case, instrument names lower
+  case):
+
+    A B C D E F G   A note. Append + or - for a sharp or flat, then optional
+                    length digits (as in L), then optional dots. `C`, `C+`,
+                    `D-`, `D16`, `C+8.` are all notes.
+    R               A rest for the current length; trailing dots extend it (`R.`).
+    P1 .. P64       A pause (rest) of the given length.
+    O0 .. O6        Set the octave. O4 is the octave of A440.
+    <  >            Shift the octave down / up by one (clamped to 0..6).
+    L1 .. L64       Set the default note length (1 = whole, 4 = quarter, ...).
+    T32 .. T255     Set the tempo in beats per minute.
+    V0 .. V10       Set the volume (0 silent, 10 full).
+    I <name>        Set the instrument: square, triangle, sine, saw, or noise
+                    (the name is a separate whitespace-separated token).
+    ( .. )          Legato: the enclosed notes are tied — no attack/release at
+                    the interior joins. May not contain legato or staccato.
+    [ .. ]          Staccato: the enclosed notes are shortened. May not contain
+                    legato or staccato.
+    { .. }<count>   Repeat the enclosed tokens count times (count >= 1). The
+                    count is attached to the closing brace (`}2`). May nest.
+
+PARAMETERS
+  output AS AudioOutput
+    An open playback stream (48 kHz mono), from audio::openOutput. Borrowed — play
+    writes to it and leaves it open for the caller to reuse or close.
+  mml AS String
+    A single MML track (single-track overload).
+  tracks AS List OF String
+    Several MML tracks played together (multi-track overload).
+
+ERRORS
+  7-705-0002  ErrInvalidArgument   The MML is malformed (bad token, unbalanced
+                                   group, repeat count < 1, out-of-range value).
+  7-705-0018  ErrAudioDevice       The output stream failed or was closed.
+
+EXAMPLES
+  A single track:
+
+  IMPORT audio
+  LET dev = collections::get(audio::devices(), 0)
+  RES out AS AudioOutput = audio::openOutput(dev, 48000, 1, 512)
+  audio::play(out, "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2")
+
+  Two tracks played together on the same stream:
+
+  IMPORT audio
+  LET bass = "T100 O2 L4 I triangle { C G }4"
+  LET lead = "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
+  audio::play(out, [bass, lead])
+  audio::close(out)
+
+SEE ALSO
+  mfb man audio render
+  mfb man audio types
+  mfb man audio devices

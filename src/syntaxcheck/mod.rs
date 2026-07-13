@@ -131,6 +131,7 @@ pub fn check_project_collect(
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = builtins::audio::augmented_project(&augmented)?;
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)?;

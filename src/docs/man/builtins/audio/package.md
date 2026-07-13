@@ -63,6 +63,8 @@ imports `audio` still starts on a Linux host without alsa-lib, and every
 - `audio::available` — frames readable/writable without blocking
 - `audio::xruns` — cumulative overrun/underrun event count
 - `audio::close` — close a stream
+- `audio::render` — synthesize an `AudioNote` to raw PCM
+- `audio::play` — parse and play MML music
 
 ## See also
 

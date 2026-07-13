@@ -18,10 +18,17 @@
 //! no two internal names collide.
 
 use std::borrow::Cow;
+use std::path::Path;
 
 pub(crate) const AUDIO_INPUT_TYPE: &str = "AudioInput";
 pub(crate) const AUDIO_OUTPUT_TYPE: &str = "AudioOutput";
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
+/// Value records the user constructs and passes to `audio::render`. Registered
+/// natively (fields below) so they are constructible, and defined in the source
+/// companion (`audio_package.mfb`) so the source `render` operates on them — the
+/// two field lists must match (the `vector::` value-record pattern).
+pub(crate) const AUDIO_ENVELOPE_TYPE: &str = "AudioEnvelope";
+pub(crate) const AUDIO_NOTE_TYPE: &str = "AudioNote";
 
 const DEVICES: &str = "audio.devices";
 const OPEN_INPUT: &str = "audio.openInput";
@@ -32,6 +39,18 @@ const POLL: &str = "audio.poll";
 const AVAILABLE: &str = "audio.available";
 const XRUNS: &str = "audio.xruns";
 const CLOSE: &str = "audio.close";
+/// Source-companion synthesis helpers, defined in `audio_package.mfb` (like
+/// `csv::parse` → `__csv_parse`). `render` turns one `AudioNote` into PCM;
+/// `play` parses MML text and writes it to an open `AudioOutput`. `play` is
+/// overloaded by its second
+/// argument — a single `String` track or a `List OF String` of tracks — onto two
+/// distinct source bodies, so it dispatches through `source_implementation_name`
+/// on the argument types (the `vector::` pattern).
+const RENDER: &str = "audio.render";
+const INTERNAL_RENDER: &str = "__audio_render";
+const PLAY: &str = "audio.play";
+const INTERNAL_PLAY: &str = "__audio_play";
+const INTERNAL_PLAY_TRACKS: &str = "__audio_play_tracks";
 
 /// Internal call names produced by `implementation_name` during IR lowering.
 /// They never appear as a source callee, so `resolve_call` does not accept them;
@@ -70,13 +89,23 @@ pub(crate) fn is_audio_call(name: &str) -> bool {
             | CLOSE
             | CLOSE_INPUT
             | CLOSE_OUTPUT
+            | RENDER
+            | PLAY
     )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
+    // AudioEnvelope/AudioNote are registered here (and in `builtin_type_fields`)
+    // so the user can construct them; they are ALSO defined in the source
+    // companion as `EXPORT TYPE` so `audio::render` can operate on them. This is
+    // the `vector::` value-record pattern.
     matches!(
         name,
-        AUDIO_INPUT_TYPE | AUDIO_OUTPUT_TYPE | AUDIO_DEVICE_TYPE
+        AUDIO_INPUT_TYPE
+            | AUDIO_OUTPUT_TYPE
+            | AUDIO_DEVICE_TYPE
+            | AUDIO_ENVELOPE_TYPE
+            | AUDIO_NOTE_TYPE
     )
 }
 
@@ -89,6 +118,20 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
             ("canOutput", "Boolean"),
             ("isDefaultInput", "Boolean"),
             ("isDefaultOutput", "Boolean"),
+        ]),
+        // Must match `EXPORT TYPE AudioEnvelope`/`AudioNote` in audio_package.mfb.
+        AUDIO_ENVELOPE_TYPE => Some(&[
+            ("attackFrames", "Integer"),
+            ("decayFrames", "Integer"),
+            ("holdFrames", "Integer"),
+            ("releaseFrames", "Integer"),
+            ("sustainLevel", "Integer"),
+        ]),
+        AUDIO_NOTE_TYPE => Some(&[
+            ("frequencyHz", "Float"),
+            ("noteFrames", "Integer"),
+            ("envelope", AUDIO_ENVELOPE_TYPE),
+            ("gainOverall", "Float"),
         ]),
         _ => None,
     }
@@ -113,8 +156,55 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         POLL => Some(&[&["stream"], &["timeoutMs"]]),
         AVAILABLE | XRUNS => Some(&[&["stream"]]),
         CLOSE => Some(&[&["stream"]]),
+        RENDER => Some(&[&["note"]]),
+        PLAY => Some(&[&["output"], &["mml", "tracks"]]),
         _ => None,
     }
+}
+
+/// The source-companion target for `audio::render`/`audio::play` (the `__audio_*`
+/// bodies in `audio_package.mfb`). `play` picks its single- vs multi-track body
+/// from the second argument's type. Native calls return `None` and stay runtime
+/// helpers. The result is internalized by IR lowering (it is a source function).
+pub(crate) fn source_implementation_name(
+    name: &str,
+    arg_types: &[String],
+) -> Option<&'static str> {
+    match name {
+        RENDER => Some(INTERNAL_RENDER),
+        PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF String"]) => {
+            Some(INTERNAL_PLAY_TRACKS)
+        }
+        PLAY => Some(INTERNAL_PLAY),
+        _ => None,
+    }
+}
+
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        Path::new("<builtin-audio>"),
+        "builtins/audio.mfb",
+        include_str!("audio_package.mfb"),
+    )
+}
+
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "audio")
+    })
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
 }
 
 /// Per-overload parameter names for the device-open calls, whose two overloads
@@ -134,8 +224,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         DEVICES => Some("List OF AudioDevice"),
         OPEN_INPUT | OPEN_INPUT_DEVICE => Some(AUDIO_INPUT_TYPE),
         OPEN_OUTPUT | OPEN_OUTPUT_DEVICE => Some(AUDIO_OUTPUT_TYPE),
-        READ | READ_TIMEOUT => Some("List OF Byte"),
-        WRITE | CLOSE | CLOSE_INPUT | CLOSE_OUTPUT => Some("Nothing"),
+        READ | READ_TIMEOUT | RENDER => Some("List OF Byte"),
+        WRITE | CLOSE | CLOSE_INPUT | CLOSE_OUTPUT | PLAY => Some("Nothing"),
         // `poll` is `Boolean`, `available`/`xruns` are `Integer`, on either
         // direction; `resolve_call` returns the precise type per operand.
         POLL | POLL_TIMEOUT => Some("Boolean"),
@@ -189,6 +279,15 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         CLOSE if exact(arg_types, &[AUDIO_INPUT_TYPE]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE]) => {
             Cow::Borrowed("Nothing")
         }
+        RENDER if exact(arg_types, &[AUDIO_NOTE_TYPE]) => Cow::Borrowed("List OF Byte"),
+        // `play(output, mml)` and `play(output, tracks)` — a single MML track or
+        // a list of tracks. Both write to the (borrowed) open output stream and
+        // return nothing; the caller keeps and closes the stream.
+        PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "String"])
+            || exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF String"]) =>
+        {
+            Cow::Borrowed("Nothing")
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -205,6 +304,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         POLL => Some("AudioInput or AudioOutput, Integer"),
         AVAILABLE | XRUNS => Some("AudioInput or AudioOutput"),
         CLOSE => Some("AudioInput or AudioOutput"),
+        RENDER => Some("AudioNote"),
+        PLAY => Some("AudioOutput, String or AudioOutput, List OF String"),
         _ => None,
     }
 }
@@ -226,8 +327,9 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         READ => Some((2, 3)),
         WRITE => Some((2, 2)),
         POLL => Some((1, 2)),
-        AVAILABLE | XRUNS | CLOSE => Some((1, 1)),
+        AVAILABLE | XRUNS | CLOSE | RENDER => Some((1, 1)),
         CLOSE_INPUT | CLOSE_OUTPUT => Some((1, 1)),
+        PLAY => Some((2, 2)),
         _ => None,
     }
 }
@@ -509,6 +611,77 @@ mod tests {
         assert_eq!(call_return_type_name(AVAILABLE), Some("Integer"));
         assert_eq!(call_return_type_name(XRUNS), Some("Integer"));
         assert_eq!(call_return_type_name(CLOSE), Some("Nothing"));
+        assert_eq!(call_return_type_name(RENDER), Some("List OF Byte"));
+        assert_eq!(call_return_type_name(PLAY), Some("Nothing"));
         assert!(call_return_type_name("audio.nope").is_none());
+    }
+
+    fn source_name(name: &str, args: &[&str]) -> Option<&'static str> {
+        source_implementation_name(name, &strings(args))
+    }
+
+    #[test]
+    fn source_companion_render_and_play() {
+        // render/play are source-companion calls, accepted by is_audio_call.
+        assert!(is_audio_call(RENDER));
+        assert!(is_audio_call(PLAY));
+
+        // render(AudioNote) -> List OF Byte; play(device, String|List OF String)
+        // -> Nothing; wrong operand types do not resolve.
+        assert_eq!(
+            rt(RENDER, &[AUDIO_NOTE_TYPE]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(rt(RENDER, &["List OF Byte"]), None);
+        assert_eq!(
+            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(PLAY, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
+        // play is over AudioOutput, not the read-only device record.
+        assert_eq!(rt(PLAY, &[AUDIO_DEVICE_TYPE, "String"]), None);
+        assert_eq!(rt(PLAY, &["String", "String"]), None);
+
+        // Source dispatch selects the matching companion body by argument type.
+        assert_eq!(source_name(RENDER, &[AUDIO_NOTE_TYPE]), Some(INTERNAL_RENDER));
+        assert_eq!(
+            source_name(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
+            Some(INTERNAL_PLAY)
+        );
+        assert_eq!(
+            source_name(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"]),
+            Some(INTERNAL_PLAY_TRACKS)
+        );
+        assert_eq!(source_name(DEVICES, &[]), None);
+
+        // The native rewrite table never claims the source calls.
+        assert_eq!(impl_name(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]), None);
+        assert_eq!(impl_name(RENDER, &[AUDIO_NOTE_TYPE]), None);
+
+        assert_eq!(arity(RENDER), Some((1, 1)));
+        assert_eq!(arity(PLAY), Some((2, 2)));
+        assert!(expected_arguments(PLAY).unwrap().contains("AudioOutput"));
+    }
+
+    #[test]
+    fn value_records_are_constructible_builtins() {
+        // AudioEnvelope/AudioNote are constructible value records (unlike the
+        // read-only device record and the opaque handles).
+        assert!(is_builtin_type(AUDIO_ENVELOPE_TYPE));
+        assert!(is_builtin_type(AUDIO_NOTE_TYPE));
+        let env = builtin_type_fields(AUDIO_ENVELOPE_TYPE).expect("envelope fields");
+        assert_eq!(env.len(), 5);
+        assert_eq!(env[0], ("attackFrames", "Integer"));
+        assert_eq!(env[4], ("sustainLevel", "Integer"));
+        let note = builtin_type_fields(AUDIO_NOTE_TYPE).expect("note fields");
+        assert_eq!(note.len(), 4);
+        assert_eq!(note[0], ("frequencyHz", "Float"));
+        assert_eq!(note[2], ("envelope", AUDIO_ENVELOPE_TYPE));
+        // A device is read-only, so it is NOT a constructor target here.
+        assert_eq!(resource_close_function(AUDIO_NOTE_TYPE), None);
     }
 }

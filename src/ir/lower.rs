@@ -184,6 +184,8 @@ pub fn lower_project_with_external_functions(
         .expect("built-in http package source must parse");
     let augmented = builtins::net::augmented_project(&augmented)
         .expect("built-in net package source must parse");
+    let augmented = builtins::audio::augmented_project(&augmented)
+        .expect("built-in audio package source must parse");
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)
@@ -3071,6 +3073,25 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     builtins::http::implementation_name(&canonical_callee, &arg_types)
+                        .map(crate::internal_name::internalize)
+                })
+                .or_else(|| {
+                    // `audio::render`/`audio::play` are source-companion members
+                    // (`audio_package.mfb`); `play` selects its single- vs
+                    // multi-track body from the second argument's type. The
+                    // native capture/playback surface returned `None` above and
+                    // stays a runtime-helper call.
+                    if !builtins::audio::is_audio_call(&canonical_callee) {
+                        return None;
+                    }
+                    let arg_types: Vec<String> = arguments
+                        .iter()
+                        .map(call_arg_value)
+                        .map(|argument| {
+                            expression_type(argument, locals, context).unwrap_or_default()
+                        })
+                        .collect();
+                    builtins::audio::source_implementation_name(&canonical_callee, &arg_types)
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {

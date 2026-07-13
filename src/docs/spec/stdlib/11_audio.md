@@ -35,6 +35,49 @@ The length must be a nonzero multiple of `channels * 2`. A starved playback queu
 emits silence on its own (the runtime does not enqueue silence) and counts one
 underrun event.
 
+## `render`: synthesize a note to PCM
+
+`audio::render(note)` [[src/builtins/audio.rs:RENDER]] is a pure MFBASIC tone
+synthesizer — not a device call. It renders an `AudioNote` to mono `s16le` PCM at
+48 kHz and returns it as the same `List OF Byte` layout `write` consumes, so a
+rendered tone plays with no conversion. It opens no hardware and never raises.
+Unlike the native surface, `render` and its two value records (`AudioEnvelope`,
+`AudioNote`) live in the package's MFBASIC source companion
+(`src/builtins/audio_package.mfb`), injected on `IMPORT audio` exactly like
+`net`'s `Url`. `AudioEnvelope` and `AudioNote` are ordinary value records the
+program constructs (`AudioEnvelope[...]`, `AudioNote[...]`) — unlike the
+device-owned `AudioDevice`.
+
+A note is a sine at `frequencyHz` held for `noteFrames` frames, shaped by a linear
+ADSR `AudioEnvelope` (amplitudes in raw `0..32767` sample units) and scaled by
+`gainOverall` (`0..1`): a linear attack to peak (32767), a linear decay to
+`sustainLevel`, a sustain across the middle, and a linear release over the final
+`releaseFrames`. Every sample is clamped to the `s16` range and encoded
+little-endian; the result is `noteFrames * 2` bytes.
+
+## `play`: an MML sequencer
+
+`audio::play(output, mml)` [[src/builtins/audio.rs:PLAY]] plays music written in
+**MML** (Music Macro Language) — a small source-companion sequencer, overloaded by
+its second argument on a single `String` track or a `List OF String` of tracks.
+It pre-renders every track to mono `s16le` PCM at 48 kHz, mixes them (summing with
+clamping), and writes the audio to `output` — a borrowed open `AudioOutput` the
+caller owns and closes (open it at 48 kHz mono). Malformed MML raises
+`ErrInvalidArgument` (`7-705-0002`) *before* anything is written; the strings are
+validated at the call.
+
+A track is a string of **whitespace-separated tokens** — every token must be
+separated by whitespace (`C E G`, never `CEG`). Each track is fully isolated: the
+tempo, length, octave, volume, and instrument are per-track state that never
+carries between tracks. The tokens are notes `A`–`G` (with a `+`/`-` accidental, an
+inline length, and trailing dots), `R` (a rest of the current length) and
+`P1`–`P64` (a pause of a given length), `O0`–`O6`/`<`/`>` (octave), `L1`–`L64`
+(default length), `T32`–`T255` (tempo), `V0`–`V10` (volume), `I <name>`
+(instrument — `square`/`triangle`/`sine`/`saw`/`noise`, the name a separate token),
+`( … )` legato and `[ … ]` staccato (neither may nest), and `{ … }<count>` repeat
+(count `>= 1`, attached to the closing brace, may nest). `O4` is the octave of
+A440. Like `render`, `play` and the sequencer live in the MFBASIC source companion.
+
 ## `available` and `poll`
 
 `audio::available(stream)` [[src/builtins/audio.rs:AVAILABLE]] returns the frames
