@@ -80,6 +80,52 @@ impl CodeBuilder<'_> {
                     text: format!("default {type_}"),
                 })
             }
+            _ if crate::builtins::is_resource_type(type_) => {
+                // A resource wraps an OS handle we cannot re-open, so it has no
+                // reconstructible default. The site that needs one is the
+                // error-path binding of `RES x = <fallible> TRAP`. Return a CLOSED
+                // resource: an arena record whose internals are invalid but whose
+                // `closed` flag — offset 8, shared by every built-in resource
+                // record — is set. Every operation then short-circuits safely:
+                // `close` is an idempotent no-op and `read`/`write`/... raise via
+                // their closed guard. No null handle is ever exposed to a program.
+                let record = self.allocate_register()?;
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    RESOURCE_RECORD_SIZE,
+                ));
+                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: RelocIntent::Call,
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                let alloc_ok = self.label("default_resource_alloc_ok");
+                self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::move_register(&record, abi::RET[1]));
+                // Zero the record (invalid internals), then mark it closed.
+                let bytes: usize = RESOURCE_RECORD_SIZE.parse().unwrap_or(80);
+                let mut offset = 0;
+                while offset < bytes {
+                    self.emit(abi::store_u64(abi::ZERO, &record, offset));
+                    offset += 8;
+                }
+                let one = self.allocate_register()?;
+                self.emit(abi::move_immediate(&one, "Integer", "1"));
+                self.emit(abi::store_u64(&one, &record, 8)); // closed flag
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: record,
+                    text: format!("closed {type_}"),
+                })
+            }
             _ => {
                 let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
                     return Err(format!(

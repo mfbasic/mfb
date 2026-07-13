@@ -256,9 +256,22 @@ pub(super) fn collect_platform_imports_from_ops(
 ) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. }
-            | NirOp::StoreGlobal { value, .. }
-            | NirOp::Return { value } => {
+            NirOp::Bind { value, type_, .. } => {
+                // A `RES` binding drops its resource at scope end, which emits the
+                // registered close helper. Collect that close's platform imports —
+                // mirroring `collect_runtime_symbols`, which adds the close symbol.
+                // Without this an implicitly-dropped resource whose close needs a
+                // unique import (e.g. audio's `_munmap`) links with it missing.
+                if let Some(close) = crate::builtins::resource_close_function(type_) {
+                    for import in platform_imports_for_runtime_call(platform, close) {
+                        push_platform_import(imports, import);
+                    }
+                }
+                if let Some(value) = value {
+                    collect_platform_imports_from_value(platform, required_by, value, imports);
+                }
+            }
+            NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => {
                 if let Some(value) = value {
                     collect_platform_imports_from_value(platform, required_by, value, imports);
                 }

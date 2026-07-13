@@ -258,6 +258,20 @@ impl CodeBuilder<'_> {
             other if crate::builtins::is_thread_sendable_resource_type(other) => {
                 self.copy_resource_to_current_arena(source)
             }
+            // A non-sendable resource (audio streams, TLS sockets/listeners) is a
+            // pointer to its arena record and never crosses a thread boundary —
+            // the frontend forbids transferring it. The only same-arena
+            // materialization that reaches here is a `TRAP` wrapping the open
+            // result in `Result OF <resource>`: carry the move-only handle by
+            // pointer (a deep record clone would both duplicate the OS handle and
+            // assume the fixed `File` layout, which audio's larger `AudioHandle`
+            // does not share). The source temporary is consumed, so the handle is
+            // owned and closed exactly once.
+            other if crate::builtins::is_resource_type(other) => {
+                let result = self.allocate_register()?;
+                self.emit(abi::move_register(&result, source));
+                Ok(result)
+            }
             other if self.type_model.union_names.contains(other) => {
                 self.copy_union_to_current_arena(other, source)
             }

@@ -935,11 +935,17 @@ fn lower_query(
 > {
     let is_input = format!("{symbol}_input");
     let have = format!("{symbol}_have");
+    let closed = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        // Closed-resource guard: a defaulted/closed handle has an invalid (null)
+        // state page, so return the empty answer (0 / FALSE) without locking it.
+        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
         abi::load_u64("%v10", abi::return_register(), H_STATE),
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
     ]);
@@ -985,6 +991,11 @@ fn lower_query(
         }
     }
     instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        // Closed handle: the empty answer (available/xruns 0, poll FALSE).
+        abi::label(&closed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::label(&done),
         abi::return_(),
