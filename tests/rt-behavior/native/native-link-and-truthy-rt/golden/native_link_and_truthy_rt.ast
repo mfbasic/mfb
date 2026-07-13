@@ -23,7 +23,7 @@
         "returnType": "Db",
         "line": 18,
         "params": [
-        { "name": "path", "type": "String", "default": null }
+        { "name": "path", "type": "String", "default": null, "line": 18 }
         ],
         "abi": {
           "slots": [
@@ -47,8 +47,8 @@
         "returnType": "Stmt",
         "line": 23,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null },
-        { "name": "statement", "type": "String", "default": null }
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 23 },
+        { "name": "statement", "type": "String", "default": null, "line": 23 }
         ],
         "abi": {
           "slots": [
@@ -77,7 +77,7 @@
         "returnType": "Integer",
         "line": 30,
         "params": [
-        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 30 }
         ],
         "abi": {
           "slots": [
@@ -100,7 +100,7 @@
         "returnType": "Nothing",
         "line": 38,
         "params": [
-        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 38 }
         ],
         "abi": {
           "slots": [
@@ -123,7 +123,7 @@
         "returnType": "Nothing",
         "line": 43,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 43 }
         ],
         "abi": {
           "slots": [
@@ -143,6 +143,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 50,
       "params": [

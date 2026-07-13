@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parsePositive",
       "line": 3,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -33,10 +34,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "inner",
       "line": 9,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": "Integer",
       "body": [
@@ -56,10 +58,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "outer",
       "line": 14,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 14 }
       ],
       "returnType": "Integer",
       "body": [
@@ -69,10 +72,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "withBothTraps",
       "line": 20,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 20 }
       ],
       "returnType": "Integer",
       "body": [
@@ -98,10 +102,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "nestedHandler",
       "line": 31,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 31 }
       ],
       "returnType": "Integer",
       "body": [
@@ -129,10 +134,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "viaPropagate",
       "line": 42,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 42 }
       ],
       "returnType": "Integer",
       "body": [
@@ -151,10 +157,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "catchesPropagated",
       "line": 49,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 49 }
       ],
       "returnType": "Integer",
       "body": [
@@ -173,6 +180,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 56,
       "params": [

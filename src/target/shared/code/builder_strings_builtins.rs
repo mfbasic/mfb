@@ -481,7 +481,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&count_identity));
         self.emit(abi::branch(&count_sequence));
         self.emit(abi::label(&count_identity));
-        self.emit(abi::add_registers(&scratch24, &scratch24, &scratch11));
+        // bug-175 B: size the count from the *re-encoded* width of the decoded
+        // codepoint (what the write pass emits via emit_utf8_encode_next), not the
+        // original decode byte width `scratch11`. For malformed input the two
+        // differ (e.g. U+FFFD encodes to 3 bytes), so counting the original width
+        // would under-allocate; NFC already sizes from the re-encoded width.
+        self.emit_utf8_encoded_width(&scratch10, &scratch13);
+        self.emit(abi::add_registers(&scratch24, &scratch24, &scratch13));
         self.emit(abi::branch(&count_next));
         self.emit(abi::label(&count_sequence));
         self.emit(abi::label(&count_sequence_loop));
@@ -504,7 +510,15 @@ impl CodeBuilder<'_> {
             length_slot,
         ));
 
-        self.emit(abi::add_immediate(abi::return_register(), &scratch24, 9));
+        // bug-175 B: header (+9) add routed through the checked helper so a
+        // pathological byte length cannot wrap the allocation size.
+        let size_overflow = self.label("strings_case_map_size_overflow");
+        self.emit_checked_size_add_immediate(
+            abi::return_register(),
+            &scratch24,
+            9,
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -520,6 +534,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), length_slot));
@@ -1548,17 +1564,24 @@ impl CodeBuilder<'_> {
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch13, &scratch13, &scratch11));
-        self.emit(abi::add_immediate(
+        // bug-175 B: the split result size (count * entry + header + data bytes,
+        // where `count` is the most expansion-prone term) is routed through the
+        // checked helpers so an adversarial input cannot wrap the allocation size,
+        // matching graphemes/to_bytes/nfc/replace/join.
+        let size_overflow = self.label("strings_split_size_overflow");
+        self.emit_checked_size_multiply(&scratch13, &scratch13, &scratch11, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch13,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch12,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1574,6 +1597,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));

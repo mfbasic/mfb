@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "openNoFollow",
       "line": 4,
       "params": [
-      { "name": "p", "type": "String", "default": null }
+      { "name": "p", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": "Integer",
       "body": [
@@ -26,6 +27,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 10,
       "params": [

@@ -11,21 +11,23 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makeAdder",
       "line": 4,
       "params": [
-      { "name": "base", "type": "Integer", "default": null }
+      { "name": "base", "type": "Integer", "default": null, "line": 4 }
       ],
       "returnType": "FUNC(Integer) AS Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "base" }, "line": 5 },
       { "kind": "return", "value": { "kind": "lambda", "params": [
-{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 6 }
+{ "name": "value", "type": "Integer", "default": null, "line": 6 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 6 }
       ]
     },
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 9,
       "params": [
@@ -36,7 +38,7 @@
       { "kind": "binding", "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "makeAdder", "arguments": [{ "kind": "number", "value": "10" }] }, "line": 11 },
       { "kind": "binding", "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 12 },
       { "kind": "binding", "mutable": false, "name": "aboveThreshold", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "lambda", "params": [
-{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "threshold" } } }, "line": 13 },
+{ "name": "value", "type": "Integer", "default": null, "line": 13 }], "body": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "threshold" } } }, "line": 13 },
       { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 14 },
       { "kind": "binding", "mutable": false, "name": "incremented", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "addTwo" }] }, "line": 15 },
       { "kind": "binding", "mutable": false, "name": "elevated", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "identifier", "value": "addTen" }] }, "line": 16 },

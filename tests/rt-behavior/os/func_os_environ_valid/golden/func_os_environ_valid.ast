@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 5,
       "params": [

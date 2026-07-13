@@ -190,6 +190,15 @@ pub(crate) struct AllocOutcome {
 pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<String> {
     for (index, instruction) in instructions.iter().enumerate() {
         for (name, value) in &instruction.fields {
+            // bug-176 D: only register-role operand fields can carry a physical
+            // register. The string-reference fields — a branch/call `target` and a
+            // `label`'s `name` — hold user/label symbols, so a symbol literally
+            // spelled like a register (`ra`, `gp`, `s0`, `w0`, `q3`) must not be
+            // misreported as a zero-physical-register regression. Registers never
+            // use these field names, so skipping them cannot mask a real leak.
+            if matches!(*name, "target" | "name") {
+                continue;
+            }
             if value.starts_with('%') || value == "sp" {
                 continue;
             }

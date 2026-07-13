@@ -261,18 +261,73 @@ pub(super) fn is_function_type(type_: &str) -> bool {
     type_.starts_with("FUNC(") || type_.starts_with("ISOLATED FUNC(")
 }
 
+/// Byte index of the top-level `") AS "` that separates a function type's
+/// parameter list from its return type — the `)` that closes the outermost
+/// `FUNC(`, not one nested inside a higher-order parameter or return type. A
+/// naive `split_once`/`rsplit_once(") AS ")` mis-parses e.g.
+/// `FUNC(FUNC() AS Integer) AS String` (bug-175 F). `depth` is the paren nesting
+/// already opened before `s` begins — 0 for a full `FUNC(...) AS T`, 1 when the
+/// leading `FUNC(` has already been stripped.
+fn top_level_return_arrow(s: &str, mut depth: i32) -> Option<usize> {
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len() {
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 && s[i..].starts_with(") AS ") {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Split a function type's parameter list on the top-level `", "` separators
+/// only, so a higher-order parameter type carrying its own `", "` (e.g.
+/// `FUNC(Integer, String) AS Bool`) is kept intact (bug-175 F). Byte-identical to
+/// `split(", ")` for parameter lists with no nested parens.
+fn split_top_level_params(params: &str) -> Vec<String> {
+    let bytes = params.as_bytes();
+    let mut depth = 0i32;
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b',' if depth == 0 && bytes.get(i + 1) == Some(&b' ') => {
+                out.push(params[start..i].to_string());
+                i += 2; // skip the ", " separator
+                start = i;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out.push(params[start..].to_string());
+    out
+}
+
 pub(super) fn callable_return_type(type_: &str) -> Option<String> {
-    let (_, returns) = type_.rsplit_once(") AS ")?;
-    Some(returns.to_string())
+    let idx = top_level_return_arrow(type_, 0)?;
+    Some(type_[idx + ") AS ".len()..].to_string())
 }
 
 pub(super) fn function_type_parts(type_: &str) -> Option<(Vec<String>, String)> {
     let rest = type_.strip_prefix("FUNC(")?;
-    let (params, returns) = rest.split_once(") AS ")?;
+    // `rest` begins inside the parameter list, so one paren is already open.
+    let idx = top_level_return_arrow(rest, 1)?;
+    let params = &rest[..idx];
+    let returns = &rest[idx + ") AS ".len()..];
     let params = if params.trim().is_empty() {
         Vec::new()
     } else {
-        params.split(", ").map(str::to_string).collect()
+        split_top_level_params(params)
     };
     Some((params, returns.to_string()))
 }

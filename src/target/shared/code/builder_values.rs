@@ -214,13 +214,13 @@ impl CodeBuilder<'_> {
         }
         match value {
             NirValue::Const { type_, value } => {
+                // A Const String is always intercepted by `static_string_value`
+                // above (builder_value_semantics.rs:562 returns Some for it), so this
+                // arm only reaches non-String scalar constants. bug-175 C: the dead
+                // `type_ == "String"` branch was removed.
                 let register = self.allocate_register()?;
-                if type_ == "String" {
-                    self.emit_load_string_constant(&register, value)?;
-                } else {
-                    let immediate = native_immediate_value(type_, value)?;
-                    self.emit(abi::move_immediate(&register, type_, &immediate));
-                }
+                let immediate = native_immediate_value(type_, value)?;
+                self.emit(abi::move_immediate(&register, type_, &immediate));
                 Ok(ValueResult {
                     type_: type_.clone(),
                     location: register,
@@ -1001,13 +1001,26 @@ impl CodeBuilder<'_> {
                     .get(type_)
                     .cloned()
                     .unwrap_or_else(|| type_.clone());
+                // bug-175 C: size the union block the same way the `UnionWrap` path
+                // does — a resource variant occupies one word (its handle pointer)
+                // rather than being skipped, so a union mixing resource and data
+                // variants allocates an identical block size on both paths.
                 let union_size = self
                     .type_model
                     .variants_for_union(&union_name)
-                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
-                    .map(Vec::len)
+                    .map(|variant| {
+                        if crate::builtins::is_resource_type(variant) {
+                            1
+                        } else {
+                            self.type_model
+                                .union_variant_fields
+                                .get(variant)
+                                .map(Vec::len)
+                                .unwrap_or(0)
+                        }
+                    })
                     .max()
-                    .map(|max_fields| 8 * (1 + max_fields))
+                    .map(|max_payload| 8 * (1 + max_payload.max(1)))
                     .unwrap_or(8 * (arg_values.len() + 1));
                 let result_slot = self.allocate_stack_object("union_result", 8);
                 let alloc_ok = self.label("union_construct_alloc_ok");

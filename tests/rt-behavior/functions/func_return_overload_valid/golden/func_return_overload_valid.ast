@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "encode",
       "line": 5,
       "params": [
-      { "name": "value", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 5 }
       ],
       "returnType": "List OF Byte",
       "body": [
@@ -23,10 +24,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "encode",
       "line": 9,
       "params": [
-      { "name": "value", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 9 }
       ],
       "returnType": "List OF Integer",
       "body": [
@@ -36,10 +38,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "sumBytes",
       "line": 15,
       "params": [
-      { "name": "data", "type": "List OF Byte", "default": null }
+      { "name": "data", "type": "List OF Byte", "default": null, "line": 15 }
       ],
       "returnType": "Integer",
       "body": [
@@ -59,10 +62,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "asIntegers",
       "line": 24,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 24 }
       ],
       "returnType": "List OF Integer",
       "body": [
@@ -72,6 +76,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 28,
       "params": [

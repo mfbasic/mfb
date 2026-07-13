@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "openMissingFile",
       "line": 21,
       "params": [
@@ -33,6 +34,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "connectRefused",
       "line": 31,
       "params": [
@@ -54,6 +56,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 38,
       "params": [

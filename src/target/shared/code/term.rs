@@ -620,9 +620,11 @@ fn emit_set_cursor_visible(
     ));
 }
 
-/// `term::clear` (plan-35-B): blank the back buffer (every cell cleared using the
-/// current background) and home the shadow cursor. Emits no ANSI; the cleared
-/// state is shown when `term::sync` presents.
+/// `term::clear` (plan-35-B): blank the back buffer (every cell zero-filled — a
+/// blank glyph on the default/black background, not the caller's current
+/// background) and home the shadow cursor. Emits no ANSI; the cleared state is
+/// shown when `term::sync` presents. (bug-175 H: doc corrected to match the
+/// zero-fill.)
 fn emit_clear_grid(
     symbol: &str,
     term_state_offset: usize,

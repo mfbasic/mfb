@@ -507,6 +507,14 @@ impl CodeBuilder<'_> {
         ] {
             self.mark_register_used(register);
         }
+        // bug-175 E: a variable-length element payload (a record with an inline
+        // String, a data union, or a flat nested collection) must start on an
+        // aligned offset, exactly as the literal writer pads it
+        // (builder_collection_layout.rs). `list_element_padding_alignment` returns
+        // 1 for every fixed-size / byte-addressed payload, so every guarded
+        // `emit_align_offset_*` below is elided and primitive lists stay
+        // byte-identical.
+        let value_alignment = self.list_element_padding_alignment(element_type);
         let result_slot = self.allocate_stack_object("list_insert_result", 8);
         let valid_start = self.label("list_insert_valid_start");
         let alloc_ok = self.label("list_insert_alloc_ok");
@@ -540,6 +548,13 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: pad A's data length up to the element alignment so B's data
+        // region — and this reserved allocation size — start on an aligned
+        // boundary (consistent with the header write and the data/entry copies).
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch14, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(
             &scratch15,
             &scratch9,
@@ -611,6 +626,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: the stored dataLength must include the pad between A's and B's
+        // data regions so it matches the reserved size and the aligned copy dst.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch14, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(
             &scratch15,
             &scratch9,
@@ -642,6 +663,15 @@ impl CodeBuilder<'_> {
             &scratch9,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: round the dst data cursor (data base + dataLen_A) up to the
+        // element alignment before copying B's region. The data base is 8-aligned
+        // (HEADER and ENTRY are multiples of 8, block alloc is 8-aligned), so this
+        // is exactly `base + align(dataLen_A)` — the same padded dataLen_A the size,
+        // header, and entry-offset shift use.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch17, value_alignment, &align_scratch);
+        }
         self.emit_block_copy_advance(
             &scratch17,
             &scratch20,
@@ -700,6 +730,12 @@ impl CodeBuilder<'_> {
             // even when B is not packed in entry order, unlike a per-entry re-pack.
             // The copy advances `scratch17` to dst.table[i+count_B], where the tail
             // copy below resumes.
+        // bug-175 E: shift B's valueOffsets by the padded A data length so they
+        // match the aligned destination of B's copied data region above.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch14, value_alignment, &align_scratch);
+        }
         self.emit_bulk_copy_entries_shift(
             &scratch12,
             &scratch17,
@@ -794,6 +830,10 @@ impl CodeBuilder<'_> {
             slot: item_slot,
             type_: element_type.to_string(),
         };
+        // bug-175 E: pad the element start offset like the literal writer. Returns
+        // 1 (a no-op every align site) for fixed-size / byte-addressed payloads, so
+        // primitive lists stay byte-identical.
+        let value_alignment = self.list_element_padding_alignment(element_type);
         // Byte size of the new payload (its required data bytes).
         let need_slot = self.emit_payload_length_to_stack(&item, "append_inplace_need")?;
         let data_offset_slot = self.allocate_stack_object("append_inplace_doff", 8);
@@ -821,6 +861,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: reserve for align(dataLength)+need, matching the aligned write
+        // offset below — a "just barely fits" unaligned list must not skip the grow.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12));
         self.emit(abi::load_u64(
@@ -875,6 +921,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: required = align(dataLength)+need, consistent with the room
+        // check and the write so the grown dataCapacity always holds the payload.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12)); // required
         self.emit(abi::compare_registers(&scratch14, &scratch11));
@@ -1059,6 +1111,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: the payload starts at the aligned dataLength; this scratch11
+        // feeds both the entry valueOffset and the data-copy offset below.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+        }
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch8,
@@ -1124,6 +1182,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: the new dataLength is align(old)+need so it accounts for the
+        // pad the payload was written past (keeps the next element aligned too).
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch9, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
         self.emit(abi::store_u64(
@@ -1176,6 +1240,11 @@ impl CodeBuilder<'_> {
         let s20 = self.temporary_vreg();
         let s22 = self.temporary_vreg();
 
+        // bug-175 E: pad self's data length up to the element alignment before rhs's
+        // data region is concatenated after it, so rhs's internally-aligned payloads
+        // stay aligned. 1 (a no-op at every align site) for fixed-size /
+        // byte-addressed payloads keeps primitive lists byte-identical.
+        let value_alignment = self.list_element_padding_alignment(element_type);
         let need_count_slot = self.allocate_stack_object("bulk_append_need_count", 8);
         let need_data_slot = self.allocate_stack_object("bulk_append_need_data", 8);
         let new_cap_slot = self.allocate_stack_object("bulk_append_newcap", 8);
@@ -1196,6 +1265,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&s12, &s9, &s11));
         self.emit(abi::store_u64(&s12, abi::stack_pointer(), need_count_slot));
         self.emit(abi::load_u64(&s13, &s8, COLLECTION_OFFSET_DATA_LENGTH));
+        // bug-175 E: need_data = align(dataLen_self)+dataLen_rhs. This drives the
+        // room check, the grown dataCapacity, AND the stored dataLength, so the pad
+        // between the two data regions is reserved everywhere it is consumed.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&s13, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&s14, &s10, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::add_registers(&s15, &s13, &s14));
         self.emit(abi::store_u64(&s15, abi::stack_pointer(), need_data_slot));
@@ -1358,6 +1434,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), buffer_slot));
         self.emit_collection_data_pointer(&s17, &s8);
         self.emit(abi::load_u64(&s9, &s8, COLLECTION_OFFSET_DATA_LENGTH));
+        // bug-175 E: place rhs's data at the padded self data length. The data base
+        // is 8-aligned, so aligning the byte offset here yields `base +
+        // align(dataLen_self)`, matching the padded need_data reservation.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&s9, value_alignment, &align_scratch);
+        }
         self.emit(abi::add_registers(&s17, &s17, &s9));
         self.emit(abi::load_u64(&s10, abi::stack_pointer(), rhs_slot));
         self.emit_collection_data_pointer(&s20, &s10);
@@ -1379,6 +1462,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&s20, &s10, COLLECTION_HEADER_SIZE)); // rhs entry base
         self.emit(abi::load_u64(&s11, &s10, COLLECTION_OFFSET_COUNT)); // count(rhs)
         self.emit(abi::load_u64(&s12, &s8, COLLECTION_OFFSET_DATA_LENGTH)); // shift = dataLength(self)
+        // bug-175 E: shift rhs valueOffsets by the padded self data length to match
+        // the aligned destination of rhs's copied data region above.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&s12, value_alignment, &align_scratch);
+        }
         self.emit_bulk_copy_entries_shift(
             &s20,
             &s17,
@@ -1451,6 +1540,10 @@ impl CodeBuilder<'_> {
             slot: item_slot,
             type_: element_type.to_string(),
         };
+        // bug-175 E: pad the element start offset like the literal writer; 1 (a
+        // no-op at every align site) for fixed-size / byte-addressed payloads keeps
+        // primitive lists byte-identical.
+        let value_alignment = self.list_element_padding_alignment(element_type);
         let need_slot = self.emit_payload_length_to_stack(&item, "prepend_inplace_need")?;
         let data_offset_slot = self.allocate_stack_object("prepend_inplace_doff", 8);
         let new_cap_slot = self.allocate_stack_object("prepend_inplace_newcap", 8);
@@ -1479,6 +1572,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: reserve for align(dataLength)+need, matching the aligned write
+        // offset below — a "just barely fits" unaligned list must not skip the grow.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12));
         self.emit(abi::load_u64(
@@ -1531,6 +1630,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: required = align(dataLength)+need, consistent with the room
+        // check and the write so the grown dataCapacity always holds the payload.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12));
         self.emit(abi::compare_registers(&scratch14, &scratch11));
@@ -1706,6 +1811,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: the new payload starts at the aligned dataLength; this
+        // scratch11 feeds both the entry valueOffset and the data-copy offset.
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+        }
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch8,
@@ -1764,6 +1875,12 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
+        // bug-175 E: the new dataLength is align(old)+need so it accounts for the
+        // pad the payload was written past (keeps the next element aligned too).
+        if value_alignment > 1 {
+            let align_scratch = self.temporary_vreg();
+            self.emit_align_offset_register(&scratch9, value_alignment, &align_scratch);
+        }
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
         self.emit(abi::store_u64(

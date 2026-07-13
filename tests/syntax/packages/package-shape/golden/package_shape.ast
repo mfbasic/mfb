@@ -70,10 +70,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "shapeKind",
       "line": 29,
       "params": [
-      { "name": "shape", "type": "Shape", "default": null }
+      { "name": "shape", "type": "Shape", "default": null, "line": 29 }
       ],
       "returnType": "ShapeKind",
       "body": [
@@ -113,12 +114,13 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "translate",
       "line": 40,
       "params": [
-      { "name": "point", "type": "Point", "default": null },
-      { "name": "dx", "type": "Float", "default": null },
-      { "name": "dy", "type": "Float", "default": null }
+      { "name": "point", "type": "Point", "default": null, "line": 40 },
+      { "name": "dx", "type": "Float", "default": null, "line": 40 },
+      { "name": "dy", "type": "Float", "default": null, "line": 40 }
       ],
       "returnType": null,
       "body": [

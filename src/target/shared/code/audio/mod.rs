@@ -78,7 +78,7 @@ pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 // Shared emit helpers live in the `tls` module; reuse them rather than
 // duplicating. `emit_data_address` is re-exported for the AudioQueue phases.
 #[allow(unused_imports)]
-pub(super) use super::tls::{emit_alloc, emit_data_address, emit_fail};
+pub(super) use super::tls::{emit_alloc, emit_arena_free, emit_data_address, emit_fail};
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
 // on an ordinary internal thread when a played buffer is free. openOutput takes

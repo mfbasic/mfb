@@ -10,6 +10,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "comparisons_valid_run",
       "line": 9,
       "params": [
@@ -36,10 +37,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "markTrue",
       "line": 31,
       "params": [
-      { "name": "label", "type": "String", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 31 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -50,10 +52,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "markFalse",
       "line": 36,
       "params": [
-      { "name": "label", "type": "String", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 36 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -64,6 +67,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "logic_valid_run",
       "line": 41,
       "params": [
@@ -85,6 +89,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "string_ordering_valid_run",
       "line": 56,
       "params": [
@@ -114,6 +119,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "control_flow_valid_run",
       "line": 91,
       "params": [
@@ -246,10 +252,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "guard",
       "line": 121,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 121 }
       ],
       "returnType": null,
       "body": [
@@ -269,10 +276,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "swallow",
       "line": 128,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 128 }
       ],
       "returnType": null,
       "body": [
@@ -299,6 +307,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "exit_sub_valid_run",
       "line": 138,
       "params": [
@@ -314,6 +323,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 145,
       "params": [

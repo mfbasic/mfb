@@ -10,6 +10,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 3,
       "params": [
@@ -31,10 +32,11 @@
     {
       "kind": "func",
       "visibility": "private",
+      "isolated": false,
       "name": "#ccfb4cb8c48d7726$helper",
       "line": 1,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 1 }
       ],
       "returnType": "Integer",
       "body": [
@@ -44,10 +46,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "localUse",
       "line": 5,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 5 }
       ],
       "returnType": "Integer",
       "body": [
@@ -64,10 +67,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "helper",
       "line": 1,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 1 }
       ],
       "returnType": "Integer",
       "body": [

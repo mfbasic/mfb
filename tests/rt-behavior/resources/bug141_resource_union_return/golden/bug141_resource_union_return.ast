@@ -23,6 +23,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "openIt",
       "line": 14,
       "params": [
@@ -36,6 +37,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 19,
       "params": [

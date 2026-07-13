@@ -21,11 +21,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "seek",
       "line": 10,
       "params": [
-      { "name": "s", "type": "File", "resource": true, "state": "Cursor", "default": null },
-      { "name": "dest", "type": "Integer", "default": null }
+      { "name": "s", "type": "File", "resource": true, "state": "Cursor", "default": null, "line": 10 },
+      { "name": "dest", "type": "Integer", "default": null, "line": 10 }
       ],
       "returnType": null,
       "body": [
@@ -35,6 +36,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 14,
       "params": [

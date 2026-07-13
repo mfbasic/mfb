@@ -140,7 +140,11 @@ impl<'a> SyntaxChecker<'a> {
                     && expected_params
                         .iter()
                         .zip(actual_params.iter())
-                        .all(|(expected, actual)| self.compatible(expected, actual))
+                        // Function parameters are contravariant: a value promised
+                        // to accept any `expected` param must be an actual that
+                        // accepts at least as wide a type, so compare the actual's
+                        // declared param against the expected one (bug-173 A).
+                        .all(|(expected, actual)| self.compatible(actual, expected))
                     && self.compatible(expected_return, actual_return)
             }
             (Type::User(expected_name), Type::User(actual_name)) => {

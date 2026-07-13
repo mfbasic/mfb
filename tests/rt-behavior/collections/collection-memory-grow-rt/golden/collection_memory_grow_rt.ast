@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "sumList",
       "line": 9,
       "params": [
-      { "name": "xs", "type": "List OF Integer", "default": null }
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 9 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,10 +35,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "twice",
       "line": 17,
       "params": [
-      { "name": "x", "type": "Integer", "default": null }
+      { "name": "x", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "Integer",
       "body": [
@@ -47,10 +49,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "odd",
       "line": 21,
       "params": [
-      { "name": "x", "type": "Integer", "default": null }
+      { "name": "x", "type": "Integer", "default": null, "line": 21 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -60,6 +63,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 25,
       "params": [

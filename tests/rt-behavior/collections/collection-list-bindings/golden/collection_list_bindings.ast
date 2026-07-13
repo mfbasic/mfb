@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "printList",
       "line": 3,
       "params": [
-      { "name": "values", "type": "List OF String", "default": null }
+      { "name": "values", "type": "List OF String", "default": null, "line": 3 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -32,6 +33,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 10,
       "params": [

@@ -66,17 +66,20 @@ pub(crate) fn outgoing_stack_arg_store(src: &str, k: usize) -> CodeInstruction {
 }
 
 pub(crate) fn temporary_register(allocation: usize) -> Result<String, String> {
+    // bug-176 A: the callee-saved remap must skip the program-wide pinned
+    // registers — x19 ([`ARENA`]), x20 ([`CURRENT_THREAD`]) and x28
+    // ([`CLOSURE_ENV`]) — so the eager `-regalloc bump` oracle cannot color a body
+    // vreg onto one and clobber it. Only x21–x27 are free callee-saved temporaries;
+    // the caller-saved run is x8–x17.
     let register = match allocation {
         8..=17 => format!("x{allocation}"),
-        18 => "x20".to_string(),
-        19 => "x21".to_string(),
-        20 => "x22".to_string(),
-        21 => "x23".to_string(),
-        22 => "x24".to_string(),
-        23 => "x25".to_string(),
-        24 => "x26".to_string(),
-        25 => "x27".to_string(),
-        26 => "x28".to_string(),
+        18 => "x21".to_string(),
+        19 => "x22".to_string(),
+        20 => "x23".to_string(),
+        21 => "x24".to_string(),
+        22 => "x25".to_string(),
+        23 => "x26".to_string(),
+        24 => "x27".to_string(),
         other => {
             return Err(format!(
                 "aarch64 code plan exhausted physical registers at allocation {other}"
@@ -1168,12 +1171,18 @@ mod tests {
         assert_eq!(get(&outgoing, "base"), Some(OUTGOING_ARGS_BASE));
         assert_eq!(get(&outgoing, "offset"), Some("0"));
         assert_eq!(get(&outgoing, "src"), Some("x9"));
-        // Temporary allocations cover the caller-saved run and the callee-saved remap.
+        // Temporary allocations cover the caller-saved run and the callee-saved
+        // remap, skipping the pinned x19/x20/x28 (bug-176 A).
         assert_eq!(temporary_register(8).unwrap(), "x8");
         assert_eq!(temporary_register(17).unwrap(), "x17");
-        assert_eq!(temporary_register(18).unwrap(), "x20");
-        assert_eq!(temporary_register(26).unwrap(), "x28");
-        assert!(temporary_register(27).is_err());
+        assert_eq!(temporary_register(18).unwrap(), "x21");
+        assert_eq!(temporary_register(24).unwrap(), "x27");
+        assert!(temporary_register(25).is_err());
+        // The pinned callee-saved registers are never handed out as bump temporaries.
+        for slot in 8..=24 {
+            let reg = temporary_register(slot).unwrap();
+            assert!(reg != "x19" && reg != "x20" && reg != "x28");
+        }
         // FP temporaries.
         assert_eq!(fp_temporary_register(0).unwrap(), "d0");
         assert_eq!(fp_temporary_register(7).unwrap(), "d7");

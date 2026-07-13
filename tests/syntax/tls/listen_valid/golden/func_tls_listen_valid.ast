@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "serveOnce",
       "line": 8,
       "params": [
-      { "name": "listener", "type": "TlsListener", "resource": true, "state": null, "default": null }
+      { "name": "listener", "type": "TlsListener", "resource": true, "state": null, "default": null, "line": 8 }
       ],
       "returnType": "Integer",
       "body": [
@@ -28,6 +29,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 16,
       "params": [

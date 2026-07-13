@@ -227,7 +227,7 @@ pub fn from_source(ast: &AstProject) -> DocPage {
         }
     }
 
-    let mut package_name = ast.name.clone();
+    let package_name = ast.name.clone();
     let mut pkg_prose: Vec<Prose> = Vec::new();
     let mut package_deprecated = None;
     let mut items: Vec<(DocDecl, String, bool)> = Vec::new();
@@ -252,7 +252,6 @@ pub fn from_source(ast: &AstProject) -> DocPage {
                         })
                         .collect();
                     package_deprecated = doc.deprecated.first().map(|(m, _)| m.clone());
-                    let _ = &mut package_name;
                 }
                 continue;
             }

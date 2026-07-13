@@ -279,6 +279,14 @@ impl<'a> SyntaxChecker<'a> {
                             self.is_thread_sendable_type_with_seen(&field.type_, seen)
                         }),
                         TypeDeclKind::Union => info.variants.iter().all(|variant| {
+                            // A resource-union variant name is itself a registered
+                            // resource carrying empty `fields`; the vacuous `.all()`
+                            // over no fields would report it sendable regardless of
+                            // its actual `is_sendable` bit (bug-173 F). Gate on the
+                            // resource's own sendability instead.
+                            if self.resource_registry.is_resource(&variant.name) {
+                                return self.resource_registry.is_sendable(&variant.name);
+                            }
                             variant.fields.iter().all(|field| {
                                 self.is_thread_sendable_type_with_seen(&field.type_, seen)
                             })

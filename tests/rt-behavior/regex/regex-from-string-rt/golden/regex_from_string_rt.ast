@@ -13,10 +13,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "render",
       "line": 10,
       "params": [
-      { "name": "hits", "type": "List OF Integer", "default": null }
+      { "name": "hits", "type": "List OF Integer", "default": null, "line": 10 }
       ],
       "returnType": "String",
       "body": [
@@ -48,6 +49,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 24,
       "params": [

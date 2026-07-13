@@ -13,6 +13,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "completedScopeDrop",
       "line": 6,
       "params": [
@@ -34,6 +35,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "runningEarlyReturnDrop",
       "line": 13,
       "params": [
@@ -47,6 +49,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "reassignmentDrop",
       "line": 18,
       "params": [
@@ -73,6 +76,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "autoTrapDrop",
       "line": 27,
       "params": [
@@ -94,6 +98,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "failTrapDrop",
       "line": 36,
       "params": [
@@ -114,6 +119,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makeThread",
       "line": 44,
       "params": [
@@ -127,6 +133,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "returnedThreadStillLive",
       "line": 49,
       "params": [
@@ -152,6 +159,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 57,
       "params": [

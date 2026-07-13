@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "upperOf",
       "line": 16,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 16 }
       ],
       "returnType": "String",
       "body": [
@@ -24,10 +25,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "lowerOf",
       "line": 20,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 20 }
       ],
       "returnType": "String",
       "body": [
@@ -37,10 +39,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "nfcOf",
       "line": 24,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 24 }
       ],
       "returnType": "String",
       "body": [
@@ -50,10 +53,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "byteLen",
       "line": 28,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 28 }
       ],
       "returnType": "Integer",
       "body": [
@@ -63,10 +67,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "graphemeCount",
       "line": 32,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 32 }
       ],
       "returnType": "Integer",
       "body": [
@@ -76,6 +81,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 36,
       "params": [

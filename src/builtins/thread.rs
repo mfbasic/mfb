@@ -33,6 +33,10 @@ pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
+/// User-facing thread calls. Recognized by `is_builtin_call`, so it must NOT
+/// include the internal resource-plane names, which are synthesized only during
+/// IR lowering and are not user-callable (bug-173 E). A user-typed
+/// `thread.emitResource(x)` must be reported as an unknown function.
 pub(crate) fn is_thread_call(name: &str) -> bool {
     matches!(
         name,
@@ -46,11 +50,18 @@ pub(crate) fn is_thread_call(name: &str) -> bool {
             | IS_CANCELLED
             | TRANSFER
             | ACCEPT
-            | TRANSFER_RESOURCE
-            | ACCEPT_RESOURCE
-            | EMIT_RESOURCE
-            | READ_RESOURCE
     )
+}
+
+/// Post-lowering classifier: `is_thread_call` plus the internal resource-plane
+/// names that IR lowering synthesizes. Used by `runtime::helper_for_call` to
+/// route codegen for these lowered-only targets.
+pub(crate) fn is_thread_runtime_call(name: &str) -> bool {
+    is_thread_call(name)
+        || matches!(
+            name,
+            TRANSFER_RESOURCE | ACCEPT_RESOURCE | EMIT_RESOURCE | READ_RESOURCE
+        )
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
@@ -461,15 +472,24 @@ mod tests {
             IS_CANCELLED,
             TRANSFER,
             ACCEPT,
+        ] {
+            assert!(is_thread_call(name), "{name}");
+            assert!(is_thread_runtime_call(name), "{name}");
+        }
+        // Internal resource-plane names are lowered-only: recognized by the
+        // post-lowering runtime classifier but NOT user-facing (bug-173 E).
+        for name in [
             TRANSFER_RESOURCE,
             ACCEPT_RESOURCE,
             EMIT_RESOURCE,
             READ_RESOURCE,
         ] {
-            assert!(is_thread_call(name), "{name}");
+            assert!(!is_thread_call(name), "{name}");
+            assert!(is_thread_runtime_call(name), "{name}");
         }
         assert!(!is_thread_call("thread.nope"));
         assert!(!is_thread_call("foo"));
+        assert!(!is_thread_runtime_call("thread.nope"));
     }
 
     #[test]

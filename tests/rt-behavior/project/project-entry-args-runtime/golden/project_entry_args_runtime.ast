@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 4,
       "params": [
-      { "name": "args", "type": "List OF String", "default": null }
+      { "name": "args", "type": "List OF String", "default": null, "line": 4 }
       ],
       "returnType": "Integer",
       "body": [

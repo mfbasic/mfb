@@ -228,9 +228,12 @@ impl plan::NativePlanPlatform for Platform {
                 self.libc_import("realpath", spec.symbol),
                 self.libc_import("__errno_location", spec.symbol),
             ],
+            // bug-176 C: the resource-plane ops run on the pthread mutex/cond
+            // queues too; they were omitted (masked by a co-located thread.start).
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-            | "thread.emit" | "thread.isCancelled" => [
+            | "thread.emit" | "thread.isCancelled" | "thread.transferResource"
+            | "thread.acceptResource" | "thread.emitResource" | "thread.readResource" => [
                 "pthread_create",
                 "pthread_attr_init",
                 "pthread_attr_setstacksize",
@@ -288,7 +291,7 @@ impl plan::NativePlanPlatform for Platform {
                     self.libc_import("dlsym", spec.symbol),
                 ]
             }
-            call if crate::builtins::tls::is_tls_call(call) => {
+            call if crate::builtins::tls::is_tls_runtime_call(call) => {
                 // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
                 // tls.connect/listen also open the TCP socket themselves, and
                 // every helper can report errno-derived failures.

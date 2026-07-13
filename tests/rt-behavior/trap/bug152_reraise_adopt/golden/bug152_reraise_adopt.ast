@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "inner",
       "line": 9,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": "Integer",
       "body": [
@@ -24,10 +25,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "reraise",
       "line": 14,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 14 }
       ],
       "returnType": "Integer",
       "body": [
@@ -45,10 +47,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "top",
       "line": 22,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 22 }
       ],
       "returnType": "String",
       "body": [
@@ -66,6 +69,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 30,
       "params": [

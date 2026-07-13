@@ -10,10 +10,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "tryDecode",
       "line": 14,
       "params": [
-      { "name": "bytes", "type": "List OF Byte", "default": null }
+      { "name": "bytes", "type": "List OF Byte", "default": null, "line": 14 }
       ],
       "returnType": null,
       "body": [
@@ -24,6 +25,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 20,
       "params": [

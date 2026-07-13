@@ -9,10 +9,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "bucket",
       "line": 1,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 1 }
       ],
       "returnType": "Integer",
       "body": [
@@ -52,6 +53,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 12,
       "params": [

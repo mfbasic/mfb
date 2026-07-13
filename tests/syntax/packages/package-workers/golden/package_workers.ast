@@ -59,10 +59,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": true,
       "name": "worker",
       "line": 25,
       "params": [
-      { "name": "seed", "type": "String", "default": null }
+      { "name": "seed", "type": "String", "default": null, "line": 25 }
       ],
       "returnType": "Integer",
       "body": [
@@ -72,10 +73,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "status",
       "line": 29,
       "params": [
-      { "name": "done", "type": "Boolean", "default": null }
+      { "name": "done", "type": "Boolean", "default": null, "line": 29 }
       ],
       "returnType": "WorkStatus",
       "body": [

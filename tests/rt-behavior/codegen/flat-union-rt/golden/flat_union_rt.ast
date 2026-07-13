@@ -51,10 +51,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 29,
       "params": [
-      { "name": "s", "type": "Shape", "default": null }
+      { "name": "s", "type": "Shape", "default": null, "line": 29 }
       ],
       "returnType": "String",
       "body": [
@@ -94,6 +95,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 40,
       "params": [

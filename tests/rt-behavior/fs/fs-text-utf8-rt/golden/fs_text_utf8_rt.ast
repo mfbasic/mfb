@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "readText1",
       "line": 4,
       "params": [
-      { "name": "p", "type": "String", "default": null }
+      { "name": "p", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": "String",
       "body": [
@@ -24,10 +25,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "readAll1",
       "line": 7,
       "params": [
-      { "name": "p", "type": "String", "default": null }
+      { "name": "p", "type": "String", "default": null, "line": 7 }
       ],
       "returnType": "String",
       "body": [
@@ -37,10 +39,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "readLine1",
       "line": 10,
       "params": [
-      { "name": "p", "type": "String", "default": null }
+      { "name": "p", "type": "String", "default": null, "line": 10 }
       ],
       "returnType": "String",
       "body": [
@@ -50,11 +53,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "codeOf",
       "line": 14,
       "params": [
-      { "name": "p", "type": "String", "default": null },
-      { "name": "which", "type": "Integer", "default": null }
+      { "name": "p", "type": "String", "default": null, "line": 14 },
+      { "name": "which", "type": "Integer", "default": null, "line": 14 }
       ],
       "returnType": "Integer",
       "body": [
@@ -122,6 +126,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 37,
       "params": [

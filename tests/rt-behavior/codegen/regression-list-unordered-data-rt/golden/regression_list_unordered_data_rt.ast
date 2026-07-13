@@ -11,11 +11,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "dump",
       "line": 11,
       "params": [
-      { "name": "tag", "type": "String", "default": null },
-      { "name": "xs", "type": "List OF Integer", "default": null }
+      { "name": "tag", "type": "String", "default": null, "line": 11 },
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [
@@ -36,6 +37,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 20,
       "params": [

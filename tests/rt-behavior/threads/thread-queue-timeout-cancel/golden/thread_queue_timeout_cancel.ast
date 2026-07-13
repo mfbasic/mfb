@@ -12,10 +12,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "fullQueueScenario",
       "line": 5,
       "params": [
-      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 5 }
       ],
       "returnType": "Integer",
       "body": [
@@ -48,10 +49,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "cancelScenario",
       "line": 22,
       "params": [
-      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 22 }
       ],
       "returnType": "Integer",
       "body": [
@@ -95,10 +97,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "expectInterruptedWaitFor",
       "line": 44,
       "params": [
-      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 44 }
       ],
       "returnType": "Integer",
       "body": [
@@ -126,10 +129,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "receiveCancelScenario",
       "line": 55,
       "params": [
-      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 55 }
       ],
       "returnType": "Integer",
       "body": [
@@ -176,10 +180,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "outboundCancelScenario",
       "line": 75,
       "params": [
-      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 75 }
       ],
       "returnType": "Integer",
       "body": [
@@ -226,6 +231,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 95,
       "params": [

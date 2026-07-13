@@ -344,6 +344,32 @@ impl<'a> Resolver<'a> {
             );
             return;
         }
+        // Also reject a collision against an already-inserted function of the
+        // same name and parameter types — mirroring `insert_function`. A re-export
+        // alias never participates in return-type overloading (its `return_type`
+        // is always `None`), so equal params alone is a duplicate, not a legal
+        // overload set.
+        if let Some(previous) = self
+            .functions
+            .get(name)
+            .and_then(|functions| {
+                functions
+                    .iter()
+                    .find(|candidate| candidate.params == params && candidate.return_type.is_none())
+            })
+            .cloned()
+        {
+            self.report(
+                "SYMBOL_DUPLICATE_TOP_LEVEL",
+                &format!(
+                    "Top-level symbol `{name}` was already declared in {}:{}.",
+                    previous.symbol.file_path, previous.symbol.line
+                ),
+                file,
+                line,
+            );
+            return;
+        }
         self.functions
             .entry(name.to_string())
             .or_default()

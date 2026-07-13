@@ -128,13 +128,13 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Math)
     } else if builtins::term::is_term_call(name) {
         Some(RuntimeHelper::Term)
-    } else if builtins::thread::is_thread_call(name) {
+    } else if builtins::thread::is_thread_runtime_call(name) {
         Some(RuntimeHelper::Thread)
     } else if builtins::net::is_net_call(name) {
         Some(RuntimeHelper::Net)
     } else if builtins::os::is_os_call(name) {
         Some(RuntimeHelper::Os)
-    } else if builtins::tls::is_tls_call(name) {
+    } else if builtins::tls::is_tls_runtime_call(name) {
         Some(RuntimeHelper::Tls)
     } else {
         None

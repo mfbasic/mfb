@@ -10,10 +10,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "log",
       "line": 8,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 8 }
       ],
       "returnType": null,
       "body": [
@@ -23,10 +24,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "log",
       "line": 12,
       "params": [
-      { "name": "value", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 12 }
       ],
       "returnType": null,
       "body": [
@@ -36,11 +38,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "log",
       "line": 17,
       "params": [
-      { "name": "label", "type": "String", "default": null },
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 17 },
+      { "name": "value", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": null,
       "body": [
@@ -50,6 +53,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 21,
       "params": [

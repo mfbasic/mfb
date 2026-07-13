@@ -163,15 +163,6 @@ impl<'a> SyntaxChecker<'a> {
                     (binding_type != Type::Unknown).then_some(&binding_type),
                     &format!("binding `{name}`"),
                 );
-                // A `get`/`getOr` of a resource element yields a *borrow*, not an
-                // owner; it cannot be bound with `RES` (§15.6). Use it inline or
-                // through `FOR EACH`.
-                if *resource
-                    && self.is_resource_type(&binding_type)
-                    && value
-                        .as_ref()
-                        .is_some_and(|value| is_resource_element_borrow(value))
-                {}
                 // A `RES` binding whose ownership floats into an outer-scope
                 // collection (or out via a returned collection) becomes
                 locals.insert(
@@ -218,13 +209,6 @@ impl<'a> SyntaxChecker<'a> {
                         *line,
                     );
                 }
-                // A `get`/`getOr` of a resource element is a borrow, not an
-                // owner; it cannot be returned (§15.6).
-                if self.is_resource_type(&actual)
-                    && value
-                        .as_ref()
-                        .is_some_and(|value| is_resource_element_borrow(value))
-                {}
                 if !self.expression_compatible(expected_return, &actual, value.as_ref()) {}
                 Flow::AlwaysReturns
             }
@@ -273,26 +257,17 @@ impl<'a> SyntaxChecker<'a> {
                         let actual =
                             self.infer_expression(file, code, locals, *line, ExprMode::Read);
                         if !self.expression_compatible(&Type::Integer, &actual, Some(code)) {}
-                        if let Some(value) = integer_constant_value(code) {
-                            if !(0..=255).contains(&value) {}
-                        }
                     }
                 }
                 Flow::AlwaysReturns
             }
-            Statement::Continue { kind, line: _ } => {
-                if !self.loop_stack.iter().rev().any(|item| *item == *kind) {}
-                Flow::AlwaysReturns
-            }
+            Statement::Continue { kind: _, line: _ } => Flow::AlwaysReturns,
             Statement::Fail { error, line } => {
                 let actual = self.infer_expression(file, error, locals, *line, ExprMode::Transfer);
                 if !self.compatible(&Type::Error, &actual) {}
                 Flow::AlwaysReturns
             }
-            Statement::Propagate { line: _ } => {
-                if trap_name.is_none() {}
-                Flow::AlwaysReturns
-            }
+            Statement::Propagate { line: _ } => Flow::AlwaysReturns,
             Statement::Recover { value, line } => {
                 let Some(recover_type) = self.inline_trap_types.last().cloned() else {
                     if let Some(value) = value {
@@ -568,9 +543,6 @@ impl<'a> SyntaxChecker<'a> {
                     }
                     Type::Unknown
                 };
-                if let Some(step) = step {
-                    if numeric_literal_is_zero(step) {}
-                }
                 let mut nested = locals.clone();
                 nested.insert(
                     name.clone(),

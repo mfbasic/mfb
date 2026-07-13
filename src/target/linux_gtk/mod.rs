@@ -213,8 +213,8 @@ const CAIRO: &str = "libcairo.so.2";
 /// Library that exports `symbol`, matching `app_mode_imports`. The relocation's
 /// library field is cosmetic (the linker binds by symbol name), but keeping it
 /// accurate aids artifact debugging.
-fn lib_for(symbol: &str) -> &'static str {
-    match symbol {
+fn lib_for(symbol: &str) -> Result<&'static str, String> {
+    Ok(match symbol {
         "g_application_run" | "g_application_quit" => GIO,
         "g_signal_connect_data" => GOBJECT,
         "g_idle_add" => GLIB,
@@ -228,8 +228,14 @@ fn lib_for(symbol: &str) -> &'static str {
         sym if sym.starts_with("cairo_") => CAIRO,
         sym if sym.starts_with("gtk_") => GTK,
         sym if sym.starts_with("g_") => GLIB,
-        other => panic!("linux app-mode codegen referenced unmapped symbol '{other}'"),
-    }
+        // bug-176 D: an unmapped symbol is a codegen bug, but surface it as a
+        // plan-level error rather than a `panic!` that aborts the process.
+        other => {
+            return Err(format!(
+                "linux app-mode codegen referenced unmapped symbol '{other}'"
+            ))
+        }
+    })
 }
 
 // --- Tiny assembler over CodeInstruction/CodeRelocation --------------------
@@ -238,6 +244,10 @@ struct Asm {
     from: String,
     ins: Vec<CodeInstruction>,
     rel: Vec<CodeRelocation>,
+    /// bug-176 D: the first `lib_for` failure (an unmapped symbol) recorded here so
+    /// `finish` can surface it as a plan-level error instead of `panic!`ing. Kept on
+    /// the builder so the many infallible `call_external` sites need not change.
+    err: Option<String>,
 }
 
 impl Asm {
@@ -246,6 +256,7 @@ impl Asm {
             from: from.to_string(),
             ins: Vec::new(),
             rel: Vec::new(),
+            err: None,
         }
     }
 
@@ -255,13 +266,25 @@ impl Asm {
 
     /// `bl <symbol>` to an imported C function.
     fn call_external(&mut self, symbol: &str) {
+        // bug-176 D: an unmapped symbol is a codegen bug; record it (first wins) and
+        // fall back to libc so codegen can continue, then `finish` returns the error
+        // rather than aborting the process with a `panic!`.
+        let library = match lib_for(symbol) {
+            Ok(library) => library,
+            Err(message) => {
+                if self.err.is_none() {
+                    self.err = Some(message);
+                }
+                LIBC
+            }
+        };
         self.ins.push(abi::branch_link(symbol));
         self.rel.push(CodeRelocation {
             from: self.from.clone(),
             to: symbol.to_string(),
             kind: RelocIntent::Call,
             binding: "external".to_string(),
-            library: Some(lib_for(symbol).to_string()),
+            library: Some(library.to_string()),
         });
     }
 
@@ -328,8 +351,13 @@ impl Asm {
         self.push(abi::store_u64(src, abi::SCRATCH[0], offset));
     }
 
-    fn finish(self, symbol: &str, returns: &str) -> CodeFunction {
-        CodeFunction {
+    fn finish(self, symbol: &str, returns: &str) -> Result<CodeFunction, String> {
+        // bug-176 D: surface a recorded `lib_for` failure (unmapped symbol) here as
+        // a plan-level error instead of `panic!`ing at the call site.
+        if let Some(message) = self.err {
+            return Err(message);
+        }
+        Ok(CodeFunction {
             name: symbol.to_string(),
             symbol: symbol.to_string(),
             params: Vec::new(),
@@ -341,7 +369,7 @@ impl Asm {
             stack_slots: Vec::new(),
             instructions: self.ins,
             relocations: self.rel,
-        }
+        })
     }
 }
 
@@ -354,24 +382,24 @@ pub(crate) fn emit_app_program_entry(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
-        emit_libc_start_trampoline(),
-        emit_main_bootstrap(),
-        emit_activate_handler(),
-        emit_worker_shim(spec),
-        emit_key_pressed_handler(),
-        emit_window_closed_handler(),
-        emit_finish_helper(),
-        emit_append_helper(),
-        emit_append_idle_helper(),
+        emit_libc_start_trampoline()?,
+        emit_main_bootstrap()?,
+        emit_activate_handler()?,
+        emit_worker_shim(spec)?,
+        emit_key_pressed_handler()?,
+        emit_window_closed_handler()?,
+        emit_finish_helper()?,
+        emit_append_helper()?,
+        emit_append_idle_helper()?,
         // term:: TUI surface support (plan-01-term.md §6.3).
-        emit_term_draw_helper(),
-        emit_term_show_idle_helper(),
-        emit_term_hide_idle_helper(),
-        emit_term_redraw_idle_helper(),
-        emit_term_write_helper(),
-        emit_term_scroll_helper(),
-        emit_term_init_helper(),
-        emit_term_resize_helper(),
+        emit_term_draw_helper()?,
+        emit_term_show_idle_helper()?,
+        emit_term_hide_idle_helper()?,
+        emit_term_redraw_idle_helper()?,
+        emit_term_write_helper()?,
+        emit_term_scroll_helper()?,
+        emit_term_init_helper()?,
+        emit_term_resize_helper()?,
     ])
 }
 
@@ -386,29 +414,29 @@ pub(crate) fn emit_app_program_entry_x86(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap(),
-        emit_activate_handler(),
-        emit_worker_shim(spec),
-        emit_key_pressed_handler(),
-        emit_window_closed_handler(),
-        emit_finish_helper(),
-        emit_append_helper(),
-        emit_append_idle_helper(),
-        emit_term_draw_helper(),
-        emit_term_show_idle_helper(),
-        emit_term_hide_idle_helper(),
-        emit_term_redraw_idle_helper(),
-        emit_term_write_helper(),
-        emit_term_scroll_helper(),
-        emit_term_init_helper(),
-        emit_term_resize_helper(),
+        emit_main_bootstrap()?,
+        emit_activate_handler()?,
+        emit_worker_shim(spec)?,
+        emit_key_pressed_handler()?,
+        emit_window_closed_handler()?,
+        emit_finish_helper()?,
+        emit_append_helper()?,
+        emit_append_idle_helper()?,
+        emit_term_draw_helper()?,
+        emit_term_show_idle_helper()?,
+        emit_term_hide_idle_helper()?,
+        emit_term_redraw_idle_helper()?,
+        emit_term_write_helper()?,
+        emit_term_scroll_helper()?,
+        emit_term_init_helper()?,
+        emit_term_resize_helper()?,
     ];
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
     }
     // The trampoline is the raw ELF entry (no caller, no callee-saved contract,
     // kernel-aligned stack) — unwrapped, first.
-    functions.insert(0, emit_libc_start_trampoline_x86());
+    functions.insert(0, emit_libc_start_trampoline_x86()?);
     Ok(functions)
 }
 
@@ -418,7 +446,7 @@ pub(crate) fn emit_app_program_entry_x86(
 /// seventh (`stack_end`) on the stack; the kernel enters `_main` with `rsp`
 /// 16-aligned pointing at `argc`, so the 16-byte slot below keeps the call site
 /// 16-aligned as the ABI requires. `__libc_start_main` never returns.
-fn emit_libc_start_trampoline_x86() -> CodeFunction {
+fn emit_libc_start_trampoline_x86() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
     // The x86 selection maps x0..x5 to rdi/rsi/rdx/rcx/r8/r9 at the call.
@@ -815,10 +843,11 @@ mod import_tests {
     }
 
     /// `lib_for` maps every symbol the backend references; `close` must resolve to
-    /// libc, and `getenv` must no longer be listed (a call would now panic through
-    /// the catch-all, surfacing any accidental reintroduction).
+    /// libc, and an unmapped symbol now returns a plan-level `Err` (surfacing any
+    /// accidental reintroduction) instead of panicking.
     #[test]
     fn lib_for_maps_close_to_libc() {
-        assert_eq!(lib_for("close"), LIBC);
+        assert_eq!(lib_for("close").unwrap(), LIBC);
+        assert!(lib_for("getenv").is_err());
     }
 }

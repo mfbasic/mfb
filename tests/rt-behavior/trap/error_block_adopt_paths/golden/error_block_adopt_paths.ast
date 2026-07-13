@@ -12,11 +12,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "deep",
       "line": 17,
       "params": [
-      { "name": "l", "type": "List OF Integer", "default": null },
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "l", "type": "List OF Integer", "default": null, "line": 17 },
+      { "name": "n", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "Integer",
       "body": [
@@ -26,11 +27,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "mid",
       "line": 21,
       "params": [
-      { "name": "l", "type": "List OF Integer", "default": null },
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "l", "type": "List OF Integer", "default": null, "line": 21 },
+      { "name": "n", "type": "Integer", "default": null, "line": 21 }
       ],
       "returnType": "Integer",
       "body": [
@@ -41,6 +43,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "domainCase",
       "line": 26,
       "params": [
@@ -62,6 +65,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "helperCase",
       "line": 35,
       "params": [
@@ -82,6 +86,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "inlineCase",
       "line": 43,
       "params": [
@@ -104,10 +109,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "boom",
       "line": 55,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 55 }
       ],
       "returnType": "Integer",
       "body": [
@@ -120,10 +126,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "failCase",
       "line": 62,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 62 }
       ],
       "returnType": "String",
       "body": [
@@ -141,6 +148,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 70,
       "params": [

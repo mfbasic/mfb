@@ -12,10 +12,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "readAge",
       "line": 6,
       "params": [
-      { "name": "input", "type": "String", "default": null }
+      { "name": "input", "type": "String", "default": null, "line": 6 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,11 +35,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "divide",
       "line": 17,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 17 },
+      { "name": "b", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "Integer",
       "body": [
@@ -57,10 +59,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "third",
       "line": 28,
       "params": [
-      { "name": "xs", "type": "List OF Integer", "default": null }
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 28 }
       ],
       "returnType": "Integer",
       "body": [
@@ -79,11 +82,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "innerFails",
       "line": 40,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 40 },
+      { "name": "b", "type": "Integer", "default": null, "line": 40 }
       ],
       "returnType": "Integer",
       "body": [
@@ -102,11 +106,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "callInner",
       "line": 51,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 51 },
+      { "name": "b", "type": "Integer", "default": null, "line": 51 }
       ],
       "returnType": "Integer",
       "body": [
@@ -125,11 +130,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "withResource",
       "line": 63,
       "params": [
-      { "name": "path", "type": "String", "default": null },
-      { "name": "input", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 63 },
+      { "name": "input", "type": "String", "default": null, "line": 63 }
       ],
       "returnType": "Integer",
       "body": [
@@ -150,6 +156,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 75,
       "params": [

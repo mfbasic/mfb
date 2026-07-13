@@ -12,11 +12,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "recvCount",
       "line": 7,
       "params": [
-      { "name": "s", "type": "UdpSocket", "resource": true, "state": null, "default": null },
-      { "name": "maxBytes", "type": "Integer", "default": null }
+      { "name": "s", "type": "UdpSocket", "resource": true, "state": null, "default": null, "line": 7 },
+      { "name": "maxBytes", "type": "Integer", "default": null, "line": 7 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,6 +35,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 15,
       "params": [

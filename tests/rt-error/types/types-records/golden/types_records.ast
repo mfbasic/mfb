@@ -31,10 +31,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "sumPoint",
       "line": 14,
       "params": [
-      { "name": "p", "type": "Point", "default": null }
+      { "name": "p", "type": "Point", "default": null, "line": 14 }
       ],
       "returnType": "Integer",
       "body": [
@@ -44,10 +45,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describeFlags",
       "line": 18,
       "params": [
-      { "name": "value", "type": "Flags", "default": null }
+      { "name": "value", "type": "Flags", "default": null, "line": 18 }
       ],
       "returnType": "String",
       "body": [
@@ -57,6 +59,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 22,
       "params": [

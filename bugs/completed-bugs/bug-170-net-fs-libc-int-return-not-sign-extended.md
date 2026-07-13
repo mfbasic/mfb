@@ -3,7 +3,7 @@
 Last updated: 2026-07-12
 Severity: MEDIUM (low confidence) — a negative C `int` return read as a large positive could be treated as success on a failing socket/poll.
 Class: Correctness (defense-in-depth against the documented bug-04/bug-44 ABI condition).
-Status: Open
+Status: FIXED (2026-07-13; goal: resolve bugs 170-180; full acceptance suite green)
 
 ## Finding
 

@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "showInvalid",
       "line": 4,
       "params": [
-      { "name": "value", "type": "Json", "default": null }
+      { "name": "value", "type": "Json", "default": null, "line": 4 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -33,6 +34,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 13,
       "params": [

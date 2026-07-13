@@ -20,10 +20,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "touch",
       "line": 11,
       "params": [
-      { "name": "path", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 11 }
       ],
       "returnType": null,
       "body": [
@@ -34,6 +35,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 16,
       "params": [

@@ -202,6 +202,18 @@ pub(super) fn emit_alloc(
     ]);
 }
 
+/// `bl _mfb_arena_free` returning a single compiler-sized block to the arena.
+/// The caller stages the block pointer in the return register (`x0`) and its
+/// original allocation size in `ARG[1]` (`x1`).
+pub(super) fn emit_arena_free(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(ARENA_FREE_SYMBOL));
+    relocations.push(internal_reloc(symbol, ARENA_FREE_SYMBOL));
+}
+
 pub(super) fn emit_fail(
     symbol: &str,
     code: &str,

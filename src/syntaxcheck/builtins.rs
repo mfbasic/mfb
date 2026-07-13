@@ -923,11 +923,7 @@ impl<'a> SyntaxChecker<'a> {
         if let Some((min, max)) = builtins::io::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
-                    if min == 0 {
-                        "0".to_string()
-                    } else {
-                        min.to_string()
-                    }
+                    min.to_string()
                 } else {
                     format!("{min} to {max}")
                 };
@@ -1061,10 +1057,11 @@ impl<'a> SyntaxChecker<'a> {
             .collect::<Vec<_>>();
 
         let mut mismatch = false;
-        for (index, expected_name) in param_types.iter().enumerate() {
+        for ((expected_name, actual), argument) in
+            param_types.iter().zip(arg_types.iter()).zip(arguments.iter())
+        {
             let expected = self.parse_type(expected_name);
-            let actual = &arg_types[index];
-            if !self.expression_compatible(&expected, actual, Some(&arguments[index])) {
+            if !self.expression_compatible(&expected, actual, Some(argument)) {
                 mismatch = true;
             }
         }
@@ -1775,6 +1772,21 @@ impl<'a> SyntaxChecker<'a> {
             );
         }
         let Some(param_names) = builtins::call_param_names(callee) else {
+            // No param-name metadata for this builtin: named arguments cannot be
+            // bound by name, so reject them rather than silently binding by source
+            // order (bug-173 B), mirroring the unknown-name path below.
+            for argument in arguments {
+                if let CallArg::Named { name, line, .. } = argument {
+                    self.report(
+                        "TYPE_UNKNOWN_ARGUMENT_NAME",
+                        &format!(
+                            "Call to `{display_callee}` does not have a parameter named `{name}`."
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+            }
             return arguments
                 .iter()
                 .map(|argument| call_arg_value(argument).clone())

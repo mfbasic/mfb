@@ -51,10 +51,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "scoreA",
       "line": 21,
       "params": [
-      { "name": "s", "type": "A", "default": null }
+      { "name": "s", "type": "A", "default": null, "line": 21 }
       ],
       "returnType": "Integer",
       "body": [
@@ -86,10 +87,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "scoreB",
       "line": 30,
       "params": [
-      { "name": "s", "type": "B", "default": null }
+      { "name": "s", "type": "B", "default": null, "line": 30 }
       ],
       "returnType": "Integer",
       "body": [
@@ -121,6 +123,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 39,
       "params": [

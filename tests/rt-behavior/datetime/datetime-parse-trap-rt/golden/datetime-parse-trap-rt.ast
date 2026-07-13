@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parsePreLocal",
       "line": 14,
       "params": [
@@ -35,6 +36,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parsePostLocal",
       "line": 28,
       "params": [
@@ -58,6 +60,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parseInnerBlock",
       "line": 41,
       "params": [
@@ -91,6 +94,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 55,
       "params": [

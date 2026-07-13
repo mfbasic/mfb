@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "ioRound",
       "line": 6,
       "params": [
-      { "name": "c", "type": "TlsSocket", "resource": true, "state": null, "default": null }
+      { "name": "c", "type": "TlsSocket", "resource": true, "state": null, "default": null, "line": 6 }
       ],
       "returnType": "Integer",
       "body": [
@@ -30,6 +31,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 16,
       "params": [

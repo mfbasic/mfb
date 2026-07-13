@@ -11,6 +11,7 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "nextCounter",
       "line": 4,
       "params": [

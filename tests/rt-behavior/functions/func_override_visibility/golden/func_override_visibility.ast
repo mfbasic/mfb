@@ -19,10 +19,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "toString",
       "line": 8,
       "params": [
-      { "name": "t", "type": "Tag", "default": null }
+      { "name": "t", "type": "Tag", "default": null, "line": 8 }
       ],
       "returnType": "String",
       "body": [
@@ -32,10 +33,11 @@
     {
       "kind": "func",
       "visibility": "private",
+      "isolated": false,
       "name": "#45a7d15ac6b4f562$len",
       "line": 13,
       "params": [
-      { "name": "t", "type": "Tag", "default": null }
+      { "name": "t", "type": "Tag", "default": null, "line": 13 }
       ],
       "returnType": "Integer",
       "body": [
@@ -45,10 +47,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 18,
       "params": [
-      { "name": "t", "type": "Tag", "default": null }
+      { "name": "t", "type": "Tag", "default": null, "line": 18 }
       ],
       "returnType": "String",
       "body": [
@@ -66,6 +69,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 3,
       "params": [

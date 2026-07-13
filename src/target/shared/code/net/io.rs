@@ -65,6 +65,10 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // A C `int` return (accept's fd) leaves x0[63:32] unspecified (bug-04/bug-170);
+        // sign-extend before the signed relational compare so a -1 error isn't read as
+        // a large-positive success.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -185,6 +189,9 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` return (getpeername/getsockname) — sign-extend before the signed
+        // compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&name_fail),
         abi::add_immediate("%v9", abi::stack_pointer(), ADDR_OFFSET),
@@ -1058,6 +1065,9 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` return (socket fd) — sign-extend before the signed compare
+        // (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -1082,6 +1092,9 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` return (bind) — sign-extend before the signed compare
+        // (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&op_fail),
         // freeaddrinfo(res)
@@ -1206,6 +1219,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
+    let recv_retry = format!("{symbol}_recv_retry");
     let recv_fail = format!("{symbol}_recv_fail");
     let timeout = format!("{symbol}_timeout");
     let too_large = format!("{symbol}_too_large");
@@ -1237,6 +1251,10 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
+        // recv_retry: an EINTR before any byte moved re-issues recvfrom without
+        // re-allocating the buffer; fd/buf/max are reloaded from the stack and
+        // addrlen is re-initialized so the identical call is repeated (bug-115).
+        abi::label(&recv_retry),
         // recvfrom(fd, buf, maxBytes + 1, 0, &addr_storage, &addrlen)
         abi::move_immediate("%v9", "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
         abi::store_u64("%v9", abi::stack_pointer(), ADDRLEN_OFFSET),
@@ -1396,6 +1414,11 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // bug-115: a signal that interrupts the blocking recvfrom before any byte
+        // moved returns -1/EINTR; re-issue rather than reporting a spurious
+        // network failure.
+        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::branch_eq(&recv_retry),
         abi::compare_immediate("%v9", platform.eagain()),
         abi::branch_eq(&timeout),
     ]);
@@ -1515,6 +1538,8 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
 
     let closed = format!("{symbol}_closed");
     let resolve_fail = format!("{symbol}_resolve_fail");
+    let send_retry = format!("{symbol}_send_retry");
+    let send_eintr_skip = format!("{symbol}_send_eintr_skip");
     let send_fail = format!("{symbol}_send_fail");
     let timeout = format!("{symbol}_timeout");
     let too_large = format!("{symbol}_too_large");
@@ -1587,6 +1612,10 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
+        // send_retry: an EINTR before any byte was sent re-issues sendto while
+        // res is still live (freeaddrinfo has not run yet); fd/data/dlen/ai_addr
+        // are reloaded from the stack so the identical call is repeated (bug-115).
+        abi::label(&send_retry),
         // Force the requested port into sin_port at ai_addr + 2/3.
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::load_u64("%v9", "%v9", platform.addrinfo_addr_offset()),
@@ -1624,6 +1653,19 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         &mut relocations,
     )?;
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET));
+    // bug-115: a signal that interrupts the blocking sendto before any byte is
+    // sent returns -1/EINTR; re-issue the sendto (res is still live) rather than
+    // reporting a spurious network failure. A datagram send is all-or-nothing, so
+    // a non-negative return is a completed send and must not be retried.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), RET_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ge(&send_eintr_skip),
+        abi::load_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET),
+        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::branch_eq(&send_retry),
+        abi::label(&send_eintr_skip),
+    ]);
     instructions.push(abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),

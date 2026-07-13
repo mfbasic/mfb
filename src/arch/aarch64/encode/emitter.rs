@@ -25,10 +25,7 @@ impl Encoder {
     pub(super) fn emit_instruction(&mut self, instruction: &CodeInstruction) -> Result<(), String> {
         match instruction.op.mnemonic() {
             "label" => Ok(()),
-            "mov" => self.emit_mov(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "src")?)?,
-            ),
+            "mov" => self.emit_mov(&field(instruction, "dst")?, &field(instruction, "src")?),
             "mov_imm" => self.emit_mov_imm(
                 reg(field(instruction, "dst")?)?,
                 immediate(field(instruction, "value")?)?,
@@ -566,7 +563,18 @@ impl Encoder {
         Ok(())
     }
 
-    fn emit_mov(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+    fn emit_mov(&mut self, dst: &str, src: &str) -> Result<(), String> {
+        let rd = reg(dst.to_string())?;
+        let rn = reg(src.to_string())?;
+        // bug-178 B: `mov` is encoded as `ORR rd, xzr, rn`, where register 31 is
+        // XZR. Register 31 is *also* SP, so a mov to/from the stack pointer would
+        // read/write zero instead of SP. When either operand is the stack pointer,
+        // encode `ADD rd, rn, #0` — register 31 there is SP. A mov to/from `xzr`
+        // keeps the ORR form (reads 0 / discards), which is correct.
+        let is_sp = |name: &str| matches!(name, "sp" | "raw_sp");
+        if is_sp(dst) || is_sp(src) {
+            return self.emit_word(0x9100_0000 | ((rn as u32) << 5) | rd as u32);
+        }
         self.emit_word(0xaa00_03e0 | ((rn as u32) << 16) | rd as u32)
     }
 

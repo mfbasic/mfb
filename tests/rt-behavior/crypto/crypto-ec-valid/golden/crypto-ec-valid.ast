@@ -13,11 +13,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "check",
       "line": 10,
       "params": [
-      { "name": "label", "type": "String", "default": null },
-      { "name": "field", "type": "Integer", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 10 },
+      { "name": "field", "type": "Integer", "default": null, "line": 10 }
       ],
       "returnType": null,
       "body": [
@@ -73,6 +74,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 34,
       "params": [

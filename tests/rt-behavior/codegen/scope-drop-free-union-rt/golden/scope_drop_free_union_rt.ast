@@ -40,10 +40,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 24,
       "params": [
-      { "name": "s", "type": "Shape", "default": null }
+      { "name": "s", "type": "Shape", "default": null, "line": 24 }
       ],
       "returnType": "String",
       "body": [
@@ -75,10 +76,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "churn",
       "line": 33,
       "params": [
-      { "name": "rounds", "type": "Integer", "default": null }
+      { "name": "rounds", "type": "Integer", "default": null, "line": 33 }
       ],
       "returnType": "Integer",
       "body": [
@@ -113,6 +115,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 49,
       "params": [

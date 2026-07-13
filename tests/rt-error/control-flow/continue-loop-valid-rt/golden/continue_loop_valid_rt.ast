@@ -9,10 +9,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parseNonNegative",
       "line": 1,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 1 }
       ],
       "returnType": "Integer",
       "body": [
@@ -32,6 +33,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 6,
       "params": [

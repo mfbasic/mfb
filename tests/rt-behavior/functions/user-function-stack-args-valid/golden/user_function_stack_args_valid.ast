@@ -10,21 +10,22 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "weigh",
       "line": 10,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null },
-      { "name": "c", "type": "Integer", "default": null },
-      { "name": "d", "type": "Integer", "default": null },
-      { "name": "e", "type": "Integer", "default": null },
-      { "name": "f", "type": "Integer", "default": null },
-      { "name": "g", "type": "Integer", "default": null },
-      { "name": "h", "type": "Integer", "default": null },
-      { "name": "i", "type": "Integer", "default": null },
-      { "name": "j", "type": "Integer", "default": null },
-      { "name": "k", "type": "Integer", "default": null },
-      { "name": "l", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 10 },
+      { "name": "b", "type": "Integer", "default": null, "line": 10 },
+      { "name": "c", "type": "Integer", "default": null, "line": 10 },
+      { "name": "d", "type": "Integer", "default": null, "line": 10 },
+      { "name": "e", "type": "Integer", "default": null, "line": 10 },
+      { "name": "f", "type": "Integer", "default": null, "line": 10 },
+      { "name": "g", "type": "Integer", "default": null, "line": 10 },
+      { "name": "h", "type": "Integer", "default": null, "line": 10 },
+      { "name": "i", "type": "Integer", "default": null, "line": 10 },
+      { "name": "j", "type": "Integer", "default": null, "line": 10 },
+      { "name": "k", "type": "Integer", "default": null, "line": 10 },
+      { "name": "l", "type": "Integer", "default": null, "line": 10 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,18 +35,19 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "label9",
       "line": 15,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null },
-      { "name": "c", "type": "Integer", "default": null },
-      { "name": "d", "type": "Integer", "default": null },
-      { "name": "e", "type": "Integer", "default": null },
-      { "name": "f", "type": "Integer", "default": null },
-      { "name": "g", "type": "Integer", "default": null },
-      { "name": "h", "type": "String", "default": null },
-      { "name": "i", "type": "String", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 15 },
+      { "name": "b", "type": "Integer", "default": null, "line": 15 },
+      { "name": "c", "type": "Integer", "default": null, "line": 15 },
+      { "name": "d", "type": "Integer", "default": null, "line": 15 },
+      { "name": "e", "type": "Integer", "default": null, "line": 15 },
+      { "name": "f", "type": "Integer", "default": null, "line": 15 },
+      { "name": "g", "type": "Integer", "default": null, "line": 15 },
+      { "name": "h", "type": "String", "default": null, "line": 15 },
+      { "name": "i", "type": "String", "default": null, "line": 15 }
       ],
       "returnType": "String",
       "body": [
@@ -55,19 +57,20 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "fsum10",
       "line": 20,
       "params": [
-      { "name": "a", "type": "Float", "default": null },
-      { "name": "b", "type": "Float", "default": null },
-      { "name": "c", "type": "Float", "default": null },
-      { "name": "d", "type": "Float", "default": null },
-      { "name": "e", "type": "Float", "default": null },
-      { "name": "f", "type": "Float", "default": null },
-      { "name": "g", "type": "Float", "default": null },
-      { "name": "h", "type": "Float", "default": null },
-      { "name": "i", "type": "Float", "default": null },
-      { "name": "j", "type": "Float", "default": null }
+      { "name": "a", "type": "Float", "default": null, "line": 20 },
+      { "name": "b", "type": "Float", "default": null, "line": 20 },
+      { "name": "c", "type": "Float", "default": null, "line": 20 },
+      { "name": "d", "type": "Float", "default": null, "line": 20 },
+      { "name": "e", "type": "Float", "default": null, "line": 20 },
+      { "name": "f", "type": "Float", "default": null, "line": 20 },
+      { "name": "g", "type": "Float", "default": null, "line": 20 },
+      { "name": "h", "type": "Float", "default": null, "line": 20 },
+      { "name": "i", "type": "Float", "default": null, "line": 20 },
+      { "name": "j", "type": "Float", "default": null, "line": 20 }
       ],
       "returnType": "Float",
       "body": [
@@ -77,19 +80,20 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "report",
       "line": 25,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null },
-      { "name": "c", "type": "Integer", "default": null },
-      { "name": "d", "type": "Integer", "default": null },
-      { "name": "e", "type": "Integer", "default": null },
-      { "name": "f", "type": "Integer", "default": null },
-      { "name": "g", "type": "Integer", "default": null },
-      { "name": "h", "type": "Integer", "default": null },
-      { "name": "i", "type": "Integer", "default": null },
-      { "name": "j", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 25 },
+      { "name": "b", "type": "Integer", "default": null, "line": 25 },
+      { "name": "c", "type": "Integer", "default": null, "line": 25 },
+      { "name": "d", "type": "Integer", "default": null, "line": 25 },
+      { "name": "e", "type": "Integer", "default": null, "line": 25 },
+      { "name": "f", "type": "Integer", "default": null, "line": 25 },
+      { "name": "g", "type": "Integer", "default": null, "line": 25 },
+      { "name": "h", "type": "Integer", "default": null, "line": 25 },
+      { "name": "i", "type": "Integer", "default": null, "line": 25 },
+      { "name": "j", "type": "Integer", "default": null, "line": 25 }
       ],
       "returnType": null,
       "body": [
@@ -99,18 +103,19 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "countdown",
       "line": 30,
       "params": [
-      { "name": "n", "type": "Integer", "default": null },
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null },
-      { "name": "c", "type": "Integer", "default": null },
-      { "name": "d", "type": "Integer", "default": null },
-      { "name": "e", "type": "Integer", "default": null },
-      { "name": "f", "type": "Integer", "default": null },
-      { "name": "g", "type": "Integer", "default": null },
-      { "name": "acc", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 30 },
+      { "name": "a", "type": "Integer", "default": null, "line": 30 },
+      { "name": "b", "type": "Integer", "default": null, "line": 30 },
+      { "name": "c", "type": "Integer", "default": null, "line": 30 },
+      { "name": "d", "type": "Integer", "default": null, "line": 30 },
+      { "name": "e", "type": "Integer", "default": null, "line": 30 },
+      { "name": "f", "type": "Integer", "default": null, "line": 30 },
+      { "name": "g", "type": "Integer", "default": null, "line": 30 },
+      { "name": "acc", "type": "Integer", "default": null, "line": 30 }
       ],
       "returnType": "Integer",
       "body": [
@@ -130,6 +135,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 37,
       "params": [

@@ -12,10 +12,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "churn",
       "line": 19,
       "params": [
-      { "name": "rounds", "type": "Integer", "default": null }
+      { "name": "rounds", "type": "Integer", "default": null, "line": 19 }
       ],
       "returnType": "Integer",
       "body": [
@@ -93,6 +94,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "control",
       "line": 55,
       "params": [
@@ -118,6 +120,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 66,
       "params": [

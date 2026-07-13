@@ -55,6 +55,13 @@ const C_UN: usize = 13;
 /// smaller). Sizes the per-block output buffer.
 const OUTBUF_PER_CELL: usize = 64;
 
+/// Extra bytes reserved past the exact `rows*cols*OUTBUF_PER_CELL` out-buffer so
+/// the fixed trailing reset/CUP/cursor sequence (~24 bytes) appended after the
+/// per-cell repaint loop has headroom even on a near-saturating repaint
+/// (pathological geometry). The out buffer is the final region of the block, so
+/// this slack lands at the block tail (bug-175 G).
+const TRAILER_SLACK: usize = 64;
+
 const DEFAULT_ROWS: &str = "24";
 const DEFAULT_COLS: &str = "80";
 
@@ -301,7 +308,7 @@ pub(super) fn emit_grid_alloc(
         abi::multiply_registers(t, rowsv, colsv),
         abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
         abi::multiply_registers(t, t, m),
-        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -317,7 +324,7 @@ pub(super) fn emit_grid_alloc(
         abi::multiply_registers(t, rowsv, colsv),
         abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
         abi::multiply_registers(t, t, m),
-        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::shift_right_immediate(wc, t, 3),
         abi::move_register(zp, gp),
         abi::move_immediate(zero, "Integer", "0"),
@@ -363,7 +370,7 @@ pub(super) fn emit_grid_free(
         abi::multiply_registers(t, rowsv, colsv),
         abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
         abi::multiply_registers(t, t, m),
-        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
         abi::move_register(abi::ARG[1], t),
         abi::branch_link(ARENA_FREE_SYMBOL),
@@ -659,7 +666,7 @@ pub(super) fn emit_grid_resize(
         abi::multiply_registers(t, newr, newc),
         abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
         abi::multiply_registers(t, t, m),
-        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -676,7 +683,7 @@ pub(super) fn emit_grid_resize(
         abi::multiply_registers(t, newr, newc),
         abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
         abi::multiply_registers(t, t, m),
-        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::shift_right_immediate(wc, t, 3),
         abi::move_register(zp, ng),
         abi::move_immediate(zero, "Integer", "0"),
@@ -757,7 +764,7 @@ pub(super) fn emit_grid_resize(
         abi::multiply_registers(t, oldr, oldc),
         abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
         abi::multiply_registers(t, t, m),
-        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
         abi::move_register(abi::ARG[1], t),
         abi::branch_link(ARENA_FREE_SYMBOL),

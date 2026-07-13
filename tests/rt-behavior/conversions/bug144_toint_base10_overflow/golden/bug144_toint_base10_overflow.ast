@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parse",
       "line": 7,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 7 }
       ],
       "returnType": "String",
       "body": [
@@ -32,6 +33,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 13,
       "params": [

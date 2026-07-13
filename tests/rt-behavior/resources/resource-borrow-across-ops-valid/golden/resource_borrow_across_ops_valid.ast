@@ -11,11 +11,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "logLine",
       "line": 4,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": null, "default": null },
-      { "name": "msg", "type": "String", "default": null }
+      { "name": "f", "type": "File", "resource": true, "state": null, "default": null, "line": 4 },
+      { "name": "msg", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": null,
       "body": [
@@ -25,6 +26,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 8,
       "params": [

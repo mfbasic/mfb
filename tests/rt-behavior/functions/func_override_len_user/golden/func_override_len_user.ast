@@ -19,10 +19,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "len",
       "line": 7,
       "params": [
-      { "name": "r", "type": "Ring", "default": null }
+      { "name": "r", "type": "Ring", "default": null, "line": 7 }
       ],
       "returnType": "Integer",
       "body": [
@@ -32,10 +33,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "isEmpty",
       "line": 11,
       "params": [
-      { "name": "r", "type": "Ring", "default": null }
+      { "name": "r", "type": "Ring", "default": null, "line": 11 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -45,10 +47,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "isNotEmpty",
       "line": 15,
       "params": [
-      { "name": "r", "type": "Ring", "default": null }
+      { "name": "r", "type": "Ring", "default": null, "line": 15 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -58,6 +61,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 19,
       "params": [

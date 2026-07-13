@@ -35,6 +35,11 @@ pub(super) fn reg(name: String) -> Result<u8, String> {
         "x15" | "w15" => Ok(15),
         "x16" | "w16" => Ok(16),
         "x17" | "w17" => Ok(17),
+        // bug-178 A: `abi::realize_abi_token("%scratch9")` yields `x18`, so the
+        // encoder must be able to encode it (and x29/fp) even though no current
+        // lowering emits `%scratch9`. x18 is the reserved platform register on
+        // Darwin; the token map — not this encoder — owns that policy.
+        "x18" | "w18" => Ok(18),
         "x19" | "w19" => Ok(19),
         "x20" | "w20" => Ok(20),
         "x21" | "w21" => Ok(21),
@@ -45,6 +50,7 @@ pub(super) fn reg(name: String) -> Result<u8, String> {
         "x26" | "w26" => Ok(26),
         "x27" | "w27" => Ok(27),
         "x28" | "w28" => Ok(28),
+        "x29" | "w29" | "fp" => Ok(29),
         "x30" | "lr" => Ok(30),
         // Scalar FP/SIMD `d0`..`d31` share the 5-bit register field with the
         // vector registers; decode the number directly.

@@ -1,8 +1,44 @@
 use super::*;
 
+/// Maximum expression-nesting depth. Recursive-descent parsing turns each nesting
+/// level into native stack frames, so an unbounded input (e.g. ~100k nested `(`,
+/// or a long `NOT NOT …` / unary-minus / `^` chain) would overflow the stack with
+/// a SIGSEGV before any diagnostic (bug-171 finding A). Matches the `MAX_DEPTH`
+/// cap `ir::verify` uses for the same reason; no real source nests this deep.
+const MAX_EXPR_DEPTH: usize = 256;
+
 impl<'a> FileParser<'a> {
+    /// Enter one expression-nesting level, reporting and returning `false` when
+    /// the maximum depth is exceeded. On the `false` path the counter is already
+    /// rewound, so the caller must simply bail (`return None`); otherwise it must
+    /// pair a successful `enter_expr` with exactly one `leave_expr`.
+    fn enter_expr(&mut self) -> bool {
+        self.expr_depth += 1;
+        if self.expr_depth > MAX_EXPR_DEPTH {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "Expression nesting is too deep.",
+                &token,
+            );
+            self.expr_depth -= 1;
+            false
+        } else {
+            true
+        }
+    }
+
+    fn leave_expr(&mut self) {
+        self.expr_depth -= 1;
+    }
+
     pub(super) fn parse_expression(&mut self) -> Option<Expression> {
-        self.parse_pipeline()
+        if !self.enter_expr() {
+            return None;
+        }
+        let result = self.parse_pipeline();
+        self.leave_expr();
+        result
     }
 
     pub(super) fn parse_pipeline(&mut self) -> Option<Expression> {
@@ -66,7 +102,12 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_not(&mut self) -> Option<Expression> {
         if self.match_keyword(Keyword::Not) {
             let (line, column) = (self.previous().line, self.previous().start);
-            let operand = self.parse_not()?;
+            if !self.enter_expr() {
+                return None;
+            }
+            let operand = self.parse_not();
+            self.leave_expr();
+            let operand = operand?;
             return Some(Expression::Unary {
                 operator: "NOT".to_string(),
                 operand: Box::new(operand),
@@ -183,7 +224,12 @@ impl<'a> FileParser<'a> {
         let mut expression = self.parse_unary()?;
         if self.match_kind(TokenKind::Caret) {
             let (line, column) = (self.previous().line, self.previous().start);
-            let right = self.parse_power()?;
+            if !self.enter_expr() {
+                return None;
+            }
+            let right = self.parse_power();
+            self.leave_expr();
+            let right = right?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: "^".to_string(),
@@ -198,7 +244,12 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_unary(&mut self) -> Option<Expression> {
         if self.match_kind(TokenKind::Minus) {
             let (line, column) = (self.previous().line, self.previous().start);
-            let operand = self.parse_unary()?;
+            if !self.enter_expr() {
+                return None;
+            }
+            let operand = self.parse_unary();
+            self.leave_expr();
+            let operand = operand?;
             return Some(Expression::Unary {
                 operator: "-".to_string(),
                 operand: Box::new(operand),

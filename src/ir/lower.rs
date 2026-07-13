@@ -1228,7 +1228,7 @@ fn lower_statement(
                     body: loop_body,
                     loc: IrSourceLoc {
                         line: *line as u32,
-                        column: 0,
+                        column: 1,
                     },
                 },
             ]

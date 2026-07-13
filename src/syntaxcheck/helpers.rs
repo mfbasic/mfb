@@ -21,16 +21,6 @@ pub(super) fn statement_line(statement: &Statement) -> usize {
     }
 }
 
-pub(super) fn integer_constant_value(expression: &Expression) -> Option<i128> {
-    match expression {
-        Expression::Number(value) => value.parse::<i128>().ok(),
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" => integer_constant_value(operand).map(|value| -value),
-        _ => None,
-    }
-}
-
 pub(super) fn integer_literal_in_range(expression: &Expression) -> bool {
     match expression {
         Expression::Number(value) => match numeric::classify_literal(value) {
@@ -204,17 +194,6 @@ pub(super) fn strip_res(type_: &Type) -> &Type {
 /// Whether an expression reads a single element out of a collection (`get` /
 /// `getOr`). Of resource type, the result is a borrow that may not be `RES`-bound
 /// (§15.6).
-pub(super) fn is_resource_element_borrow(expression: &Expression) -> bool {
-    matches!(
-        expression,
-        Expression::Call { callee, .. }
-            if matches!(
-                crate::builtins::collections::native_member_bare(callee),
-                Some("get" | "getOr")
-            )
-    )
-}
-
 /// Whether `type_name` is a raw C ABI type that may appear only inside an
 /// `ABI (...)` slot, never in a wrapper's MFBASIC-facing signature
 /// (plan-link-update.md §5/§11). `CPtr` is the resource representation; the
@@ -251,18 +230,6 @@ pub(super) fn numeric_literal_type(expression: &Expression) -> Option<Type> {
             numeric_literal_type(operand)
         }
         _ => None,
-    }
-}
-
-pub(super) fn numeric_literal_is_zero(expression: &Expression) -> bool {
-    match expression {
-        Expression::Number(value) => value.parse::<f64>().is_ok_and(|number| number == 0.0),
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => {
-            numeric_literal_is_zero(operand)
-        }
-        _ => false,
     }
 }
 

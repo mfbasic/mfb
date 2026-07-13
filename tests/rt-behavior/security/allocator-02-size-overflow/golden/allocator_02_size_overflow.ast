@@ -12,11 +12,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "repeatValue",
       "line": 27,
       "params": [
-      { "name": "value", "type": "String", "default": null },
-      { "name": "times", "type": "Integer", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 27 },
+      { "name": "times", "type": "Integer", "default": null, "line": 27 }
       ],
       "returnType": "String",
       "body": [
@@ -26,6 +27,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 31,
       "params": [

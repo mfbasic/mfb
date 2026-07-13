@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "byteLenAlias",
       "line": 4,
       "params": [
-      { "name": "message", "type": "String", "default": null }
+      { "name": "message", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": "Integer",
       "body": [
@@ -24,6 +25,7 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "flushStreams",
       "line": 8,
       "params": [

@@ -9,6 +9,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 1,
       "params": [

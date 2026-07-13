@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "reopen",
       "line": 5,
       "params": [
-      { "name": "path", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 5 }
       ],
       "returnType": "File", "returnResource": true, "returnState": null,
       "body": [
@@ -25,6 +26,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 10,
       "params": [

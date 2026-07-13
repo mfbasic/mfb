@@ -13,6 +13,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "csv_read_valid_run",
       "line": 12,
       "params": [
@@ -34,6 +35,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "csv_write_valid_run",
       "line": 33,
       "params": [
@@ -86,6 +88,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 60,
       "params": [

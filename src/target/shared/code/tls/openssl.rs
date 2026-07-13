@@ -486,7 +486,12 @@ pub(crate) fn lower_tls_connect_helper(
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
     ]);
-    // SSL_set1_host(ssl, sniCstr)
+    // SSL_set1_host(ssl, sniCstr) — verifies the peer certificate against DNS-name
+    // SANs/CN only. TLS to an IP literal is therefore UNSUPPORTED: matching an
+    // `iPAddress` SAN needs X509_VERIFY_PARAM_set1_ip (a separate libssl symbol)
+    // driven by a runtime numeric-host check, so an IP-literal connection fails
+    // verification and closes rather than validating by IP. This fails *closed*
+    // (over-strict), never open — there is no verification bypass (bug-177 C).
     emit_dlsym(
         symbol,
         HANDLE_OFFSET,
@@ -637,6 +642,25 @@ pub(crate) fn lower_tls_connect_helper(
     );
 
     instructions.push(abi::label(&load_fail));
+    // Every dlopen/dlsym on the libssl handshake path runs after the TCP socket is
+    // already connected, so close the fd (guarded fd >= 0, mirroring alloc_fail's
+    // close) before failing — otherwise a near-fatal OpenSSL-missing environment
+    // leaks the connected socket (bug-177 B).
+    let lf_skip_fd = format!("{symbol}_lf_skip_fd");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_lt(&lf_skip_fd),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&lf_skip_fd));
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,

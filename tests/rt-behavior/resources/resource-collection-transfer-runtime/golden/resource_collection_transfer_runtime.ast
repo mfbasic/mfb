@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "openTwo",
       "line": 8,
       "params": [
@@ -29,6 +30,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 17,
       "params": [

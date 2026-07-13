@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parse",
       "line": 7,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 7 }
       ],
       "returnType": "Integer",
       "body": [
@@ -24,10 +25,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parse",
       "line": 11,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [
@@ -37,6 +39,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 15,
       "params": [

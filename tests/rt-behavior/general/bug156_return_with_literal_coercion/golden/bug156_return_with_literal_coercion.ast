@@ -10,6 +10,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "getf",
       "line": 6,
       "params": [
@@ -22,6 +23,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "getm",
       "line": 10,
       "params": [
@@ -44,6 +46,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 19,
       "params": [

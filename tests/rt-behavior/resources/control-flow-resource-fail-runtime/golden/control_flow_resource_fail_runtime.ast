@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "failOnce",
       "line": 4,
       "params": [
-      { "name": "path", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -25,10 +26,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "trapFail",
       "line": 9,
       "params": [
-      { "name": "path", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 9 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -56,6 +58,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 18,
       "params": [

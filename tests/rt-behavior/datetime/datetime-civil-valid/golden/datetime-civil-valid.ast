@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "fmt",
       "line": 4,
       "params": [
-      { "name": "dt", "type": "DateTime", "default": null }
+      { "name": "dt", "type": "DateTime", "default": null, "line": 4 }
       ],
       "returnType": "String",
       "body": [
@@ -24,6 +25,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 8,
       "params": [

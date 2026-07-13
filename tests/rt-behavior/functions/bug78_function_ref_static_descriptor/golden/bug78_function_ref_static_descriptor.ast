@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "add1",
       "line": 4,
       "params": [
-      { "name": "x", "type": "Integer", "default": null }
+      { "name": "x", "type": "Integer", "default": null, "line": 4 }
       ],
       "returnType": "Integer",
       "body": [
@@ -24,10 +25,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "dbl",
       "line": 7,
       "params": [
-      { "name": "x", "type": "Integer", "default": null }
+      { "name": "x", "type": "Integer", "default": null, "line": 7 }
       ],
       "returnType": "Integer",
       "body": [
@@ -37,11 +39,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "apply",
       "line": 10,
       "params": [
-      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null },
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null, "line": 10 },
+      { "name": "v", "type": "Integer", "default": null, "line": 10 }
       ],
       "returnType": "Integer",
       "body": [
@@ -51,6 +54,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 18,
       "params": [

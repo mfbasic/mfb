@@ -706,6 +706,8 @@ pub(super) fn lower_fs_open_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),

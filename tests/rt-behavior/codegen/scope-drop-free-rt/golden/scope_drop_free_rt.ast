@@ -31,11 +31,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makePerson",
       "line": 25,
       "params": [
-      { "name": "n", "type": "String", "default": null },
-      { "name": "c", "type": "String", "default": null }
+      { "name": "n", "type": "String", "default": null, "line": 25 },
+      { "name": "c", "type": "String", "default": null, "line": 25 }
       ],
       "returnType": "Person",
       "body": [
@@ -46,10 +47,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "nameOf",
       "line": 32,
       "params": [
-      { "name": "p", "type": "Person", "default": null }
+      { "name": "p", "type": "Person", "default": null, "line": 32 }
       ],
       "returnType": "String",
       "body": [
@@ -59,10 +61,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "churn",
       "line": 38,
       "params": [
-      { "name": "rounds", "type": "Integer", "default": null }
+      { "name": "rounds", "type": "Integer", "default": null, "line": 38 }
       ],
       "returnType": "Integer",
       "body": [
@@ -87,6 +90,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 51,
       "params": [

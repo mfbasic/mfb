@@ -14,6 +14,9 @@ const FLOAT_TWO_POW_63_BITS: &str = "4890909195324358656";
 /// the most negative value that *does* fit.
 const FLOAT_NEG_TWO_POW_63_BITS: &str = "14114281232179134464";
 /// Q32.32 scale `2^32`, the fixed-point fraction mask `2^32-1`, and half `2^31`.
+/// bug-175 H: `FIXED_FRACTION_MASK_STR` (RoundFixed's fraction mask) and
+/// `FIXED_ONE_MINUS_1_STR` (CeilFixed's "one ULP below 1.0" bias) intentionally
+/// share the value `2^32-1`; the two names are kept for call-site intent.
 const FIXED_SHIFT: u8 = 32;
 const FIXED_FRACTION_MASK_STR: &str = "4294967295";
 const FIXED_ONE_MINUS_1_STR: &str = "4294967295";

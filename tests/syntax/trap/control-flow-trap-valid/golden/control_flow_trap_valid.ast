@@ -9,6 +9,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "leaf",
       "line": 1,
       "params": [
@@ -21,6 +22,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "relay",
       "line": 5,
       "params": [
@@ -40,6 +42,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 12,
       "params": [

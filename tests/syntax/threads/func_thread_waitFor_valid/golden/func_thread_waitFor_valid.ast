@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "doubleWaitCloses",
       "line": 4,
       "params": [
-      { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null }
+      { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null, "line": 4 }
       ],
       "returnType": "Integer",
       "body": [
@@ -43,6 +44,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 17,
       "params": [

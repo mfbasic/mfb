@@ -141,9 +141,8 @@ pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
-        ABS | MIN | MAX if all_same_numeric(arg_types, 1, 2) => {
-            Cow::Borrowed(arg_types[0].as_str())
-        }
+        ABS if all_same_numeric(arg_types, 1, 1) => Cow::Borrowed(arg_types[0].as_str()),
+        MIN | MAX if all_same_numeric(arg_types, 2, 2) => Cow::Borrowed(arg_types[0].as_str()),
         // Array (SIMD) overloads — plan-01-simd §4.2. The result list type equals
         // the (single, or two matching) argument list type.
         ABS if any_numeric_list(arg_types) => Cow::Borrowed(arg_types[0].as_str()),

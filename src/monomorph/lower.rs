@@ -1013,9 +1013,17 @@ impl<'a> Monomorphizer<'a> {
                         }
                     })
                     .collect::<Vec<_>>();
+                // Keep the vector aligned with the argument list: an argument
+                // whose type cannot be inferred becomes the `"Unknown"` wildcard
+                // (which `params_match`/`resolve_overload` accept for any
+                // parameter) rather than being dropped, which would shorten the
+                // vector and shift the remaining types into wrong positions.
                 let arg_types = lowered_args
                     .iter()
-                    .filter_map(|argument| self.expression_type(call_arg_value(argument), context))
+                    .map(|argument| {
+                        self.expression_type(call_arg_value(argument), context)
+                            .unwrap_or_else(|| "Unknown".to_string())
+                    })
                     .collect::<Vec<_>>();
                 // Resolve the overloaded `encoding::utf8Encode`/`utf8Decode`
                 // public calls onto their concrete internal implementation using

@@ -15,6 +15,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "gcmTamperedTag",
       "line": 11,
       "params": [
@@ -41,6 +42,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "chachaTamperedCiphertext",
       "line": 25,
       "params": [
@@ -67,6 +69,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "gcmShortKey",
       "line": 39,
       "params": [
@@ -91,6 +94,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 51,
       "params": [

@@ -12,10 +12,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parseOr",
       "line": 11,
       "params": [
-      { "name": "value", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,10 +35,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "readOr",
       "line": 20,
       "params": [
-      { "name": "path", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 20 }
       ],
       "returnType": "String",
       "body": [
@@ -56,11 +58,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "elementAt",
       "line": 29,
       "params": [
-      { "name": "xs", "type": "List OF Integer", "default": null },
-      { "name": "i", "type": "Integer", "default": null }
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 29 },
+      { "name": "i", "type": "Integer", "default": null, "line": 29 }
       ],
       "returnType": "Integer",
       "body": [
@@ -70,6 +73,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 33,
       "params": [

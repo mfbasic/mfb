@@ -10,6 +10,11 @@ pub(super) struct FileParser<'a> {
     pub(super) tokens: Vec<Token>,
     pub(super) current: usize,
     pub(super) had_error: bool,
+    /// Current expression-nesting depth, bumped at each recursive re-entry of the
+    /// expression grammar so pathologically nested input (e.g. `((((…))))`) is
+    /// rejected with a diagnostic instead of overflowing the native stack
+    /// (bug-171 finding A).
+    pub(super) expr_depth: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -26,11 +31,21 @@ pub(super) enum BlockTerminator {
 
 impl<'a> FileParser<'a> {
     pub(super) fn new(path: &'a Path, tokens: Vec<Token>) -> Self {
+        // `peek`/`previous` index `tokens` unchecked; the whole parser relies on
+        // an `Eof`-terminated stream (the sole invariant `lexer::lex` upholds).
+        // Assert it here so a hand-built, empty, or non-`Eof`-terminated token
+        // vector fails loudly at construction rather than panicking mid-parse on
+        // an out-of-bounds index / `current - 1` underflow (bug-171 finding D).
+        assert!(
+            matches!(tokens.last().map(|token| &token.kind), Some(TokenKind::Eof)),
+            "FileParser requires an Eof-terminated token stream"
+        );
         Self {
             path,
             tokens,
             current: 0,
             had_error: false,
+            expr_depth: 0,
         }
     }
 

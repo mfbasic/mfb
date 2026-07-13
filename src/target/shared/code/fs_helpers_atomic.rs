@@ -120,6 +120,9 @@ pub(super) fn lower_fs_create_temp_file_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` getentropy return (0/-1) — sign-extend before the signed compare
+        // so a -1 error isn't read as large-positive success (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&random_ok),
         abi::branch(&open_error),
@@ -152,6 +155,8 @@ pub(super) fn lower_fs_create_temp_file_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&fd_ok),
         abi::branch(&open_error),
@@ -479,6 +484,8 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` mkstemps fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&mkstemps_ok),
         abi::branch(&rename_error),
@@ -518,12 +525,24 @@ pub(super) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // A 0 return moved nothing (hard error); a negative return is EINTR-retried at
+    // write_loop (re-issuing with the unchanged cursor/remaining) before any byte
+    // moved rather than treated as a hard ErrOutput (bug-62, matching the
+    // File-based write loops in fs_helpers_io.rs).
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        &cursor,
+        &remaining,
+        &write_loop,
+        &write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&write_loop),
         abi::label(&write_ok),
         abi::move_register(abi::return_register(), &fd),
     ]);
@@ -907,6 +926,8 @@ pub(super) fn lower_fs_write_text_path_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
@@ -927,12 +948,23 @@ pub(super) fn lower_fs_write_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // A 0 return moved nothing (hard error); a negative return is EINTR-retried at
+    // write_loop before any byte moved rather than treated as a hard ErrOutput
+    // (bug-62, matching the File-based write loops in fs_helpers_io.rs).
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        &cursor,
+        &remaining,
+        &write_loop,
+        &write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&write_loop),
         abi::label(&write_done),
         abi::move_register(abi::return_register(), &fd),
     ]);
@@ -1126,6 +1158,8 @@ pub(super) fn lower_fs_read_text_path_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
@@ -1197,12 +1231,24 @@ pub(super) fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // A 0 return is an unexpected EOF (the file shrank) and stays a hard error; a
+    // negative return is EINTR-retried at read_loop before any byte moved rather
+    // than treated as a hard ErrRead (bug-62; reads always go through libc, so
+    // raw_return is false).
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        false,
+        &cursor,
+        &remaining,
+        &read_loop,
+        &read_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&read_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&read_loop),
         abi::label(&read_done),
         abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &fd),
@@ -1402,6 +1448,8 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
@@ -1426,12 +1474,23 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // A 0 return moved nothing (hard error); a negative return is EINTR-retried at
+    // write_loop before any byte moved rather than treated as a hard ErrOutput
+    // (bug-62, matching the File-based write loops in fs_helpers_io.rs).
+    emit_transfer_loop_tail(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        &cursor,
+        &remaining,
+        &write_loop,
+        &write_error,
+    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&write_loop),
         abi::label(&write_done),
         abi::move_register(abi::return_register(), &fd),
     ]);
@@ -1619,6 +1678,8 @@ pub(super) fn lower_fs_read_bytes_path_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),

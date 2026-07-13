@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "printMap",
       "line": 3,
       "params": [
-      { "name": "values", "type": "Map OF String TO String", "default": null }
+      { "name": "values", "type": "Map OF String TO String", "default": null, "line": 3 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -33,6 +34,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 11,
       "params": [

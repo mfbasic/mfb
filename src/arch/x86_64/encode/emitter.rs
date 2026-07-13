@@ -302,9 +302,13 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             bytes.push(modrm(0b11, 2, dst));
             Ok(Encoded::plain(bytes))
         }
-        // clz: count leading zeros. `lzcnt r64, r/m64` (F3 REX.W 0F BD /r) — ABM,
-        // present on every x86-64-v2 CPU (Alpine target). Matches AArch64 `clz`
-        // (64 for a zero input), unlike `bsr` which is undefined on zero.
+        // clz: count leading zeros. `lzcnt r64, r/m64` (F3 REX.W 0F BD /r). Matches
+        // AArch64 `clz` (64 for a zero input), unlike `bsr` which is undefined on
+        // zero. bug-178 C: LZCNT is an ABM/BMI feature (effectively x86-64-v3), NOT
+        // baseline v2 — on a pre-v3 CPU the F3 prefix is ignored and the bytes
+        // execute as `bsr` (silently wrong on zero). This is acceptable because the
+        // backend already requires ~v3 unconditionally (it emits FMA3 and SSE4.1
+        // `roundsd` with no feature gate); the effective baseline is v3, not v2.
         "clz" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;

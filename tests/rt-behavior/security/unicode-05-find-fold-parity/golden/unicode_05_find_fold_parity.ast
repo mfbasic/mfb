@@ -11,12 +11,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "findAt",
       "line": 13,
       "params": [
-      { "name": "value", "type": "String", "default": null },
-      { "name": "needle", "type": "String", "default": null },
-      { "name": "start", "type": "Integer", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 13 },
+      { "name": "needle", "type": "String", "default": null, "line": 13 },
+      { "name": "start", "type": "Integer", "default": null, "line": 13 }
       ],
       "returnType": "Integer",
       "body": [
@@ -26,12 +27,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "midOf",
       "line": 17,
       "params": [
-      { "name": "value", "type": "String", "default": null },
-      { "name": "start", "type": "Integer", "default": null },
-      { "name": "count", "type": "Integer", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 17 },
+      { "name": "start", "type": "Integer", "default": null, "line": 17 },
+      { "name": "count", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "String",
       "body": [
@@ -41,6 +43,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 21,
       "params": [

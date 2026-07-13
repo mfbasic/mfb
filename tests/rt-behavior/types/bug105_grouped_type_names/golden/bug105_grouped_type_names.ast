@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "apply",
       "line": 6,
       "params": [
-      { "name": "f", "type": "FUNC(FUNC(Integer) AS Integer, Integer) AS Integer", "default": null }
+      { "name": "f", "type": "FUNC(FUNC(Integer) AS Integer, Integer) AS Integer", "default": null, "line": 6 }
       ],
       "returnType": "Integer",
       "body": [
@@ -23,6 +24,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 9,
       "params": [

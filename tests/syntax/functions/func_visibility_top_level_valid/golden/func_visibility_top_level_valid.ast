@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "private",
+      "isolated": false,
       "name": "#45a7d15ac6b4f562$privateDouble",
       "line": 3,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -23,10 +24,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "packageValue",
       "line": 7,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 7 }
       ],
       "returnType": "Integer",
       "body": [
@@ -36,10 +38,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "exportValue",
       "line": 11,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [
@@ -49,10 +52,11 @@
     {
       "kind": "sub",
       "visibility": "private",
+      "isolated": false,
       "name": "#45a7d15ac6b4f562$privateTrace",
       "line": 15,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 15 }
       ],
       "returnType": null,
       "body": [
@@ -62,10 +66,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "packageTrace",
       "line": 19,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 19 }
       ],
       "returnType": null,
       "body": [
@@ -75,10 +80,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "exportTrace",
       "line": 23,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 23 }
       ],
       "returnType": null,
       "body": [
@@ -96,6 +102,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 3,
       "params": [

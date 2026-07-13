@@ -20,10 +20,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "toString",
       "line": 9,
       "params": [
-      { "name": "p", "type": "Point", "default": null }
+      { "name": "p", "type": "Point", "default": null, "line": 9 }
       ],
       "returnType": "String",
       "body": [
@@ -33,10 +34,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "toString",
       "line": 14,
       "params": [
-      { "name": "ps", "type": "List OF Point", "default": null }
+      { "name": "ps", "type": "List OF Point", "default": null, "line": 14 }
       ],
       "returnType": "String",
       "body": [
@@ -68,6 +70,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 28,
       "params": [

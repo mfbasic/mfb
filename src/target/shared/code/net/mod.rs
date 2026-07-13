@@ -418,6 +418,9 @@ fn lower_net_endpoint_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` return (socket fd) — sign-extend before the signed compare
+        // (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -463,6 +466,9 @@ fn lower_net_endpoint_helper(
             &mut relocations,
         )?;
         instructions.extend([
+            // C `int` return (bind) — sign-extend before the signed compare
+            // (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
             // listen(fd, backlog)
@@ -477,6 +483,9 @@ fn lower_net_endpoint_helper(
             &mut relocations,
         )?;
         instructions.extend([
+            // C `int` return (listen) — sign-extend before the signed compare
+            // (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
         ]);
@@ -531,6 +540,9 @@ fn lower_net_endpoint_helper(
             &mut relocations,
         )?;
         instructions.extend([
+            // C `int` return (connect) — sign-extend before comparing so a success
+            // 0 with dirty upper x0 bits is still recognized (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&nb_connected),
         ]);
@@ -567,6 +579,10 @@ fn lower_net_endpoint_helper(
             &mut relocations,
         )?;
         instructions.extend([
+            // C `int` return (poll) — sign-extend before the signed compares; a -1
+            // poll error read as large-positive would wrongly take branch_gt
+            // (connect_poll_ready) and treat the socket as writable (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&connect_timeout),
             abi::branch_gt(&connect_poll_ready),
@@ -603,6 +619,9 @@ fn lower_net_endpoint_helper(
             &mut relocations,
         )?;
         instructions.extend([
+            // C `int` return (getsockopt) — sign-extend before the signed compare
+            // (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
             abi::load_u32("%v9", abi::stack_pointer(), SOERR_OFFSET),
@@ -638,6 +657,9 @@ fn lower_net_endpoint_helper(
             &mut relocations,
         )?;
         instructions.extend([
+            // C `int` return (blocking connect) — sign-extend before the signed
+            // compare (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
             abi::label(&connected_done),

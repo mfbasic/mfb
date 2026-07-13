@@ -11,12 +11,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "padValue",
       "line": 12,
       "params": [
-      { "name": "value", "type": "String", "default": null },
-      { "name": "width", "type": "Integer", "default": null },
-      { "name": "padChar", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 12 },
+      { "name": "width", "type": "Integer", "default": null, "line": 12 },
+      { "name": "padChar", "type": "String", "default": null, "line": 12 }
       ],
       "returnType": "String",
       "body": [
@@ -26,6 +27,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 16,
       "params": [

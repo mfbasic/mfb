@@ -9,10 +9,11 @@
     {
       "kind": "func",
       "visibility": "private",
+      "isolated": false,
       "name": "#0fd20d0660c720e8$secret",
       "line": 1,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 1 }
       ],
       "returnType": "Integer",
       "body": [
@@ -22,10 +23,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "fromA",
       "line": 5,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 5 }
       ],
       "returnType": "Integer",
       "body": [
@@ -42,10 +44,11 @@
     {
       "kind": "func",
       "visibility": "private",
+      "isolated": false,
       "name": "#dbd8d822f3f13711$secret",
       "line": 1,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 1 }
       ],
       "returnType": "Integer",
       "body": [
@@ -55,10 +58,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "fromB",
       "line": 5,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 5 }
       ],
       "returnType": "Integer",
       "body": [
@@ -76,6 +80,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 3,
       "params": [

@@ -31,11 +31,22 @@ pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
+/// User-facing tls calls. Recognized by `is_builtin_call`, so it must NOT
+/// include `CLOSE_LISTENER`, which is synthesized only during IR lowering and is
+/// not user-callable (bug-173 E). A user-typed `tls.closeListener(x)` must be
+/// reported as an unknown function.
 pub(crate) fn is_tls_call(name: &str) -> bool {
     matches!(
         name,
-        CONNECT | LISTEN | ACCEPT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE | CLOSE_LISTENER
+        CONNECT | LISTEN | ACCEPT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE
     )
+}
+
+/// Post-lowering classifier: `is_tls_call` plus the internal listener-shaped
+/// close body that IR lowering synthesizes. Used by codegen (`helper_for_call`,
+/// per-target import planning) to route the lowered-only target.
+pub(crate) fn is_tls_runtime_call(name: &str) -> bool {
+    is_tls_call(name) || name == CLOSE_LISTENER
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
@@ -214,19 +225,17 @@ mod tests {
     #[test]
     fn is_call_and_reject() {
         for n in [
-            CONNECT,
-            LISTEN,
-            ACCEPT,
-            READ,
-            READ_TEXT,
-            WRITE,
-            WRITE_TEXT,
-            CLOSE,
-            CLOSE_LISTENER,
+            CONNECT, LISTEN, ACCEPT, READ, READ_TEXT, WRITE, WRITE_TEXT, CLOSE,
         ] {
             assert!(is_tls_call(n), "{n}");
+            assert!(is_tls_runtime_call(n), "{n}");
         }
+        // `closeListener` is lowered-only: recognized by the post-lowering
+        // runtime classifier but NOT user-facing (bug-173 E).
+        assert!(!is_tls_call(CLOSE_LISTENER));
+        assert!(is_tls_runtime_call(CLOSE_LISTENER));
         assert!(!is_tls_call("tls.nope"));
+        assert!(!is_tls_runtime_call("tls.nope"));
     }
 
     #[test]

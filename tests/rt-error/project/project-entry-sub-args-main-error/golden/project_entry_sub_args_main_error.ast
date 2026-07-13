@@ -9,10 +9,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 1,
       "params": [
-      { "name": "args", "type": "List OF String", "default": null }
+      { "name": "args", "type": "List OF String", "default": null, "line": 1 }
       ],
       "returnType": null,
       "body": [

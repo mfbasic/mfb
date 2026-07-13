@@ -121,9 +121,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::arithmetic_shift_right_immediate(&sign_neg, &raw, 63));
         let rounded = self.allocate_register()?;
         self.emit_apply_rounding(&rounded, &quotient, &remainder, &divisor, &sign_neg)?;
-        // result = rounded * divisor (back to Money scale; cannot overflow).
+        // result = rounded * divisor (back to Money scale). `emit_apply_rounding`
+        // can return `q+1`, so for a near-max Money `(q+1)*divisor` can exceed
+        // i64::MAX — trap ErrOverflow rather than wrapping to a negative Money
+        // (bug-175 A).
         let result = self.allocate_register()?;
-        self.emit(abi::multiply_registers(&result, &rounded, &divisor));
+        self.emit_checked_integer_multiply(&result, &rounded, &divisor)?;
         Ok(ValueResult {
             type_: "Money".to_string(),
             location: result,

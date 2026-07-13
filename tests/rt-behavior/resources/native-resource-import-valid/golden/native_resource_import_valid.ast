@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 9,
       "params": [
-      { "name": "db", "type": "demo.Db", "resource": true, "state": null, "default": null }
+      { "name": "db", "type": "demo.Db", "resource": true, "state": null, "default": null, "line": 9 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -24,6 +25,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 13,
       "params": [

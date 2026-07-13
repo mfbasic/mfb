@@ -11,12 +11,13 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "tryPad",
       "line": 15,
       "params": [
-      { "name": "value", "type": "String", "default": null },
-      { "name": "width", "type": "Integer", "default": null },
-      { "name": "padChar", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 15 },
+      { "name": "width", "type": "Integer", "default": null, "line": 15 },
+      { "name": "padChar", "type": "String", "default": null, "line": 15 }
       ],
       "returnType": null,
       "body": [
@@ -27,6 +28,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 21,
       "params": [

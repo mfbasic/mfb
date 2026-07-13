@@ -31,10 +31,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "colorScore",
       "line": 11,
       "params": [
-      { "name": "color", "type": "Color", "default": null }
+      { "name": "color", "type": "Color", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [
@@ -74,10 +75,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "colorFallback",
       "line": 22,
       "params": [
-      { "name": "color", "type": "Color", "default": null }
+      { "name": "color", "type": "Color", "default": null, "line": 22 }
       ],
       "returnType": "Integer",
       "body": [
@@ -109,10 +111,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "modeScore",
       "line": 31,
       "params": [
-      { "name": "mode", "type": "Mode", "default": null }
+      { "name": "mode", "type": "Mode", "default": null, "line": 31 }
       ],
       "returnType": "Integer",
       "body": [
@@ -144,6 +147,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 40,
       "params": [

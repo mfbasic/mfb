@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "leave",
       "line": 3,
       "params": [
-      { "name": "code", "type": "Integer", "default": null }
+      { "name": "code", "type": "Integer", "default": null, "line": 3 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -23,6 +24,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 7,
       "params": [

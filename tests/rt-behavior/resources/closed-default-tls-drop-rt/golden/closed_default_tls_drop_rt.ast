@@ -11,6 +11,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "connectRefused",
       "line": 18,
       "params": [
@@ -32,6 +33,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 25,
       "params": [

@@ -1087,8 +1087,10 @@ impl CodeBuilder<'_> {
 
     /// Compensated (double-double) Horner of `coeffs` in `var`, leaving the result
     /// as `(hi, lo)`. Each step keeps the running accumulator to ~2x precision.
-    /// Uses v6 (coeff broadcast), v7/v28/v29/v30 and v8/v9 (via two-sum) as
-    /// scratch — distinct from `hi`/`lo`/`var`.
+    /// Uses `VEC_SCRATCH[6]` (coeff broadcast), `VEC_SCRATCH[7]`/v28/v29/v30 and
+    /// `VEC_SCRATCH[0]`/v31 (via two-sum) as scratch — distinct from
+    /// `hi`/`lo`/`var`. (bug-175 H: the callee-saved v8/v9 named here previously
+    /// were never touched; two-sum uses v0/v31, per the note at the twosum call.)
     fn emit_compensated_horner(
         &mut self,
         hi: &str,

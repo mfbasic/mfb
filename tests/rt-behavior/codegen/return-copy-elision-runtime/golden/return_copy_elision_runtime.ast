@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "build",
       "line": 6,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 6 }
       ],
       "returnType": "List OF Integer",
       "body": [
@@ -36,10 +37,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "ident",
       "line": 18,
       "params": [
-      { "name": "xs", "type": "List OF Integer", "default": null }
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 18 }
       ],
       "returnType": "List OF Integer",
       "body": [
@@ -49,11 +51,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "pick",
       "line": 25,
       "params": [
-      { "name": "cond", "type": "Boolean", "default": null },
-      { "name": "xs", "type": "List OF Integer", "default": null }
+      { "name": "cond", "type": "Boolean", "default": null, "line": 25 },
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 25 }
       ],
       "returnType": "List OF Integer",
       "body": [
@@ -74,10 +77,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "nested",
       "line": 34,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 34 }
       ],
       "returnType": "List OF Integer",
       "body": [
@@ -109,11 +113,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "printList",
       "line": 47,
       "params": [
-      { "name": "label", "type": "String", "default": null },
-      { "name": "xs", "type": "List OF Integer", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 47 },
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 47 }
       ],
       "returnType": null,
       "body": [
@@ -133,6 +138,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 55,
       "params": [

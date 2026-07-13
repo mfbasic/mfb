@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "toString",
       "line": 6,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 6 }
       ],
       "returnType": "String",
       "body": [
@@ -23,6 +24,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 10,
       "params": [

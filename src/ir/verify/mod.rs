@@ -1370,9 +1370,25 @@ impl TypeEnv {
     /// sub-values. Argument and sub-expression checks run before the node's own
     /// rule so the innermost violation surfaces first.
     fn check_value(&self, value: &IrValue, locals: &HashMap<String, String>) {
+        self.check_value_depth(value, locals, 0);
+    }
+
+    /// Depth-bounded body of `check_value`. Value expressions can nest as deeply
+    /// as a crafted `.mfp` (or synthesized IR) allows, so — mirroring `check_ops`'
+    /// statement-nesting cap — the recursion is bounded to `MAX_DEPTH` levels and
+    /// fails gracefully with the same `VERIFY_TYPE` diagnostic rather than
+    /// overflowing the stack.
+    fn check_value_depth(&self, value: &IrValue, locals: &HashMap<String, String>, depth: usize) {
+        if depth > MAX_DEPTH {
+            self.emit(
+                VERIFY_TYPE,
+                format!("expression nesting exceeds the {MAX_DEPTH} level limit"),
+            );
+            return;
+        }
         match value {
             IrValue::MemberAccess { target, member, .. } => {
-                self.check_value(target, locals);
+                self.check_value_depth(target, locals, depth + 1);
                 self.check_member_access(target, member, locals);
                 self.check_member_access_type(target, member, value, locals);
             }
@@ -1394,7 +1410,7 @@ impl TypeEnv {
                     );
                 }
                 for arg in args {
-                    self.check_value(arg, locals);
+                    self.check_value_depth(arg, locals, depth + 1);
                 }
                 self.check_call_arity(target, args.len(), locals);
                 self.check_call_argument_types(target, args, locals);
@@ -1403,7 +1419,7 @@ impl TypeEnv {
             }
             IrValue::Constructor { type_, args } => {
                 for arg in args {
-                    self.check_value(arg, locals);
+                    self.check_value_depth(arg, locals, depth + 1);
                 }
                 self.check_constructor(type_, args, locals);
             }
@@ -1412,25 +1428,25 @@ impl TypeEnv {
                 member_type,
                 value,
             } => {
-                self.check_value(value, locals);
+                self.check_value_depth(value, locals, depth + 1);
                 self.check_union_wrap(union_type, member_type);
             }
             IrValue::Closure { captures, .. } => {
                 for capture in captures {
-                    self.check_value(capture, locals);
+                    self.check_value_depth(capture, locals, depth + 1);
                 }
             }
             IrValue::UnionExtract { type_, value } => {
-                self.check_value(value, locals);
+                self.check_value_depth(value, locals, depth + 1);
                 self.check_union_extract(type_, value, locals);
             }
             IrValue::ResultIsOk { value }
             | IrValue::ResultValue { value, .. }
             | IrValue::ResultError { value } => {
-                self.check_value(value, locals);
+                self.check_value_depth(value, locals, depth + 1);
             }
             IrValue::Unary { op, operand, .. } => {
-                self.check_value(operand, locals);
+                self.check_value_depth(operand, locals, depth + 1);
                 self.check_unary_operand(op, operand, locals);
                 self.check_operator_result_type(
                     value,
@@ -1440,8 +1456,8 @@ impl TypeEnv {
             IrValue::Binary {
                 op, left, right, ..
             } => {
-                self.check_value(left, locals);
-                self.check_value(right, locals);
+                self.check_value_depth(left, locals, depth + 1);
+                self.check_value_depth(right, locals, depth + 1);
                 self.check_binary_operands(op, left, right, locals);
                 self.check_operator_result_type(
                     value,
@@ -1457,7 +1473,7 @@ impl TypeEnv {
                 target,
                 updates,
             } => {
-                self.check_value(target, locals);
+                self.check_value_depth(target, locals, depth + 1);
                 // Compiler/runtime-owned records may never be updated —
                 // syntaxcheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
                 // the Error pair vs the compiler-owned handle records). When
@@ -1487,7 +1503,7 @@ impl TypeEnv {
                 let fields = self.field_types.get(resource_base_type(type_));
                 let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
-                    self.check_value(&update.value, locals);
+                    self.check_value_depth(&update.value, locals, depth + 1);
                     // A WITH block may set each field at most once.
                     if !seen_fields.insert(update.field.as_str()) {
                         self.emit(
@@ -1514,7 +1530,7 @@ impl TypeEnv {
             }
             IrValue::ListLiteral { type_, values } => {
                 for v in values {
-                    self.check_value(v, locals);
+                    self.check_value_depth(v, locals, depth + 1);
                 }
                 // Only a RES binding (an owner) may be stored in a resource
                 // collection; a temporary (a call result) is not an owner
@@ -1553,8 +1569,8 @@ impl TypeEnv {
             }
             IrValue::MapLiteral { type_, entries } => {
                 for (k, v) in entries {
-                    self.check_value(k, locals);
-                    self.check_value(v, locals);
+                    self.check_value_depth(k, locals, depth + 1);
+                    self.check_value_depth(v, locals, depth + 1);
                 }
                 self.check_map_key_comparable(type_);
                 if let Some((key_type, value_type)) = parse_map(type_) {
@@ -1839,7 +1855,13 @@ impl TypeEnv {
             self.check_money_operands(op, &lt, &rt);
             return;
         }
-        let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Unknown");
+        // `Money` is included so `Money <op> Unknown` (the companion operand
+        // could not be typed) stays permissive: the strict Money branch above
+        // only fires when *both* sides are known, so an Unknown companion falls
+        // through here and must not be rejected (module "Unknown stays
+        // permissive" contract, :1834).
+        let numeric =
+            |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown");
         let string = |t: &str| matches!(t, "String" | "Unknown");
         let boolean = |t: &str| matches!(t, "Boolean" | "Unknown");
         let ok = match op {
@@ -3970,6 +3992,23 @@ impl TypeEnv {
     /// marker a node carries when lowering could not name its type is treated as
     /// unresolved so it never forces a rejection (plan-20-C).
     fn infer_type(&self, value: &IrValue, locals: &HashMap<String, String>) -> Option<String> {
+        self.infer_type_depth(value, locals, 0)
+    }
+
+    /// Depth-bounded body of `infer_type`. Member-access chains recurse on
+    /// expression depth, so — mirroring `check_ops`' cap — the recursion is
+    /// bounded to `MAX_DEPTH` levels; past that it fails gracefully by leaving
+    /// the type underived (`None`), which the type-relational rules treat
+    /// permissively.
+    fn infer_type_depth(
+        &self,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+        depth: usize,
+    ) -> Option<String> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
         match value {
             IrValue::Local(name) => return locals.get(name).cloned(),
             IrValue::Global(name) => return self.globals.get(name).cloned(),
@@ -3979,7 +4018,7 @@ impl TypeEnv {
                 if let Some(annotated) = usable_type(value.annotated_type()) {
                     return Some(annotated);
                 }
-                let target_type = self.infer_type(target, locals)?;
+                let target_type = self.infer_type_depth(target, locals, depth + 1)?;
                 return self.field_type(&target_type, member);
             }
             _ => {}
@@ -4159,21 +4198,31 @@ fn collect_local_reads_op(op: &IrOp, out: &mut Vec<String>) {
 
 /// Collect the names of every `Local` read within a value expression.
 fn collect_local_reads_value(value: &IrValue, out: &mut Vec<String>) {
+    collect_local_reads_value_depth(value, out, 0);
+}
+
+/// Depth-bounded body of `collect_local_reads_value`. Bounded to `MAX_DEPTH`
+/// expression levels (mirroring `check_ops`' cap); past that it stops recursing
+/// so a pathologically deep value expression cannot overflow the stack.
+fn collect_local_reads_value_depth(value: &IrValue, out: &mut Vec<String>, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
     match value {
         IrValue::Local(name) => out.push(name.clone()),
         IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
             for a in args {
-                collect_local_reads_value(a, out);
+                collect_local_reads_value_depth(a, out, depth + 1);
             }
         }
         IrValue::Constructor { args, .. } => {
             for a in args {
-                collect_local_reads_value(a, out);
+                collect_local_reads_value_depth(a, out, depth + 1);
             }
         }
         IrValue::Closure { captures, .. } => {
             for c in captures {
-                collect_local_reads_value(c, out);
+                collect_local_reads_value_depth(c, out, depth + 1);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -4182,28 +4231,30 @@ fn collect_local_reads_value(value: &IrValue, out: &mut Vec<String>) {
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => collect_local_reads_value(value, out),
+        | IrValue::MemberAccess { target: value, .. } => {
+            collect_local_reads_value_depth(value, out, depth + 1)
+        }
         IrValue::Binary { left, right, .. } => {
-            collect_local_reads_value(left, out);
-            collect_local_reads_value(right, out);
+            collect_local_reads_value_depth(left, out, depth + 1);
+            collect_local_reads_value_depth(right, out, depth + 1);
         }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            collect_local_reads_value(target, out);
+            collect_local_reads_value_depth(target, out, depth + 1);
             for u in updates {
-                collect_local_reads_value(&u.value, out);
+                collect_local_reads_value_depth(&u.value, out, depth + 1);
             }
         }
         IrValue::ListLiteral { values, .. } => {
             for e in values {
-                collect_local_reads_value(e, out);
+                collect_local_reads_value_depth(e, out, depth + 1);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (k, val) in entries {
-                collect_local_reads_value(k, out);
-                collect_local_reads_value(val, out);
+                collect_local_reads_value_depth(k, out, depth + 1);
+                collect_local_reads_value_depth(val, out, depth + 1);
             }
         }
         IrValue::Const { .. }
@@ -4261,21 +4312,35 @@ fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static s
 /// Record every `Closure { name, captures }` site's captured-slot count so the
 /// capture-bounds rule knows each closure body's env size.
 fn collect_closures(value: &IrValue, out: &mut HashMap<String, HashSet<usize>>) {
+    collect_closures_depth(value, out, 0);
+}
+
+/// Depth-bounded body of `collect_closures`. Bounded to `MAX_DEPTH` expression
+/// levels (mirroring `check_ops`' cap); past that it stops recursing so a
+/// pathologically deep value expression cannot overflow the stack.
+fn collect_closures_depth(
+    value: &IrValue,
+    out: &mut HashMap<String, HashSet<usize>>,
+    depth: usize,
+) {
+    if depth > MAX_DEPTH {
+        return;
+    }
     match value {
         IrValue::Closure { name, captures, .. } => {
             out.entry(name.clone()).or_default().insert(captures.len());
             for capture in captures {
-                collect_closures(capture, out);
+                collect_closures_depth(capture, out, depth + 1);
             }
         }
         IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
             for arg in args {
-                collect_closures(arg, out);
+                collect_closures_depth(arg, out, depth + 1);
             }
         }
         IrValue::Constructor { args, .. } => {
             for arg in args {
-                collect_closures(arg, out);
+                collect_closures_depth(arg, out, depth + 1);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -4284,29 +4349,31 @@ fn collect_closures(value: &IrValue, out: &mut HashMap<String, HashSet<usize>>) 
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => collect_closures(value, out),
+        | IrValue::MemberAccess { target: value, .. } => {
+            collect_closures_depth(value, out, depth + 1)
+        }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            collect_closures(target, out);
+            collect_closures_depth(target, out, depth + 1);
             for update in updates {
-                collect_closures(&update.value, out);
+                collect_closures_depth(&update.value, out, depth + 1);
             }
         }
         IrValue::ListLiteral { values, .. } => {
             for v in values {
-                collect_closures(v, out);
+                collect_closures_depth(v, out, depth + 1);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (k, v) in entries {
-                collect_closures(k, out);
-                collect_closures(v, out);
+                collect_closures_depth(k, out, depth + 1);
+                collect_closures_depth(v, out, depth + 1);
             }
         }
         IrValue::Binary { left, right, .. } => {
-            collect_closures(left, out);
-            collect_closures(right, out);
+            collect_closures_depth(left, out, depth + 1);
+            collect_closures_depth(right, out, depth + 1);
         }
         IrValue::Const { .. }
         | IrValue::Local(_)
@@ -4395,21 +4462,31 @@ fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>)
 /// Visit every `Capture` index reachable from a value expression (captures
 /// never nest through ops — a closure body's captures live in leading binds).
 fn walk_captures(value: &IrValue, visit: &mut impl FnMut(u32)) {
+    walk_captures_depth(value, visit, 0);
+}
+
+/// Depth-bounded body of `walk_captures`. Bounded to `MAX_DEPTH` expression
+/// levels (mirroring `check_ops`' cap); past that it stops recursing so a
+/// pathologically deep value expression cannot overflow the stack.
+fn walk_captures_depth(value: &IrValue, visit: &mut impl FnMut(u32), depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
     match value {
         IrValue::Capture { index, .. } => visit(*index),
         IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
             for arg in args {
-                walk_captures(arg, visit);
+                walk_captures_depth(arg, visit, depth + 1);
             }
         }
         IrValue::Closure { captures, .. } => {
             for capture in captures {
-                walk_captures(capture, visit);
+                walk_captures_depth(capture, visit, depth + 1);
             }
         }
         IrValue::Constructor { args, .. } => {
             for arg in args {
-                walk_captures(arg, visit);
+                walk_captures_depth(arg, visit, depth + 1);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -4418,29 +4495,31 @@ fn walk_captures(value: &IrValue, visit: &mut impl FnMut(u32)) {
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => walk_captures(value, visit),
+        | IrValue::MemberAccess { target: value, .. } => {
+            walk_captures_depth(value, visit, depth + 1)
+        }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            walk_captures(target, visit);
+            walk_captures_depth(target, visit, depth + 1);
             for update in updates {
-                walk_captures(&update.value, visit);
+                walk_captures_depth(&update.value, visit, depth + 1);
             }
         }
         IrValue::ListLiteral { values, .. } => {
             for v in values {
-                walk_captures(v, visit);
+                walk_captures_depth(v, visit, depth + 1);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (k, v) in entries {
-                walk_captures(k, visit);
-                walk_captures(v, visit);
+                walk_captures_depth(k, visit, depth + 1);
+                walk_captures_depth(v, visit, depth + 1);
             }
         }
         IrValue::Binary { left, right, .. } => {
-            walk_captures(left, visit);
-            walk_captures(right, visit);
+            walk_captures_depth(left, visit, depth + 1);
+            walk_captures_depth(right, visit, depth + 1);
         }
         IrValue::Const { .. }
         | IrValue::Local(_)

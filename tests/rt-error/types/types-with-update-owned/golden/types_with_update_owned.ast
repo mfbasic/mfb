@@ -21,10 +21,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "promote",
       "line": 9,
       "params": [
-      { "name": "seed", "type": "Integer", "default": null }
+      { "name": "seed", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": "Payload",
       "body": [
@@ -35,11 +36,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "rewrite",
       "line": 14,
       "params": [
-      { "name": "value", "type": "Payload", "default": null },
-      { "name": "delta", "type": "Integer", "default": null }
+      { "name": "value", "type": "Payload", "default": null, "line": 14 },
+      { "name": "delta", "type": "Integer", "default": null, "line": 14 }
       ],
       "returnType": "Payload",
       "body": [
@@ -49,10 +51,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "occupy",
       "line": 18,
       "params": [
-      { "name": "seed", "type": "Integer", "default": null }
+      { "name": "seed", "type": "Integer", "default": null, "line": 18 }
       ],
       "returnType": "Payload",
       "body": [
@@ -63,10 +66,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "readAfterCalls",
       "line": 23,
       "params": [
-      { "name": "value", "type": "Payload", "default": null }
+      { "name": "value", "type": "Payload", "default": null, "line": 23 }
       ],
       "returnType": "Integer",
       "body": [
@@ -80,6 +84,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 31,
       "params": [

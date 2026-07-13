@@ -3,7 +3,7 @@
 Last updated: 2026-07-12
 Severity: LOW (batch).
 Class: Correctness / Memory-safety / Security (all LOW).
-Status: Open
+Status: FIXED (2026-07-13; goal: resolve bugs 170-180; full acceptance suite green)
 
 ## Findings
 

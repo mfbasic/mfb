@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "parsePositive",
       "line": 3,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -33,10 +34,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "doEffect",
       "line": 8,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 8 }
       ],
       "returnType": null,
       "body": [
@@ -55,6 +57,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "happy",
       "line": 13,
       "params": [
@@ -76,6 +79,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "recovered",
       "line": 21,
       "params": [
@@ -97,10 +101,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "viaAssign",
       "line": 29,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 29 }
       ],
       "returnType": "Integer",
       "body": [
@@ -120,10 +125,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "recoverOrBail",
       "line": 38,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 38 }
       ],
       "returnType": "Integer",
       "body": [
@@ -152,10 +158,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "viaReturn",
       "line": 47,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 47 }
       ],
       "returnType": "Integer",
       "body": [
@@ -174,10 +181,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "viaSub",
       "line": 55,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 55 }
       ],
       "returnType": "Integer",
       "body": [
@@ -198,6 +206,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 64,
       "params": [

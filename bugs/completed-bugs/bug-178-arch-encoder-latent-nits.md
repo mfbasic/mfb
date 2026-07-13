@@ -3,7 +3,7 @@
 Last updated: 2026-07-12
 Severity: LOW (batch) — all latent (no current lowering emits the trigger).
 Class: Correctness / Footgun.
-Status: Open
+Status: FIXED (2026-07-13; goal: resolve bugs 170-180; full acceptance suite green)
 
 ## Findings
 

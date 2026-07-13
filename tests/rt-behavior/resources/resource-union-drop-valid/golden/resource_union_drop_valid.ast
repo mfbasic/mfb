@@ -23,11 +23,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "writeVia",
       "line": 12,
       "params": [
-      { "name": "path", "type": "String", "default": null },
-      { "name": "data", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 12 },
+      { "name": "data", "type": "String", "default": null, "line": 12 }
       ],
       "returnType": null,
       "body": [
@@ -60,6 +61,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 22,
       "params": [

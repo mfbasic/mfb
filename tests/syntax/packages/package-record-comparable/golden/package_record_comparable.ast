@@ -19,11 +19,12 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "makePerson",
       "line": 6,
       "params": [
-      { "name": "name", "type": "String", "default": null },
-      { "name": "city", "type": "String", "default": null }
+      { "name": "name", "type": "String", "default": null, "line": 6 },
+      { "name": "city", "type": "String", "default": null, "line": 6 }
       ],
       "returnType": "Person",
       "body": [
@@ -33,11 +34,12 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "samePerson",
       "line": 10,
       "params": [
-      { "name": "left", "type": "Person", "default": null },
-      { "name": "right", "type": "Person", "default": null }
+      { "name": "left", "type": "Person", "default": null, "line": 10 },
+      { "name": "right", "type": "Person", "default": null, "line": 10 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -47,11 +49,12 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "differentPerson",
       "line": 14,
       "params": [
-      { "name": "left", "type": "Person", "default": null },
-      { "name": "right", "type": "Person", "default": null }
+      { "name": "left", "type": "Person", "default": null, "line": 14 },
+      { "name": "right", "type": "Person", "default": null, "line": 14 }
       ],
       "returnType": "Boolean",
       "body": [

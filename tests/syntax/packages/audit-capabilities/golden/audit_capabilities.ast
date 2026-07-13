@@ -26,7 +26,7 @@
         "returnType": "Db",
         "line": 14,
         "params": [
-        { "name": "path", "type": "String", "default": null }
+        { "name": "path", "type": "String", "default": null, "line": 14 }
         ],
         "abi": {
           "slots": [
@@ -50,7 +50,7 @@
         "returnType": "Nothing",
         "line": 19,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 19 }
         ],
         "abi": {
           "slots": [
@@ -70,6 +70,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 26,
       "params": [

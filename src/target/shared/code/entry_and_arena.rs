@@ -18,6 +18,18 @@ pub(crate) fn lower_program_entry(
     register_signal_handlers: bool,
     capture_args: bool,
 ) -> Result<CodeFunction, String> {
+    // bug-175 I: the `entry_exit_range_error` handler (and its label) is emitted
+    // only for an `Integer` entry, but the range-check branch to it is emitted for
+    // every non-`Nothing` return. A future non-`Integer`/`Nothing` entry return
+    // would branch to an undefined label → link failure. `validate_entry_point`
+    // already forces Integer/Nothing; enforce that invariant here as a loud
+    // plan-level error rather than a silent broken branch.
+    if language_entry_returns != "Integer" && language_entry_returns != "Nothing" {
+        return Err(format!(
+            "program entry return type must be 'Integer' or 'Nothing', got \
+             '{language_entry_returns}'"
+        ));
+    }
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     // Capture argc/argv into the `os::args` globals before the frame is carved
@@ -887,8 +899,9 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // benchmark's ~30× inflation was this list growing without bound. The
         // scan is an exact match because free and alloc normalize `size`
         // identically, so a reused chunk round-trips to the same bin; a chunk of
-        // a different colliding size is simply skipped (it stays parked and is
-        // recovered by the large flush-before-grow drain).
+        // a different colliding size is simply skipped (it stays parked in its bin
+        // and is only reclaimed at `arena_destroy` — there is no flush-before-grow
+        // drain for large bins; bug-175 H corrected the stale claim).
         abi::label("arena_alloc_large_bin"),
         abi::shift_right_immediate(&lg_slot, &size, 4),
         abi::move_immediate(

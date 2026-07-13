@@ -10,11 +10,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": true,
       "name": "worker",
       "line": 3,
       "params": [
-      { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null },
-      { "name": "seed", "type": "String", "default": null }
+      { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null, "line": 3 },
+      { "name": "seed", "type": "String", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -28,6 +29,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 11,
       "params": [

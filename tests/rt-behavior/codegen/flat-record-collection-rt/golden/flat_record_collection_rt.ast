@@ -40,10 +40,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "sumItems",
       "line": 24,
       "params": [
-      { "name": "b", "type": "Bag", "default": null }
+      { "name": "b", "type": "Bag", "default": null, "line": 24 }
       ],
       "returnType": "Integer",
       "body": [
@@ -63,6 +64,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 32,
       "params": [

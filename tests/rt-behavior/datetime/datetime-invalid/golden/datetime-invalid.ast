@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "badDate",
       "line": 5,
       "params": [
@@ -33,6 +34,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "badMonth",
       "line": 14,
       "params": [
@@ -54,6 +56,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "badHour",
       "line": 23,
       "params": [
@@ -75,6 +78,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "badOffset",
       "line": 32,
       "params": [
@@ -96,6 +100,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "badParse",
       "line": 41,
       "params": [
@@ -117,6 +122,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "badIso",
       "line": 50,
       "params": [
@@ -138,6 +144,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 59,
       "params": [

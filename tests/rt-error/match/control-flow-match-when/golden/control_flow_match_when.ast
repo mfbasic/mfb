@@ -39,10 +39,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "score",
       "line": 15,
       "params": [
-      { "name": "shape", "type": "Shape", "default": null }
+      { "name": "shape", "type": "Shape", "default": null, "line": 15 }
       ],
       "returnType": "Integer",
       "body": [
@@ -90,6 +91,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 28,
       "params": [

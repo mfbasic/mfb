@@ -80,10 +80,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "shapeScore",
       "line": 36,
       "params": [
-      { "name": "s", "type": "Shape", "default": null }
+      { "name": "s", "type": "Shape", "default": null, "line": 36 }
       ],
       "returnType": "Integer",
       "body": [
@@ -123,10 +124,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "extraScore",
       "line": 47,
       "params": [
-      { "name": "s", "type": "ExtraShape", "default": null }
+      { "name": "s", "type": "ExtraShape", "default": null, "line": 47 }
       ],
       "returnType": "Integer",
       "body": [
@@ -174,10 +176,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "listScore",
       "line": 60,
       "params": [
-      { "name": "shapes", "type": "List OF Shape", "default": null }
+      { "name": "shapes", "type": "List OF Shape", "default": null, "line": 60 }
       ],
       "returnType": "Integer",
       "body": [
@@ -197,6 +200,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 68,
       "params": [

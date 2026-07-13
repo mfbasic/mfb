@@ -12,10 +12,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "signOfZero",
       "line": 16,
       "params": [
-      { "name": "z", "type": "Float", "default": null }
+      { "name": "z", "type": "Float", "default": null, "line": 16 }
       ],
       "returnType": "Float",
       "body": [
@@ -25,6 +26,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 20,
       "params": [

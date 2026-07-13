@@ -73,6 +73,10 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // C `int` return (poll) — sign-extend before the signed compares; a -1 read
+        // as large-positive would skip poll_fail/not_ready and fall through to
+        // "socket ready" (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&poll_fail),
         abi::branch_eq(&not_ready),

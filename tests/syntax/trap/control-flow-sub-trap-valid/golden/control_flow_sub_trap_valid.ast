@@ -9,10 +9,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "viaReturn",
       "line": 1,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 1 }
       ],
       "returnType": null,
       "body": [
@@ -39,10 +40,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "viaTrapReturn",
       "line": 12,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 12 }
       ],
       "returnType": null,
       "body": [
@@ -69,6 +71,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 23,
       "params": [

@@ -11,11 +11,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makePair",
       "line": 7,
       "params": [
-      { "name": "n", "type": "Integer", "default": null },
-      { "name": "s", "type": "String", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 7 },
+      { "name": "s", "type": "String", "default": null, "line": 7 }
       ],
       "returnType": "Pair OF Integer, String",
       "body": [
@@ -25,6 +26,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 11,
       "params": [

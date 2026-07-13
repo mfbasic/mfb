@@ -639,6 +639,9 @@ impl plan::NativePlanPlatform for Platform {
                         audio_queue(&mut imports);
                         pthread(&mut imports);
                         imports.push(("libSystem", "_mmap"));
+                        // The open-error path disposes the queue and munmaps the
+                        // half-initialized state page before failing.
+                        imports.push(("libSystem", "_munmap"));
                         // §4.5 default-input-device precheck.
                         core_audio(&mut imports);
                         if call == "audio.openInputDevice" {
@@ -651,6 +654,9 @@ impl plan::NativePlanPlatform for Platform {
                         audio_queue(&mut imports);
                         pthread(&mut imports);
                         imports.push(("libSystem", "_mmap"));
+                        // The open-error path disposes the queue and munmaps the
+                        // half-initialized state page before failing.
+                        imports.push(("libSystem", "_munmap"));
                         if call == "audio.openOutputDevice" {
                             imports.push(("AudioToolbox", "_AudioQueueSetProperty"));
                             imports.push(("CoreFoundation", "_CFStringCreateWithCString"));
@@ -675,6 +681,7 @@ impl plan::NativePlanPlatform for Platform {
                         pthread(&mut imports);
                         if call == "audio.pollTimeout" {
                             imports.push(("libSystem", "_pthread_cond_timedwait_relative_np"));
+                            imports.push(("libSystem", "_clock_gettime"));
                         }
                     }
                     "audio.closeInput" | "audio.closeOutput" => {
@@ -695,7 +702,7 @@ impl plan::NativePlanPlatform for Platform {
                     })
                     .collect()
             }
-            call if crate::builtins::tls::is_tls_call(call) => {
+            call if crate::builtins::tls::is_tls_runtime_call(call) => {
                 // The macOS TLS backend resolves Network.framework (and, for the
                 // server side, Security.framework + CoreFoundation) entirely
                 // through dlopen/dlsym at load time; only dlopen/dlsym (plus

@@ -31,6 +31,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "mut_default_record_valid_run",
       "line": 20,
       "params": [
@@ -47,10 +48,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "printEntry",
       "line": 30,
       "params": [
-      { "name": "entry", "type": "MapEntry OF String TO Integer", "default": null }
+      { "name": "entry", "type": "MapEntry OF String TO Integer", "default": null, "line": 30 }
       ],
       "returnType": null,
       "body": [
@@ -61,6 +63,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "types_map_entry_valid_run",
       "line": 35,
       "params": [
@@ -84,6 +87,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "literalNothing",
       "line": 48,
       "params": [
@@ -96,6 +100,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "fallthroughSub",
       "line": 52,
       "params": [
@@ -108,6 +113,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "bareReturnSub",
       "line": 56,
       "params": [
@@ -121,6 +127,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "explicitReturnSub",
       "line": 61,
       "params": [
@@ -134,6 +141,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "callSubAsNothing",
       "line": 66,
       "params": [
@@ -149,6 +157,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "types_nothing_run",
       "line": 73,
       "params": [
@@ -197,10 +206,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "printBoolean",
       "line": 101,
       "params": [
-      { "name": "value", "type": "Boolean", "default": null }
+      { "name": "value", "type": "Boolean", "default": null, "line": 101 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -211,6 +221,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "types_record_comparable_runtime_run",
       "line": 106,
       "params": [
@@ -257,6 +268,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 151,
       "params": [

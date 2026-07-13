@@ -10,24 +10,33 @@ impl CodeBuilder<'_> {
         not_equal_label: &str,
         prefix: &str,
     ) {
-        // Scratch as vregs (was out-of-pool x5/x6/x7).
+        // Scratch as vregs (was out-of-pool x5/x6/x7). bug-175 D: the byte loop
+        // advances private scratch copies of the left/right pointers, not the
+        // caller's registers — a non-first-entry map-key compare must leave the
+        // caller's key pointer untouched.
         let remaining_v = self.temporary_vreg();
         let lbyte_v = self.temporary_vreg();
         let rbyte_v = self.temporary_vreg();
+        let lptr_v = self.temporary_vreg();
+        let rptr_v = self.temporary_vreg();
         let remaining = remaining_v.as_str();
         let lbyte = lbyte_v.as_str();
         let rbyte = rbyte_v.as_str();
+        let lptr = lptr_v.as_str();
+        let rptr = rptr_v.as_str();
         let loop_label = self.label(&format!("{prefix}_loop"));
         self.emit(abi::move_register(remaining, len));
+        self.emit(abi::move_register(lptr, left));
+        self.emit(abi::move_register(rptr, right));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(remaining, "0"));
         self.emit(abi::branch_eq(equal_label));
-        self.emit(abi::load_u8(lbyte, left, 0));
-        self.emit(abi::load_u8(rbyte, right, 0));
+        self.emit(abi::load_u8(lbyte, lptr, 0));
+        self.emit(abi::load_u8(rbyte, rptr, 0));
         self.emit(abi::compare_registers(lbyte, rbyte));
         self.emit(abi::branch_ne(not_equal_label));
-        self.emit(abi::add_immediate(left, left, 1));
-        self.emit(abi::add_immediate(right, right, 1));
+        self.emit(abi::add_immediate(lptr, lptr, 1));
+        self.emit(abi::add_immediate(rptr, rptr, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
         self.emit(abi::branch(&loop_label));
     }

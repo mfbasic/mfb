@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "json_read_valid_run",
       "line": 11,
       "params": [
@@ -30,6 +31,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "json_write_valid_run",
       "line": 23,
       "params": [
@@ -49,6 +51,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 34,
       "params": [

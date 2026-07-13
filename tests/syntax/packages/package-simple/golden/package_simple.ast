@@ -60,6 +60,7 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "score",
       "line": 25,
       "params": [
@@ -72,10 +73,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "score",
       "line": 29,
       "params": [
-      { "name": "v", "type": "Vec2", "default": null }
+      { "name": "v", "type": "Vec2", "default": null, "line": 29 }
       ],
       "returnType": "Integer",
       "body": [
@@ -85,6 +87,7 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "mark",
       "line": 33,
       "params": [
@@ -96,10 +99,11 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "mark",
       "line": 36,
       "params": [
-      { "name": "v", "type": "Vec2", "default": null }
+      { "name": "v", "type": "Vec2", "default": null, "line": 36 }
       ],
       "returnType": null,
       "body": [
@@ -109,10 +113,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": true,
       "name": "worker",
       "line": 40,
       "params": [
-      { "name": "seed", "type": "String", "default": null }
+      { "name": "seed", "type": "String", "default": null, "line": 40 }
       ],
       "returnType": "Integer",
       "body": [

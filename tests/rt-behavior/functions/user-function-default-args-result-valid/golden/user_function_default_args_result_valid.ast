@@ -10,11 +10,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "mark",
       "line": 3,
       "params": [
-      { "name": "label", "type": "String", "default": null },
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 3 },
+      { "name": "value", "type": "Integer", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -25,12 +26,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "compute",
       "line": 8,
       "params": [
-      { "name": "value", "type": "Integer", "default": null },
-      { "name": "extra", "type": "Integer", "default": { "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "default-extra" }, { "kind": "number", "value": "2" }] } },
-      { "name": "multiplier", "type": "Integer", "default": { "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "default-multiplier" }, { "kind": "number", "value": "5" }] } }
+      { "name": "value", "type": "Integer", "default": null, "line": 8 },
+      { "name": "extra", "type": "Integer", "default": { "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "default-extra" }, { "kind": "number", "value": "2" }] }, "line": 8 },
+      { "name": "multiplier", "type": "Integer", "default": { "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "default-multiplier" }, { "kind": "number", "value": "5" }] }, "line": 8 }
       ],
       "returnType": "Integer",
       "body": [
@@ -50,6 +52,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 13,
       "params": [

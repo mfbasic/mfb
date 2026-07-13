@@ -17,7 +17,7 @@ const MAX_UTF8_LEN: usize = 6;
 /// GLib/GObject type system boots there) — and then calls our real `main`. On
 /// glibc the loader already ran library constructors via `_dl_init`; on musl they
 /// run inside `__libc_start_main`, so routing through it works on both.
-pub(super) fn emit_libc_start_trampoline() -> CodeFunction {
+pub(super) fn emit_libc_start_trampoline() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
     // __libc_start_main(main, argc, argv, init, fini, rtld_fini, stack_end)
@@ -40,7 +40,7 @@ pub(super) fn emit_libc_start_trampoline() -> CodeFunction {
 /// GtkApplication, wires the `activate` signal, and runs the GTK main loop; the
 /// loop owns the process until the window closes (plan-05 §6.1). Returns 0 so
 /// `__libc_start_main` exits cleanly.
-pub(super) fn emit_main_bootstrap() -> CodeFunction {
+pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
     // lr@0, argc@8, argv@16.
     asm.push(abi::label("entry"));
@@ -103,7 +103,7 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
 /// window (transcript + input field), wire input/close signals, present it, create
 /// the window-input pipe (dup'd onto fd 0 for the reused console readers), and
 /// spawn the language worker thread.
-pub(super) fn emit_activate_handler() -> CodeFunction {
+pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
     // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
     let frame = 32;
@@ -275,7 +275,7 @@ pub(super) fn emit_activate_handler() -> CodeFunction {
 /// `void *_mfb_gtkapp_worker(void *arg)` — pthread start routine that runs the
 /// standard program entry. The program ends via [`FINISH_SYMBOL`], so the tail is
 /// only reached defensively.
-pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
+pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(WORKER_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -311,7 +311,7 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
 ///
 /// Committed bytes flow pipe -> fd 0 -> the reused console read helpers. Returns
 /// TRUE for keys it consumes, FALSE otherwise (so window shortcuts still work).
-pub(super) fn emit_key_pressed_handler() -> CodeFunction {
+pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(KEY_PRESSED_SYMBOL);
     // lr@0, oldlen@8, count@16, unichar@24, scratch(utf8/newline 8B)@32, x19@40.
     let frame = 48;
@@ -457,7 +457,7 @@ pub(super) fn emit_key_pressed_handler() -> CodeFunction {
 
 /// `gboolean on_window_closed(GtkWindow *window, gpointer user_data)` — quit the
 /// application and allow the default close (return FALSE).
-pub(super) fn emit_window_closed_handler() -> CodeFunction {
+pub(super) fn emit_window_closed_handler() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(WINDOW_CLOSED_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -483,7 +483,7 @@ pub(super) fn emit_window_closed_handler() -> CodeFunction {
 ///
 /// The language program runs on the worker thread, so we must NOT `_exit` in GUI
 /// mode or the process (window + main loop) dies.
-pub(super) fn emit_finish_helper() -> CodeFunction {
+pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     let prefix_len = STR_EXIT_PREFIX.1.len(); // includes the leading '\n'
     let mut asm = Asm::new(FINISH_SYMBOL);
     // lr@0, x19(exit code)@8, x20(chunk)@16.
@@ -587,7 +587,7 @@ fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
 /// the GTK main thread; worker-thread writes reach it via `_mfb_gtkapp_append_idle`.
 /// After inserting, auto-scrolls the transcript to the new end (plan-05 §6.5) via a
 /// temporary end mark + gtk_text_view_scroll_mark_onscreen.
-pub(super) fn emit_append_helper() -> CodeFunction {
+pub(super) fn emit_append_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(APPEND_SYMBOL);
     // lr@0, buffer@8, text@16, len@24, mark@32, GtkTextIter@40 (80B room to 120).
     let frame = 128;
@@ -643,7 +643,7 @@ pub(super) fn emit_append_helper() -> CodeFunction {
 /// bytes into the transcript via `_mfb_gtkapp_append`, frees the chunk, and returns
 /// FALSE (`G_SOURCE_REMOVE`) so the one-shot idle source is removed. Chunk layout:
 /// `[0]` = len (u64), `[16..]` = bytes.
-pub(super) fn emit_append_idle_helper() -> CodeFunction {
+pub(super) fn emit_append_idle_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(APPEND_IDLE_SYMBOL);
     // lr@0, x20(chunk)@8.
     asm.push(abi::label("entry"));
@@ -688,7 +688,7 @@ mod tests {
     /// land past the buffer into `ST_TERM_AREA` / the term grid.
     #[test]
     fn key_handler_bounds_line_buffer_before_utf8_store() {
-        let func = emit_key_pressed_handler();
+        let func = emit_key_pressed_handler().unwrap();
         let ins = &func.instructions;
 
         // Locate the printable-branch UTF-8 encode: the FIRST `bl g_unichar_to_utf8`
@@ -746,7 +746,7 @@ mod tests {
     /// respects the register-lifetime rules.
     #[test]
     fn activate_closes_redundant_pipe_read_fd_after_dup2() {
-        let func = emit_activate_handler();
+        let func = emit_activate_handler().unwrap();
         let ins = &func.instructions;
 
         let dup2_calls: Vec<usize> = ins

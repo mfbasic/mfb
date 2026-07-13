@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 9,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": "String",
       "body": [
@@ -23,10 +24,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 13,
       "params": [
-      { "name": "value", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 13 }
       ],
       "returnType": "String",
       "body": [
@@ -36,10 +38,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "describe",
       "line": 17,
       "params": [
-      { "name": "value", "type": "Boolean", "default": null }
+      { "name": "value", "type": "Boolean", "default": null, "line": 17 }
       ],
       "returnType": "String",
       "body": [
@@ -59,11 +62,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "combine",
       "line": 25,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 25 },
+      { "name": "b", "type": "Integer", "default": null, "line": 25 }
       ],
       "returnType": "Integer",
       "body": [
@@ -73,12 +77,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "combine",
       "line": 29,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null },
-      { "name": "c", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 29 },
+      { "name": "b", "type": "Integer", "default": null, "line": 29 },
+      { "name": "c", "type": "Integer", "default": null, "line": 29 }
       ],
       "returnType": "Integer",
       "body": [
@@ -88,6 +93,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 33,
       "params": [

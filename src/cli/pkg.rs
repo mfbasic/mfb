@@ -45,12 +45,18 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, location] if command == "install" => {
             super::resolve::install(Path::new(location)).map_err(PkgCommandError::Failed)
         }
+        [command, ..] if command == "install" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg install accepts at most one [location]\n\n{USAGE}"
+        ))),
         [command] if command == "update" => {
             super::resolve::update(Path::new(".")).map_err(PkgCommandError::Failed)
         }
         [command, location] if command == "update" => {
             super::resolve::update(Path::new(location)).map_err(PkgCommandError::Failed)
         }
+        [command, ..] if command == "update" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg update accepts at most one [location]\n\n{USAGE}"
+        ))),
         [command, ident, to_owner] if command == "transfer" => {
             transfer_offer(ident, to_owner).map_err(PkgCommandError::Failed)
         }
@@ -227,13 +233,11 @@ fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `mfb pkg transfer-accept <owner>#<package>` (plan-10-D1): the recipient
-/// accepts a pending transfer offer (signed with the local ident key). The
-/// recipient owner is read from the local session for the ident's owner? No —
-/// the accepting account is inferred from which owner has a local session; here
-/// it is passed as the current shell's authenticated recipient via the ident's
-/// pending offer. The recipient owner must be provided by having a local
-/// session; we accept as the owner named after `@`, falling back to prompting.
+/// `mfb pkg transfer-accept <owner>#<package>@<to-owner>` (plan-10-D1): the
+/// recipient accepts a pending transfer offer. The accepting account is named
+/// explicitly after `@` in the argument (never prompted or inferred from a
+/// session): the text before the first `@` is the `<owner>#<package>` ident and
+/// the text after it is the `<to-owner>` recipient. A missing `@` is an error.
 fn transfer_accept(ident: &str) -> Result<(), String> {
     // The recipient is whoever holds a local session able to accept; require
     // it explicitly via `<ident>@<to-owner>` to avoid ambiguity.

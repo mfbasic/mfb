@@ -610,6 +610,12 @@ fn generate(
         ECKEY,
     ));
     call_fn(FN, &mut ins);
+    // EC_KEY_generate_key returns 1 on success, 0 on failure; a discarded 0 would
+    // carry a keyless EC_KEY forward. Route a failure to gen_fail (bug-177 E).
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&gen_fail),
+    ]);
     dlsym_into(
         symbol,
         HANDLE,
@@ -696,6 +702,13 @@ fn generate(
         abi::add_immediate(abi::ARG[1], abi::stack_pointer(), SEC1PP),
     ]);
     call_fn(FN, &mut ins);
+    // i2d_PrivateKey (the write call) returns the byte count written, <= 0 on
+    // error; a discarded failure would leave the SEC1 buffer partially/undefined.
+    // Route a non-positive return to gen_fail (bug-177 E).
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_le(&gen_fail),
+    ]);
 
     // spkiLen = i2d_PUBKEY(pkey, NULL); buf = alloc; i2d_PUBKEY(pkey, &pp).
     // The SEC1 private encoding's public-key field is OPTIONAL (some OpenSSL
@@ -732,6 +745,13 @@ fn generate(
         abi::add_immediate(abi::ARG[1], abi::stack_pointer(), SPKIPP),
     ]);
     call_fn(FN, &mut ins);
+    // i2d_PUBKEY (the write call) returns the byte count written, <= 0 on error;
+    // a discarded failure would leave the SPKI buffer partially/undefined. Route a
+    // non-positive return to gen_fail (bug-177 E).
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_le(&gen_fail),
+    ]);
 
     // raw (point_len + field_len) = point || scalar
     ins.extend([
@@ -742,6 +762,16 @@ fn generate(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), RAWBUF));
+    // Bounds-guard the SPKI DER before slicing out the public point. The point sits
+    // at the fixed constant-length SPKI prefix; a shorter-than-expected SPKI would
+    // otherwise read point_len bytes past the SPKILEN-sized buffer (mirroring the
+    // bug-136.3 SEC1 scalar guard below). Require SPKILEN >= spki_prefix_len +
+    // point_len; route to gen_fail otherwise (bug-177 E).
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SPKILEN),
+        abi::compare_immediate("%v9", &(p.spki_prefix_len() + p.point_len).to_string()),
+        abi::branch_lo(&gen_fail),
+    ]);
     // point = SPKI bytes after the constant-length prefix (04||X||Y follows the
     // fixed SEQ/algid/BITSTRING header directly); scalar from the SEC1 private.
     emit_copy(

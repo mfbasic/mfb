@@ -226,18 +226,15 @@ const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) = (
 );
 /// The arena allocator (`lower_arena_alloc`): size in x0, align in x1; returns a
 /// result tag in x0 and the block pointer in x1.
-// Kept for plan-01-term.md Phase 5: the app-mode `term::terminalSize` retargets
-// this transcript-viewport helper to read the `TermView` grid (§8.3). Unused
-// until then now that `io::terminalSize` is removed (Phase 3).
-#[allow(dead_code)]
+// Consumed by the app-mode terminal-size / TermView helpers
+// (`emit_app_terminal_size`, `app_io.rs`); bug-176 E dropped the stale
+// `#[allow(dead_code)]` and the "unused until Phase 5" note.
 const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 /// `ERR_UNSUPPORTED` (`ERR_UNSUPPORTED_CODE` / `ERR_UNSUPPORTED_SYMBOL` in
 /// src/target/shared/code/mod.rs): returned by the app terminal-size helper when
 /// no transcript is attached. The `_mfb_str_error_unsupported` data object is
 /// emitted by the shared lowering whenever `term::terminalSize` is used.
-#[allow(dead_code)]
 const ERR_UNSUPPORTED_CODE: &str = "77050007";
-#[allow(dead_code)]
 const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 /// Program-completion handler (plan §5.7): runs on the worker thread when the
 /// MFBASIC program finishes. macOS `emit_program_exit` routes the worker
@@ -369,18 +366,14 @@ const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 /// TermCell layout (16 bytes): a unichar glyph plus packed fg/bg colours and the
 /// bold/underline flags. Mirrors the reference `.m` cell (plan §6.3).
 const CELL_SIZE: usize = 16;
-// Cell field offsets are consumed by the Phase 5 write/render path; declared now
-// so the grid layout lives in one place alongside the Phase 4 grid allocation.
-#[allow(dead_code)]
+// Cell field offsets, consumed by the TermView write/render path
+// (`term_view.rs`); bug-176 E dropped the stale `#[allow(dead_code)]` and the
+// "Phase 5 / unused" notes.
 const CELL_GLYPH_OFFSET: usize = 0; // u32 unichar (0 / space = blank)
-#[allow(dead_code)]
 const CELL_FG_OFFSET: usize = 4; // u32 packed r|g<<8|b<<16
-#[allow(dead_code)]
 const CELL_BG_OFFSET: usize = 8; // u32 packed r|g<<8|b<<16
-#[allow(dead_code)]
-const CELL_BOLD_OFFSET: usize = 12; // u8 (Phase 5)
-#[allow(dead_code)]
-const CELL_UNDERLINE_OFFSET: usize = 13; // u8 (Phase 5)
+const CELL_BOLD_OFFSET: usize = 12; // u8
+const CELL_UNDERLINE_OFFSET: usize = 13; // u8
 
 /// Initial TermView frame (matches the window content rect set in the bootstrap).
 const TERM_VIEW_WIDTH: u32 = 900;

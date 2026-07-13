@@ -10,11 +10,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "add",
       "line": 12,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 12 },
+      { "name": "b", "type": "Integer", "default": null, "line": 12 }
       ],
       "returnType": "Integer",
       "body": [
@@ -24,25 +25,27 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makeAdder",
       "line": 17,
       "params": [
-      { "name": "base", "type": "Integer", "default": null }
+      { "name": "base", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "FUNC(Integer) AS Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "base" }, "line": 18 },
       { "kind": "return", "value": { "kind": "lambda", "params": [
-{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 19 }
+{ "name": "value", "type": "Integer", "default": null, "line": 19 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 19 }
       ]
     },
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "apply",
       "line": 23,
       "params": [
-      { "name": "f", "type": "FUNC(Integer, Integer) AS Integer", "default": null }
+      { "name": "f", "type": "FUNC(Integer, Integer) AS Integer", "default": null, "line": 23 }
       ],
       "returnType": "Integer",
       "body": [
@@ -52,6 +55,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "tripler",
       "line": 28,
       "params": [
@@ -59,12 +63,13 @@
       "returnType": "FUNC(Integer) AS Integer",
       "body": [
       { "kind": "return", "value": { "kind": "lambda", "params": [
-{ "name": "x", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "3" } } }, "line": 29 }
+{ "name": "x", "type": "Integer", "default": null, "line": 29 }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "3" } } }, "line": 29 }
       ]
     },
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 32,
       "params": [

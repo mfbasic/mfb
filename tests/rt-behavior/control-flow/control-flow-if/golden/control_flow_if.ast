@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "ifOnly",
       "line": 3,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -33,10 +34,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "ifElse",
       "line": 10,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 10 }
       ],
       "returnType": "Integer",
       "body": [
@@ -56,11 +58,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "ifElseIf",
       "line": 18,
       "params": [
-      { "name": "first", "type": "Boolean", "default": null },
-      { "name": "second", "type": "Boolean", "default": null }
+      { "name": "first", "type": "Boolean", "default": null, "line": 18 },
+      { "name": "second", "type": "Boolean", "default": null, "line": 18 }
       ],
       "returnType": "Integer",
       "body": [
@@ -90,11 +93,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "ifElseIfElse",
       "line": 27,
       "params": [
-      { "name": "first", "type": "Boolean", "default": null },
-      { "name": "second", "type": "Boolean", "default": null }
+      { "name": "first", "type": "Boolean", "default": null, "line": 27 },
+      { "name": "second", "type": "Boolean", "default": null, "line": 27 }
       ],
       "returnType": "Integer",
       "body": [
@@ -124,10 +128,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "inlineIfElse",
       "line": 37,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 37 }
       ],
       "returnType": "Integer",
       "body": [
@@ -147,10 +152,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "inlineIfAssign",
       "line": 41,
       "params": [
-      { "name": "flag", "type": "Boolean", "default": null }
+      { "name": "flag", "type": "Boolean", "default": null, "line": 41 }
       ],
       "returnType": "Integer",
       "body": [
@@ -172,6 +178,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 47,
       "params": [

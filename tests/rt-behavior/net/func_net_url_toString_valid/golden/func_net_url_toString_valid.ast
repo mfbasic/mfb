@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "roundTrip",
       "line": 6,
       "params": [
-      { "name": "href", "type": "String", "default": null }
+      { "name": "href", "type": "String", "default": null, "line": 6 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -38,6 +39,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 18,
       "params": [

@@ -11,12 +11,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "greet",
       "line": 4,
       "params": [
-      { "name": "name", "type": "String", "default": null },
-      { "name": "greeting", "type": "String", "default": { "kind": "string", "value": "Hello" } },
-      { "name": "punctuation", "type": "String", "default": { "kind": "string", "value": "!" } }
+      { "name": "name", "type": "String", "default": null, "line": 4 },
+      { "name": "greeting", "type": "String", "default": { "kind": "string", "value": "Hello" }, "line": 4 },
+      { "name": "punctuation", "type": "String", "default": { "kind": "string", "value": "!" }, "line": 4 }
       ],
       "returnType": "String",
       "body": [
@@ -26,6 +27,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 8,
       "params": [

@@ -660,6 +660,10 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
             ],
         ),
         // fs::writeText(path, acc) — swallow any failure (best-effort coverage).
+        // bug-176 F: RECOVER (continue past the trap), not EXIT SUB — the two dump
+        // blocks are flattened into one SUB, so an EXIT SUB on the first file's
+        // write error would skip the second dump. RECOVER keeps each dump
+        // independently best-effort.
         Statement::Expression {
             expression: Expression::Trapped {
                 expression: Box::new(call(
@@ -667,9 +671,8 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
                     vec![str_lit(path.to_string_lossy().into_owned()), ident(&acc)],
                 )),
                 binding: "#dumpErr".to_string(),
-                handler: vec![Statement::Exit {
-                    target: crate::ast::ExitTarget::Sub,
-                    code: None,
+                handler: vec![Statement::Recover {
+                    value: None,
                     line: 0,
                 }],
                 line: 0,

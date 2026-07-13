@@ -13,11 +13,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "show",
       "templateParams": ["T"],
       "line": 12,
       "params": [
-      { "name": "value", "type": "T", "default": null }
+      { "name": "value", "type": "T", "default": null, "line": 12 }
       ],
       "returnType": null,
       "body": [
@@ -27,12 +28,13 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "showLabeled",
       "templateParams": ["T"],
       "line": 16,
       "params": [
-      { "name": "label", "type": "String", "default": null },
-      { "name": "value", "type": "T", "default": null }
+      { "name": "label", "type": "String", "default": null, "line": 16 },
+      { "name": "value", "type": "T", "default": null, "line": 16 }
       ],
       "returnType": null,
       "body": [
@@ -42,10 +44,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "pick",
       "line": 20,
       "params": [
-      { "name": "n", "type": "Integer", "default": null }
+      { "name": "n", "type": "Integer", "default": null, "line": 20 }
       ],
       "returnType": "String",
       "body": [
@@ -55,10 +58,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "pick",
       "line": 23,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 23 }
       ],
       "returnType": "String",
       "body": [
@@ -68,6 +72,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 27,
       "params": [

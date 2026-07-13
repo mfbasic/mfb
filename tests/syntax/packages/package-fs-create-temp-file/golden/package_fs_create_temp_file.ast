@@ -10,6 +10,7 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "createDefaultTemp",
       "line": 3,
       "params": [
@@ -25,10 +26,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "createInDirectory",
       "line": 10,
       "params": [
-      { "name": "directory", "type": "String", "default": null }
+      { "name": "directory", "type": "String", "default": null, "line": 10 }
       ],
       "returnType": "String",
       "body": [

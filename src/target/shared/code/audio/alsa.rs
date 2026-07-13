@@ -175,6 +175,15 @@ const HINTS_OFF: usize = 224; // void** device hints
 const HINT_PTR_OFF: usize = 232; // current hint cursor
 const COUNT_OFF: usize = 240;
 const NAME_BUF_OFF: usize = 256; // 128-byte device name buffer -> 256..384
+// Timed-read (readTimeout) scratch; unused by the blocking read/write/open paths.
+const FINAL_LIST_OFF: usize = 384; // right-sized result for a partial timed read
+const GOTBYTES_OFF: usize = 392; // bytes gathered so far (frames * bpf)
+const WANT_OFF: usize = 400; // frames to request from readi this iteration
+const TIMEOUT_OFF: usize = 408; // timeoutMs (spilled at entry)
+const DEADLINE_OFF: usize = 416; // absolute deadline (ns, CLOCK_MONOTONIC)
+const CLK_OFF: usize = 424; // clock_gettime timespec -> 424..440
+const WAIT_FN_OFF: usize = 440; // cached snd_pcm_wait fn-ptr
+const AVAIL_FN_OFF: usize = 448; // cached snd_pcm_avail_update fn-ptr
 
 /// Resolve `libasound.so.2` (dlopen), storing the handle at `DL_HANDLE_OFF`;
 /// branch to `unavailable` if it does not load.
@@ -277,6 +286,7 @@ const SR_MAX: &str = "192000";
 const BUF_MIN: &str = "64";
 const BUF_MAX: &str = "8192";
 const READ_FRAMES_MAX: &str = "1048576";
+const TIMEOUT_MAX: &str = "86400000"; // 24h, matches the macOS timed-read bound
 
 /// dlsym `name` into `FNPTR_OFF`, stage the args via `stage`, call it, and leave
 /// the (sign-extended) result in the return register.
@@ -333,11 +343,19 @@ fn emit_validate_open(
 fn emit_device_cstring(device_off: usize, instructions: &mut Vec<CodeInstruction>, symbol: &str) {
     let copy = format!("{symbol}_dev_copy");
     let done = format!("{symbol}_dev_copy_done");
+    let clamp_ok = format!("{symbol}_dev_clamp_ok");
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), device_off),
         abi::load_u64("%v9", "%v9", DEVICE_FIELD_ID), // id String ptr
         abi::load_u64("%v10", "%v9", 0),              // len
         abi::add_immediate("%v11", "%v9", 8),         // src bytes
+        // Clamp the copy count to NAME_BUF's 128 bytes minus the NUL terminator;
+        // an oversized device id would otherwise overrun the fixed buffer.
+        abi::move_immediate("%v9", "Integer", "127"),
+        abi::compare_registers("%v10", "%v9"),
+        abi::branch_le(&clamp_ok),
+        abi::move_register("%v10", "%v9"),
+        abi::label(&clamp_ok),
         abi::add_immediate("%v12", abi::stack_pointer(), NAME_BUF_OFF),
         abi::store_u64("%v12", abi::stack_pointer(), NAME_OFF),
         abi::move_immediate("%v13", "Integer", "0"),
@@ -392,6 +410,9 @@ fn lower_open(
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), BF_OFF),
         ]);
     }
+    // Zero the state slot so the open-error cleanup can tell the page was not yet
+    // mapped (nothing to close/munmap before mmap and snd_pcm_open run).
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF));
     emit_validate_open(symbol, &invalid, &mut instructions);
     // bytesPerFrame, AudioHandle, mmap state.
     instructions.extend([
@@ -485,6 +506,34 @@ fn lower_open(
     instructions.push(abi::label(&unavailable));
     emit_fail(symbol, ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_SYMBOL, &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&dev_fail));
+    // Open-error cleanup (bug-180): close the PCM (if opened) and munmap the state
+    // page (if mapped) before failing. `STATE_OFF` is zeroed at entry and mmap
+    // zero-fills `S_OSOBJECT`, so each disposal is guarded when reached early.
+    {
+        let cleanup_munmap = format!("{symbol}_dev_munmap");
+        let cleanup_done = format!("{symbol}_dev_cleanup_done");
+        instructions.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+            abi::compare_immediate("%v10", "0"),
+            abi::branch_eq(&cleanup_done),
+            abi::load_u64("%v9", "%v10", S_OSOBJECT),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&cleanup_munmap),
+        ]);
+        emit_alsa_call(symbol, "snd_pcm_close", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+            ins.extend([
+                abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+            ]);
+        })?;
+        instructions.extend([
+            abi::label(&cleanup_munmap),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
+        ]);
+        platform.emit_libc_call("munmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::label(&cleanup_done));
+    }
     emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
     emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
@@ -829,6 +878,12 @@ fn lower_read(
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_OFF),
+    ]);
+    if timeout {
+        // Spill `timeoutMs` (ARG[2]) before any dlopen/libc call clobbers it.
+        instructions.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFF));
+    }
+    instructions.extend([
         abi::load_u64("%v9", abi::return_register(), H_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&dev_fail),
@@ -845,8 +900,14 @@ fn lower_read(
         abi::multiply_registers("%v12", "%v9", "%v10"),
         abi::store_u64("%v12", abi::stack_pointer(), NEED_OFF),
     ]);
-    let _ = timeout; // the timed variant currently shares the blocking loop; a
-    // deadline refinement is a follow-up (documented as a limitation).
+    if timeout {
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+            abi::move_immediate("%v11", "Integer", TIMEOUT_MAX),
+            abi::compare_registers("%v9", "%v11"),
+            abi::branch_gt(&invalid),
+        ]);
+    }
     emit_alloc_byte_list(symbol, "main", NEED_OFF, LIST_OFF, &alloc_fail, &mut instructions, &mut relocations);
     // payload base = list + HEADER + need*ENTRY
     instructions.extend([
@@ -860,6 +921,34 @@ fn lower_read(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF), // frames read
     ]);
     emit_dlopen(symbol, &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
+    if timeout {
+        // Cache the poll fn-ptrs (dlsym clobbers FNPTR_OFF, which later holds the
+        // recover fn-ptr, so resolve these first) and pin the absolute deadline.
+        emit_dlsym(symbol, "snd_pcm_wait", &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
+        instructions.push(abi::store_u64("%v9", abi::stack_pointer(), WAIT_FN_OFF));
+        emit_dlsym(symbol, "snd_pcm_avail_update", &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
+        instructions.push(abi::store_u64("%v9", abi::stack_pointer(), AVAIL_FN_OFF));
+        // deadline = now + timeoutMs*1e6 (Linux CLOCK_MONOTONIC = 1).
+        instructions.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
+        ]);
+        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
+            abi::move_immediate("%v10", "Integer", "1000000000"),
+            abi::multiply_registers("%v9", "%v9", "%v10"),
+            abi::load_u64("%v11", abi::stack_pointer(), CLK_OFF + 8),
+            abi::add_registers("%v9", "%v9", "%v11"),
+            abi::load_u64("%v12", abi::stack_pointer(), TIMEOUT_OFF),
+            abi::move_immediate("%v13", "Integer", "1000000"),
+            abi::multiply_registers("%v12", "%v12", "%v13"),
+            abi::add_registers("%v9", "%v9", "%v12"),
+            abi::store_u64("%v9", abi::stack_pointer(), DEADLINE_OFF),
+        ]);
+    }
     emit_dlsym(symbol, "snd_pcm_readi", &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
     instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
@@ -870,14 +959,82 @@ fn lower_read(
         abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_ge(&loop_done),
-        // snd_pcm_readi(pcm, payload + got*bpf, frames - got)
+    ]);
+    if timeout {
+        // Bound the blocking read by the deadline: on expiry return the partial
+        // frames gathered so far; otherwise wait (bounded) for a period and then
+        // read only what is available, so `snd_pcm_readi` returns promptly.
+        let want_cap = format!("{symbol}_want_cap");
+        instructions.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
+        ]);
+        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
+            abi::move_immediate("%v10", "Integer", "1000000000"),
+            abi::multiply_registers("%v9", "%v9", "%v10"),
+            abi::load_u64("%v11", abi::stack_pointer(), CLK_OFF + 8),
+            abi::add_registers("%v9", "%v9", "%v11"), // now
+            abi::load_u64("%v12", abi::stack_pointer(), DEADLINE_OFF),
+            abi::compare_registers("%v9", "%v12"),
+            abi::branch_ge(&loop_done), // expired -> partial
+            // remaining_ms = (deadline - now) / 1e6; sub-ms remaining -> partial.
+            abi::subtract_registers("%v12", "%v12", "%v9"),
+            abi::move_immediate("%v13", "Integer", "1000000"),
+            abi::unsigned_divide_registers("%v13", "%v12", "%v13"),
+            abi::compare_immediate("%v13", "0"),
+            abi::branch_eq(&loop_done),
+            // snd_pcm_wait(pcm, remaining_ms): 1 ready, 0 timeout, <0 error.
+            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
+            abi::move_register(abi::ARG[1], "%v13"),
+            abi::load_u64("%v8", abi::stack_pointer(), WAIT_FN_OFF),
+            abi::branch_link_register("%v8"),
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&loop_done), // timeout -> partial
+            abi::branch_lt(&recover),   // error (e.g. xrun) -> recover (N_OFF = err)
+            // avail = snd_pcm_avail_update(pcm)
+            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
+            abi::load_u64("%v8", abi::stack_pointer(), AVAIL_FN_OFF),
+            abi::branch_link_register("%v8"),
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_lt(&recover), // avail error -> recover
+            // want = min(frames - got, avail); a zero avail re-arms the wait.
+            abi::move_register("%v14", abi::return_register()), // avail frames
+            abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+            abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
+            abi::subtract_registers("%v10", "%v10", "%v9"), // remaining frames
+            abi::compare_registers("%v14", "%v10"),
+            abi::branch_ge(&want_cap),
+            abi::move_register("%v10", "%v14"), // want = avail
+            abi::label(&want_cap),
+            abi::compare_immediate("%v10", "0"),
+            abi::branch_eq(&loop_top),
+            abi::store_u64("%v10", abi::stack_pointer(), WANT_OFF),
+            abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF), // reload for readi math
+        ]);
+    }
+    instructions.extend([
+        // snd_pcm_readi(pcm, payload + got*bpf, <count>)
         abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
         abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF),
         abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
         abi::multiply_registers("%v14", "%v9", "%v13"),
         abi::add_registers(abi::ARG[1], "%v12", "%v14"),
-        abi::subtract_registers(abi::ARG[2], "%v10", "%v9"),
+    ]);
+    if timeout {
+        instructions.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WANT_OFF));
+    } else {
+        instructions.push(abi::subtract_registers(abi::ARG[2], "%v10", "%v9"));
+    }
+    instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), FN2_OFF),
         abi::branch_link_register("%v8"),
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
@@ -910,6 +1067,62 @@ fn lower_read(
         abi::branch_lt(&dev_fail),
         abi::branch(&loop_top),
         abi::label(&loop_done),
+    ]);
+    if timeout {
+        // Partial timed read: if fewer than `frames` gathered, return a
+        // right-sized list of `got` frames and free the oversized pre-alloc.
+        let ret_full = format!("{symbol}_ret_full");
+        let fin_loop = format!("{symbol}_fin");
+        let fin_done = format!("{symbol}_fin_done");
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+            abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_ge(&ret_full),
+            abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
+            abi::multiply_registers("%v9", "%v9", "%v13"), // gotBytes = got * bpf
+            abi::store_u64("%v9", abi::stack_pointer(), GOTBYTES_OFF),
+        ]);
+        emit_alloc_byte_list(symbol, "final", GOTBYTES_OFF, FINAL_LIST_OFF, &alloc_fail, &mut instructions, &mut relocations);
+        instructions.extend([
+            // copy gotBytes from the oversized payload into the final payload.
+            abi::load_u64("%v9", abi::stack_pointer(), GOTBYTES_OFF),
+            abi::load_u64("%v11", abi::stack_pointer(), FINAL_LIST_OFF),
+            abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v13", "%v9", "%v13"),
+            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
+            abi::add_registers("%v11", "%v11", "%v13"), // final payload
+            abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF), // source payload
+            abi::move_immediate("%v16", "Integer", "0"),
+            abi::label(&fin_loop),
+            abi::compare_registers("%v16", "%v9"),
+            abi::branch_ge(&fin_done),
+            abi::add_registers("%v17", "%v12", "%v16"),
+            abi::load_u8("%v18", "%v17", 0),
+            abi::add_registers("%v17", "%v11", "%v16"),
+            abi::store_u8("%v18", "%v17", 0),
+            abi::add_immediate("%v16", "%v16", 1),
+            abi::branch(&fin_loop),
+            abi::label(&fin_done),
+            // Return the oversized pre-alloc to the arena (size matches
+            // emit_alloc_byte_list: need*ENTRY + HEADER + need).
+            abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
+            abi::move_immediate("%v10", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v11", "%v9", "%v10"),
+            abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
+            abi::add_registers("%v11", "%v11", "%v9"),
+            abi::move_register(abi::ARG[1], "%v11"),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
+        ]);
+        emit_arena_free(symbol, &mut instructions, &mut relocations);
+        instructions.extend([
+            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), FINAL_LIST_OFF),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&done),
+            abi::label(&ret_full),
+        ]);
+    }
+    instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), LIST_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

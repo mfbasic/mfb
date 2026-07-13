@@ -10,6 +10,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "compileReadByte",
       "line": 3,
       "params": [
@@ -33,6 +34,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 12,
       "params": [

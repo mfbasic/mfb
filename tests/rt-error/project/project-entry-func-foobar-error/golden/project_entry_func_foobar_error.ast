@@ -9,6 +9,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "foobar",
       "line": 1,
       "params": [

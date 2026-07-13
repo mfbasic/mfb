@@ -10,11 +10,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makeError",
       "line": 6,
       "params": [
-      { "name": "code", "type": "Integer", "default": null },
-      { "name": "message", "type": "String", "default": null }
+      { "name": "code", "type": "Integer", "default": null, "line": 6 },
+      { "name": "message", "type": "String", "default": null, "line": 6 }
       ],
       "returnType": "Error",
       "body": [
@@ -24,6 +25,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 10,
       "params": [

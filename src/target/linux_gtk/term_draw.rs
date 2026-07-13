@@ -27,7 +27,7 @@ fn emit_cairo_color(asm: &mut Asm, cr: &str, packed: &str) {
 /// — the drawing-area render callback (main thread). Paints black, then renders each
 /// non-space cell: an optional background rect, then the glyph in its fg color and
 /// weight (bold). Monospace; cursor rendering is still deferred.
-pub(super) fn emit_term_draw_helper() -> CodeFunction {
+pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_DRAW_SYMBOL);
     // lr@0, x19(cr)@8, x20(row)@16, x21(col)@24, x22(lastBold)@32, x23(charsBase)@40,
     // x24(fgBase)@48, x25(bgBase)@56, x26(cols)@64, x27(rows)@72, fg@80, bg@88,
@@ -277,7 +277,7 @@ fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
 /// draw callback: a concurrent redraw during the memmove/memset can paint a torn
 /// row. Benign (fixed static buffers, no memory unsafety, corrected next frame);
 /// the marshaling fix is deferred (bug-117.3).
-pub(super) fn emit_term_scroll_helper() -> CodeFunction {
+pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_SCROLL_SYMBOL);
     // lr@0, x19(cells = (rows-1)*MAX_COLS, the chars to move / last-row offset)@8.
     asm.push(abi::label("entry"));
@@ -337,7 +337,7 @@ pub(super) fn emit_term_scroll_helper() -> CodeFunction {
 /// surface), then cols = floor(W/cellW), rows = floor(H/cellH) clamped to the
 /// backing-store bounds, and blank the char grid. Mirrors the macOS term_init,
 /// which sizes cols/rows from the font's advance + line height and the view frame.
-pub(super) fn emit_term_init_helper() -> CodeFunction {
+pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_INIT_SYMBOL);
     // lr@0, x19(cr)@8, x20(surf)@16, extents buffer@24 (48B, fits both font_extents
     // and the larger text_extents). cr/surf are callee-saved so they survive the
@@ -451,7 +451,7 @@ fn emit_clamp_range(asm: &mut Asm, reg: &str, low: usize, high: usize, tag: &str
 }
 
 /// Main-thread idle: swap the window child to the term:: surface and redraw it.
-pub(super) fn emit_term_show_idle_helper() -> CodeFunction {
+pub(super) fn emit_term_show_idle_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_SHOW_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -476,7 +476,7 @@ pub(super) fn emit_term_show_idle_helper() -> CodeFunction {
 }
 
 /// Main-thread idle: restore the transcript as the window child.
-pub(super) fn emit_term_hide_idle_helper() -> CodeFunction {
+pub(super) fn emit_term_hide_idle_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -530,7 +530,7 @@ fn emit_term_snapshot_copy(asm: &mut Asm) {
 /// coalesced present scheduled by `term::sync` / `io::flush` / `term::off` (and the
 /// explicit terminal ops `clear` / cursor-visibility); the per-write redraw was
 /// removed so a program that draws without a following present shows nothing new.
-pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
+pub(super) fn emit_term_redraw_idle_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -556,7 +556,7 @@ pub(super) fn emit_term_redraw_idle_helper() -> CodeFunction {
 /// `_mfb_gtkapp_state` so `term::terminalSize` tracks the live window, and force a
 /// full redraw. The backing arrays keep their fixed stride (no realloc); only the
 /// active top-left cols×rows change. Signal args arrive zero-extended in w1/w2.
-pub(super) fn emit_term_resize_helper() -> CodeFunction {
+pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_RESIZE_SYMBOL);
     // lr@0. width (x1) / height (x2) are consumed before the single queue_draw call,
     // so no callee-saved parking is needed.
@@ -606,7 +606,7 @@ pub(super) fn emit_term_resize_helper() -> CodeFunction {
 /// fixed-size static buffers (no reallocation, no dangling pointer, no memory
 /// unsafety). Do not reintroduce a per-write redraw or a lock the worker holds across
 /// the draw callback (either the mandatory-present contract breaks or the UI stalls).
-pub(super) fn emit_term_write_helper() -> CodeFunction {
+pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,
     // x25(row)@48, x26(col)@56, x27(fgBase)@64, x28(bgBase)@72, fgval@80, bgval@88.

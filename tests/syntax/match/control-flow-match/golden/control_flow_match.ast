@@ -48,10 +48,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "enumAll",
       "line": 18,
       "params": [
-      { "name": "color", "type": "Color", "default": null }
+      { "name": "color", "type": "Color", "default": null, "line": 18 }
       ],
       "returnType": "Integer",
       "body": [
@@ -83,10 +84,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "enumPartialWithElse",
       "line": 27,
       "params": [
-      { "name": "color", "type": "Color", "default": null }
+      { "name": "color", "type": "Color", "default": null, "line": 27 }
       ],
       "returnType": "Integer",
       "body": [
@@ -118,10 +120,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "unionAll",
       "line": 36,
       "params": [
-      { "name": "shape", "type": "Shape", "default": null }
+      { "name": "shape", "type": "Shape", "default": null, "line": 36 }
       ],
       "returnType": "Integer",
       "body": [
@@ -153,10 +156,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "unionPartialWithElse",
       "line": 45,
       "params": [
-      { "name": "shape", "type": "Shape", "default": null }
+      { "name": "shape", "type": "Shape", "default": null, "line": 45 }
       ],
       "returnType": "Integer",
       "body": [
@@ -188,6 +192,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 54,
       "params": [

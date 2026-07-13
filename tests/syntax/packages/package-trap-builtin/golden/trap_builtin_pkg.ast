@@ -9,10 +9,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "parseDoubled",
       "line": 4,
       "params": [
-      { "name": "s", "type": "String", "default": null }
+      { "name": "s", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": "Integer",
       "body": [

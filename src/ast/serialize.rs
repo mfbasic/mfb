@@ -670,6 +670,7 @@ impl ToAstJson for Function {
                 "\n{}{{\n",
                 "{}  \"kind\": {},\n",
                 "{}  \"visibility\": {},\n",
+                "{}  \"isolated\": {},\n",
                 "{}  \"name\": {},\n",
                 "{}",
                 "{}  \"line\": {},\n",
@@ -687,6 +688,8 @@ impl ToAstJson for Function {
             }),
             pad,
             json_string(visibility_name(self.visibility)),
+            pad,
+            self.isolated,
             pad,
             json_string(&self.name),
             template_params,
@@ -744,12 +747,13 @@ impl ToAstJson for Param {
             .map(|value| value.to_json(indent))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"name\": {}, \"type\": {}{}, \"default\": {} }}",
+            "\n{}{{ \"name\": {}, \"type\": {}{}, \"default\": {}, \"line\": {} }}",
             pad,
             json_string(&self.name),
             type_name,
             resource_json_suffix(self.resource, &self.state_type),
-            default
+            default,
+            self.line
         )
     }
 }
@@ -1600,6 +1604,21 @@ pub(super) fn substitute_placeholder(expression: Expression, input: &Expression)
         Expression::MemberAccess { target, member } => Expression::MemberAccess {
             target: Box::new(substitute_placeholder(*target, input)),
             member,
+        },
+        // Mirror `contains_placeholder`, which walks a `Trapped`'s inner
+        // expression: substitute there too so a `_` inside a trapped subexpression
+        // is rewritten rather than silently left behind (bug-171 finding C). The
+        // handler body holds statements (not the pipeline input) and is left as-is.
+        Expression::Trapped {
+            expression,
+            binding,
+            handler,
+            line,
+        } => Expression::Trapped {
+            expression: Box::new(substitute_placeholder(*expression, input)),
+            binding,
+            handler,
+            line,
         },
         Expression::WithUpdate { target, updates } => Expression::WithUpdate {
             target: Box::new(substitute_placeholder(*target, input)),

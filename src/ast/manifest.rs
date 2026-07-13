@@ -426,24 +426,12 @@ fn collect_mfb_files(
     for entry in fs::read_dir(current)? {
         let entry = entry?;
         let path = entry.path();
-        let canonical_path = fs::canonicalize(&path)?;
-        if !path_within_project(&canonical_path, canonical_project_dir) {
-            rules::show_diagnostic(
-                "MFB_SOURCE_OUTSIDE_PROJECT",
-                &format!(
-                    "Source path `{}` resolves outside project directory `{}`.",
-                    path.display(),
-                    canonical_project_dir.display()
-                ),
-                &path,
-                1,
-                1,
-                1,
-            );
-            return Err(CollectError::Reported);
-        }
 
         if path.is_dir() {
+            // A directory must be canonicalized to enforce the project boundary and
+            // to recurse; a canonicalize error here is a genuine walk failure.
+            let canonical_path = fs::canonicalize(&path)?;
+            ensure_within_project(&path, &canonical_path, canonical_project_dir)?;
             collect_mfb_files(
                 project_dir,
                 logical_root,
@@ -456,19 +444,51 @@ fn collect_mfb_files(
             continue;
         }
 
+        // Filter by extension and include/exclude patterns *before* canonicalizing
+        // (bug-171 finding F). A broken symlink / EACCES entry that we never select
+        // must not abort the whole build via a canonicalize error.
         if path.extension().and_then(|ext| ext.to_str()) != Some("mfb") {
             continue;
         }
-
         let relative_path = normalized_relative_path(logical_root, &path);
-        if matches_source_patterns(&relative_path, &source_entry.include, &source_entry.exclude) {
-            files.push(SelectedSource {
-                actual_path: canonical_path,
-                display_path: path,
-            });
+        if !matches_source_patterns(&relative_path, &source_entry.include, &source_entry.exclude) {
+            continue;
         }
+
+        let canonical_path = fs::canonicalize(&path)?;
+        ensure_within_project(&path, &canonical_path, canonical_project_dir)?;
+        files.push(SelectedSource {
+            actual_path: canonical_path,
+            display_path: path,
+        });
     }
 
+    Ok(())
+}
+
+/// Reject a path whose canonical form escapes the project boundary, emitting the
+/// `MFB_SOURCE_OUTSIDE_PROJECT` diagnostic. Shared by the directory-recursion and
+/// selected-file arms of the source walk.
+fn ensure_within_project(
+    path: &Path,
+    canonical_path: &Path,
+    canonical_project_dir: &Path,
+) -> Result<(), CollectError> {
+    if !path_within_project(canonical_path, canonical_project_dir) {
+        rules::show_diagnostic(
+            "MFB_SOURCE_OUTSIDE_PROJECT",
+            &format!(
+                "Source path `{}` resolves outside project directory `{}`.",
+                path.display(),
+                canonical_project_dir.display()
+            ),
+            path,
+            1,
+            1,
+            1,
+        );
+        return Err(CollectError::Reported);
+    }
     Ok(())
 }
 
@@ -497,18 +517,43 @@ pub(super) fn glob_matches(pattern: &str, path: &str) -> bool {
 }
 
 fn glob_match_segments(pattern: &[&str], path: &[&str]) -> bool {
-    match pattern.split_first() {
-        None => path.is_empty(),
-        Some((&"**", remaining)) => {
-            glob_match_segments(remaining, path)
-                || (!path.is_empty() && glob_match_segments(pattern, &path[1..]))
-        }
-        Some((segment, remaining)) => {
-            !path.is_empty()
-                && glob_match_component(segment, path[0])
-                && glob_match_segments(remaining, &path[1..])
-        }
+    // Memoize on `(pattern_index, path_index)`. The naive recursion branches twice
+    // per `**` segment (`match(remaining, path) || match(pattern, path[1..])`),
+    // which is super-linear — exponential in the number of `**` segments — on
+    // adversarial patterns/paths (bug-171 finding F). Each `(pi, xi)` state is now
+    // computed at most once, giving `O(pattern.len * path.len)`.
+    let width = path.len() + 1;
+    let mut memo = vec![None; (pattern.len() + 1) * width];
+    glob_match_from(pattern, path, 0, 0, width, &mut memo)
+}
+
+fn glob_match_from(
+    pattern: &[&str],
+    path: &[&str],
+    pi: usize,
+    xi: usize,
+    width: usize,
+    memo: &mut [Option<bool>],
+) -> bool {
+    if let Some(cached) = memo[pi * width + xi] {
+        return cached;
     }
+    let result = match pattern.get(pi) {
+        None => xi == path.len(),
+        // `**` matches zero segments (advance the pattern) or one more segment
+        // (advance the path, keeping `**`).
+        Some(&"**") => {
+            glob_match_from(pattern, path, pi + 1, xi, width, memo)
+                || (xi < path.len() && glob_match_from(pattern, path, pi, xi + 1, width, memo))
+        }
+        Some(segment) => {
+            xi < path.len()
+                && glob_match_component(segment, path[xi])
+                && glob_match_from(pattern, path, pi + 1, xi + 1, width, memo)
+        }
+    };
+    memo[pi * width + xi] = Some(result);
+    result
 }
 
 fn glob_match_component(pattern: &str, value: &str) -> bool {

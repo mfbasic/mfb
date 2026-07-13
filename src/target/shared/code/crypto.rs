@@ -17,6 +17,12 @@ use crate::target::shared::abi;
 
 const GETENTROPY_MAX: usize = 256;
 
+/// Upper bound on `crypto::randomBytes(count)`. Far above any real key-material
+/// request (16 MiB), it caps the `count * ENTRY + HEADER + count` collection-size
+/// arithmetic well below a u64 overflow and rejects an absurd allocation before it
+/// is attempted (bug-177 D). A larger ask is reported as an invalid argument.
+const RANDOM_BYTES_MAX_COUNT: usize = 16 * 1024 * 1024;
+
 pub(super) fn lower_crypto_random_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -50,10 +56,16 @@ pub(super) fn lower_crypto_random_bytes_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
 
-    // Validate count >= 0 and stash it.
+    // Validate 0 <= count <= RANDOM_BYTES_MAX_COUNT and stash it. The upper bound
+    // rejects an absurd request before the count*ENTRY + HEADER + count size
+    // arithmetic below can overflow (bug-177 D); the cap is materialized into a
+    // vreg so the compare is size-safe on every backend.
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&invalid),
+        abi::move_immediate("%v9", "Integer", &RANDOM_BYTES_MAX_COUNT.to_string()),
+        abi::compare_registers(abi::return_register(), "%v9"),
+        abi::branch_gt(&invalid),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), COUNT_OFFSET),
         // Allocate a scratch buffer of `count` bytes (arena_alloc rounds up, so a
         // zero request still yields a valid pointer we simply never read). `count`
@@ -158,6 +170,34 @@ pub(super) fn lower_crypto_random_bytes_helper(
         abi::add_immediate("%v9", "%v9", 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),
+    ]);
+
+    // Wipe the entropy scratch buffer now that its bytes have been copied into the
+    // returned List OF Byte, so a later same-program arena allocation cannot be
+    // handed a block still holding the generated random bytes (bug-177 D). Call-free
+    // guarded zero loop mirroring the EC helpers' zero_scratch_guarded; %v9 = cursor,
+    // %v10 = count, %v11 = index.
+    let zero_skip = format!("{symbol}_zero_skip");
+    let zero_loop = format!("{symbol}_zero_loop");
+    let zero_end = format!("{symbol}_zero_end");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), BUF_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&zero_skip),
+        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
+        abi::move_immediate("%v11", "Integer", "0"),
+        abi::label(&zero_loop),
+        abi::compare_registers("%v11", "%v10"),
+        abi::branch_eq(&zero_end),
+        abi::store_u8(abi::ZERO, "%v9", 0),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::branch(&zero_loop),
+        abi::label(&zero_end),
+        abi::label(&zero_skip),
+    ]);
+
+    instructions.extend([
         abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

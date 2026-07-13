@@ -9,6 +9,7 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "onlyFile",
       "line": 1,
       "params": [

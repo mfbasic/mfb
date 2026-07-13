@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "flip",
       "line": 3,
       "params": [
-      { "name": "x", "type": "Boolean", "default": null }
+      { "name": "x", "type": "Boolean", "default": null, "line": 3 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -23,6 +24,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 9,
       "params": [

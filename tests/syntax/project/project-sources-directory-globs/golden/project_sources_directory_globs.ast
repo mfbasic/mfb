@@ -9,6 +9,7 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "rootMain",
       "line": 1,
       "params": [
@@ -27,6 +28,7 @@
     {
       "kind": "sub",
       "visibility": "export",
+      "isolated": false,
       "name": "keep",
       "line": 1,
       "params": [

@@ -21,11 +21,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "advance",
       "line": 9,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": "FileState", "default": null },
-      { "name": "by", "type": "Integer", "default": null }
+      { "name": "f", "type": "File", "resource": true, "state": "FileState", "default": null, "line": 9 },
+      { "name": "by", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": null,
       "body": [
@@ -35,6 +36,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 13,
       "params": [

@@ -1046,7 +1046,7 @@ impl<'a> FileParser<'a> {
         // specific overload, e.g. `FUNC query(Db, String, List OF String)`.
         let callable = matches!(header_kind, DocHeaderKind::Func | DocHeaderKind::Sub);
         let (header_name, header_params) = if callable {
-            parse_header_signature(head_rest.trim())
+            self.parse_header_signature(head_rest.trim(), header_line)
         } else {
             (head_rest.trim().to_string(), None)
         };
@@ -1249,54 +1249,70 @@ impl<'a> FileParser<'a> {
     }
 }
 
-/// Parse a FUNC/SUB doc header's name and optional parenthesized parameter-type
-/// disambiguator: `name` -> (name, None); `name(T1, T2)` -> (name, Some([T1, T2])).
-/// Type strings are whitespace-normalized; commas inside nested parens (function
-/// types) are not split on.
-fn parse_header_signature(text: &str) -> (String, Option<Vec<String>>) {
-    let Some(open) = text.find('(') else {
-        return (text.trim().to_string(), None);
-    };
-    let name = text[..open].trim().to_string();
-    let rest = &text[open + 1..];
-    // Find the matching close paren, tracking nesting.
-    let mut depth = 1usize;
-    let mut end = rest.len();
-    for (idx, ch) in rest.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = idx;
-                    break;
+impl<'a> FileParser<'a> {
+    /// Parse a FUNC/SUB doc header's name and optional parenthesized parameter-type
+    /// disambiguator: `name` -> (name, None); `name(T1, T2)` -> (name, Some([T1, T2])).
+    /// Type strings are whitespace-normalized; commas inside nested parens (function
+    /// types) are not split on.
+    fn parse_header_signature(
+        &mut self,
+        text: &str,
+        header_line: usize,
+    ) -> (String, Option<Vec<String>>) {
+        let Some(open) = text.find('(') else {
+            return (text.trim().to_string(), None);
+        };
+        let name = text[..open].trim().to_string();
+        let rest = &text[open + 1..];
+        // Find the matching close paren, tracking nesting.
+        let mut depth = 1usize;
+        let mut end = rest.len();
+        for (idx, ch) in rest.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = idx;
+                        break;
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
-    }
-    let inner = &rest[..end];
-    if inner.trim().is_empty() {
-        return (name, Some(Vec::new()));
-    }
-    // Split on top-level commas.
-    let mut params = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-    let bytes = inner.as_bytes();
-    for (idx, &b) in bytes.iter().enumerate() {
-        match b {
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
-            b',' if depth == 0 => {
-                params.push(normalize_ws(&inner[start..idx]));
-                start = idx + 1;
+        // An unterminated `(` (no matching `)`) leaves `depth != 0`; the scan then
+        // treats the whole remainder as the param list. Reject it instead of
+        // silently accepting a malformed signature (bug-171 finding E).
+        if depth != 0 {
+            self.report_at(
+                "DOC_BAD_HEADER",
+                &format!("DOC header signature for `{name}` is missing a closing `)`."),
+                header_line,
+            );
+        }
+        let inner = &rest[..end];
+        if inner.trim().is_empty() {
+            return (name, Some(Vec::new()));
+        }
+        // Split on top-level commas.
+        let mut params = Vec::new();
+        let mut depth = 0usize;
+        let mut start = 0usize;
+        let bytes = inner.as_bytes();
+        for (idx, &b) in bytes.iter().enumerate() {
+            match b {
+                b'(' => depth += 1,
+                b')' => depth = depth.saturating_sub(1),
+                b',' if depth == 0 => {
+                    params.push(normalize_ws(&inner[start..idx]));
+                    start = idx + 1;
+                }
+                _ => {}
             }
-            _ => {}
         }
+        params.push(normalize_ws(&inner[start..]));
+        (name, Some(params))
     }
-    params.push(normalize_ws(&inner[start..]));
-    (name, Some(params))
 }
 
 /// Collapse internal whitespace runs to single spaces and trim.

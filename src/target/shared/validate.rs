@@ -614,6 +614,10 @@ fn type_value_names(module: &NirModule) -> Result<TypeValueNames, String> {
                     if member.name.is_empty() {
                         return Err(format!("NIR enum '{}' has empty member name", type_.name));
                     }
+                    // bug-176 B: track enum member names explicitly so a bare
+                    // `Local(member)` reference resolves against the type table
+                    // rather than the first-letter-case heuristic.
+                    constructors.insert(member.name.clone());
                 }
             }
             "union" => {
@@ -1216,10 +1220,16 @@ fn validate_value(
     match value {
         NirValue::Const { type_, .. } => validate_type_name(type_),
         NirValue::Local(name) => {
+            // bug-176 B: resolve a capitalized `Local` against the explicit name
+            // tables — union variant / enum member constructors, type namespaces,
+            // and imported symbols — instead of accepting any first-letter-uppercase
+            // name. A genuinely-dangling capitalized reference is now rejected here
+            // rather than reaching codegen.
             if locals.contains_key(name)
                 || type_value_names.constructors.contains(name)
+                || type_value_names.namespaces.contains(name)
+                || import_names.contains(name)
                 || matches!(name.as_str(), "Ok" | "Error")
-                || is_imported_constructor_name(name)
             {
                 Ok(())
             } else {
@@ -1521,12 +1531,6 @@ fn validate_value(
             used_helpers,
         ),
     }
-}
-
-fn is_imported_constructor_name(name: &str) -> bool {
-    name.chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
 fn validate_type_name(type_: &str) -> Result<(), String> {

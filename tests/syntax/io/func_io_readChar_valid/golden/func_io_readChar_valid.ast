@@ -10,6 +10,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "compileReadChar",
       "line": 3,
       "params": [
@@ -32,6 +33,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 11,
       "params": [

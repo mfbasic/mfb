@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "dbl",
       "line": 7,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 7 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,10 +35,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "keepBig",
       "line": 12,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 12 }
       ],
       "returnType": "Boolean",
       "body": [
@@ -57,11 +59,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "addUp",
       "line": 17,
       "params": [
-      { "name": "acc", "type": "Integer", "default": null },
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "acc", "type": "Integer", "default": null, "line": 17 },
+      { "name": "v", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "Integer",
       "body": [
@@ -81,10 +84,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "visit",
       "line": 22,
       "params": [
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "v", "type": "Integer", "default": null, "line": 22 }
       ],
       "returnType": null,
       "body": [
@@ -104,6 +108,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 27,
       "params": [

@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "code",
       "line": 6,
       "params": [
-      { "name": "href", "type": "String", "default": null }
+      { "name": "href", "type": "String", "default": null, "line": 6 }
       ],
       "returnType": "String",
       "body": [
@@ -32,6 +33,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 14,
       "params": [

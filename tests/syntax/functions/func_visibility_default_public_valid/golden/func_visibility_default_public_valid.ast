@@ -9,10 +9,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "helperDouble",
       "line": 3,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
@@ -22,10 +23,11 @@
     {
       "kind": "func",
       "visibility": "private",
+      "isolated": false,
       "name": "#45a7d15ac6b4f562$helperBump",
       "line": 8,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 8 }
       ],
       "returnType": "Integer",
       "body": [
@@ -35,10 +37,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "helperBumped",
       "line": 13,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 13 }
       ],
       "returnType": "Integer",
       "body": [
@@ -56,6 +59,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 6,
       "params": [

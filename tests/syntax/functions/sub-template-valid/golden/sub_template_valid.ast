@@ -10,11 +10,12 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "consume",
       "templateParams": ["T"],
       "line": 3,
       "params": [
-      { "name": "value", "type": "T", "default": null }
+      { "name": "value", "type": "T", "default": null, "line": 3 }
       ],
       "returnType": null,
       "body": [
@@ -23,6 +24,7 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 6,
       "params": [

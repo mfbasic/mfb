@@ -12,6 +12,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "outOfRangeFirst",
       "line": 16,
       "params": [
@@ -34,6 +35,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "inRangeStable",
       "line": 29,
       "params": [
@@ -68,6 +70,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "downstreamToLocal",
       "line": 47,
       "params": [
@@ -90,6 +93,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 57,
       "params": [

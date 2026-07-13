@@ -10,11 +10,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "combine",
       "line": 14,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 14 },
+      { "name": "b", "type": "Integer", "default": null, "line": 14 }
       ],
       "returnType": "Integer",
       "body": [
@@ -24,21 +25,23 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "makeScaler",
       "line": 18,
       "params": [
-      { "name": "factor", "type": "Integer", "default": null }
+      { "name": "factor", "type": "Integer", "default": null, "line": 18 }
       ],
       "returnType": "FUNC(Integer) AS Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "factor" }, "line": 19 },
       { "kind": "return", "value": { "kind": "lambda", "params": [
-{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 20 }
+{ "name": "value", "type": "Integer", "default": null, "line": 20 }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 20 }
       ]
     },
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 23,
       "params": [

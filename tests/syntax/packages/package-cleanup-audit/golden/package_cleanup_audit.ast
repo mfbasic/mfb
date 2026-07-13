@@ -10,10 +10,11 @@
     {
       "kind": "func",
       "visibility": "export",
+      "isolated": false,
       "name": "firstLine",
       "line": 3,
       "params": [
-      { "name": "path", "type": "String", "default": null }
+      { "name": "path", "type": "String", "default": null, "line": 3 }
       ],
       "returnType": "String",
       "body": [

@@ -11,11 +11,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "add",
       "line": 22,
       "params": [
-      { "name": "a", "type": "Integer", "default": null },
-      { "name": "b", "type": "Integer", "default": null }
+      { "name": "a", "type": "Integer", "default": null, "line": 22 },
+      { "name": "b", "type": "Integer", "default": null, "line": 22 }
       ],
       "returnType": "Integer",
       "body": [
@@ -26,11 +27,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "add",
       "line": 35,
       "params": [
-      { "name": "a", "type": "Float", "default": null },
-      { "name": "b", "type": "Float", "default": null }
+      { "name": "a", "type": "Float", "default": null, "line": 35 },
+      { "name": "b", "type": "Float", "default": null, "line": 35 }
       ],
       "returnType": "Float",
       "body": [
@@ -41,10 +43,11 @@
     {
       "kind": "sub",
       "visibility": "public",
+      "isolated": false,
       "name": "logIt",
       "line": 45,
       "params": [
-      { "name": "value", "type": "Integer", "default": null }
+      { "name": "value", "type": "Integer", "default": null, "line": 45 }
       ],
       "returnType": null,
       "body": [
@@ -66,6 +69,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "helper",
       "line": 64,
       "params": [
@@ -78,6 +82,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 68,
       "params": [

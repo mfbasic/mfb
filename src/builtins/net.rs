@@ -282,7 +282,8 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         WRITE => Some("Socket, List OF Byte"),
         WRITE_TEXT => Some("Socket, String"),
         REMOTE_ADDRESS => Some("Socket"),
-        SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => Some("Socket, Integer"),
+        // Overloaded on `Socket|UdpSocket` — per the doc above, overloaded calls
+        // must return `None` and rely on explicit argument types (bug-173 D).
         BIND_UDP => Some("String, Integer"),
         RECEIVE_FROM | RECEIVE_TEXT_FROM => Some("UdpSocket, Integer"),
         SEND_TO => Some("UdpSocket, Address, List OF Byte"),
@@ -675,11 +676,13 @@ mod tests {
         assert_eq!(argument_types(READ), Some("Socket, Integer"));
         assert_eq!(argument_types(WRITE), Some("Socket, List OF Byte"));
         assert_eq!(argument_types(REMOTE_ADDRESS), Some("Socket"));
-        assert!(argument_types(SET_READ_TIMEOUT).is_some());
         assert!(argument_types(BIND_UDP).is_some());
         assert!(argument_types(SEND_TO).is_some());
         assert_eq!(argument_types(TO_URL), Some("String"));
-        // overloaded calls return None
+        // overloaded calls return None (bug-173 D: the timeout setters are
+        // overloaded on `Socket|UdpSocket`)
+        assert_eq!(argument_types(SET_READ_TIMEOUT), None);
+        assert_eq!(argument_types(SET_WRITE_TIMEOUT), None);
         assert_eq!(argument_types(CONNECT_TCP), None);
         assert_eq!(argument_types(POLL), None);
         assert_eq!(argument_types(CLOSE), None);

@@ -3,7 +3,7 @@
 Last updated: 2026-07-13
 Severity: LOW — latent/feature-level; carved out of bug-167 (whose two MEDIUM findings A and B are fixed).
 Class: Correctness + Memory-safety (batched).
-Status: Open
+Status: FIXED (2026-07-13; goal: resolve bugs 170-180; full acceptance suite green)
 
 ## Finding
 

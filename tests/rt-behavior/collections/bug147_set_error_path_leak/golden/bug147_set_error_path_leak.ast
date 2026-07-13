@@ -11,12 +11,13 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "trySet",
       "line": 13,
       "params": [
-      { "name": "xs", "type": "List OF Integer", "default": null },
-      { "name": "idx", "type": "Integer", "default": null },
-      { "name": "v", "type": "Integer", "default": null }
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 13 },
+      { "name": "idx", "type": "Integer", "default": null, "line": 13 },
+      { "name": "v", "type": "Integer", "default": null, "line": 13 }
       ],
       "returnType": "Integer",
       "body": [
@@ -34,6 +35,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 21,
       "params": [

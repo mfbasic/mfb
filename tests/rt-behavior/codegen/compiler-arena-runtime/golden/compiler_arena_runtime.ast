@@ -10,11 +10,12 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "join",
       "line": 3,
       "params": [
-      { "name": "left", "type": "String", "default": null },
-      { "name": "right", "type": "String", "default": null }
+      { "name": "left", "type": "String", "default": null, "line": 3 },
+      { "name": "right", "type": "String", "default": null, "line": 3 }
       ],
       "returnType": "String",
       "body": [
@@ -24,10 +25,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "wrap",
       "line": 7,
       "params": [
-      { "name": "value", "type": "String", "default": null }
+      { "name": "value", "type": "String", "default": null, "line": 7 }
       ],
       "returnType": "String",
       "body": [
@@ -37,6 +39,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 11,
       "params": [

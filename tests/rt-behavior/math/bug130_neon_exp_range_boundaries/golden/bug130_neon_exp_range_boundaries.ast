@@ -11,10 +11,11 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "classify",
       "line": 8,
       "params": [
-      { "name": "x", "type": "Float", "default": null }
+      { "name": "x", "type": "Float", "default": null, "line": 8 }
       ],
       "returnType": "String",
       "body": [
@@ -42,6 +43,7 @@
     {
       "kind": "func",
       "visibility": "public",
+      "isolated": false,
       "name": "main",
       "line": 18,
       "params": [
