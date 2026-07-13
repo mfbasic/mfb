@@ -36,15 +36,15 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   language, spec, or built-ins; prefer `mfb_spec`/`mfb_man` over reading files by
   hand. Schemas load per context, so re-run `ToolSearch` after a fresh context.
 - **No compound background jobs.** A background Bash job must be exactly ONE
-  command. Chaining (`a && b`, `a; b`, timing wrappers around multiple steps)
-  in a backgrounded job dies silently in this environment: later steps never
-  run or their output is lost, the job looks "done", and a full ~15-minute
-  golden cycle gets wasted — repeatedly. A short pipe on a single step
-  (`cmd | tail -1`) is fine. Sequence long steps as separate jobs: launch one,
-  wait for its completion notification, verify its effect (e.g. `git status`
-  for a golden sync), then launch the next. When polling processes, remember
-  `pgrep -f` takes ERE — `pgrep -f "a|b"`, never `"a\|b"` (matches nothing and
-  misreports the job as finished).
+  command. Chaining (`a && b`, `a; b`, timing wrappers) in a backgrounded job
+  dies silently here: later steps never run, the job looks "done", and a
+  ~15-minute golden cycle is wasted. A short pipe on one step (`cmd | tail -1`)
+  is fine. Sequence long steps as separate jobs, but never park waiting on a
+  completion notification — it is lost across a context compaction, stranding
+  the run as "No completion record found" and stalling the session. Instead
+  poll for the effect (`git status` for a golden sync; `pgrep -f` takes ERE —
+  `pgrep -f "a|b"`, never `"a\|b"`, which never matches). On resume, treat any
+  no-completion-record job as dead: re-derive state and continue, don't wait.
 
 ## Read before that kind of work
 

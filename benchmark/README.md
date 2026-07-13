@@ -81,19 +81,3 @@ minutes. Both rows are therefore small coverage smoke-tests of their surface, no
 throughput measurements. (This is a runtime arena regression, not a property of
 the benchmarked code; the C/Python mirrors keep the same tiny counts only so the
 table lines up.)
-
-## MVP goals
-
-The compiler MVP targets two bars, scored on the median column:
-
-1. **Everything is faster than Python** (mfb median < python median, every row).
-2. **Math is within ±2 ms of C `-O0`** (unoptimized C) — `|mfb − c‑O0| ≤ 2 ms`.
-
-Run the suite (`./benchmark/run.sh --run 50`) for the current standing; the
-transcendental `math` kernels and the `bignum`/`io`/`copy` rows are the historical
-gaps (software math kernels run several × C‑O0; `list copy` and `io` fight
-CPython's hand-tuned C). The coverage rows added for the package surfaces
-(`math float/int/fixed/simd`, `map int_ops/str_ops`, `vector float/fixed/int`,
-`bits ops`, `string case/search/slice/unicode`, `liststr *`) are there to prove
-the whole API compiles and runs correctly across types, not to hit the two MVP
-bars.
