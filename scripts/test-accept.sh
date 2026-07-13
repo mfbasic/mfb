@@ -214,13 +214,17 @@ while IFS= read -r project_json; do
     if [ -f "$golden_dir/$package_name.$target_name.mir" ]; then
       console_flags="$console_flags -mir"
     fi
+    # plan-36: capture build.log with `-q` so the deterministic `Building …`
+    # summary line (and any `-v` timings) never enter the exact-compared golden.
+    # `-q` restores today's minimal output; the `Wrote … to` artifact line still
+    # prints on stdout, so the run-path extraction below is unaffected.
     echo "$ mfb build ${target_label}${console_flags} tests/$test_name"
     # shellcheck disable=SC2086
-    "$MFB_EXE" build $target_arg $console_flags "tests/$test_name"
+    "$MFB_EXE" build -q $target_arg $console_flags "tests/$test_name"
     echo "[exit $?]"
     if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then
       echo "$ mfb build tests/$test_name"
-      "$MFB_EXE" build "tests/$test_name"
+      "$MFB_EXE" build -q "tests/$test_name"
       echo "[exit $?]"
     fi
     app_flags=""
@@ -236,12 +240,12 @@ while IFS= read -r project_json; do
     if [ -n "$app_flags" ]; then
       echo "$ mfb build ${target_label}-app${app_flags} tests/$test_name"
       # shellcheck disable=SC2086
-      "$MFB_EXE" build $target_arg -app $app_flags "tests/$test_name"
+      "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.run" ]; then
       echo "$ mfb build ${target_label}tests/$test_name"
-      build_output=$("$MFB_EXE" build $target_arg "tests/$test_name" 2>&1)
+      build_output=$("$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)
       build_status=$?
       printf '%s\n' "$build_output"
       echo "[exit $build_status]"

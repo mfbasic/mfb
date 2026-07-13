@@ -80,6 +80,8 @@ package).
 | `-target os-arch` / `-target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `-app` | — | GUI app-mode runtime; at most one |
+| `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
+| `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |
 
 `-target` requires a value (`mfb build -target requires os-arch`). `--sign`
 requires a value, accepts at most one (`mfb build accepts at most one --sign
@@ -113,6 +115,22 @@ package emits only `.mfp`. The `-regalloc` flag requires a value (`mfb build
 re-validation) → validate entry point → syntaxcheck before emitting any artifact;
 any stage failure exits `1`.[[src/cli/build.rs:build_project]] Build-mode and
 build-flag *semantics* live in `./mfb spec architecture commands`.
+
+**Verbosity** (`Verbosity`/`Reporter`) is orthogonal to the output mode and
+never reaches codegen, so the emitted artifact bytes are identical at every
+level.[[src/cli/build.rs:Reporter]] The default (`Normal`) prints one
+deterministic context line to **stderr** before the pipeline runs — `Building
+<name> (<kind>) for <target>` — followed by the `Wrote … to` artifact line on
+**stdout**. `-q`/`--quiet` suppresses the summary, restoring an artifact-line-only
+output. `-v`/`--verbose` additionally prints a `phase <name> <N>ms` timing line
+(integer milliseconds, stderr) for each front-end stage — `parse`, `resolve`,
+`verify`, `codegen+link` — as a lightweight build profiler. The two flags are
+mutually exclusive (`mfb build accepts at most one of -q / -v`). Only the
+`println!`/`eprintln!` progress is level-gated; the timing brackets always run so
+`-v` and the default take an identical path into codegen. `mfb test`, `mfb pkg
+publish`, and `mfb pkg check-abi` run the build quietly (their own report is the
+output; the summary would be noise and, via `<target>`, non-portable across
+machines).
 
 ## `fmt`, `doc`, `audit` Flags
 

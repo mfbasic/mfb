@@ -14,7 +14,7 @@ use crate::manifest::{
 use crate::target;
 use crate::USAGE;
 
-use super::build::{build_project, BuildOptions};
+use super::build::{build_project, BuildOptions, Verbosity};
 
 pub(crate) enum PkgCommandError {
     Usage(String),
@@ -135,6 +135,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         regalloc: target::shared::code::regalloc::active_kind(),
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Build,
+        verbosity: Verbosity::Quiet,
     })
     .map_err(|_| "package build failed".to_string())?;
 
@@ -345,6 +346,7 @@ fn check_abi(project_dir: &Path) -> Result<(), String> {
         regalloc: target::shared::code::regalloc::active_kind(),
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Build,
+        verbosity: Verbosity::Quiet,
     })
     .map_err(|_| "package build failed".to_string())?;
 

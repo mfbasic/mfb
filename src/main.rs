@@ -154,6 +154,8 @@ Options:
   --target <os-arch>  Cross-compile to a specific target (e.g., linux-x64)
   --app               Build as a standalone application instead of a library
   --unsigned          Allow unsigned dependencies from a non-local source
+  -q, --quiet         Print only the artifact line and any diagnostics
+  -v, --verbose       Also print a per-phase timing line for each build stage
 
 Debug/Inspection (Emits intermediate output):
   -ast                Outputs Abstract Syntax Tree

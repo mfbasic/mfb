@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tinyjson::JsonValue;
 
@@ -20,6 +21,56 @@ use crate::resolver;
 use crate::rules;
 use crate::syntaxcheck;
 use crate::target;
+
+/// How much human-facing progress `mfb build` prints (plan-36). Never reaches
+/// codegen — only the CLI's own `println!`/`eprintln!` lines are gated on it, so
+/// the emitted artifact bytes are identical across all three levels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum Verbosity {
+    /// `-q`/`--quiet`: today's minimal output — only the `Wrote … to` artifact
+    /// line(s) and any diagnostics.
+    Quiet,
+    /// Default: the `Building …` summary line plus the artifact line.
+    #[default]
+    Normal,
+    /// `-v`/`--verbose`: additionally a `phase <name> <N>ms` line per front-end
+    /// stage. Doubles as a lightweight build profiler.
+    Verbose,
+}
+
+/// The single place that knows the verbosity level. All human progress lines go
+/// through here; the `Wrote … to` artifact line is printed directly by the
+/// pipeline (always, on stdout) and never touches the reporter.
+///
+/// Summary and phase lines go to **stderr** (progress is diagnostics); the
+/// artifact line stays on **stdout** (the machine-consumable channel that
+/// integration tests `strip_prefix`).
+pub(crate) struct Reporter {
+    level: Verbosity,
+}
+
+impl Reporter {
+    pub(crate) fn new(level: Verbosity) -> Self {
+        Self { level }
+    }
+
+    /// The `Building …` context line — printed at Normal and Verbose, suppressed
+    /// at Quiet.
+    fn summary(&self, line: &str) {
+        if self.level != Verbosity::Quiet {
+            eprintln!("{line}");
+        }
+    }
+
+    /// One `phase <name> <N>ms` profiler line — printed only at Verbose. The
+    /// caller always computes the elapsed time (so `-v` and the default take an
+    /// identical path into codegen); only the print is level-gated.
+    fn phase(&self, name: &str, dt: Duration) {
+        if self.level == Verbosity::Verbose {
+            eprintln!("phase {name} {}ms", dt.as_millis());
+        }
+    }
+}
 
 pub(crate) struct BuildOptions {
     pub(crate) location: PathBuf,
@@ -42,6 +93,10 @@ pub(crate) struct BuildOptions {
     /// Ordinary build vs. `mfb test` (plan-18). In test mode the `TESTING`
     /// blocks are desugared into a runnable driver instead of being dropped.
     pub(crate) mode: crate::testing::CompileMode,
+    /// How much human progress to print (plan-36). `-q`/`--quiet` restores the
+    /// minimal artifact-line-only output; `-v`/`--verbose` adds per-phase
+    /// timings. Never reaches codegen.
+    pub(crate) verbosity: Verbosity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +137,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut app_mode = false;
     let mut allow_unsigned = false;
     let mut regalloc = target::shared::code::regalloc::active_kind();
+    let mut verbosity: Option<Verbosity> = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -122,6 +178,14 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
             regalloc = target::shared::code::regalloc::parse_kind(&value)?;
         } else if let Some(value) = arg.strip_prefix("-regalloc=") {
             regalloc = target::shared::code::regalloc::parse_kind(value)?;
+        } else if arg == "-q" || arg == "--quiet" {
+            if verbosity.replace(Verbosity::Quiet) == Some(Verbosity::Verbose) {
+                return Err("mfb build accepts at most one of -q / -v".to_string());
+            }
+        } else if arg == "-v" || arg == "--verbose" {
+            if verbosity.replace(Verbosity::Verbose) == Some(Verbosity::Quiet) {
+                return Err("mfb build accepts at most one of -q / -v".to_string());
+            }
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -138,6 +202,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         regalloc,
         allow_unsigned,
         mode: crate::testing::CompileMode::Build,
+        verbosity: verbosity.unwrap_or_default(),
     })
 }
 
@@ -145,6 +210,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // Record the register-allocation strategy for the native backend to read
     // during lowering (plan-03 §4.2).
     target::shared::code::regalloc::set_strategy(options.regalloc);
+    let reporter = Reporter::new(options.verbosity);
     let target = options.target.clone();
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
@@ -223,6 +289,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .get("name")
         .and_then(|value| value.get::<String>())
         .expect("validated project name");
+    // plan-36: one concise, deterministic context line before the pipeline runs.
+    // Suppressed by `-q`; safe if a golden ever captures it (no timings, no
+    // color). Everything from here to the artifact line is instrumented for `-v`.
+    reporter.summary(&format!(
+        "Building {project_name} ({project_kind}) for {}",
+        target.name()
+    ));
+    let parse_start = std::time::Instant::now();
     let mut ast = ast::parse_project(project_name, &options.location, &manifest)?;
     // plan-18: the assertion builtins are valid only inside a TCASE body; reject
     // any that appear elsewhere before lowering the TESTING blocks away.
@@ -257,12 +331,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             eprintln!("warning: failed to write coverage map: {err}");
         }
     }
+    reporter.phase("parse", parse_start.elapsed());
+    let resolve_start = std::time::Instant::now();
     resolver::resolve_project(&options.location, &manifest, &ast)?;
     let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
     // overloaded/generic declarations, so their doc headers would falsely appear
     // unresolved. The original-AST pass above already validated them.
     resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)?;
+    reporter.phase("resolve", resolve_start.elapsed());
+    let verify_start = std::time::Instant::now();
     // In test mode the synthesized driver is the entry point (it replaces the
     // manifest `main`), so bypass entry validation and point at the driver.
     let entry = match &test_lowering.entry {
@@ -311,6 +389,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         is_package, &ast,
     ));
     diagnostics.extend(scope_diagnostics);
+    reporter.phase("verify", verify_start.elapsed());
     let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
@@ -379,6 +458,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 None
             };
             let output_dir = test_output_dir.as_deref().unwrap_or(&options.location);
+            let codegen_start = std::time::Instant::now();
             let executable_paths = target::write_executable(
                 output_dir,
                 &ir,
@@ -393,6 +473,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .map_err(|err| {
                 eprintln!("error: {err}");
             })?;
+            reporter.phase("codegen+link", codegen_start.elapsed());
             // `mfb test` compiles the driver, then runs it and adopts its exit
             // status (non-zero iff any case failed).
             if options.mode.is_test() {
@@ -445,6 +526,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             if let Some(signing) = &signing {
                 apply_signing_metadata(&mut metadata, signing);
             }
+            let codegen_start = std::time::Instant::now();
             let package_path = target::write_package(
                 &options.location,
                 &ir,
@@ -455,6 +537,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .map_err(|err| {
                 eprintln!("error: {err}");
             })?;
+            reporter.phase("codegen+link", codegen_start.elapsed());
             println!("Wrote package to {}", package_path.display());
         } else {
             println!(
@@ -683,6 +766,10 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         regalloc,
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Test { coverage },
+        // `mfb test`'s user-facing output is the pass/fail tree; the build
+        // summary would be noise and (via `target.name()`) non-portable across
+        // machines, churning `.testrun` goldens. Stay quiet (plan-36).
+        verbosity: Verbosity::Quiet,
     })
 }
 
@@ -1263,6 +1350,67 @@ mod tests {
     fn parse_build_options_unsigned_flag() {
         let options = parse_build_options(s(&["--unsigned"])).expect("options");
         assert!(options.allow_unsigned);
+    }
+
+    #[test]
+    fn parse_build_options_verbosity_defaults_to_normal() {
+        let options = parse_build_options(vec![]).expect("options");
+        assert_eq!(options.verbosity, Verbosity::Normal);
+        // The default is also what the derive produces.
+        assert_eq!(Verbosity::default(), Verbosity::Normal);
+    }
+
+    #[test]
+    fn parse_build_options_quiet_both_spellings() {
+        for flag in ["-q", "--quiet"] {
+            let options = parse_build_options(s(&[flag])).expect("quiet options");
+            assert_eq!(options.verbosity, Verbosity::Quiet, "flag {flag}");
+        }
+    }
+
+    #[test]
+    fn parse_build_options_verbose_both_spellings() {
+        for flag in ["-v", "--verbose"] {
+            let options = parse_build_options(s(&[flag])).expect("verbose options");
+            assert_eq!(options.verbosity, Verbosity::Verbose, "flag {flag}");
+        }
+    }
+
+    #[test]
+    fn parse_build_options_quiet_and_verbose_conflict() {
+        for args in [
+            &["-q", "-v"][..],
+            &["-v", "-q"][..],
+            &["--quiet", "--verbose"][..],
+            &["--verbose", "--quiet"][..],
+        ] {
+            let err = build_err(args);
+            assert!(
+                err.contains("at most one of -q / -v"),
+                "unexpected error for {args:?}: {err}"
+            );
+        }
+        // Repeating the same flag is not a conflict.
+        assert_eq!(
+            parse_build_options(s(&["-q", "-q"]))
+                .expect("repeat quiet")
+                .verbosity,
+            Verbosity::Quiet
+        );
+        assert_eq!(
+            parse_build_options(s(&["-v", "-v"]))
+                .expect("repeat verbose")
+                .verbosity,
+            Verbosity::Verbose
+        );
+    }
+
+    #[test]
+    fn parse_test_options_is_quiet() {
+        // `mfb test` never prints the build summary (it would churn the
+        // non-portable `.testrun` goldens); see plan-36.
+        let options = parse_test_options(vec![]).expect("test options");
+        assert_eq!(options.verbosity, Verbosity::Quiet);
     }
 
     #[test]
