@@ -1,0 +1,7 @@
+IMPORT audio
+
+FUNC main AS Integer
+  RES out AS AudioOutput = audio::openOutput(0, 2, 512)
+  audio::close(out)
+  RETURN 0
+END FUNC

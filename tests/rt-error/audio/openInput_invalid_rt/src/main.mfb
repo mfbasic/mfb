@@ -1,0 +1,7 @@
+IMPORT audio
+
+FUNC main AS Integer
+  RES mic AS AudioInput = audio::openInput(48000, 3, 512)
+  audio::close(mic)
+  RETURN 0
+END FUNC

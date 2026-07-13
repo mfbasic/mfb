@@ -1,0 +1,27 @@
+{
+  "project": "func_audio_openOutput_invalid_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "audio", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "out", "type": "AudioOutput", "value": { "kind": "call", "callee": "audio.openOutput", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "512" }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.close", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

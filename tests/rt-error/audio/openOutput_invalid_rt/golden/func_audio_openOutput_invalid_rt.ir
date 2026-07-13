@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_audio_openOutput_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 4, "mutable": false, "name": "out", "type": "AudioOutput", "value": { "kind": "call", "type": "AudioOutput", "target": "audio.openOutput", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "512" }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "audio.closeOutput", "args": [{ "kind": "local", "name": "out" }] } },
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
