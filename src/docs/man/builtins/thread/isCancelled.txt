@@ -59,7 +59,7 @@ EXAMPLES
   Wind down a worker loop when cancellation is requested:
 
     WHILE NOT thread::isCancelled(t)
-      LET job AS Integer = thread::receive(t)
+      LET job AS Integer = thread::receive(t, 100)
       process(job)
     ENDWHILE
 

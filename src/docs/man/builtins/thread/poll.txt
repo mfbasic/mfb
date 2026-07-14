@@ -14,7 +14,7 @@ DESCRIPTION
   Reports whether the worker behind the parent Thread handle t has a message
   waiting on its outbound queue, waiting up to ms milliseconds for one to arrive.
   poll inspects the same queue that thread::receive reads, so a TRUE result means
-  a following thread::receive(t) can take a message without blocking.
+  a following thread::receive(t) can take a message without waiting.
 
   poll accepts only a parent Thread handle, never a ThreadWorker handle; the
   handle type is checked at compile time. It does not consume or remove any
@@ -51,7 +51,8 @@ PARAMETERS
 RETURN VALUE
   AS Boolean
     TRUE when a message is available on the outbound queue, so a following
-    thread::receive(t) will not block; FALSE when no message is available before
+    thread::receive(t) returns at once without waiting; FALSE when no message is
+    available before
     the timeout expires, including the case where the worker has completed with an
     empty queue.
 

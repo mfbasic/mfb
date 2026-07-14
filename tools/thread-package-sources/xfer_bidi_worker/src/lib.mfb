@@ -10,7 +10,7 @@ IMPORT fs
 EXPORT ISOLATED FUNC exchange(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
   RES outgoing AS File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/worker.txt")
   thread::transfer(t, outgoing)
-  RES incoming AS File = thread::accept(t, -1)
+  RES incoming AS File = thread::accept(t)
   LET inData AS String = fs::readAll(incoming)
   fs::close(incoming)
   RETURN len(inData)

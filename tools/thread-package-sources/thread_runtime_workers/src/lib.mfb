@@ -101,9 +101,7 @@ EXPORT ISOLATED FUNC waitForCancel(t AS ThreadWorker OF String TO Integer, seed 
 END FUNC
 
 EXPORT ISOLATED FUNC waitForCancelForever(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
-  MUT forever AS Integer = 0
-  forever = forever - 1
-  LET message AS String = thread::receive(t, forever)
+  LET message AS String = thread::receive(t)
   RETURN len(message)
 END FUNC
 

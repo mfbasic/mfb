@@ -29,6 +29,16 @@ pub(super) const THREAD_STATE_RUNNING: &str = "0";
 pub(super) const THREAD_STATE_COMPLETED: &str = "1";
 pub(super) const THREAD_STATE_CLOSED: &str = "2";
 
+// bug-181: the no-arg `thread::receive(t)` / `thread::accept(t)` overload blocks
+// indefinitely. The 1-arg lowering pads the missing `timeoutMs` with this
+// unreachable sentinel — `i64::MIN` as its `u64` bit pattern (0x8000000000000000).
+// The queue-read helper waits forever on exactly this value and rejects every other
+// negative `timeoutMs` with `ErrInvalidArgument`; because a valid explicit timeout
+// is always `>= 0`, no user-supplied value can collide with the block sentinel. The
+// immediate encoder parses `u64`, so the sentinel is spelled as the unsigned decimal
+// of i64::MIN's bit pattern rather than a signed `-9223372036854775808`.
+pub(super) const THREAD_RECEIVE_BLOCK_SENTINEL: &str = "9223372036854775808";
+
 pub(super) const THREAD_QUEUE_NOT_EMPTY_OFFSET: usize = 64;
 pub(super) const THREAD_QUEUE_NOT_FULL_OFFSET: usize = 128;
 pub(super) const THREAD_QUEUE_CAPACITY_OFFSET: usize = 192;
@@ -250,7 +260,7 @@ pub(super) fn lower_thread_helper(
         "thread.read" => thread_queue_read_helper(
             symbol,
             THREAD_OFFSET_OUTBOUND_QUEUE,
-            ThreadReadMode::ParentBounded,
+            ThreadReadMode::Parent,
             platform_imports,
             platform,
         ),
@@ -290,8 +300,7 @@ pub(super) fn lower_thread_helper(
             platform_imports,
             platform,
         ),
-        // acceptResource: worker reads the inbound resource queue (mirrors receive,
-        // and like accept allows an indefinite wait).
+        // acceptResource: worker reads the inbound resource queue (mirrors receive).
         "thread.acceptResource" => thread_queue_read_helper(
             symbol,
             THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
@@ -299,12 +308,11 @@ pub(super) fn lower_thread_helper(
             platform_imports,
             platform,
         ),
-        // readResource: parent reads the outbound resource queue (mirrors read, but
-        // unlike read it permits an indefinite wait — see thread::accept docs).
+        // readResource: parent reads the outbound resource queue (mirrors read).
         "thread.readResource" => thread_queue_read_helper(
             symbol,
             THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
-            ThreadReadMode::ParentWaitable,
+            ThreadReadMode::Parent,
             platform_imports,
             platform,
         ),

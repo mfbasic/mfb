@@ -2,8 +2,10 @@ NAME
   receive - read a message from a thread handle
 
 SYNOPSIS
-  thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
-  thread::receive(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
+  thread::receive(t AS Thread OF Msg TO Out) AS Msg
+  thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer) AS Msg
+  thread::receive(t AS ThreadWorker OF Msg TO Out) AS Msg
+  thread::receive(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer) AS Msg
 
 PACKAGE
   thread
@@ -26,39 +28,49 @@ DESCRIPTION
   the two threads, and dequeuing frees a slot so a sender blocked on a full queue
   can proceed.
 
-  timeoutMs controls how long the call waits for a message when the queue is
-  currently empty. With timeoutMs = 0 (the default) the call does not wait: it
-  returns a message immediately if one is queued and otherwise fails at once with
-  ErrNotFound. A positive timeoutMs waits up to that many milliseconds for a
-  message to arrive, failing with ErrTimeout if the timeout elapses while the
-  queue is still empty. On a ThreadWorker handle, timeoutMs = -1 waits
-  indefinitely until a message arrives, the queue is closed, or cancellation is
-  requested; a parent Thread handle does not accept an indefinite wait. Any other
-  negative timeoutMs is rejected with ErrInvalidArgument (the parent rejects every
-  negative value; the worker rejects every value below -1).
+  There are two forms, and both behave the same way whether the handle is a
+  parent Thread or a ThreadWorker. The no-timeout form waits: receive blocks until
+  a message arrives, the queue is closed, or the worker is cancelled. The
+  timeoutMs form does not have a default and controls a bounded wait when the
+  queue is currently empty: timeoutMs must be zero or positive. With timeoutMs = 0
+  the call does not wait and fails at once with ErrNotFound if no message is
+  queued; a positive timeoutMs waits up to that many milliseconds, failing with
+  ErrTimeout if the timeout elapses while the queue is still empty. A negative
+  timeoutMs is rejected with ErrInvalidArgument -- to wait indefinitely, omit the
+  argument.
 
   receive participates in cooperative cancellation and observes queue closure. On
   a parent Thread handle, if the worker has completed and left its outbound queue
-  empty, or the outbound queue has been closed, the call fails with ErrNotFound;
-  if the parent Thread handle itself has already been closed (for example after
-  its result was retrieved with thread::waitFor or t.result) the call fails with
-  ErrResourceClosed. On a ThreadWorker handle, a receive that is waiting or finds
-  the queue empty fails with ErrInterrupted when cancellation of the worker has
-  been requested, and with ErrNotFound when the inbound queue has been closed.
+  empty, or the outbound queue has been closed, the call fails with ErrNotFound
+  (so a blocking parent receive wakes when the worker exits rather than waiting
+  forever); if the parent Thread handle itself has already been closed (for
+  example after its result was retrieved with thread::waitFor or t.result) the
+  call fails with ErrResourceClosed. On a ThreadWorker handle, a receive that is
+  waiting or finds the queue empty fails with ErrInterrupted when cancellation of
+  the worker has been requested, and with ErrNotFound when the inbound queue has
+  been closed.
 
 OVERLOADS
-  thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
-    Parent-side receive. Reads from the worker's outbound queue. A negative
-    timeoutMs is rejected with ErrInvalidArgument (no indefinite wait). Fails with
-    ErrNotFound when the worker has completed with an empty outbound queue or the
-    queue is closed, and with ErrResourceClosed when the parent Thread handle is
-    already closed.
+  thread::receive(t AS Thread OF Msg TO Out) AS Msg
+    Blocking parent-side receive. Reads from the worker's outbound queue, waiting
+    until a message arrives, the worker completes with an empty outbound queue
+    (ErrNotFound), or the queue is closed (ErrNotFound). Fails with
+    ErrResourceClosed when the parent Thread handle is already closed.
 
-  thread::receive(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
-    Worker-side receive. Reads from the worker's inbound queue. timeoutMs = -1
-    waits indefinitely; values below -1 are rejected with ErrInvalidArgument. A
-    waiting or empty receive fails with ErrInterrupted when cancellation has been
-    requested, and with ErrNotFound when the inbound queue has been closed.
+  thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer) AS Msg
+    Timed parent-side receive. timeoutMs must be >= 0: 0 polls once and a positive
+    value waits up to that many milliseconds. A negative timeoutMs is rejected with
+    ErrInvalidArgument.
+
+  thread::receive(t AS ThreadWorker OF Msg TO Out) AS Msg
+    Blocking worker-side receive. Reads from the worker's inbound queue, waiting
+    until a message arrives, cancellation is requested (ErrInterrupted), or the
+    inbound queue is closed (ErrNotFound).
+
+  thread::receive(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer) AS Msg
+    Timed worker-side receive. timeoutMs must be >= 0: 0 polls once and a positive
+    value waits up to that many milliseconds. A negative timeoutMs is rejected with
+    ErrInvalidArgument.
 
 PARAMETERS
   t AS Thread OF Msg TO Out | ThreadWorker OF Msg TO Out
@@ -67,11 +79,12 @@ PARAMETERS
     queue. Msg is the thread's message type and Out its output type.
 
   timeoutMs AS Integer
-    Maximum time in milliseconds to wait for a message when the queue is empty. 0
-    (the default) does not wait and fails immediately with ErrNotFound if no
-    message is queued. A positive value waits up to that many milliseconds before
-    failing with ErrTimeout. On a ThreadWorker handle, -1 waits indefinitely. Any
-    other negative value is rejected with ErrInvalidArgument.
+    Optional. When omitted, receive blocks until a message arrives, the queue
+    closes, or the worker is cancelled. When given, it is the maximum time in
+    milliseconds to wait for a message and must be >= 0: 0 does not wait and fails
+    immediately with ErrNotFound if no message is queued, and a positive value
+    waits up to that many milliseconds before failing with ErrTimeout. A negative
+    timeoutMs is rejected with ErrInvalidArgument.
 
 RETURN VALUE
   AS Msg
@@ -81,8 +94,8 @@ RETURN VALUE
 
 ERRORS
   77050002 (ErrInvalidArgument)
-  Raised when timeoutMs is negative on a parent Thread handle, or below -1 on a
-  ThreadWorker handle.
+  Raised when an explicit timeoutMs is negative. Omit the argument to wait
+  indefinitely.
 
   77050004 (ErrNotFound)
   Raised when no message is available without waiting (timeoutMs = 0 and the queue
@@ -104,20 +117,21 @@ ERRORS
 TYPE CHECKING
   t must be a Thread or ThreadWorker handle; the queue read is selected by which
   of the two it is, and the result type is the handle's message type Msg (Unknown
-  for a handle whose message type is Unknown). timeoutMs must be an Integer.
+  for a handle whose message type is Unknown). timeoutMs, when supplied, must be an
+  Integer.
 
 EXAMPLES
+  Block until a message arrives (the common "wait for work" form):
+
+    LET work AS String = thread::receive(t)
+
   Take a message without waiting, failing with ErrNotFound if none is queued:
 
-    LET message AS String = thread::receive(t)
+    LET message AS String = thread::receive(t, 0)
 
   Wait up to 10 milliseconds for a message:
 
     LET timed AS String = thread::receive(t, 10)
-
-  Inside a worker, block until a message arrives or the worker is cancelled:
-
-    LET work AS String = thread::receive(self, -1)
 
 SEE ALSO
   thread::send, thread::poll, thread::accept, thread::waitFor, thread::start

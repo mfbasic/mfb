@@ -1609,10 +1609,17 @@ impl CodeBuilder<'_> {
                 type_: "Integer".to_string(),
                 value: "0".to_string(),
             });
-        } else if target == "thread.receive" && helper_args.len() == 1 {
+        } else if matches!(target, "thread.receive" | "thread.acceptResource")
+            && helper_args.len() == 1
+        {
+            // bug-181: the no-arg `thread::receive(t)` / `thread::accept(t)` overload
+            // blocks. Pad the missing `timeoutMs` with the unreachable block sentinel
+            // (i64::MIN); the queue-read helper waits indefinitely on it and rejects
+            // every other negative timeout. (`accept` had no padding before, so its
+            // no-arg blocking form is enabled here.)
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),
-                value: "0".to_string(),
+                value: THREAD_RECEIVE_BLOCK_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.openStdIn" | "thread.closeStdIn")
             && helper_args.is_empty()

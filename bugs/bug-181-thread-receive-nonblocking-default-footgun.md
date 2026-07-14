@@ -1,6 +1,9 @@
 # bug-181 — `thread::receive`'s default `timeoutMs = 0` (non-blocking) makes a worker's natural "wait for a message" loop race the parent's `send`
 
-**Status:** OPEN. Filed 2026-07-13 (observed during plan-15 stdin-broadcast verification).
+**Status:** FIX DECIDED (2026-07-13). Reshape `receive`/`accept` to two overloads:
+the no-arg form **blocks** (new default) and the explicit-timeout form takes a
+**non-negative** `timeoutMs`. Symmetric across parent `Thread` and worker
+`ThreadWorker`. See **Decision** below.
 **Severity:** LOW — documented behavior; no data corruption or leak. Intermittent
 `ErrInterrupted`/`ErrNotFound` in programs that rely on `thread::receive(self)`
 blocking. Fully avoidable by passing an explicit timeout.
@@ -59,24 +62,56 @@ common intent is "wait for work", so the safe form is `thread::receive(self, -1)
 (indefinite), but nothing steers the author there; the ergonomic default silently
 does the opposite.
 
-## Fix sketch (options — needs a decision)
+## Decision
 
-1. **Diagnostic (recommended, non-breaking):** emit a lint/warning when
-   `thread::receive(self, …)` / a `ThreadWorker`-handle receive is called with no
-   explicit timeout, suggesting `-1` (block) or an explicit `0` (poll). Keeps the
-   documented default, removes the footgun.
-2. **Change the worker-side default to `-1` (blocking):** matches the common intent,
-   but is a semantic change to a documented default and could surprise a program that
-   deliberately polls with the no-arg form; the parent-side default `0` (poll) should
-   stay. Would need spec/man/goldens updates.
-3. **Docs-only:** make every worker example in the spec/man use `thread::receive(self,
-   -1)` and add an explicit "the no-arg form does not block" caution at each worker
-   receive site.
+Reshape both `thread::receive` and `thread::accept` into **two overloads**, and
+apply the identical rule to the parent `Thread` and worker `ThreadWorker` handle so
+there is no parent/worker asymmetry:
+
+```
+thread::receive(t)              → BLOCK: wait until a message arrives, the queue
+                                  closes, or (worker side) the worker is cancelled.
+thread::receive(t, timeoutMs)   → TIMED: timeoutMs has no default and must be >= 0.
+                                    0 = poll once (ErrNotFound if empty),
+                                    N = wait up to N ms (ErrTimeout).
+                                    A negative timeoutMs → ErrInvalidArgument.
+```
+
+and likewise `thread::accept(t)` / `thread::accept(t, timeoutMs)`.
+
+This removes **both** footguns at once: the accidental non-blocking default that
+races `send`, and the parent-vs-worker asymmetry (previously the parent rejected any
+negative `timeoutMs` while the worker accepted `-1`). The old `receive(self, -1)` /
+`accept(t, -1)` "block forever" idiom is replaced by the no-arg form; an explicit
+negative timeout is now an **error** (`ErrInvalidArgument`), consistent with "an
+explicit timeout is a non-negative duration."
+
+### Implementation
+
+- **Lowering** (`builder_values.rs`): the no-arg (1-arg) form pads the missing
+  `timeoutMs` with an unreachable **block sentinel** — `i64::MIN`, materialized as
+  the `u64` bit pattern `9223372036854775808` (the immediate encoder parses `u64`,
+  and every valid explicit timeout is `>= 0`, so no user value can collide). Padding
+  is added for `thread.acceptResource` (which previously had none) alongside the
+  existing `thread.receive` branch. The 2-arg form passes the user value through
+  unchanged.
+- **Runtime** (`runtime_helpers_thread.rs` / `runtime_helpers.rs`): the shared
+  queue-read helper now treats **all** read modes as waitable — it blocks
+  indefinitely on the block sentinel and rejects any other negative `timeoutMs` with
+  `ErrInvalidArgument`. The former `ParentBounded` mode (parent data `receive`, which
+  rejected `-1` and could not wait) collapses into a single `Parent` mode that wakes
+  with `ErrNotFound` when the worker completes/closes its outbound queue (the worker
+  trampoline already broadcasts that queue's `not_empty` condvar on exit, so a
+  blocked parent never deadlocks).
+- `thread::send` / `thread::poll` are unchanged (out of scope): `send` keeps its
+  `timeoutMs = 0` non-blocking default, `poll` keeps rejecting negatives.
 
 ## Notes
 
-- Discovered while writing plan-15 stdin-broadcast fixtures; the fixtures avoid it by
-  using `thread::receive(self, -1)`. plan-15 itself does **not** introduce or depend on
-  this (the race reproduces with no `openStdIn`/broadcast usage).
-- The same non-blocking-default reasoning applies to `thread::accept` (resource plane),
-  which shares the `timeoutMs = 0` default; worth checking under the same fix.
+- Discovered while writing plan-15 stdin-broadcast fixtures; the fixtures avoided it
+  by using `thread::receive(self, -1)` (now spelled `thread::receive(self)`). plan-15
+  itself does **not** introduce or depend on this (the race reproduces with no
+  `openStdIn`/broadcast usage).
+- `thread::accept` (resource plane) shared the same `timeoutMs = 0` default and is
+  fixed under the same reshape; its parent overload already permitted the indefinite
+  wait, so only the default (block) and the negative-rejection change for it.

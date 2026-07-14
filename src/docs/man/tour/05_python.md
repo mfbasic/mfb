@@ -42,10 +42,10 @@ IMPORT thread
 
 EXPORT ISOLATED FUNC wordCount(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   MUT total = 0
-  MUT line AS String = thread::receive(w, -1)    ' block until the parent sends
+  MUT line AS String = thread::receive(w)    ' block until the parent sends
   WHILE line <> "done"
     total = total + len(strings::split(line, " "))
-    line = thread::receive(w, -1)
+    line = thread::receive(w)
   WEND
   RETURN total
 END FUNC

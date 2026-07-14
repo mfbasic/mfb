@@ -1,11 +1,10 @@
 IMPORT thread
 
 ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
-  LET first AS String = thread::receive(t)
+  LET blocking AS String = thread::receive(t)
   LET immediate AS String = thread::receive(t, 0)
   LET timed AS String = thread::receive(t, 1)
-  LET indefinite AS String = thread::receive(t, -1)
-  RETURN len(seed) + len(first) + len(immediate) + len(timed) + len(indefinite)
+  RETURN len(seed) + len(blocking) + len(immediate) + len(timed)
 END FUNC
 
 FUNC main AS Integer

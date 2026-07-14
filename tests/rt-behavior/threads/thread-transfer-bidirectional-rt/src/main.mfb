@@ -10,7 +10,7 @@ FUNC main AS Integer
   LET t AS Thread OF RES File TO Integer = thread::start(xfer_bidi_worker::exchange, "seed")
   RES pf AS File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/parent.txt")
   thread::transfer(t, pf)
-  RES wf AS File = thread::accept(t, -1)
+  RES wf AS File = thread::accept(t)
   LET parentReceived AS Integer = len(fs::readAll(wf))
   fs::close(wf)
   LET workerReceived AS Integer = thread::waitFor(t)

@@ -42,11 +42,13 @@ a value of type `Unknown`. [[src/builtins/thread.rs:thread_parts_full]] [[src/bu
 Both queues are bounded; their capacities are set when the thread starts
 (`inboundLimit` and `outboundLimit`, each at least 1). Sending into a full queue
 blocks, and receiving from an empty queue blocks, subject to a timeout. Timeouts
-are `Integer` milliseconds: `timeoutMs = 0` does not wait (it acts at once and
-otherwise fails immediately), a positive `timeoutMs` bounds the wait, and on a
-worker-side wait a `timeoutMs` of `-1` waits indefinitely. A poll or send timeout
-must not be negative; a worker-side accept or receive timeout must not be below
-`-1`. [[src/builtins/thread.rs:call_param_names]]
+are `Integer` milliseconds. `send` and `transfer` default `timeoutMs` to `0`
+(non-blocking); a positive value bounds the wait and a negative value is invalid.
+`receive` and `accept` have two forms: with no `timeoutMs` they block until a
+message/resource arrives, the queue closes, or the worker is cancelled; with an
+explicit `timeoutMs` (which must be `>= 0`) `0` polls without waiting and a positive
+value bounds the wait, while a negative value is rejected with
+`ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]]
 
 `Thread` values are non-copyable owned handles. A live parent `Thread` is cleaned
 up automatically on scope exit, `RETURN`, `FAIL`, propagated errors, trap routing,
@@ -80,7 +82,7 @@ A thread that reads stdin without a subscription raises `ErrInvalidContext`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by `start` when `inboundLimit` or `outboundLimit` is below 1, by `poll` when `ms` is negative, by `send` and `transfer` when `timeoutMs` is negative, and by `receive` and `accept` when `timeoutMs` is out of range for the handle (negative on a parent `Thread`, below `-1` on a `ThreadWorker`) [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | raised by `start` when `inboundLimit` or `outboundLimit` is below 1, by `poll` when `ms` is negative, by `send` and `transfer` when `timeoutMs` is negative, and by `receive` and `accept` when an explicit `timeoutMs` is negative (omit the argument to wait indefinitely) [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 | `77050004` | `ErrNotFound` | raised by `receive` and `accept` when nothing is available without waiting (`timeoutMs = 0` and the queue is empty), when the queue has been closed, or, for a parent `Thread`, when the worker has completed with an empty outbound queue [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
 | `77050008` | `ErrTimeout` | raised by `send`, `receive`, `transfer`, and `accept` when a positive `timeoutMs` elapses before space frees up or a message or resource arrives [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 | `77050009` | `ErrInterrupted` | raised by `start` when the underlying OS thread cannot be spawned, and by `send`, `receive`, `transfer`, and `accept` when a wait observes that the thread has ended, the queue has been closed, or cancellation of the worker has been requested [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |

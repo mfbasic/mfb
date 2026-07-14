@@ -2,8 +2,10 @@ NAME
   accept - take a transferred resource from a thread's resource plane
 
 SYNOPSIS
-  thread::accept(t AS Thread OF RES Res TO Out, timeoutMs AS Integer = 0) AS RES Res
-  thread::accept(t AS ThreadWorker OF RES Res TO Out, timeoutMs AS Integer = 0) AS RES Res
+  thread::accept(t AS Thread OF RES Res TO Out) AS RES Res
+  thread::accept(t AS Thread OF RES Res TO Out, timeoutMs AS Integer) AS RES Res
+  thread::accept(t AS ThreadWorker OF RES Res TO Out) AS RES Res
+  thread::accept(t AS ThreadWorker OF RES Res TO Out, timeoutMs AS Integer) AS RES Res
 
 PACKAGE
   thread
@@ -26,17 +28,16 @@ DESCRIPTION
 
   Both overloads run with the same resource-plane semantics regardless of whether
   the handle is a parent Thread or a ThreadWorker; the handle type only selects
-  which resource queue is read. Unlike thread::receive, both overloads accept an
-  indefinite wait.
+  which resource queue is read.
 
-  timeoutMs controls how long the call waits for a resource when the resource
-  queue is currently empty. With timeoutMs = 0 (the default) the call does not
-  wait: it returns a resource immediately if one is queued and otherwise fails at
-  once with ErrNotFound. A positive timeoutMs waits up to that many milliseconds
-  for a resource to arrive, failing with ErrTimeout if the timeout elapses while
-  the queue is still empty. A timeoutMs of -1 waits indefinitely until a resource
-  arrives, the queue is closed, or cancellation is requested. Any timeoutMs below
-  -1 is rejected with ErrInvalidArgument.
+  There are two forms. The no-timeout form waits: accept blocks until a resource
+  arrives, the queue is closed, or the worker is cancelled. The timeoutMs form does
+  not have a default and controls a bounded wait when the resource queue is
+  currently empty: timeoutMs must be zero or positive. With timeoutMs = 0 the call
+  does not wait and fails at once with ErrNotFound if no resource is queued; a
+  positive timeoutMs waits up to that many milliseconds, failing with ErrTimeout if
+  the timeout elapses while the queue is still empty. A negative timeoutMs is
+  rejected with ErrInvalidArgument -- to wait indefinitely, omit the argument.
 
   accept participates in cooperative cancellation and observes queue closure. A
   call that is waiting or finds the resource queue empty fails with ErrInterrupted
@@ -44,14 +45,24 @@ DESCRIPTION
   when the resource queue has been closed.
 
 OVERLOADS
-  thread::accept(t AS Thread OF RES Res TO Out, timeoutMs AS Integer = 0) AS RES Res
-    Reads the resource plane through a parent Thread handle. timeoutMs = -1 waits
-    indefinitely; a value below -1 is rejected with ErrInvalidArgument.
+  thread::accept(t AS Thread OF RES Res TO Out) AS RES Res
+    Blocking parent-side accept. Reads the resource plane through a parent Thread
+    handle, waiting until a resource arrives or the queue is closed (ErrNotFound).
 
-  thread::accept(t AS ThreadWorker OF RES Res TO Out, timeoutMs AS Integer = 0) AS RES Res
-    Reads the resource plane through a ThreadWorker handle. A waiting or empty
-    accept fails with ErrInterrupted when cancellation of the worker has been
-    requested, and with ErrNotFound when the resource queue has been closed.
+  thread::accept(t AS Thread OF RES Res TO Out, timeoutMs AS Integer) AS RES Res
+    Timed parent-side accept. timeoutMs must be >= 0: 0 polls once and a positive
+    value waits up to that many milliseconds. A negative timeoutMs is rejected with
+    ErrInvalidArgument.
+
+  thread::accept(t AS ThreadWorker OF RES Res TO Out) AS RES Res
+    Blocking worker-side accept. Reads the resource plane through a ThreadWorker
+    handle, waiting until a resource arrives, cancellation is requested
+    (ErrInterrupted), or the queue is closed (ErrNotFound).
+
+  thread::accept(t AS ThreadWorker OF RES Res TO Out, timeoutMs AS Integer) AS RES Res
+    Timed worker-side accept. timeoutMs must be >= 0: 0 polls once and a positive
+    value waits up to that many milliseconds. A negative timeoutMs is rejected with
+    ErrInvalidArgument.
 
 PARAMETERS
   t AS Thread OF RES Res TO Out | ThreadWorker OF RES Res TO Out
@@ -60,11 +71,12 @@ PARAMETERS
     a data-only thread type does not type-check.
 
   timeoutMs AS Integer
-    Maximum time in milliseconds to wait for a resource when the resource queue is
-    empty. 0 (the default) does not wait and fails immediately with ErrNotFound if
-    no resource is queued. A positive value waits up to that many milliseconds
-    before failing with ErrTimeout. -1 waits indefinitely. Any value below -1 is
-    rejected with ErrInvalidArgument.
+    Optional. When omitted, accept blocks until a resource arrives, the queue
+    closes, or the worker is cancelled. When given, it is the maximum time in
+    milliseconds to wait for a resource and must be >= 0: 0 does not wait and fails
+    immediately with ErrNotFound if no resource is queued, and a positive value
+    waits up to that many milliseconds before failing with ErrTimeout. A negative
+    timeoutMs is rejected with ErrInvalidArgument.
 
 RETURN VALUE
   AS RES Res
@@ -74,7 +86,8 @@ RETURN VALUE
 
 ERRORS
   77050002 (ErrInvalidArgument)
-  Raised when timeoutMs is below -1.
+  Raised when an explicit timeoutMs is negative. Omit the argument to wait
+  indefinitely.
 
   77050004 (ErrNotFound)
   Raised when no resource is available without waiting (timeoutMs = 0 and the
@@ -93,21 +106,21 @@ TYPE CHECKING
   RES Res clause); the queue read is selected by which of the two it is, and the
   result is a resource of the handle's resource type Res (Unknown for a handle
   whose resource type is Unknown). A data-only thread handle fails to type-check.
-  timeoutMs must be an Integer.
+  timeoutMs, when supplied, must be an Integer.
 
 EXAMPLES
+  Block until a resource arrives (the common "wait for work" form):
+
+    RES f AS File = thread::accept(t)
+
   Take a transferred file resource without waiting, failing with ErrNotFound if
   none is queued:
 
-    RES f AS File = thread::accept(t)
+    RES f AS File = thread::accept(t, 0)
 
   Wait up to 10 milliseconds for a resource to arrive:
 
     RES f AS File = thread::accept(t, 10)
-
-  Inside a worker, block until a resource arrives or the worker is cancelled:
-
-    RES f AS File = thread::accept(self, -1)
 
 SEE ALSO
   thread::transfer, thread::receive, thread::send, thread::start, thread::waitFor

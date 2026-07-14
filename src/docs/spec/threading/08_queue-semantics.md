@@ -44,11 +44,27 @@ the already-copied pointer into the queue slot. [[src/target/shared/code/builder
 Resource handles move as scalar handles through the resource queues without the
 flat-block deep copy used for data-plane values.
 
-`timeoutMs = 0` means non-blocking. Positive timeouts wait up to that many
-milliseconds. Negative timeouts are invalid except where a specific overload
-documents an indefinite worker-side wait. `thread::receive(ThreadWorker, -1)`
-waits until a message, queue closure, or cancellation; if cancellation is
-requested before or during that wait, it fails with `ErrInterrupted`.
+Timeouts differ between the writing side (`thread::send`, `thread::transfer`) and
+the reading side (`thread::receive`, `thread::accept`).
+
+For `thread::send` and `thread::transfer`, `timeoutMs = 0` (the default) means
+non-blocking, a positive timeout waits up to that many milliseconds, and a negative
+timeout is invalid.
+
+`thread::receive` and `thread::accept` take **two forms** (identical on the parent
+`Thread` and worker `ThreadWorker` handle). Omitting `timeoutMs` **blocks**: the
+call waits until a message/resource arrives, the queue is closed, or the worker is
+cancelled. Supplying `timeoutMs` requires a value `>= 0`: `0` is a non-blocking poll
+(fails at once with `ErrNotFound` when empty) and a positive value waits up to that
+many milliseconds (`ErrTimeout` on expiry). A negative explicit `timeoutMs` is
+rejected with `ErrInvalidArgument` — to wait indefinitely, omit the argument. A
+blocking read that observes cancellation of the worker fails with `ErrInterrupted`;
+a blocking parent read wakes with `ErrNotFound` when the worker completes or closes
+its outbound queue, so it never waits forever. (Internally the no-timeout form is
+lowered by padding the missing `timeoutMs` with an unreachable block sentinel,
+`i64::MIN`; the queue-read helper waits indefinitely on exactly that value and
+rejects every other negative timeout, so no explicit value can request the
+indefinite wait.)
 
 For `thread::send` and `thread::transfer`, ownership transfer is atomic with
 enqueue success:

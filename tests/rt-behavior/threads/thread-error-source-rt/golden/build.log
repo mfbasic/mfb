@@ -9,5 +9,5 @@ Wrote executable to tests/rt-behavior/threads/thread-error-source-rt/thread_erro
 [exit 0]
 $ tests/rt-behavior/threads/thread-error-source-rt/thread_error_source_rt.out
 77050099 worker boom
-src/lib.mfb:193:8
+src/lib.mfb:191:8
 [exit 0]

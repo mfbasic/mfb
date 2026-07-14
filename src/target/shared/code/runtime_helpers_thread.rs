@@ -992,30 +992,29 @@ pub(super) fn thread_queue_write_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-/// How a queue-read helper treats its caller and timeout. The read machinery is
-/// shared by the data plane (`receive`/`read`) and the resource plane
-/// (`acceptResource`/`readResource`); the differences are exactly:
-///   * whether the caller's `x0` is its own control block, so the helper may
-///     re-establish the current-thread register `x20` and consult the worker's
-///     cancellation flag (`WorkerSelf`); a parent caller must do neither because
-///     `x0` is the *worker's* block and clobbering `x20` would corrupt the
-///     parent thread.
-///   * whether a parent caller checks the worker's run state for termination
-///     (both parent modes) and whether it may wait indefinitely (`timeoutMs`
-///     of -1). `read` is bounded (parent data receive forbids the indefinite
-///     wait); `readResource` is waitable (parent `accept` permits it).
+/// How a queue-read helper treats its caller. The read machinery is shared by the
+/// data plane (`receive`/`read`) and the resource plane
+/// (`acceptResource`/`readResource`); the only difference is whether the caller's
+/// `x0` is its own control block, so the helper may re-establish the current-thread
+/// register `x20` and consult the worker's cancellation flag (`WorkerSelf`); a
+/// parent caller must do neither because `x0` is the *worker's* block and clobbering
+/// `x20` would corrupt the parent thread. A parent caller instead checks the
+/// worker's run state for termination.
+///
+/// bug-181: both modes are waitable. The no-arg `receive`/`accept` overload passes
+/// the block sentinel (`THREAD_RECEIVE_BLOCK_SENTINEL`, i64::MIN) and waits
+/// indefinitely; any other negative `timeoutMs` is rejected with
+/// `ErrInvalidArgument`. A parent's indefinite wait is terminated when the worker
+/// completes or closes the queue (the trampoline broadcasts the queue's condvar on
+/// exit), so it never deadlocks.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ThreadReadMode {
     /// Worker reading its own queue (`receive`, `acceptResource`): re-establish
-    /// `x20`, check the worker cancel flag, and permit an indefinite wait.
+    /// `x20` and check the worker cancel flag.
     WorkerSelf,
-    /// Parent reading a worker queue with a bounded wait (`read`): no `x20`
-    /// touch, check worker run state, reject a negative `timeoutMs`.
-    ParentBounded,
-    /// Parent reading a worker queue with an indefinite wait allowed
-    /// (`readResource`): like `ParentBounded` but `timeoutMs` of -1 waits
-    /// indefinitely (terminated by the worker closing the queue on exit).
-    ParentWaitable,
+    /// Parent reading a worker queue (`read`, `readResource`): no `x20` touch,
+    /// check the worker's run state for termination.
+    Parent,
 }
 
 pub(super) fn thread_queue_read_helper(
@@ -1036,12 +1035,6 @@ pub(super) fn thread_queue_read_helper(
     // `WorkerSelf` callers pass their own control block, so the helper restores
     // `x20` and reads the worker cancel flag; parent callers do neither.
     let worker_self = mode == ThreadReadMode::WorkerSelf;
-    // Worker reads and parent `accept` may wait indefinitely; parent data `read`
-    // is bounded and rejects a negative timeout.
-    let allow_indefinite = matches!(
-        mode,
-        ThreadReadMode::WorkerSelf | ThreadReadMode::ParentWaitable
-    );
     const FRAME_SIZE: usize = 80;
     const HANDLE_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
@@ -1078,20 +1071,18 @@ pub(super) fn thread_queue_read_helper(
         // `x20`, so we restore the invariant here instead of failing on it.
         instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]));
     }
-    if allow_indefinite {
-        // A `timeoutMs` of -1 means wait indefinitely; any other negative value
-        // is invalid.
-        instructions.extend([
-            abi::compare_immediate(abi::ARG[1], "0"),
-            abi::branch_ge(&timeout_ok),
-            abi::add_immediate("%v9", abi::ARG[1], 1),
-            abi::compare_immediate("%v9", "0"),
-            abi::branch_ne(&invalid),
-            abi::label(&timeout_ok),
-        ]);
-    } else {
-        instructions.extend([abi::compare_immediate(abi::ARG[1], "0"), abi::branch_lt(&invalid)]);
-    }
+    // bug-181: the no-arg `receive`/`accept` overload passes the block sentinel
+    // (i64::MIN) to wait indefinitely; a non-negative `timeoutMs` is a real timeout
+    // (0 = poll, N = wait N ms). Any other negative value is an explicit user
+    // timeout below zero and is rejected with `ErrInvalidArgument`.
+    instructions.extend([
+        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::branch_ge(&timeout_ok),
+        abi::move_immediate("%v9", "Integer", THREAD_RECEIVE_BLOCK_SENTINEL),
+        abi::compare_registers(abi::ARG[1], "%v9"),
+        abi::branch_ne(&invalid),
+        abi::label(&timeout_ok),
+    ]);
     emit_thread_deadline(
         symbol,
         platform_imports,
