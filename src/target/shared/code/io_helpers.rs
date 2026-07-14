@@ -653,6 +653,7 @@ pub(super) fn lower_io_poll_input_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    app_mode: bool,
 ) -> Result<
     (
         CodeFrame,
@@ -667,10 +668,32 @@ pub(super) fn lower_io_poll_input_helper(
     const POLLFD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 32;
 
+    let poll_error = format!("{symbol}_poll_error");
+    let poll_ready = format!("{symbol}_poll_ready");
+    let os_poll = format!("{symbol}_os_poll");
+    let done = format!("{symbol}_done");
+
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Save the caller's timeout before the log-ready check clobbers x0.
+    instructions.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), TIMEOUT_OFFSET));
+    // plan-15 §4.4: a byte already staged for this thread in the broadcast log is
+    // invisible to `poll(fd 0)`, so check the log first (ready => report TRUE) and
+    // only `poll(fd 0)` when the log has nothing for us. App mode reads the window
+    // pipe (no broadcast log), so it skips straight to `poll(fd 0)`.
+    if !app_mode {
+        emit_stdin_poll_ready_check(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            &poll_ready,
+            &os_poll,
+        )?;
+    }
     instructions.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::label(&os_poll),
         abi::move_immediate("%v9", "Integer", POLLIN_PACKED_FD0),
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
     ]);
@@ -687,10 +710,6 @@ pub(super) fn lower_io_poll_input_helper(
         &mut instructions,
         &mut relocations,
     )?;
-
-    let poll_error = format!("{symbol}_poll_error");
-    let poll_ready = format!("{symbol}_poll_ready");
-    let done = format!("{symbol}_done");
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&poll_error),
@@ -1022,29 +1041,83 @@ fn emit_continuation_read(
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    app_mode: bool,
     byte_offset: usize,
     retry_label: &str,
     resume_label: &str,
     input_error: &str,
 ) -> Result<(), String> {
-    instructions.extend([
-        abi::label(retry_label),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), byte_offset),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
-    ]);
-    platform.emit_read_file(symbol, platform_imports, instructions, relocations)?;
-    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
-    emit_single_op_eintr_guard(
+    // plan-15: in console mode the continuation byte comes from the stdin broadcast
+    // log (`_mfb_rt_stdin_next_byte`); in app mode it is a direct per-byte read of
+    // the window pipe. A continuation byte from an unsubscribed thread is the same
+    // ErrInvalidContext as the lead byte, routed to the helper's shared handler.
+    emit_stdin_byte_read(
         symbol,
         platform_imports,
         platform,
         instructions,
         relocations,
+        app_mode,
+        byte_offset,
         retry_label,
         resume_label,
         input_error,
+        &format!("{symbol}_invalid_context"),
     )
+}
+
+/// Emit one stdin byte read for a read helper, choosing the source by mode. In
+/// console mode (`!app_mode`) the byte comes from the stdin broadcast log
+/// (`_mfb_rt_stdin_next_byte`, plan-15). In app mode stdin is the window input
+/// pipe, not fd 0, so the log is not built — keep the direct per-byte
+/// `read(0,…,1)` + EINTR guard. Both paths push `retry_label` (the loop/retry head)
+/// and leave the `x0 vs 0` flags live for the caller's follow-on `branch_eq`.
+#[allow(clippy::too_many_arguments)]
+fn emit_stdin_byte_read(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    app_mode: bool,
+    byte_offset: usize,
+    retry_label: &str,
+    resume_label: &str,
+    input_error: &str,
+    invalid_context: &str,
+) -> Result<(), String> {
+    if app_mode {
+        instructions.extend([
+            abi::label(retry_label),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), byte_offset),
+            abi::move_immediate(abi::ARG[2], "Integer", "1"),
+        ]);
+        platform.emit_read_file(symbol, platform_imports, instructions, relocations)?;
+        instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+        emit_single_op_eintr_guard(
+            symbol,
+            platform_imports,
+            platform,
+            instructions,
+            relocations,
+            retry_label,
+            resume_label,
+            input_error,
+        )?;
+    } else {
+        instructions.push(abi::label(retry_label));
+        emit_stdin_next_byte(
+            symbol,
+            byte_offset,
+            retry_label,
+            input_error,
+            invalid_context,
+            instructions,
+            relocations,
+        );
+    }
+    Ok(())
 }
 
 pub(super) fn lower_io_read_byte_helper(
@@ -1073,6 +1146,7 @@ pub(super) fn lower_io_read_byte_helper(
     };
     let eof = format!("{symbol}_eof");
     let input_error = format!("{symbol}_input_error");
+    let invalid_context = format!("{symbol}_invalid_context");
     let read_retry = format!("{symbol}_read_retry");
     let read_resume = format!("{symbol}_read_resume");
     let done = format!("{symbol}_done");
@@ -1107,31 +1181,20 @@ pub(super) fn lower_io_read_byte_helper(
         true,
         &input_error,
     )?;
-    instructions.extend([
-        // `read_retry` re-issues the blocking read on EINTR (bug-62): a signal
-        // delivered while this read waits for input returns -1/EINTR, and the read
-        // should resume rather than fail spuriously.
-        abi::label(&read_retry),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTE_OFFSET),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
-    ]);
-    platform.emit_read_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
-    emit_single_op_eintr_guard(
+    // plan-15: read the byte from the stdin broadcast log. EINTR/blocking are
+    // handled inside `_mfb_rt_stdin_next_byte`; a 0-byte return is EOF.
+    emit_stdin_byte_read(
         symbol,
         platform_imports,
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
+        BYTE_OFFSET,
         &read_retry,
         &read_resume,
         &input_error,
+        &invalid_context,
     )?;
     instructions.extend([
         abi::branch_eq(&eof),
@@ -1155,6 +1218,13 @@ pub(super) fn lower_io_read_byte_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&invalid_context),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_INVALID_CONTEXT_SYMBOL, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         symbol,
@@ -1251,6 +1321,7 @@ pub(super) fn lower_io_read_char_helper(
     let copy_done = format!("{symbol}_copy_done");
     let eof = format!("{symbol}_eof");
     let input_error = format!("{symbol}_input_error");
+    let invalid_context = format!("{symbol}_invalid_context");
     let encoding_error = format!("{symbol}_encoding_error");
     let alloc_error = format!("{symbol}_alloc_error");
     let read_retry = format!("{symbol}_read_retry");
@@ -1287,29 +1358,20 @@ pub(super) fn lower_io_read_char_helper(
         true,
         &input_error,
     )?;
-    instructions.extend([
-        // `read_retry` re-issues the blocking lead-byte read on EINTR (bug-62).
-        abi::label(&read_retry),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
-    ]);
-    platform.emit_read_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
-    emit_single_op_eintr_guard(
+    // plan-15: read the lead byte from the stdin broadcast log; a 0-byte return is
+    // EOF. EINTR/blocking are handled inside `_mfb_rt_stdin_next_byte`.
+    emit_stdin_byte_read(
         symbol,
         platform_imports,
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
+        BYTES_OFFSET,
         &read_retry,
         &read_resume,
         &input_error,
+        &invalid_context,
     )?;
     instructions.extend([
         abi::branch_eq(&eof),
@@ -1331,6 +1393,7 @@ pub(super) fn lower_io_read_char_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont1_retry"),
         &format!("{symbol}_cont1_resume"),
@@ -1356,6 +1419,7 @@ pub(super) fn lower_io_read_char_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont2_retry"),
         &format!("{symbol}_cont2_resume"),
@@ -1392,6 +1456,7 @@ pub(super) fn lower_io_read_char_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont3_retry"),
         &format!("{symbol}_cont3_resume"),
@@ -1419,6 +1484,7 @@ pub(super) fn lower_io_read_char_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont4_retry"),
         &format!("{symbol}_cont4_resume"),
@@ -1455,6 +1521,7 @@ pub(super) fn lower_io_read_char_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont5_retry"),
         &format!("{symbol}_cont5_resume"),
@@ -1474,6 +1541,7 @@ pub(super) fn lower_io_read_char_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 3,
         &format!("{symbol}_cont6_retry"),
         &format!("{symbol}_cont6_resume"),
@@ -1560,6 +1628,13 @@ pub(super) fn lower_io_read_char_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&invalid_context),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_INVALID_CONTEXT_SYMBOL, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         symbol,
@@ -1632,6 +1707,7 @@ pub(super) fn lower_io_read_line_helper(
     let output_error = format!("{symbol}_output_error");
     let eof_error = format!("{symbol}_eof_error");
     let input_error = format!("{symbol}_input_error");
+    let invalid_context = format!("{symbol}_invalid_context");
     let encoding_error = format!("{symbol}_encoding_error");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -1741,31 +1817,23 @@ pub(super) fn lower_io_read_line_helper(
         abi::move_immediate("%v10", "Integer", "32"),
         abi::store_u64("%v10", abi::stack_pointer(), CAPACITY_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::label(&read_loop),
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTES_OFFSET),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_read_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.push(abi::compare_immediate(abi::return_register(), "0"));
-    // A negative per-byte read is EINTR-retried by re-entering `read_loop` (which
-    // re-issues the identical 1-byte read; no byte was consumed) or is a genuine
-    // input failure (bug-62). `read_resume` keeps the `cmp x0, 0` flags live for
-    // the `branch_eq read_eof` (0 bytes == EOF) below.
-    emit_single_op_eintr_guard(
+    // plan-15: each line byte comes from the stdin broadcast log in console mode (or
+    // the window pipe in app mode). `read_loop` is the per-byte loop head (pushed by
+    // the helper); EINTR/blocking are handled inside the reader, and a 0-byte return
+    // is EOF.
+    emit_stdin_byte_read(
         symbol,
         platform_imports,
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
+        BYTES_OFFSET,
         &read_loop,
         &read_resume,
         &input_error,
+        &invalid_context,
     )?;
     instructions.extend([
         abi::branch_eq(&format!("{symbol}_read_eof")),
@@ -1789,6 +1857,7 @@ pub(super) fn lower_io_read_line_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont1_retry"),
         &format!("{symbol}_cont1_resume"),
@@ -1814,6 +1883,7 @@ pub(super) fn lower_io_read_line_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont2_retry"),
         &format!("{symbol}_cont2_resume"),
@@ -1850,6 +1920,7 @@ pub(super) fn lower_io_read_line_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont3_retry"),
         &format!("{symbol}_cont3_resume"),
@@ -1877,6 +1948,7 @@ pub(super) fn lower_io_read_line_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont4_retry"),
         &format!("{symbol}_cont4_resume"),
@@ -1913,6 +1985,7 @@ pub(super) fn lower_io_read_line_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont5_retry"),
         &format!("{symbol}_cont5_resume"),
@@ -1932,6 +2005,7 @@ pub(super) fn lower_io_read_line_helper(
         platform,
         &mut instructions,
         &mut relocations,
+        app_mode,
         BYTES_OFFSET + 3,
         &format!("{symbol}_cont6_retry"),
         &format!("{symbol}_cont6_resume"),
@@ -2138,6 +2212,13 @@ pub(super) fn lower_io_read_line_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&invalid_context),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_INVALID_CONTEXT_SYMBOL, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     if !with_prompt {
         emit_restore_stdin_terminal(

@@ -16,6 +16,12 @@ const IS_CANCELLED: &str = "thread.isCancelled";
 /// rather than data, keeping the data channel resource-free.
 pub(crate) const TRANSFER: &str = "thread.transfer";
 pub(crate) const ACCEPT: &str = "thread.accept";
+/// Stdin broadcast subscription (plan-15 §4.5). `openStdIn()` subscribes the
+/// calling thread to the stdin broadcast log at the current frontier;
+/// `openStdIn(worker)` subscribes the worker behind a parent `Thread` handle.
+/// `closeStdIn` unsubscribes. Both return `Nothing`.
+pub(crate) const OPEN_STD_IN: &str = "thread.openStdIn";
+pub(crate) const CLOSE_STD_IN: &str = "thread.closeStdIn";
 /// Internal lowered targets for the resource plane. `thread::transfer`/`accept`
 /// lower to these so codegen routes them to the dedicated resource queues (they
 /// never appear in source). The plane is split by direction like the data plane:
@@ -50,6 +56,8 @@ pub(crate) fn is_thread_call(name: &str) -> bool {
             | IS_CANCELLED
             | TRANSFER
             | ACCEPT
+            | OPEN_STD_IN
+            | CLOSE_STD_IN
     )
 }
 
@@ -139,6 +147,14 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         IS_CANCELLED if arg_types.len() == 1 && is_worker_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Boolean")
         }
+        // Zero args = subscribe the calling thread; one parent `Thread` handle =
+        // subscribe that worker. Both return Nothing (plan-15 §4.5).
+        OPEN_STD_IN | CLOSE_STD_IN
+            if arg_types.is_empty()
+                || (arg_types.len() == 1 && is_parent_thread_type(&arg_types[0])) =>
+        {
+            Cow::Borrowed("Nothing")
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -158,6 +174,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         ACCEPT => {
             Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Integer")
         }
+        OPEN_STD_IN | CLOSE_STD_IN => Some("() or Thread OF Msg TO Out"),
         _ => None,
     }
 }
@@ -171,6 +188,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         RECEIVE => Some((1, 2)),
         TRANSFER => Some((2, 3)),
         ACCEPT => Some((1, 2)),
+        OPEN_STD_IN | CLOSE_STD_IN => Some((0, 1)),
         _ => None,
     }
 }

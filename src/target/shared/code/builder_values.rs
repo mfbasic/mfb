@@ -1614,6 +1614,15 @@ impl CodeBuilder<'_> {
                 type_: "Integer".to_string(),
                 value: "0".to_string(),
             });
+        } else if matches!(target, "thread.openStdIn" | "thread.closeStdIn")
+            && helper_args.is_empty()
+        {
+            // No-arg self form: pass a null handle sentinel; the helper subscribes
+            // the calling thread when the handle is 0 (plan-15 §4.5).
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "0".to_string(),
+            });
         } else if target == "net.lookup" && helper_args.len() == 1 {
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),

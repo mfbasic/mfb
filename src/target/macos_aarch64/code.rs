@@ -109,6 +109,7 @@ impl code::CodegenPlatform for Platform {
             spec.seed_rng,
             spec.register_signal_handlers,
             spec.capture_args,
+            spec.subscribe_stdin,
         )
     }
 

@@ -135,6 +135,8 @@ impl NativeBackend for Backend {
                 "thread.transferResource",
                 "thread.acceptResource",
                 "thread.isCancelled",
+                "thread.openStdIn",
+                "thread.closeStdIn",
                 "net.lookup",
                 "net.connectTcp",
                 "net.listenTcp",

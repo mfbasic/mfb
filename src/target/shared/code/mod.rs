@@ -528,6 +528,25 @@ pub(crate) fn lower_module_for_platform(
             value: os::os_env_lock_init_hex(platform.target()),
         });
     }
+    // Process-global stdin broadcast log (plan-15): one zero-initialized writable
+    // structure. Emitted whenever the module uses a stdin read builtin or
+    // `thread::openStdIn`/`closeStdIn`; app mode reads a window pipe, not fd 0.
+    if !module.build_mode.is_app()
+        && module_uses_any_call(
+            module,
+            &[
+                "io.readLine",
+                "io.input",
+                "io.readChar",
+                "io.readByte",
+                "io.pollInput",
+                "thread.openStdIn",
+                "thread.closeStdIn",
+            ],
+        )
+    {
+        data_objects.push(stdin_log_data_object());
+    }
     if native_plan
         .runtime_symbols
         .iter()
@@ -760,6 +779,8 @@ pub(crate) fn lower_module_for_platform(
                     seed_rng: uses_rng,
                     register_signal_handlers,
                     capture_args: module_uses_call(module, "os.args"),
+                    // App mode reads the window input pipe, not fd 0 — no broadcast log.
+                    subscribe_stdin: false,
                 },
                 &platform_imports,
             )?);
@@ -781,6 +802,18 @@ pub(crate) fn lower_module_for_platform(
                     seed_rng: uses_rng,
                     register_signal_handlers,
                     capture_args: module_uses_call(module, "os.args"),
+                    subscribe_stdin: module_uses_any_call(
+                        module,
+                        &[
+                            "io.readLine",
+                            "io.input",
+                            "io.readChar",
+                            "io.readByte",
+                            "io.pollInput",
+                            "thread.openStdIn",
+                            "thread.closeStdIn",
+                        ],
+                    ),
                 },
                 &platform_imports,
             )?);
@@ -845,6 +878,31 @@ pub(crate) fn lower_module_for_platform(
         });
     if uses_stdout_buffer {
         code_functions.push(lower_stdout_drain(&platform_imports, platform)?);
+    }
+    // Stdin broadcast log (plan-15): the shared reader/subscription helpers are
+    // emitted whenever the module uses a stdin read builtin or `thread::openStdIn`/
+    // `closeStdIn`. `_mfb_rt_stdin_next_byte` replaces the per-byte `read(0,…)` in
+    // every stdin read site; subscribe/unsubscribe/recompute back the broadcast
+    // registry and the compat main-thread subscription. App mode reads a window
+    // pipe, not fd 0, so it is excluded.
+    let uses_stdin = !module.build_mode.is_app()
+        && runtime_symbols.iter().any(|symbol| {
+            matches!(
+                symbol.as_str(),
+                "_mfb_rt_io_io_readLine"
+                    | "_mfb_rt_io_io_input"
+                    | "_mfb_rt_io_io_readChar"
+                    | "_mfb_rt_io_io_readByte"
+                    | "_mfb_rt_io_io_pollInput"
+                    | "_mfb_rt_thread_thread_openStdIn"
+                    | "_mfb_rt_thread_thread_closeStdIn"
+            )
+        });
+    if uses_stdin {
+        code_functions.push(lower_stdin_recompute_base(&platform_imports, platform)?);
+        code_functions.push(lower_stdin_next_byte(&platform_imports, platform)?);
+        code_functions.push(lower_stdin_subscribe(&platform_imports, platform)?);
+        code_functions.push(lower_stdin_unsubscribe(&platform_imports, platform)?);
     }
     // Per-File output buffering (plan-14-B): the shared `_mfb_rt_fs_file_drain`
     // helper is referenced by fs.close (mandatory flush-on-close), the buffered
@@ -1460,7 +1518,7 @@ fn lower_runtime_helper(
         }
         "io.pollInput" => {
             let (frame, instructions, relocations, stack_slots) =
-                lower_io_poll_input_helper(symbol, platform_imports, platform)?;
+                lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -2209,7 +2267,9 @@ fn lower_runtime_helper(
         | "thread.acceptResource"
         | "thread.emitResource"
         | "thread.readResource"
-        | "thread.isCancelled" => {
+        | "thread.isCancelled"
+        | "thread.openStdIn"
+        | "thread.closeStdIn" => {
             let (frame, instructions, relocations, stack_slots) =
                 lower_thread_helper(symbol, spec.call, uses_rng, platform_imports, platform)?;
             Ok(CodeFunction {
@@ -2919,6 +2979,8 @@ mod float_format;
 use float_format::*;
 mod io_helpers;
 use io_helpers::*;
+mod stdin_broadcast;
+use stdin_broadcast::*;
 mod runtime_helpers;
 use runtime_helpers::*;
 mod runtime_helpers_thread;
@@ -3118,6 +3180,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
         (ERR_EOF_CODE, ERR_EOF_MESSAGE, ERR_EOF_SYMBOL),
         (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
         (ERR_INPUT_CODE, ERR_INPUT_MESSAGE, ERR_INPUT_SYMBOL),
+        (
+            ERR_INVALID_CONTEXT_CODE,
+            ERR_INVALID_CONTEXT_MESSAGE,
+            ERR_INVALID_CONTEXT_SYMBOL,
+        ),
         (
             ERR_ADDRESS_INVALID_CODE,
             ERR_ADDRESS_INVALID_MESSAGE,

@@ -95,6 +95,7 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 | `7-705-0016` | `77050016` | `ErrAuthenticationFailed`     | Authenticated decryption failed: the message authentication tag did not verify. |
 | `7-705-0017` | `77050017` | `ErrAudioUnavailable`         | Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied). |
 | `7-705-0018` | `77050018` | `ErrAudioDevice`              | Audio device open, configuration, or stream operation failed. |
+| `7-705-0019` | `77050019` | `ErrInvalidContext`          | Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`). |
 
 ## Resolution API
 

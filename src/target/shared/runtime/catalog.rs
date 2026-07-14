@@ -129,6 +129,8 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         THREAD_EMIT_RESOURCE_SPEC,
         THREAD_READ_RESOURCE_SPEC,
         THREAD_IS_CANCELLED_SPEC,
+        THREAD_OPEN_STD_IN_SPEC,
+        THREAD_CLOSE_STD_IN_SPEC,
         NET_LOOKUP_SPEC,
         NET_CONNECT_TCP_SPEC,
         NET_CONNECT_TCP_ADDR_SPEC,

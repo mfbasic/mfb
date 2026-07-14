@@ -309,8 +309,55 @@ pub(super) fn lower_thread_helper(
             platform,
         ),
         "thread.isCancelled" => Ok(thread_is_cancelled_helper()),
+        "thread.openStdIn" => lower_thread_stdin_subscription_helper(symbol, true),
+        "thread.closeStdIn" => lower_thread_stdin_subscription_helper(symbol, false),
         _ => Err(format!("native thread helper does not implement {call}")),
     }
+}
+
+/// `thread::openStdIn`/`closeStdIn` (plan-15 §4.5). A thin wrapper over the stdin
+/// broadcast subscribe/unsubscribe helpers: `x0 = 0` (the padded no-arg self form)
+/// subscribes the calling thread (its arena `x19`); a non-null parent `Thread`
+/// handle subscribes the worker behind it (its arena at `THREAD_OFFSET_ARENA_STATE`).
+/// Returns `Nothing`.
+fn lower_thread_stdin_subscription_helper(
+    symbol: &str,
+    subscribe: bool,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let target = if subscribe {
+        STDIN_SUBSCRIBE_SYMBOL
+    } else {
+        STDIN_UNSUBSCRIBE_SYMBOL
+    };
+    let worker = format!("{symbol}_worker");
+    let do_call = format!("{symbol}_call");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register("%v9", abi::ARG[0]),
+        abi::compare_immediate(abi::ARG[0], "0"),
+        abi::branch_ne(&worker),
+        // Self form: subscribe the calling thread's own arena.
+        abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
+        abi::branch(&do_call),
+        abi::label(&worker),
+        // Worker form: the parent `Thread` handle carries the worker's arena state.
+        abi::load_u64(abi::ARG[0], "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::label(&do_call),
+        abi::branch_link(target),
+    ];
+    let relocations = vec![internal_branch(symbol, target)];
+    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 fn lower_thread_start_helper(

@@ -65,6 +65,17 @@ cancellation is requested. Cancellation does not asynchronously kill a worker
 while it owns a resource handle, holds a queue lock, moves a non-copyable value,
 writes its result, or runs package/native code. [[src/target/shared/code/runtime_helpers_thread.rs]]
 
+Standard input is a per-thread broadcast. The runtime owns file descriptor 0 and
+serves it from one append-only log; each *subscribed* thread reads its own cursor,
+so every subscriber sees the whole stdin stream from its subscription point and no
+byte is consumed out from under another thread. `thread::openStdIn()` subscribes
+the calling thread and `thread::openStdIn(t)` subscribes the worker behind a parent
+`Thread` handle; `thread::closeStdIn` unsubscribes (thread teardown auto-
+unsubscribes). A single-threaded program is byte-identical to a direct reader: the
+compiler subscribes the main thread at entry, so it never needs to call `openStdIn`.
+A thread that reads stdin without a subscription raises `ErrInvalidContext`.
+[[src/builtins/thread.rs:OPEN_STD_IN]]
+
 ## Errors
 
 | Code | Name | Raised when |
@@ -75,3 +86,4 @@ writes its result, or runs package/native code. [[src/target/shared/code/runtime
 | `77050009` | `ErrInterrupted` | raised by `start` when the underlying OS thread cannot be spawned, and by `send`, `receive`, `transfer`, and `accept` when a wait observes that the thread has ended, the queue has been closed, or cancellation of the worker has been requested [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
 | `77030004` | `ErrResourceClosed` | raised by `cancel`, `isRunning`, `waitFor`, and the parent `Thread` overloads of `poll`, `send`, `receive`, `transfer`, and `accept` when the parent `Thread` handle has already been closed, such as after its result was retrieved with `waitFor` or `t.result` [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77010001` | `ErrOutOfMemory` | raised by `start` when the thread control block, the worker's arena state, or any of its queue structures and backing message arrays cannot be allocated [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050019` | `ErrInvalidContext` | raised by a stdin read (`io::readLine`, `io::input`, `io::readChar`, `io::readByte`) from a thread that has not subscribed with `thread::openStdIn` (the compiler-inserted main-thread subscription exempts a normal single-threaded program) [[src/target/shared/code/error_constants.rs:ERR_INVALID_CONTEXT_CODE]] |

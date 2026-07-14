@@ -79,6 +79,25 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        // plan-15: the stdin broadcast log helpers are shared by every stdin
+        // builtin and reference these libc symbols; every triggering spec pulls
+        // them in so the merged import table always resolves them.
+        let stdin_broadcast_imports = |imports: &mut Vec<PlatformImport>| {
+            for name in [
+                "read",
+                "__errno_location",
+                "malloc",
+                "free",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "pthread_cond_wait",
+                "pthread_cond_broadcast",
+                "pthread_mutex_init",
+                "pthread_cond_init",
+            ] {
+                imports.push(self.libc_import(name, spec.symbol));
+            }
+        };
         match spec.call {
             "crypto.randomBytes" => vec![self.libc_import("getentropy", spec.symbol)],
             "datetime.nowNanos" | "datetime.monotonicNanos" => {
@@ -129,9 +148,14 @@ impl plan::NativePlanPlatform for Platform {
                     // distinguish EINTR and would hard-error on it.
                     imports.push(self.libc_import("__errno_location", spec.symbol));
                 }
+                stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "io.pollInput" => vec![self.libc_import("poll", spec.symbol)],
+            "io.pollInput" => {
+                let mut imports = vec![self.libc_import("poll", spec.symbol)];
+                stdin_broadcast_imports(&mut imports);
+                imports
+            }
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![self.libc_import("isatty", spec.symbol)]
             }
@@ -234,6 +258,11 @@ impl plan::NativePlanPlatform for Platform {
             // receive, so they must declare the full pthread import set too. They
             // were omitted here; only masked because any transfer/accept program
             // also calls thread.start (which pulled them in, deduplicated).
+            "thread.openStdIn" | "thread.closeStdIn" => {
+                let mut imports = Vec::new();
+                stdin_broadcast_imports(&mut imports);
+                imports
+            }
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
             | "thread.emit" | "thread.isCancelled" | "thread.transferResource"

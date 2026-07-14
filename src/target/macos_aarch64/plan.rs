@@ -145,6 +145,30 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        // plan-15: the stdin broadcast log helpers (`_mfb_rt_stdin_next_byte`,
+        // subscribe/unsubscribe/recompute) are shared by every stdin builtin and
+        // reference these libSystem symbols; every spec that can trigger the log's
+        // emission pulls them in so the merged import table always resolves them.
+        let stdin_broadcast_imports = |imports: &mut Vec<PlatformImport>| {
+            for name in [
+                "_read",
+                "___error",
+                "_malloc",
+                "_free",
+                "_pthread_mutex_lock",
+                "_pthread_mutex_unlock",
+                "_pthread_cond_wait",
+                "_pthread_cond_broadcast",
+                "_pthread_mutex_init",
+                "_pthread_cond_init",
+            ] {
+                imports.push(PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: name.to_string(),
+                    required_by: spec.symbol.to_string(),
+                });
+            }
+        };
         match spec.call {
             "crypto.randomBytes" => vec![PlatformImport {
                 library: "libSystem".to_string(),
@@ -290,13 +314,18 @@ impl plan::NativePlanPlatform for Platform {
                         },
                     ]);
                 }
+                stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "io.pollInput" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_poll".to_string(),
-                required_by: spec.symbol.to_string(),
-            }],
+            "io.pollInput" => {
+                let mut imports = vec![PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_poll".to_string(),
+                    required_by: spec.symbol.to_string(),
+                }];
+                stdin_broadcast_imports(&mut imports);
+                imports
+            }
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![PlatformImport {
                     library: "libSystem".to_string(),
@@ -533,6 +562,13 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: spec.symbol.to_string(),
                 },
             ],
+            // plan-15: the openStdIn/closeStdIn wrappers call the stdin broadcast
+            // subscribe/unsubscribe helpers, which reference the shared libSystem set.
+            "thread.openStdIn" | "thread.closeStdIn" => {
+                let mut imports = Vec::new();
+                stdin_broadcast_imports(&mut imports);
+                imports
+            }
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
             | "thread.emit" | "thread.isCancelled" => [

@@ -156,6 +156,31 @@ pub(crate) const THREAD_CANCEL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+// plan-15 §4.5. The single handle param carries either a parent `Thread` handle
+// (subscribe that worker) or a null sentinel (subscribe the calling thread); the
+// no-arg source form is padded to the null sentinel in `lower_runtime_helper_call`.
+pub(crate) const THREAD_OPEN_STD_IN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.openStdIn",
+    symbol: "_mfb_rt_thread_thread_openStdIn",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_CLOSE_STD_IN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.closeStdIn",
+    symbol: "_mfb_rt_thread_thread_closeStdIn",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const THREAD_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.drop",

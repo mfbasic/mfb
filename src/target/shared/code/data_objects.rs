@@ -121,6 +121,8 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         push_string_value(&mut values, ERR_EOF_MESSAGE.to_string());
         push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+        // plan-15 D1: reading stdin from an unsubscribed thread traps ErrInvalidContext.
+        push_string_value(&mut values, ERR_INVALID_CONTEXT_MESSAGE.to_string());
     }
     if module_uses_call(module, "io.pollInput") {
         push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());

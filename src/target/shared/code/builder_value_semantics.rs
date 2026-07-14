@@ -759,9 +759,12 @@ impl CodeBuilder<'_> {
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
                 Some("Boolean".to_string())
             }
-            "thread.cancel" | "thread.send" | "thread.transferResource" | "thread.emitResource" => {
-                Some("Nothing".to_string())
-            }
+            "thread.cancel"
+            | "thread.send"
+            | "thread.transferResource"
+            | "thread.emitResource"
+            | "thread.openStdIn"
+            | "thread.closeStdIn" => Some("Nothing".to_string()),
             "thread.waitFor" => {
                 let thread_type = self.static_type_name(args.first()?)?;
                 builtins::thread::parent_thread_output(&thread_type).map(str::to_string)

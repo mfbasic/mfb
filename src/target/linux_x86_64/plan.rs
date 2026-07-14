@@ -85,6 +85,25 @@ impl NativePlanPlatform for Platform {
     }
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        // plan-15: the stdin broadcast log helpers are shared by every stdin
+        // builtin and reference these libc symbols; every triggering spec pulls
+        // them in so the merged import table always resolves them.
+        let stdin_broadcast_imports = |imports: &mut Vec<PlatformImport>| {
+            for name in [
+                "read",
+                "__errno_location",
+                "malloc",
+                "free",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "pthread_cond_wait",
+                "pthread_cond_broadcast",
+                "pthread_mutex_init",
+                "pthread_cond_init",
+            ] {
+                imports.push(self.libc_import(name, spec.symbol));
+            }
+        };
         match spec.call {
             "crypto.randomBytes" => vec![self.libc_import("getentropy", spec.symbol)],
             "datetime.nowNanos" | "datetime.monotonicNanos" => {
@@ -140,9 +159,14 @@ impl NativePlanPlatform for Platform {
                     // hard-error on it.
                     imports.push(self.libc_import("__errno_location", spec.symbol));
                 }
+                stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "io.pollInput" => vec![self.libc_import("poll", spec.symbol)],
+            "io.pollInput" => {
+                let mut imports = vec![self.libc_import("poll", spec.symbol)];
+                stdin_broadcast_imports(&mut imports);
+                imports
+            }
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![self.libc_import("isatty", spec.symbol)]
             }
@@ -244,6 +268,11 @@ impl NativePlanPlatform for Platform {
             ],
             // bug-176 C: the resource-plane ops run on the pthread mutex/cond
             // queues too; they were omitted (masked by a co-located thread.start).
+            "thread.openStdIn" | "thread.closeStdIn" => {
+                let mut imports = Vec::new();
+                stdin_broadcast_imports(&mut imports);
+                imports
+            }
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
             | "thread.emit" | "thread.isCancelled" | "thread.transferResource"

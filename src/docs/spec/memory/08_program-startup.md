@@ -32,15 +32,15 @@ Slot layout in the entry frame:
 
 ```text
 entry frame (base = sp = x19)
-  +0                      ArenaState      ; ARENA_STATE_SIZE = 3728 bytes, the main arena-state
-  +3728 ENTRY_SEED_SCRATCH getentropy buf ; ENTRY_SEED_SCRATCH_OFFSET = ARENA_STATE_SIZE (RNG-seed scratch word)
-  +3736 ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 3736; globals, LINK slots, term:: state
+  +0                      ArenaState      ; ARENA_STATE_SIZE = 3768 bytes, the main arena-state
+  +3768 ENTRY_SEED_SCRATCH getentropy buf ; ENTRY_SEED_SCRATCH_OFFSET = ARENA_STATE_SIZE (RNG-seed scratch word)
+  +3776 ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 3776; globals, LINK slots, term:: state
   +top-48  args region (arg-accepting entries only; base = frame size - 48)
            +0 argc  +8 argv  +16 args List ptr  +24 data length  +32 saved count
 ```
 
-`ENTRY_STACK_SIZE` is `3736`; globals begin there. The in-frame
-scratch word at `ARENA_STATE_SIZE` (`3728`) is the RNG-seed `getentropy` buffer.
+`ENTRY_STACK_SIZE` is `3776`; globals begin there. The in-frame
+scratch word at `ARENA_STATE_SIZE` (`3768`) is the RNG-seed `getentropy` buffer.
 (The arena-state's 128 quick bins begin at `ARENA_QUICK_BIN_BASE_OFFSET = 104`.)
 For an arg-accepting entry, a dedicated 48-byte args region (argc, argv, args
 `List` pointer, data length, saved count) is appended ABOVE the globals at the

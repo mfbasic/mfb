@@ -160,6 +160,12 @@ pub(crate) const ERR_AUDIO_UNAVAILABLE_SYMBOL: &str = "_mfb_str_error_audio_unav
 pub(crate) const ERR_AUDIO_DEVICE_CODE: &str = "77050018";
 pub(crate) const ERR_AUDIO_DEVICE_MESSAGE: &str = "Audio device open, configuration, or stream operation failed.";
 pub(crate) const ERR_AUDIO_DEVICE_SYMBOL: &str = "_mfb_str_error_audio_device";
+// Invalid context (plan-15 D1): a thread that has not called `thread::openStdIn`
+// tried to read stdin (the compiler-inserted main subscription exempts a normal
+// single-threaded program).
+pub(crate) const ERR_INVALID_CONTEXT_CODE: &str = "77050019";
+pub(crate) const ERR_INVALID_CONTEXT_MESSAGE: &str = "Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`).";
+pub(crate) const ERR_INVALID_CONTEXT_SYMBOL: &str = "_mfb_str_error_invalid_context";
 
 // -- Network (7707) ---------------------------------------------------------
 pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";
@@ -419,7 +425,112 @@ pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
 /// Zero-initialized by the same whole-`ARENA_STATE_SIZE` clear the entry and
 /// thread-spawn paths already run.
 pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_CURRENT_ERROR_OFFSET + 8;
+/// Per-thread stdin broadcast staging (plan-15 §4.2), four `u64` words appended
+/// after the current-error slot. All zero-initialized by the whole-`ARENA_STATE_SIZE`
+/// clear the entry and thread-spawn paths run, so NULL/zero is the correct "not set
+/// up / not subscribed" default and a program that never touches stdin is byte-
+/// identical. Like the current-error slot, these sit past rv64's 12-bit `addi`
+/// immediate, so accesses compute the address in a register (see
+/// `stdin_arena_field_address`) rather than using a fixed load/store displacement.
+///
+/// `STDIN_LOCAL_BUF`  — pointer to this thread's lazily-arena-allocated 4 KiB copy
+///                      buffer (NULL until first stdin read).
+/// `STDIN_LOCAL_FILLED`/`STDIN_LOCAL_POS` — valid bytes / read cursor in that buffer
+///                      (the lock-free fast path of `_mfb_rt_stdin_next_byte`).
+/// `STDIN_SUBSCRIBER`  — pointer to this thread's entry in the global broadcast-log
+///                      subscriber registry (NULL ⇒ not subscribed).
+pub(crate) const ARENA_STDIN_LOCAL_BUF_OFFSET: usize = ARENA_CURRENT_ERROR_OFFSET + 8;
+pub(crate) const ARENA_STDIN_LOCAL_FILLED_OFFSET: usize = ARENA_STDIN_LOCAL_BUF_OFFSET + 8;
+pub(crate) const ARENA_STDIN_LOCAL_POS_OFFSET: usize = ARENA_STDIN_LOCAL_FILLED_OFFSET + 8;
+pub(crate) const ARENA_STDIN_SUBSCRIBER_OFFSET: usize = ARENA_STDIN_LOCAL_POS_OFFSET + 8;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_STDIN_SUBSCRIBER_OFFSET + 8;
+
+/// Capacity of the per-thread lazily-allocated stdin local copy buffer, in bytes.
+pub(crate) const STDIN_LOCAL_BUFFER_CAPACITY: u64 = 4096;
+
+// ===========================================================================
+// Stdin broadcast log (plan-15) — one process-global structure
+// ===========================================================================
+
+/// The single process-global broadcast log (plan-15 §4.1): the runtime owns fd 0,
+/// reads it in chunks into an append-only deque of fixed blocks, and every
+/// subscribed thread reads its own cursor over that log. Zero-initialized in a
+/// writable data section and lazily set up (mutex/cond init, self-pipe) on first
+/// stdin use. This is the only new cross-thread shared mutable state; it is guarded
+/// by its own mutex + condvar (the same primitives the transfer queues use).
+pub(crate) const STDIN_LOG_SYMBOL: &str = "_mfb_rt_stdin_log";
+/// pthread primitives reserve 64 bytes each (matching the transfer-queue reserve),
+/// which fits both glibc and macOS `pthread_mutex_t`/`pthread_cond_t`.
+#[allow(dead_code)] // used by plan-15 Phase 3 (self-pipe) / layout doc
+pub(crate) const STDIN_LOG_MUTEX_OFFSET: usize = 0;
+pub(crate) const STDIN_LOG_CV_OFFSET: usize = 64;
+/// 0 until the log has been lazily initialized (mutex/cond init + self-pipe), 1 after.
+pub(crate) const STDIN_LOG_INITIALIZED_OFFSET: usize = 128;
+pub(crate) const STDIN_LOG_HEAD_OFFSET: usize = 136;
+pub(crate) const STDIN_LOG_TAIL_OFFSET: usize = 144;
+/// Absolute stream offset of the head block's first live byte (`base == min(cursor)`).
+pub(crate) const STDIN_LOG_BASE_OFFSET: usize = 152;
+/// Absolute offset one past the last byte read from the OS.
+pub(crate) const STDIN_LOG_FILL_OFFSET: usize = 160;
+/// Absolute offset where `read()==0` occurred; `U64_MAX` until then.
+pub(crate) const STDIN_LOG_EOF_OFFSET: usize = 168;
+/// A subscriber is currently parked in `poll`/`read(0)` (one-reader-at-a-time rule).
+pub(crate) const STDIN_LOG_READER_BUSY_OFFSET: usize = 176;
+/// Set by `_mfb_shutdown` / the signal path; released cv-waiters and parked reader
+/// return EOF.
+pub(crate) const STDIN_LOG_SHUTTING_DOWN_OFFSET: usize = 184;
+/// Self-pipe read / write fds (plan-15 D4): `_mfb_shutdown` writes the write end;
+/// the reader `poll`s the read end beside fd 0 so an orderly shutdown wakes a parked
+/// reader deterministically. `-1` until the log is initialized.
+#[allow(dead_code)] // used by plan-15 Phase 3 (self-pipe) / layout doc
+pub(crate) const STDIN_LOG_SELFPIPE_READ_OFFSET: usize = 192;
+#[allow(dead_code)] // used by plan-15 Phase 3 (self-pipe) / layout doc
+pub(crate) const STDIN_LOG_SELFPIPE_WRITE_OFFSET: usize = 200;
+/// Fixed-capacity subscriber registry (kept inside the shared log so no registry
+/// entry ever lives in a per-thread arena). Each entry is `{active u64, cursor u64}`;
+/// `cursor` is the next unread absolute offset. A thread's `STDIN_SUBSCRIBER` arena
+/// word points at its entry here.
+pub(crate) const STDIN_LOG_REGISTRY_OFFSET: usize = 208;
+pub(crate) const STDIN_SUBSCRIBER_ENTRY_SIZE: usize = 16;
+pub(crate) const STDIN_SUBSCRIBER_ACTIVE_OFFSET: usize = 0;
+pub(crate) const STDIN_SUBSCRIBER_CURSOR_OFFSET: usize = 8;
+pub(crate) const STDIN_LOG_MAX_SUBSCRIBERS: usize = 128;
+/// Total size of the process-global log structure.
+pub(crate) const STDIN_LOG_SIZE: usize =
+    STDIN_LOG_REGISTRY_OFFSET + STDIN_LOG_MAX_SUBSCRIBERS * STDIN_SUBSCRIBER_ENTRY_SIZE;
+
+/// One log block: `{next ptr, baseOffset, data[STDIN_BLOCK_SIZE]}`. Blocks are
+/// `malloc`/`free`d (never per-arena) so a block read on one thread and freed on
+/// another never races an arena free-list. `baseOffset` is the absolute stream
+/// offset of `data[0]`.
+pub(crate) const STDIN_BLOCK_NEXT_OFFSET: usize = 0;
+pub(crate) const STDIN_BLOCK_BASE_OFFSET: usize = 8;
+pub(crate) const STDIN_BLOCK_DATA_OFFSET: usize = 16;
+pub(crate) const STDIN_BLOCK_SIZE: u64 = 8192;
+/// One OS `read(0, …)` chunk size (≤ `STDIN_BLOCK_SIZE`).
+pub(crate) const STDIN_READ_CHUNK: u64 = 8192;
+
+/// Cooperative per-thread stdin reader (plan-15 §4.3). Returns the next stdin byte
+/// for the calling thread in the value register with an Ok result, an EOF error
+/// result at end of stream, or traps `ErrInvalidContext` if the thread is not
+/// subscribed. Fast path (bytes remain in the arena-local buffer) takes no lock.
+pub(crate) const STDIN_NEXT_BYTE_SYMBOL: &str = "_mfb_rt_stdin_next_byte";
+/// Recompute `base = min(cursor over active subscribers)` and free every log block
+/// entirely before `base` (plan-15 §4.3 reclaim-at-min). Assumes the log mutex is
+/// held; shared by `_mfb_rt_stdin_next_byte` and `_mfb_rt_stdin_unsubscribe`.
+pub(crate) const STDIN_RECOMPUTE_BASE_SYMBOL: &str = "_mfb_rt_stdin_recompute_base";
+/// Lazily initialize the global log (mutex/cond init + self-pipe) and subscribe the
+/// calling thread at the current frontier. Idempotent per thread. Used both by the
+/// compiler-inserted main-thread compat shim and by `thread::openStdIn`.
+pub(crate) const STDIN_SUBSCRIBE_SYMBOL: &str = "_mfb_rt_stdin_subscribe";
+/// Unsubscribe the calling thread (or, given a worker arena-state pointer, that
+/// thread), release its registry entry, recompute `base`, and broadcast.
+pub(crate) const STDIN_UNSUBSCRIBE_SYMBOL: &str = "_mfb_rt_stdin_unsubscribe";
+/// Default stdin broadcast-log high-water backpressure cap, in bytes (plan-15 D3).
+/// The reader refuses to advance `fill` past `base + cap` and blocks on the condvar
+/// until a slow subscriber advances `base`. A fixed constant, not lag-relative; the
+/// `project.json` `"config"` section can override the baked value at build time.
+pub(crate) const STDIN_LOG_CAP_DEFAULT: u64 = 4 * 1024 * 1024;
 
 pub(crate) const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 pub(crate) const ARENA_BLOCK_HEADER_SIZE: usize = 32;

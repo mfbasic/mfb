@@ -26,7 +26,7 @@ reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
-The arena-state structure is `ARENA_STATE_SIZE` = **3728 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
+The arena-state structure is `ARENA_STATE_SIZE` = **3768 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
 
 ```text
 ArenaState (at x19)
@@ -57,6 +57,14 @@ ArenaState (at x19)
   +1680 U64  v128Slots[256]   ; per-thread v128 scalarization region (2048 bytes);
                               ; reserved on every target, addressed only by rv64
                               ; codegen; placed last so its offset stays layout-neutral
+  +3728 U64  currentError     ; in-flight owned Error block base for trap adoption
+                              ; (0 when none); addressed by a computed register on rv64
+  +3736 U64  stdinLocalBuf    ; plan-15 stdin broadcast: per-thread 4 KiB copy buffer
+                              ; (NULL until first stdin read)
+  +3744 U64  stdinLocalFilled ; valid bytes in stdinLocalBuf
+  +3752 U64  stdinLocalPos    ; next unread byte in stdinLocalBuf (lock-free fast path)
+  +3760 U64  stdinSubscriber  ; pointer to this thread's stdin broadcast-log registry
+                              ; entry (NULL when not subscribed)
 ```
 
 `blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
