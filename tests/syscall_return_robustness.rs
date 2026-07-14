@@ -9,7 +9,10 @@
 //!    exposes the code through the platform accessor (`___error` /
 //!    `__errno_location`); the `linux-x86_64` `write` is a raw `svc` whose return
 //!    value is `-errno`, so its `EINTR` check is `ret + EINTR == 0` (a `mov_imm 4`
-//!    then add/compare) with no accessor call.
+//!    then add/compare) with no accessor call. The console-mode `io::` stdin
+//!    readers are an exception: since plan-15 they consume the stdin broadcast log
+//!    through `_mfb_rt_stdin_next_byte` rather than reading fd 0 inline, so the
+//!    guard lives once in that shared helper and the readers just call it.
 //! 2. `write() == 0` — a 0-byte return for a nonzero request must error, never
 //!    spin. The stdout/File drains previously tested the result with `branch_lt`,
 //!    so a 0 return advanced by zero and looped forever; the fix routes 0 to the
@@ -73,15 +76,32 @@ const WRITE_HELPERS: &[&str] = &[
     "_mfb_rt_io_io_print",
 ];
 
-/// Helpers whose transfer is a `read` — libc on every backend.
+/// Helpers whose transfer is a direct libc `read` on every backend — the EINTR
+/// guard lives inline in each. The `io::` stdin readers are NOT here: in console
+/// mode (plan-15) they consume the broadcast log through `_mfb_rt_stdin_next_byte`
+/// instead of issuing `read(0,…,1)` themselves, so the guard moved into that
+/// helper (see `STDIN_READ_HELPERS` / `STDIN_NEXT_BYTE`).
 const READ_HELPERS: &[&str] = &[
     "_mfb_rt_fs_fs_readAll",
     "_mfb_rt_fs_fs_readAllBytes",
     "_mfb_rt_fs_fs_readLine",
+];
+
+/// The console-mode `io::` stdin readers. Each pulls its bytes from the stdin
+/// broadcast log via `_mfb_rt_stdin_next_byte` (plan-15 §4.3) rather than reading
+/// fd 0 directly, so instead of an inline EINTR guard they must call that helper —
+/// which owns the guard for all of them.
+const STDIN_READ_HELPERS: &[&str] = &[
     "_mfb_rt_io_io_readLine",
     "_mfb_rt_io_io_readChar",
     "_mfb_rt_io_io_readByte",
 ];
+
+/// The cooperative per-thread stdin reader that the console-mode `io::` readers
+/// route through. Its blocking refill is the one `read(0,…)` for stdin, so it
+/// carries the single EINTR guard (errno accessor + `EINTR`==4 compare) that used
+/// to be duplicated across every stdin read site.
+const STDIN_NEXT_BYTE: &str = "_mfb_rt_stdin_next_byte";
 
 const DRAINS: &[&str] = &["_mfb_rt_fs_file_drain", "_mfb_rt_io_stdout_drain"];
 
@@ -155,6 +175,12 @@ fn is_raw_syscall(op: &Value) -> bool {
     matches!(op_name(op), "svc" | "syscall")
 }
 
+/// A call (`bl`/`call`/`jal`/`jalr`) to the shared stdin-broadcast reader.
+fn is_stdin_next_byte_call(op: &Value) -> bool {
+    matches!(op_name(op), "bl" | "call" | "jal" | "jalr")
+        && target_field(op) == STDIN_NEXT_BYTE
+}
+
 /// An equality conditional branch to `target` (aarch64/x86 `b.eq`, riscv fused
 /// `rv.br cond=eq`).
 fn is_eq_branch_to(op: &Value, suffix: &str) -> bool {
@@ -196,8 +222,8 @@ fn assert_target(target: &str) {
     );
     let functions = ncode["functions"].as_array().expect("functions array");
 
-    // Item 1 — EINTR retry on every read helper (all libc: the accessor must be
-    // consulted and the code compared against EINTR).
+    // Item 1 — EINTR retry on every direct-read helper (all libc: the accessor
+    // must be consulted and the code compared against EINTR).
     for helper in READ_HELPERS {
         let func = find_helper(functions, target, helper);
         let ins = instructions(func);
@@ -208,6 +234,31 @@ fn assert_target(target: &str) {
         assert!(
             ins.iter().any(is_eintr_literal),
             "{target}/{helper}: no EINTR (4) comparison — EINTR retry dropped from a read loop (bug-62)",
+        );
+    }
+
+    // Item 1 (stdin) — the console-mode `io::` readers no longer read fd 0 inline;
+    // each must route through `_mfb_rt_stdin_next_byte` (plan-15 §4.3), and that
+    // helper is where the single stdin EINTR guard now lives. Proving both keeps
+    // the guard from silently vanishing: the readers must call it, and it must
+    // consult the errno accessor and compare against EINTR.
+    for helper in STDIN_READ_HELPERS {
+        let func = find_helper(functions, target, helper);
+        assert!(
+            instructions(func).iter().any(is_stdin_next_byte_call),
+            "{target}/{helper}: no call to {STDIN_NEXT_BYTE} — stdin read is not routed through the broadcast reader (plan-15)",
+        );
+    }
+    {
+        let func = find_helper(functions, target, STDIN_NEXT_BYTE);
+        let ins = instructions(func);
+        assert!(
+            ins.iter().any(is_errno_accessor_call),
+            "{target}/{STDIN_NEXT_BYTE}: no errno-accessor call — EINTR retry dropped from the stdin refill loop (bug-62)",
+        );
+        assert!(
+            ins.iter().any(is_eintr_literal),
+            "{target}/{STDIN_NEXT_BYTE}: no EINTR (4) comparison — EINTR retry dropped from the stdin refill loop (bug-62)",
         );
     }
 
