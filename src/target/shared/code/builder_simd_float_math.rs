@@ -403,7 +403,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&tail_done));
 
         for err in kernel.errors() {
-            self.emit_float_error_reduce(*err, k)?;
+            self.emit_float_error_reduce(*err, k, false)?;
         }
 
         Ok(ValueResult {
@@ -416,16 +416,26 @@ impl CodeBuilder<'_> {
     /// Reduce one per-lane error mask to a single GPR and raise the matching
     /// float error if any lane is set (the result list is discarded). Mask
     /// registers: `Domain`/`Nan` → `v22`, `Inf` → `v24`.
-    fn emit_float_error_reduce(&mut self, err: FloatError, k: &KernelRegs) -> Result<(), String> {
+    fn emit_float_error_reduce(
+        &mut self,
+        err: FloatError,
+        k: &KernelRegs,
+        scalar: bool,
+    ) -> Result<(), String> {
         let mask = match err {
             FloatError::Domain | FloatError::Nan => &k.v22,
             FloatError::Inf => &k.v24,
         };
         let lane0 = self.temporary_vreg();
-        let lane1 = self.temporary_vreg();
         self.emit(abi::vector_extract_to_x(&lane0, mask, 0));
-        self.emit(abi::vector_extract_to_x(&lane1, mask, 1));
-        self.emit(abi::or_registers(&lane0, &lane0, &lane1));
+        // plan-39 B3: a scalar call broadcast the same value into both lanes, so the
+        // mask lanes are identical — lane 0 alone is the whole answer. The array
+        // path must OR both lanes (they can disagree).
+        if !scalar {
+            let lane1 = self.temporary_vreg();
+            self.emit(abi::vector_extract_to_x(&lane1, mask, 1));
+            self.emit(abi::or_registers(&lane0, &lane0, &lane1));
+        }
         let no_err = self.label("simd_fl_no_err");
         self.emit(abi::compare_immediate(&lane0, "0"));
         self.emit(abi::branch_eq(&no_err));
@@ -482,7 +492,7 @@ impl CodeBuilder<'_> {
             _ => self.emit_float_kernel_body(kernel, k),
         }
         for err in kernel.errors() {
-            self.emit_float_error_reduce(*err, k)?;
+            self.emit_float_error_reduce(*err, k, true)?;
         }
         let dst = self.allocate_register()?;
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
@@ -1450,7 +1460,7 @@ impl CodeBuilder<'_> {
              (e.g. Pow) requires hoisting the v24 zero out of the loop body"
         );
         for err in kernel.errors() {
-            self.emit_float_error_reduce(*err, k)?;
+            self.emit_float_error_reduce(*err, k, false)?;
         }
 
         Ok(ValueResult {
@@ -1480,7 +1490,7 @@ impl CodeBuilder<'_> {
         self.emit_float_binary_setup(kernel, k);
         self.emit_float_binary_body(kernel, k, true);
         for err in kernel.errors() {
-            self.emit_float_error_reduce(*err, k)?;
+            self.emit_float_error_reduce(*err, k, true)?;
         }
         let dst = self.allocate_register()?;
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
