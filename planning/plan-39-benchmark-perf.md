@@ -123,12 +123,31 @@ Python by construction).
   faithful K2 that helps popcount-heavy code. **K1** (keep operands
   register-resident across a fused bits expression) is a general regalloc concern,
   not bits-specific — not separately addressed.
-- **B math** the real fix is LICM (hoist the loop-invariant vector-constant setup
-  out of the runtime loop) or a scalar-register (non-`v`) kernel rewrite — both
-  large *general* changes, each multi-day, not the B1 text as written.
+- **B math (the one sub-plan NOT landed)** — beyond B2 (done), the real fix is
+  **LICM** (hoist the loop-invariant vector-constant kernel setup out of the runtime
+  loop, keeping v16–v27 live across it) or a scalar-register (non-`v`) kernel — both
+  large *general* optimization passes, each multi-day, and neither is the B1 text as
+  written (which doesn't help). **Important ceiling:** even a perfect LICM cannot
+  clear the math rows to **G2** (≤ c-O0 + 10 ms). The dd-compensated-Horner body
+  dominates each kernel and *cannot* be reduced without dropping the double-double
+  precision contract (plan constraint 2 — off the table). Hoisting the setup saves
+  only the ~few-ms constant-broadcast overhead (e.g. sin ~32→~27 ms), still P2. So
+  B is a large-effort, **precision-capped** pass with bounded ROI — it improves the
+  rows but cannot make them complete under the no-precision-change constraint.
 - **E3/string slice** — no defined change beyond "benefits from A's throughput".
 
-All landed changes gated: full acceptance 942, artifact-gate 0-diff
+### Final delivered state (release `--run 10`) — 17 of 18 sub-plans landed
+
+fib 108→78, thread sum 51.7→40, window 203→116, chunks 30→15, take 10.5→4.3,
+drop 10.8→4.3, zip 7.6→1.8, sortBy 647→68, case 155→67, csv 20→8.4, partition
+18→15, vector int 99→57, modmul 228→22 & modexp 123→12 (beat Python), io write
+26.7→1.7, any/all/findIndex/findLastIndex/reduceRight all ≤3 (COMPLETE). 11 rows
+now COMPLETE (≤5 ms); 2 P1s cleared to beat Python. Every change gated: full
+acceptance 943, artifact-gate 0-diff (byte-deterministic), all checksums unchanged,
+overflow-elision soundness pinned by a new regression fixture. **Only B (the
+precision-capped math-kernel LICM/scalar-rewrite) is not landed.**
+
+All landed changes gated: full acceptance 943, artifact-gate 0-diff
 (byte-deterministic), every affected checksum unchanged.
 
 This is the **master plan + Task-1 ordered priority list** for the benchmark
