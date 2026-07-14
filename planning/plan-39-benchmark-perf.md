@@ -63,6 +63,10 @@ Python by construction).
 
 ### Additional findings (2026-07-14, second pass)
 
+- **zip (A4)** — DONE. `try_inline_zip_op` builds `List OF Pair$A$B` natively when
+  A/B are both fixed-width scalars (Pair is a flat 16 bytes `[a@0][b@8]`); String/
+  record pairs fall back to the FUNC. zip 7.6→1.8 ms (COMPLETE). **The whole A
+  sub-plan is now complete** (window/chunks/take/drop/zip all native).
 - **B2 (sqrt d-native)** — DONE. `lower_math_sqrt` reads the Float operand into a
   `d` register (`operand_as_double`, no GPR shuttle), `fcmp`/`fsqrt`, returns the
   `%fN` result d-native. Bit-identical (sqrt checksum 2980093.768938). Committed.
@@ -86,14 +90,23 @@ Python by construction).
   leibniz/nbody/mandelbrot). Intricate NEON dd-Horner; precision-gated
   (`runtime_ulp.py`). B1 (shared out-of-line leaf) is the big structural win but
   risky; B2/B3 have small reach and need the %fN float-native carrier plumbing.
-- **I** overflow-check elision (fib 108, thread sum 51). I3 (error-stub outline)
-  is largely already done by plan-16 (`_mfb_make_error_result`); I1/I2 (range
-  elision + infallibility) are the plan's highest-risk change — they touch every
-  integer +/- and must not weaken the overflow-trap contract.
-- **K** bits popcount — needs a new neutral popcount MIR op + per-backend
-  lowering (aarch64 CNT / x86 POPCNT / riscv SWAR) for a single P4 row; lowest
-  priority, deferred.
-- **G json/regex**, **E3/string slice** — deferred with A4's allocation work.
+- **I** overflow-check elision (fib 108, thread sum 51). Re-examined this pass:
+  - I1/I2 need real range/induction dataflow analysis (elide `adds;b.vc` only
+    where provably non-overflowing) — the plan's highest-risk change, touches
+    every integer +/-. Note fib stays *fallible* (its sum can overflow), so I2
+    frees little there.
+  - I3 is **not** "near-zero risk" as first scoped: `Error.source` is observable
+    (test framework §22), so an outlined overflow handler must preserve the
+    per-site source loc AND the per-TRAP-context routing (`error_exit_destination`
+    varies by nesting) — so it can't be one shared stub. Real, delicate work.
+- **K** bits popcount — needs a new neutral popcount MIR op; unlike `Clz` (a 1:1
+  native mirror) aarch64 popcount is a multi-instruction NEON expansion
+  (fmov/cnt/addv/fmov), plus x86 POPCNT / riscv codegen I cannot execute-verify on
+  this macOS host. Single P4 row, plan-marked optional — deferred.
+- **B math** the real fix is LICM (hoist the loop-invariant vector-constant setup
+  out of the runtime loop) or a scalar-register (non-`v`) kernel rewrite — both
+  large *general* changes, each multi-day, not the B1 text as written.
+- **E3/string slice** — no defined change beyond "benefits from A's throughput".
 
 All landed changes gated: full acceptance 942, artifact-gate 0-diff
 (byte-deterministic), every affected checksum unchanged.
