@@ -99,9 +99,16 @@ Python by construction).
   subtraction can still underflow keeps the check and traps (new regression fixture
   `tests/rt-behavior/operators/overflow-elision-soundness`); fib checksum 9227465
   unchanged; 180 trap tests + full acceptance 942 + gate 0-diff.
-- **I residual** (thread sum 51): the `i + 1` *addition* under FOR/WHILE induction
-  needs an upper-bound analysis (separate from I1's lower bounds). **I2**
-  infallibility is moot for fib (its sum can still overflow → fib stays fallible).
+- **I1 (addition/upper-bound)** — DONE. Extended the same analysis to the
+  loop-induction case: a `WHILE local < S` body proves `local + 1 <= S <= i64::MAX`,
+  so the `i + 1` overflow check is elided (`integer_strict_upper`; Bind/Assign
+  invalidation moved to after the op so `i = i + 1`'s RHS keeps the bound).
+  **thread sum 51.7→39.4 ms.** Verified sound (reassign-to-i64::MAX drops the bound
+  → check kept → traps; bare n+1 traps; regression fixture extended); thread_sum
+  checksum unchanged; full acceptance 943 + gate 0-diff. **I is done** for its two
+  target rows. Residual: **I2** infallibility is moot for fib (its sum can still
+  overflow → fib stays fallible), so it frees nothing there; I3/I4 are I-cache /
+  regalloc micro-tweaks with little benefit for these already-improved rows.
   - I3 is **not** "near-zero risk" as first scoped: `Error.source` is observable
     (test framework §22), so an outlined overflow handler must preserve the
     per-site source loc AND the per-TRAP-context routing (`error_exit_destination`
