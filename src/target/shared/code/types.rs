@@ -410,6 +410,10 @@ pub(crate) trait CodegenPlatform {
     fn emit_thread_trampoline(
         &self,
         platform_imports: &HashMap<String, String>,
+        // plan-15: when the module uses stdin, the trampoline auto-unsubscribes the
+        // worker from the broadcast log at teardown so an early-exiting worker never
+        // pins the log's reclamation point.
+        uses_stdin: bool,
     ) -> Result<CodeFunction, String>;
 
     /// The platform's TLS callback trampolines — fixed-ABI block/`invoke`

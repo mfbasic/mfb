@@ -1140,7 +1140,7 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
     {
-        code_functions.push(platform.emit_thread_trampoline(&platform_imports)?);
+        code_functions.push(platform.emit_thread_trampoline(&platform_imports, uses_stdin)?);
     }
 
     // Native `LINK` marshaling thunks + load-time initializer (plan-linker.md §12).

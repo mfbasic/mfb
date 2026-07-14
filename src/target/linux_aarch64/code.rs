@@ -173,8 +173,9 @@ impl code::CodegenPlatform for Platform {
     fn emit_thread_trampoline(
         &self,
         platform_imports: &HashMap<String, String>,
+        uses_stdin: bool,
     ) -> Result<CodeFunction, String> {
-        code::lower_thread_trampoline(platform_imports, self)
+        code::lower_thread_trampoline(platform_imports, self, uses_stdin)
     }
 
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {

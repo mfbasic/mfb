@@ -692,6 +692,7 @@ fn lower_thread_start_helper(
 pub(crate) fn lower_thread_trampoline(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    uses_stdin: bool,
 ) -> Result<CodeFunction, String> {
     // Machine-floor code: hand-managed frame + pinned registers across the worker
     // call and the `pthread_*` calls, so the allocator cannot run here. Scratch is
@@ -742,11 +743,23 @@ pub(crate) fn lower_thread_trampoline(
             abi::stack_pointer(),
             SOURCE_OFFSET,
         ),
+    ];
+    let mut relocations = Vec::new();
+    // plan-15 §4.5: auto-unsubscribe the worker from the stdin broadcast log at
+    // teardown so an early-exiting worker never permanently pins the log's
+    // reclamation point (which would eventually block other readers at the cap).
+    // `x19` still holds the worker arena here; the result registers are already
+    // parked on the stack, and `unsubscribe` preserves the callee-saved arena base.
+    if uses_stdin {
+        instructions.push(abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER));
+        instructions.push(abi::branch_link(STDIN_UNSUBSCRIBE_SYMBOL));
+        relocations.push(internal_branch(THREAD_TRAMPOLINE_SYMBOL, STDIN_UNSUBSCRIBE_SYMBOL));
+    }
+    instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, THREAD_OFFSET_INBOUND_QUEUE),
         abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
-    ];
-    let mut relocations = Vec::new();
+    ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
         platform_imports,
