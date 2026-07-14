@@ -90,11 +90,18 @@ Python by construction).
   leibniz/nbody/mandelbrot). Intricate NEON dd-Horner; precision-gated
   (`runtime_ulp.py`). B1 (shared out-of-line leaf) is the big structural win but
   risky; B2/B3 have small reach and need the %fN float-native carrier plumbing.
-- **I** overflow-check elision (fib 108, thread sum 51). Re-examined this pass:
-  - I1/I2 need real range/induction dataflow analysis (elide `adds;b.vc` only
-    where provably non-overflowing) — the plan's highest-risk change, touches
-    every integer +/-. Note fib stays *fallible* (its sum can overflow), so I2
-    frees little there.
+- **I1 (subtraction overflow elision)** — DONE. `integer_lower_bounds` tracks
+  guard-derived lower bounds (`IF local < K THEN <terminal>` with empty else ⇒
+  `local >= K` on the fall-through); `local - positiveConst` drops its `subs`+`b.vc`
+  check when `C - const` cannot underflow. **Sound by construction** — the default
+  keeps the check; bounds are dropped on any Bind/Assign and cleared at every
+  loop/Match/Trap. **fib 108→78 ms.** Verified: a bound near i64::MIN where the
+  subtraction can still underflow keeps the check and traps (new regression fixture
+  `tests/rt-behavior/operators/overflow-elision-soundness`); fib checksum 9227465
+  unchanged; 180 trap tests + full acceptance 942 + gate 0-diff.
+- **I residual** (thread sum 51): the `i + 1` *addition* under FOR/WHILE induction
+  needs an upper-bound analysis (separate from I1's lower bounds). **I2**
+  infallibility is moot for fib (its sum can still overflow → fib stays fallible).
   - I3 is **not** "near-zero risk" as first scoped: `Error.source` is observable
     (test framework §22), so an outlined overflow handler must preserve the
     per-site source loc AND the per-TRAP-context routing (`error_exit_destination`
