@@ -10,20 +10,57 @@
 ' helpers are plain top-level functions and are called unqualified.
 IMPORT collections
 
+' Stable bottom-up merge sort — O(n log n). Equal elements keep their original
+' order (a right-run element is taken only when strictly less than the left-run
+' element), matching the previous insertion sort's stability and ascending order.
 FUNC __collections_sort OF T(value AS List OF T) AS List OF T
-  MUT items AS List OF T = value
-  MUT i AS Integer = 1
-  WHILE i < len(items)
-    MUT j AS Integer = i
-    WHILE j > 0 AND collections::get(items, j) < collections::get(items, j - 1)
-      LET tmp AS T = collections::get(items, j)
-      items = collections::set(items, j, collections::get(items, j - 1))
-      items = collections::set(items, j - 1, tmp)
-      j = j - 1
+  LET n AS Integer = len(value)
+  IF n < 2 THEN
+    RETURN value
+  END IF
+  MUT src AS List OF T = value
+  MUT width AS Integer = 1
+  WHILE width < n
+    MUT dst AS List OF T = src
+    MUT lo AS Integer = 0
+    WHILE lo < n
+      MUT mid AS Integer = lo + width
+      IF mid > n THEN
+        mid = n
+      END IF
+      MUT hi AS Integer = lo + width + width
+      IF hi > n THEN
+        hi = n
+      END IF
+      MUT i AS Integer = lo
+      MUT j AS Integer = mid
+      MUT k AS Integer = lo
+      WHILE i < mid AND j < hi
+        IF collections::get(src, j) < collections::get(src, i) THEN
+          dst = collections::set(dst, k, collections::get(src, j))
+          j = j + 1
+        ELSE
+          dst = collections::set(dst, k, collections::get(src, i))
+          i = i + 1
+        END IF
+        k = k + 1
+      WEND
+      WHILE i < mid
+        dst = collections::set(dst, k, collections::get(src, i))
+        i = i + 1
+        k = k + 1
+      WEND
+      WHILE j < hi
+        dst = collections::set(dst, k, collections::get(src, j))
+        j = j + 1
+        k = k + 1
+      WEND
+      lo = lo + width + width
     WEND
-    i = i + 1
+    src = dst
+    width = width + width
   WEND
-  RETURN items
+  RETURN src
 END FUNC
 
 FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
@@ -64,22 +101,62 @@ END FUNC
 
 ' --- new functions (§6.4) -----------------------------------------------------
 
+' Stable bottom-up merge sort keyed by keyFn. keyFn is evaluated exactly once per
+' element (via transform, as before); the merge carries items and their keys in
+' parallel and is stable on equal keys.
 FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
+  LET n AS Integer = len(value)
+  IF n < 2 THEN
+    RETURN value
+  END IF
   MUT items AS List OF T = value
   MUT keys AS List OF U = collections::transform(value, keyFn)
-  MUT i AS Integer = 1
-  WHILE i < len(items)
-    MUT j AS Integer = i
-    WHILE j > 0 AND collections::get(keys, j) < collections::get(keys, j - 1)
-      LET tmpItem AS T = collections::get(items, j)
-      items = collections::set(items, j, collections::get(items, j - 1))
-      items = collections::set(items, j - 1, tmpItem)
-      LET tmpKey AS U = collections::get(keys, j)
-      keys = collections::set(keys, j, collections::get(keys, j - 1))
-      keys = collections::set(keys, j - 1, tmpKey)
-      j = j - 1
+  MUT width AS Integer = 1
+  WHILE width < n
+    MUT itemsDst AS List OF T = items
+    MUT keysDst AS List OF U = keys
+    MUT lo AS Integer = 0
+    WHILE lo < n
+      MUT mid AS Integer = lo + width
+      IF mid > n THEN
+        mid = n
+      END IF
+      MUT hi AS Integer = lo + width + width
+      IF hi > n THEN
+        hi = n
+      END IF
+      MUT i AS Integer = lo
+      MUT j AS Integer = mid
+      MUT k AS Integer = lo
+      WHILE i < mid AND j < hi
+        IF collections::get(keys, j) < collections::get(keys, i) THEN
+          itemsDst = collections::set(itemsDst, k, collections::get(items, j))
+          keysDst = collections::set(keysDst, k, collections::get(keys, j))
+          j = j + 1
+        ELSE
+          itemsDst = collections::set(itemsDst, k, collections::get(items, i))
+          keysDst = collections::set(keysDst, k, collections::get(keys, i))
+          i = i + 1
+        END IF
+        k = k + 1
+      WEND
+      WHILE i < mid
+        itemsDst = collections::set(itemsDst, k, collections::get(items, i))
+        keysDst = collections::set(keysDst, k, collections::get(keys, i))
+        i = i + 1
+        k = k + 1
+      WEND
+      WHILE j < hi
+        itemsDst = collections::set(itemsDst, k, collections::get(items, j))
+        keysDst = collections::set(keysDst, k, collections::get(keys, j))
+        j = j + 1
+        k = k + 1
+      WEND
+      lo = lo + width + width
     WEND
-    i = i + 1
+    items = itemsDst
+    keys = keysDst
+    width = width + width
   WEND
   RETURN items
 END FUNC
@@ -98,15 +175,19 @@ FUNC __collections_drop OF T(value AS List OF T, count AS Integer) AS List OF T
 END FUNC
 
 FUNC __collections_reduceRight OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
-  LET reversed AS List OF T = __collections_reverse(value)
-  RETURN collections::reduce(reversed, initial, f)
+  MUT acc AS U = initial
+  MUT i AS Integer = len(value) - 1
+  WHILE i >= 0
+    acc = f(acc, collections::get(value, i))
+    i = i - 1
+  WEND
+  RETURN acc
 END FUNC
 
 FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
-  LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT i AS Integer = 0
-  WHILE i < len(flags)
-    IF collections::get(flags, i) THEN
+  WHILE i < len(value)
+    IF predicate(collections::get(value, i)) THEN
       RETURN TRUE
     END IF
     i = i + 1
@@ -115,10 +196,9 @@ FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean)
 END FUNC
 
 FUNC __collections_all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
-  LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT i AS Integer = 0
-  WHILE i < len(flags)
-    IF NOT collections::get(flags, i) THEN
+  WHILE i < len(value)
+    IF NOT predicate(collections::get(value, i)) THEN
       RETURN FALSE
     END IF
     i = i + 1
@@ -130,10 +210,9 @@ FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Bo
   IF start < 0 OR start > len(value) THEN
     FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
-  LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT i AS Integer = start
-  WHILE i < len(flags)
-    IF collections::get(flags, i) THEN
+  WHILE i < len(value)
+    IF predicate(collections::get(value, i)) THEN
       RETURN i
     END IF
     i = i + 1
@@ -149,10 +228,9 @@ FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) A
   IF e < 0 OR e >= len(value) THEN
     FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
-  LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT i AS Integer = e
   WHILE i >= 0
-    IF collections::get(flags, i) THEN
+    IF predicate(collections::get(value, i)) THEN
       RETURN i
     END IF
     i = i - 1
@@ -183,15 +261,10 @@ FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K,
 END FUNC
 
 FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
-  LET ks AS List OF K = collections::keys(value)
-  LET vs AS List OF V = collections::values(value)
-  LET us AS List OF U = collections::transform(vs, f)
   MUT result AS Map OF K TO U = Map OF K TO U {}
-  MUT i AS Integer = 0
-  WHILE i < len(ks)
-    result = collections::set(result, collections::get(ks, i), collections::get(us, i))
-    i = i + 1
-  WEND
+  FOR EACH e IN value
+    result = collections::set(result, e.key, f(e.value))
+  NEXT
   RETURN result
 END FUNC
 
@@ -277,15 +350,15 @@ FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB
 END FUNC
 
 FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T
-  LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT matched AS List OF T = []
   MUT unmatched AS List OF T = []
   MUT i AS Integer = 0
   WHILE i < len(value)
-    IF collections::get(flags, i) THEN
-      matched = collections::append(matched, collections::get(value, i))
+    LET item AS T = collections::get(value, i)
+    IF predicate(item) THEN
+      matched = collections::append(matched, item)
     ELSE
-      unmatched = collections::append(unmatched, collections::get(value, i))
+      unmatched = collections::append(unmatched, item)
     END IF
     i = i + 1
   WEND

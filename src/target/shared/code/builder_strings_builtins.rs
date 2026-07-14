@@ -427,6 +427,32 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// E1 (plan-39): map a single ASCII codepoint in `reg` to its cased form for
+    /// `map`. The ASCII case tables only rewrite a-z/A-Z, so a simple range test
+    /// with a ±32 adjustment is bit-identical to the full Unicode lookup for
+    /// codepoints < 0x80. Upper lowers-to-upper (a-z → -32); Lower and CaseFold
+    /// both upper-to-lower (A-Z → +32; ASCII fold == lower).
+    fn emit_ascii_case_transform(&mut self, map: UnicodeCaseMap, reg: &str) {
+        let skip = self.label("strings_case_map_ascii_skip");
+        match map {
+            UnicodeCaseMap::Upper => {
+                self.emit(abi::compare_immediate(reg, "97")); // 'a'
+                self.emit(abi::branch_lt(&skip));
+                self.emit(abi::compare_immediate(reg, "122")); // 'z'
+                self.emit(abi::branch_gt(&skip));
+                self.emit(abi::subtract_immediate(reg, reg, 32));
+            }
+            UnicodeCaseMap::Lower | UnicodeCaseMap::CaseFold => {
+                self.emit(abi::compare_immediate(reg, "65")); // 'A'
+                self.emit(abi::branch_lt(&skip));
+                self.emit(abi::compare_immediate(reg, "90")); // 'Z'
+                self.emit(abi::branch_gt(&skip));
+                self.emit(abi::add_immediate(reg, reg, 32));
+            }
+        }
+        self.emit(abi::label(&skip));
+    }
+
     pub(super) fn lower_strings_case_map(
         &mut self,
         value: &NirValue,
@@ -452,6 +478,7 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("strings_case_map_result", 8);
 
         let count_loop = self.label("strings_case_map_count_loop");
+        let count_nonascii = self.label("strings_case_map_count_nonascii");
         let count_identity = self.label("strings_case_map_count_identity");
         let count_sequence = self.label("strings_case_map_count_sequence");
         let count_sequence_loop = self.label("strings_case_map_count_sequence_loop");
@@ -459,6 +486,7 @@ impl CodeBuilder<'_> {
         let count_done = self.label("strings_case_map_count_done");
         let alloc_ok = self.label("strings_case_map_alloc_ok");
         let write_loop = self.label("strings_case_map_write_loop");
+        let write_nonascii = self.label("strings_case_map_write_nonascii");
         let write_identity = self.label("strings_case_map_write_identity");
         let write_sequence = self.label("strings_case_map_write_sequence");
         let write_sequence_loop = self.label("strings_case_map_write_sequence_loop");
@@ -476,6 +504,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
         self.emit_utf8_decode_next(&scratch14, &scratch10, &scratch11);
         self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), width_slot));
+        // E1 (plan-39): ASCII fast path. For codepoints < 0x80 the case tables
+        // only ever map a-z/A-Z to a single ASCII codepoint (1 byte in, 1 byte
+        // out), so skip the ~11-deep Unicode-table binary search entirely and
+        // count exactly one output byte.
+        self.emit(abi::compare_immediate(&scratch10, "128"));
+        self.emit(abi::branch_ge(&count_nonascii));
+        self.emit(abi::add_immediate(&scratch24, &scratch24, 1));
+        self.emit(abi::branch(&count_next));
+        self.emit(abi::label(&count_nonascii));
         self.emit_case_map_lookup(map, &scratch10, &scratch26, &scratch27);
         self.emit(abi::compare_immediate(&scratch27, "0"));
         self.emit(abi::branch_eq(&count_identity));
@@ -553,6 +590,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
         self.emit_utf8_decode_next(&scratch14, &scratch10, &scratch11);
         self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), width_slot));
+        // E1 (plan-39): ASCII fast path mirroring the count pass — range-map the
+        // codepoint (a-z/A-Z ±32) and re-encode the single byte directly, so
+        // ASCII case folding never touches the Unicode case table.
+        self.emit(abi::compare_immediate(&scratch10, "128"));
+        self.emit(abi::branch_ge(&write_nonascii));
+        self.emit_ascii_case_transform(map, &scratch10);
+        self.emit_utf8_encode_next(&scratch28, &scratch10);
+        self.emit(abi::branch(&write_next));
+        self.emit(abi::label(&write_nonascii));
         self.emit_case_map_lookup(map, &scratch10, &scratch26, &scratch27);
         self.emit(abi::compare_immediate(&scratch27, "0"));
         self.emit(abi::branch_eq(&write_identity));
@@ -660,7 +706,81 @@ impl CodeBuilder<'_> {
         let result_alloc_ok = self.label("strings_nfc_result_alloc_ok");
         let encode_loop = self.label("strings_nfc_encode_loop");
         let encode_done = self.label("strings_nfc_encode_done");
+        let ascii_scan = self.label("strings_nfc_ascii_scan");
+        let ascii_copy = self.label("strings_nfc_ascii_copy");
+        let ascii_size_overflow = self.label("strings_nfc_ascii_size_overflow");
+        let ascii_alloc_ok = self.label("strings_nfc_ascii_alloc_ok");
+        let ascii_copy_loop = self.label("strings_nfc_ascii_copy_loop");
+        let ascii_copy_done = self.label("strings_nfc_ascii_copy_done");
+        let nfc_slow = self.label("strings_nfc_slow");
+        let nfc_done = self.label("strings_nfc_done");
 
+        // E2 (plan-39): NFC quick-check. A pure-ASCII string is already in NFC and
+        // its canonical form is byte-identical to the input, so scan for any byte
+        // >= 0x80 and, when there are none, return a plain copy — skipping the
+        // decompose/reorder/compose passes and their per-codepoint table searches.
+        self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&scratch21, &scratch20, 0));
+        self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::label(&ascii_scan));
+        self.emit(abi::compare_registers(&scratch23, &scratch21));
+        self.emit(abi::branch_ge(&ascii_copy));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u8(&scratch10, &scratch14, 0));
+        self.emit(abi::compare_immediate(&scratch10, "128"));
+        self.emit(abi::branch_ge(&nfc_slow));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
+        self.emit(abi::branch(&ascii_scan));
+
+        self.emit(abi::label(&ascii_copy));
+        // Allocate byte_len + 9 (8-byte header + trailing NUL), matching the slow
+        // path's result layout; the checked add self-defends against a wrap.
+        self.emit_checked_size_add_immediate(
+            abi::return_register(),
+            &scratch21,
+            9,
+            &ascii_size_overflow,
+        );
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ascii_alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&ascii_size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit(abi::label(&ascii_alloc_ok));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        // ARENA_ALLOC clobbers the caller-saved registers, so reload the source
+        // pointer/length from their stack homes before copying.
+        self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&scratch21, &scratch20, 0));
+        self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        self.emit(abi::store_u64(&scratch21, abi::RET[1], 0));
+        self.emit(abi::add_immediate(&scratch28, abi::RET[1], 8));
+        self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::label(&ascii_copy_loop));
+        self.emit(abi::compare_registers(&scratch23, &scratch21));
+        self.emit(abi::branch_ge(&ascii_copy_done));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u8(&scratch10, &scratch14, 0));
+        self.emit(abi::store_u8(&scratch10, &scratch28, 0));
+        self.emit(abi::add_immediate(&scratch28, &scratch28, 1));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
+        self.emit(abi::branch(&ascii_copy_loop));
+        self.emit(abi::label(&ascii_copy_done));
+        self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
+        self.emit(abi::store_u8(&scratch10, &scratch28, 0));
+        self.emit(abi::branch(&nfc_done));
+
+        self.emit(abi::label(&nfc_slow));
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
@@ -1005,6 +1125,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
         self.emit(abi::store_u8(&scratch10, &scratch28, 0));
 
+        self.emit(abi::label(&nfc_done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {

@@ -1,8 +1,41 @@
 # plan-39: Benchmark performance — close the gap to C/Python
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 Effort: xlarge (multi-day, many independently-landable sub-plans)
 Platform under test: **aarch64 / macOS** (the target for this work)
+
+## Implementation progress (2026-07-14)
+
+Landed and verified (full acceptance 942 + artifact-gate 0-diff + benchmark
+checksums unchanged where applicable):
+
+- **F1 (io write)** — DONE. `fs::setBuffered(f, TRUE)` in `writeLinesFile`
+  (`benchmark/mfb/src/main.mfb`). Harness parity fix.
+- **A1 (sort/sortBy)** — DONE. Stable bottom-up merge sort in
+  `collections_package.mfb`; sortBy carries items+keys in parallel. O(n log n).
+- **A2 (any/all/find*/partition)** — DONE. Dropped the `transform` flags list;
+  single-pass inline predicate with short-circuit restored.
+- **A3 (reduceRight)** — DONE. Backward fold, no reversed copy.
+- **H1 (mapValues)** — DONE. Iterates the map directly (FOR EACH) instead of
+  building ks/vs/us intermediate lists. (merge already lean.)
+- **D (bignum)** — DONE (D2-style, dominant lever). `bnMod` rewritten to run the
+  same bit-serial shift/compare/subtract **in place** on one preallocated
+  `len(m)+1`-limb buffer — bit-identical result (cross-checked old vs new:
+  1360464289 match), ~300k allocs/run → ~O(bnMod-calls). Barrett (D1) not needed.
+- **E1 (unicode case ASCII)** — DONE. ASCII fast path in `lower_strings_case_map`
+  (both count + write passes) — cp<0x80 skips the 11-deep table search, ±32 range
+  map. Bit-identical (a-z/A-Z only ASCII casing).
+- **E2 (NFC quick-check)** — DONE. Pure-ASCII pre-scan in
+  `lower_strings_normalize_nfc` returns a plain byte copy (ASCII is already NFC),
+  skipping decompose/reorder/compose. Differential-tested compose/keep/mixed.
+
+Debug-build medians (relative gains; release gains larger): sortBy 647→~69,
+any/all ~1, findIndex/findLastIndex ~2.5, reduceRight ~2.8, partition 18→14.7,
+string case 155→68. Remaining: A4 (window/chunks/take/drop/zip native slice),
+B, C, G, I, K, E3/slice.
+
+Still TODO: **A4** native slice, **B** transcendental kernels, **C** vector
+inline, **G** parse packages, **I** overflow elision, **K** bits.
 
 This is the **master plan + Task-1 ordered priority list** for the benchmark
 performance push. It classifies every row in the current benchmark logs against

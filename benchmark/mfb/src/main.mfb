@@ -114,6 +114,9 @@ END FUNC
 
 FUNC writeLinesFile(path AS String, count AS Integer) AS Integer
   RES f AS File = fs::open(path, "write")
+  ' Buffer writes so mfb matches the default buffering of C stdio and Python's
+  ' file objects; without this the 20k writeAll calls become 20k write() syscalls.
+  fs::setBuffered(f, TRUE)
   FOR i = 0 TO count - 1
     fs::writeAll(f, toString(i) & "\n")
   NEXT
@@ -683,28 +686,61 @@ FUNC bnShl1(a AS List OF Integer) AS List OF Integer
   RETURN r
 END FUNC
 
+' Bit-serial modular reduction, done in place on a fixed-capacity buffer. This
+' is the same shift/compare/subtract algorithm as before (bit-identical result)
+' but the running remainder `r` lives in one preallocated `len(m)+1`-limb list
+' mutated with in-place set, instead of allocating fresh lists (bnShl1/bnAdd/
+' bnSub) every bit — which dominated modmul/modexp runtime (~300k allocs/run).
 FUNC bnMod(x AS List OF Integer, m AS List OF Integer) AS List OF Integer
   IF bnCmp(x, m) < 0 THEN
     RETURN x
   END IF
+  LET lm AS Integer = len(m)
+  LET rlen AS Integer = lm + 1
+  MUT r AS List OF Integer = []
+  MUT z AS Integer = 0
+  WHILE z < rlen
+    r = collections::append(r, 0)
+    z = z + 1
+  WEND
   LET nbits AS Integer = len(x) * 28
-  MUT r AS List OF Integer = [0]
   MUT i AS Integer = nbits - 1
   WHILE i >= 0
     LET limb AS Integer = i / 28
     LET off AS Integer = i - limb * 28
     LET bit AS Integer = bits::band(bits::sr(collections::get(x, limb), off), 1)
-    r = bnShl1(r)
-    IF bit <> 0 THEN
-      LET one AS List OF Integer = [1]
-      r = bnAdd(r, one)
-    END IF
+    ' r = (r << 1) | bit, in place across the fixed buffer.
+    MUT carry AS Integer = bit
+    MUT k AS Integer = 0
+    WHILE k < rlen
+      LET t AS Integer = bits::bor(bits::sl(collections::get(r, k), 1), carry)
+      r = collections::set(r, k, bits::band(t, 268435455))
+      carry = bits::sr(t, 28)
+      k = k + 1
+    WEND
+    ' if r >= m then r = r - m, in place (r stays < 2*m so one subtract suffices).
     IF bnCmp(r, m) >= 0 THEN
-      r = bnSub(r, m)
+      MUT brw AS Integer = 0
+      MUT kk AS Integer = 0
+      WHILE kk < rlen
+        MUT mi AS Integer = 0
+        IF kk < lm THEN
+          mi = collections::get(m, kk)
+        END IF
+        MUT s AS Integer = collections::get(r, kk) - mi - brw
+        IF s < 0 THEN
+          s = s + 268435456
+          brw = 1
+        ELSE
+          brw = 0
+        END IF
+        r = collections::set(r, kk, s)
+        kk = kk + 1
+      WEND
     END IF
     i = i - 1
   WEND
-  RETURN r
+  RETURN bnNorm(r)
 END FUNC
 
 FUNC bnModmul(a AS List OF Integer, b AS List OF Integer, m AS List OF Integer) AS List OF Integer
