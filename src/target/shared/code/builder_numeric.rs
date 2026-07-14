@@ -108,7 +108,8 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         // plan-39 I1: decide overflow-check elision from the *NIR* operands before
         // they are lowered (and `left`/`right` are shadowed by their ValueResults).
-        let elide_overflow = op == "-" && self.integer_sub_elidable(left, right);
+        let elide_overflow = (op == "-" && self.integer_sub_elidable(left, right))
+            || (op == "+" && self.integer_add_elidable(left, right));
         let left = self.lower_value(left)?;
         // `d`-native float fast path (plan-01 float-dnative): when the operation
         // yields a `Float`, both operands are consumed directly in the FP domain
@@ -907,6 +908,21 @@ impl CodeBuilder<'_> {
         c > 0 && lower.checked_sub(c).is_some()
     }
 
+    /// plan-39 I1 (upper side): whether `left + right` provably cannot overflow.
+    /// Fires only for `local + 1` where the local is known strictly less than some
+    /// i64 (a `WHILE local < S` body): then `local <= S - 1`, so `local + 1 <= S <=
+    /// i64::MAX`. Restricted to `+ 1` because a larger constant could carry `S - 1 +
+    /// c` past i64::MAX for a symbolic `S`. Default `false` (the check stays).
+    fn integer_add_elidable(&self, left: &NirValue, right: &NirValue) -> bool {
+        let NirValue::Local(name) = left else {
+            return false;
+        };
+        if !self.integer_strict_upper.contains(name) {
+            return false;
+        }
+        matches!(right, NirValue::Const { type_, value } if type_ == "Integer" && value == "1")
+    }
+
     /// plan-39 I1: the lower bound a guard condition establishes on its fall-through
     /// path — i.e. the bound implied by the condition being **false**. `local < K`
     /// false gives `local >= K`; `local <= K` false gives `local >= K+1`. Only a
@@ -960,14 +976,20 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         match op {
             "+" => {
-                self.emit(abi::add_registers_set_flags(
-                    dst,
-                    &left.location,
-                    &right.location,
-                ));
-                self.emit_overflow_if_flags_set()?;
-                if byte_result {
-                    self.emit_byte_upper_bound_check(dst)?;
+                if elide_overflow && !byte_result {
+                    // Proven non-overflowing (`local + 1` under a strict upper
+                    // bound): bare add, no flags/check.
+                    self.emit(abi::add_registers(dst, &left.location, &right.location));
+                } else {
+                    self.emit(abi::add_registers_set_flags(
+                        dst,
+                        &left.location,
+                        &right.location,
+                    ));
+                    self.emit_overflow_if_flags_set()?;
+                    if byte_result {
+                        self.emit_byte_upper_bound_check(dst)?;
+                    }
                 }
             }
             "-" => {

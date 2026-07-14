@@ -11,7 +11,7 @@
   ],
   "functions": [
   {
-    "name": "safeBound",
+    "name": "safeSub",
     "line": 8,
     "visibility": "public",
     "kind": "func",
@@ -34,7 +34,7 @@
     ]
   },
   {
-    "name": "nearMinBound",
+    "name": "nearMinSub",
     "line": 15,
     "visibility": "public",
     "kind": "func",
@@ -57,42 +57,121 @@
     ]
   },
   {
-    "name": "main",
+    "name": "safeLoopSum",
     "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 22, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 23, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 24, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 25,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "n" } },
+      "body": [
+      { "op": "assign", "line": 26, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "i" } } },
+      { "op": "assign", "line": 27, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 29, "value": { "kind": "local", "name": "total" } }
+    ]
+  },
+  {
+    "name": "reassignThenAdd",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 32, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 33, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "while",
+      "line": 34,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      { "op": "assign", "line": 35, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "9223372036854775807" } },
+      { "op": "return", "line": 36, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 38, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 41,
     "visibility": "public",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeBound(2)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeBound", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] } }] } },
-    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeBound(100)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeBound", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] }] } }] } },
-    { "op": "bind", "line": 28, "mutable": true, "name": "trapped", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "nearMinBound", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9223372036854775803" } }] } },
-    { "op": "bind", "line": 29, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeSub(2)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeSub", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeSub(100)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeSub", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] }] } }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeLoopSum(5)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeLoopSum", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeLoopSum(100)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeLoopSum", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] }] } }] } },
+    { "op": "bind", "line": 47, "mutable": true, "name": "t1", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "nearMinSub", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9223372036854775803" } }] } },
+    { "op": "bind", "line": 48, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
-      "line": 29,
+      "line": 48,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
       "then": [
-      { "op": "assign", "line": 29, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      { "op": "assign", "line": 48, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
       ],
       "else": [
-      { "op": "bind", "line": 29, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
-      { "op": "assign", "line": 30, "name": "trapped", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-      { "op": "assign", "line": 31, "name": "$trap_val1", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "bind", "line": 48, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 49, "name": "t1", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 50, "name": "$trap_val1", "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     },
-    { "op": "bind", "line": 29, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
     {
       "op": "if",
-      "line": 33,
-      "condition": { "kind": "local", "name": "trapped" },
+      "line": 52,
+      "condition": { "kind": "local", "name": "t1" },
       "then": [
-      { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "nearMinBound underflow trapped: correct" }] } }
+      { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "nearMinSub underflow trapped: correct" }] } }
       ],
       "else": [
-      { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nearMinBound NOT trapped: UNSOUND a=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] } }] } }
+      { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nearMinSub NOT trapped: UNSOUND a=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] } }] } }
+      ]
+    },
+    { "op": "bind", "line": 58, "mutable": true, "name": "t2", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "reassignThenAdd", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "line": 59,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "line": 59, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 59, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 60, "name": "t2", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 61, "name": "$trap_val3", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    { "op": "bind", "line": 59, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
+    {
+      "op": "if",
+      "line": 63,
+      "condition": { "kind": "local", "name": "t2" },
+      "then": [
+      { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "reassignThenAdd overflow trapped: correct" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reassignThenAdd NOT trapped: UNSOUND b=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] } }] } }
       ]
     }
     ]

@@ -11,7 +11,7 @@
       "kind": "func",
       "visibility": "public",
       "isolated": false,
-      "name": "safeBound",
+      "name": "safeSub",
       "line": 8,
       "params": [
       { "name": "n", "type": "Integer", "default": null, "line": 8 }
@@ -35,7 +35,7 @@
       "kind": "func",
       "visibility": "public",
       "isolated": false,
-      "name": "nearMinBound",
+      "name": "nearMinSub",
       "line": 15,
       "params": [
       { "name": "n", "type": "Integer", "default": null, "line": 15 }
@@ -56,37 +56,112 @@
       ]
     },
     {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "safeLoopSum",
+      "line": 22,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 22 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 24 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "n" } },
+        "line": 25,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "i" } }, "line": 26 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 27 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "reassignThenAdd",
+      "line": 32,
+      "params": [
+      { "name": "s", "type": "Integer", "default": null, "line": 32 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "identifier", "value": "s" }, "line": 33 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "100" } },
+        "line": 34,
+        "body": [
+        { "kind": "assignment", "name": "i", "value": { "kind": "number", "value": "9223372036854775807" }, "line": 35 },
+        { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 36 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 38 }
+      ]
+    },
+    {
       "kind": "sub",
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 22,
+      "line": 41,
       "params": [
       ],
       "returnType": null,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeBound(2)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeBound", "arguments": [{ "kind": "number", "value": "2" }] }] } }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeBound(100)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeBound", "arguments": [{ "kind": "number", "value": "100" }] }] } }] }, "line": 25 },
-      { "kind": "binding", "mutable": true, "name": "trapped", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeSub(2)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeSub", "arguments": [{ "kind": "number", "value": "2" }] }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeSub(100)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeSub", "arguments": [{ "kind": "number", "value": "100" }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeLoopSum(5)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeLoopSum", "arguments": [{ "kind": "number", "value": "5" }] }] } }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeLoopSum(100)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeLoopSum", "arguments": [{ "kind": "number", "value": "100" }] }] } }] }, "line": 45 },
+      { "kind": "binding", "mutable": true, "name": "t1", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 47 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": {
         "kind": "trapped",
         "binding": "e",
-        "line": 29,
-        "expression": { "kind": "call", "callee": "nearMinBound", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775803" } }] },
+        "line": 48,
+        "expression": { "kind": "call", "callee": "nearMinSub", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775803" } }] },
         "handler": [
-        { "kind": "assignment", "name": "trapped", "value": { "kind": "boolean", "value": true }, "line": 30 },
-        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 31 }
+        { "kind": "assignment", "name": "t1", "value": { "kind": "boolean", "value": true }, "line": 49 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 50 }
         ]
-      }, "line": 29 },
+      }, "line": 48 },
       {
         "kind": "if",
-        "condition": { "kind": "identifier", "value": "trapped" },
-        "line": 33,
+        "condition": { "kind": "identifier", "value": "t1" },
+        "line": 52,
         "then": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "nearMinBound underflow trapped: correct" }] }, "line": 34 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "nearMinSub underflow trapped: correct" }] }, "line": 53 }
         ],
         "else": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nearMinBound NOT trapped: UNSOUND a=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 36 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nearMinSub NOT trapped: UNSOUND a=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 55 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "t2", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 58 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 59,
+        "expression": { "kind": "call", "callee": "reassignThenAdd", "arguments": [{ "kind": "number", "value": "0" }] },
+        "handler": [
+        { "kind": "assignment", "name": "t2", "value": { "kind": "boolean", "value": true }, "line": 60 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 61 }
+        ]
+      }, "line": 59 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "t2" },
+        "line": 63,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "reassignThenAdd overflow trapped: correct" }] }, "line": 64 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "reassignThenAdd NOT trapped: UNSOUND b=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 66 }
         ]
       }
       ]

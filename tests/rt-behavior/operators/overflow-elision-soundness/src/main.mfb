@@ -1,38 +1,68 @@
 IMPORT io
 
-' plan-39 I1: the overflow check on `local - const` is elided only when a guard
-' proves `local >= C` and `C - const` cannot underflow. This fixture pins the
-' soundness: the safe case elides with correct results, and a bound close to
-' i64::MIN (where the subtraction can still underflow) must keep the check and trap.
+' plan-39 I1: overflow checks on `local - const` / `local + 1` are elided only when
+' a guard proves it safe (a `IF local < K` lower bound, or a `WHILE local < S`
+' strict upper bound). This fixture pins the soundness: safe cases elide with
+' correct results, and cases where the value can still overflow keep the check.
 
-FUNC safeBound(n AS Integer) AS Integer
+FUNC safeSub(n AS Integer) AS Integer
   IF n < 2 THEN
     RETURN n
   END IF
   RETURN n - 6
 END FUNC
 
-FUNC nearMinBound(n AS Integer) AS Integer
+FUNC nearMinSub(n AS Integer) AS Integer
   IF n < -9223372036854775803 THEN
     RETURN n
   END IF
   RETURN n - 6
 END FUNC
 
-SUB main()
-  ' Elided-safe path: n >= 2 proves n - 6 never underflows.
-  io::print("safeBound(2)=" & toString(safeBound(2)))
-  io::print("safeBound(100)=" & toString(safeBound(100)))
+FUNC safeLoopSum(n AS Integer) AS Integer
+  MUT total AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < n
+    total = total + i
+    i = i + 1
+  WEND
+  RETURN total
+END FUNC
 
-  ' Boundary: bound is near i64::MIN, so n - 6 CAN underflow -> check kept -> trap.
-  MUT trapped AS Boolean = FALSE
-  LET a AS Integer = nearMinBound(-9223372036854775803) TRAP(e)
-    trapped = TRUE
+FUNC reassignThenAdd(s AS Integer) AS Integer
+  MUT i AS Integer = s
+  WHILE i < 100
+    i = 9223372036854775807
+    RETURN i + 1
+  WEND
+  RETURN -1
+END FUNC
+
+SUB main()
+  io::print("safeSub(2)=" & toString(safeSub(2)))
+  io::print("safeSub(100)=" & toString(safeSub(100)))
+  io::print("safeLoopSum(5)=" & toString(safeLoopSum(5)))
+  io::print("safeLoopSum(100)=" & toString(safeLoopSum(100)))
+
+  MUT t1 AS Boolean = FALSE
+  LET a AS Integer = nearMinSub(-9223372036854775803) TRAP(e)
+    t1 = TRUE
     RECOVER 0
   END TRAP
-  IF trapped THEN
-    io::print("nearMinBound underflow trapped: correct")
+  IF t1 THEN
+    io::print("nearMinSub underflow trapped: correct")
   ELSE
-    io::print("nearMinBound NOT trapped: UNSOUND a=" & toString(a))
+    io::print("nearMinSub NOT trapped: UNSOUND a=" & toString(a))
+  END IF
+
+  MUT t2 AS Boolean = FALSE
+  LET b AS Integer = reassignThenAdd(0) TRAP(e)
+    t2 = TRUE
+    RECOVER 0
+  END TRAP
+  IF t2 THEN
+    io::print("reassignThenAdd overflow trapped: correct")
+  ELSE
+    io::print("reassignThenAdd NOT trapped: UNSOUND b=" & toString(b))
   END IF
 END SUB

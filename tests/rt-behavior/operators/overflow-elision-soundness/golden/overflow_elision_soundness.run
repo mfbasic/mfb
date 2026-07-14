@@ -1,3 +1,6 @@
-safeBound(2)=-4
-safeBound(100)=94
-nearMinBound underflow trapped: correct
+safeSub(2)=-4
+safeSub(100)=94
+safeLoopSum(5)=10
+safeLoopSum(100)=4950
+nearMinSub underflow trapped: correct
+reassignThenAdd overflow trapped: correct

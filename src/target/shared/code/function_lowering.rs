@@ -644,6 +644,7 @@ pub(super) fn lower_function(
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
+        integer_strict_upper: std::collections::HashSet::new(),
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -884,6 +885,7 @@ pub(super) fn lower_builtin_function_wrapper(
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
+        integer_strict_upper: std::collections::HashSet::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);

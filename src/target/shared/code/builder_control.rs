@@ -27,17 +27,15 @@ impl CodeBuilder<'_> {
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         let zero_slot = self.temporary_vreg();
         for op in ops {
-            // plan-39 I1: keep the guard-derived lower-bound map sound. Any op that
-            // reassigns a local (`Bind`/`Assign`) drops that local's bound, and any
-            // op that can re-enter or transfer control non-linearly (loops / Match /
-            // Trap) drops all bounds. Dropping a bound only ever *keeps* an overflow
-            // check, so this is unconditionally safe; the `If` arm re-establishes a
-            // bound afterwards when its guard proves one. Runs before the op is
-            // lowered — the RHS of a `name = name - k` then simply keeps its check.
+            // plan-39 I1: keep the guard-derived range maps sound. Any op that can
+            // re-enter or transfer control non-linearly (loops / Match / Trap) drops
+            // all bounds *before* it is lowered (a `While`'s own condition then
+            // re-establishes the strict-upper bound for its body). Per-local
+            // invalidation on `Bind`/`Assign` happens *after* the op is lowered
+            // (below), so the RHS of `i = i + 1` can still use `i`'s pre-assignment
+            // bound. Dropping a bound only ever keeps an overflow check, so this is
+            // unconditionally safe.
             match op {
-                NirOp::Bind { name, .. } | NirOp::Assign { name, .. } => {
-                    self.integer_lower_bounds.remove(name);
-                }
                 NirOp::While { .. }
                 | NirOp::For { .. }
                 | NirOp::ForEach { .. }
@@ -45,6 +43,7 @@ impl CodeBuilder<'_> {
                 | NirOp::Match { .. }
                 | NirOp::Trap { .. } => {
                     self.integer_lower_bounds.clear();
+                    self.integer_strict_upper.clear();
                 }
                 _ => {}
             }
@@ -713,6 +712,20 @@ impl CodeBuilder<'_> {
                         condition,
                         body,
                     } => {
+                        // plan-39 I1 (upper side): a `WHILE local < S` body runs only
+                        // when `local < S`, so `local` is strictly below an i64 there
+                        // and `local + 1 <= S <= i64::MAX` cannot overflow. Capture
+                        // the guarded local from the raw condition before it is
+                        // lowered/shadowed, and mark it for the body below.
+                        let strict_upper_name = match condition {
+                            NirValue::Binary { op, left, .. } if op == "<" => {
+                                match left.as_ref() {
+                                    NirValue::Local(n) => Some(n.clone()),
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        };
                         let promoted = self.begin_loop_promotion(body, None)?;
                         let loop_label = self.label("while_loop");
                         let end_label = self.label("while_end");
@@ -737,6 +750,9 @@ impl CodeBuilder<'_> {
                             exit_label: end_label.clone(),
                             cleanup_depth: self.active_cleanups.len(),
                         });
+                        if let Some(ref name) = strict_upper_name {
+                            self.integer_strict_upper.insert(name.clone());
+                        }
                         self.lower_ops(body)?;
                         self.loop_stack.pop();
                         self.emit(abi::branch(&loop_label));
@@ -852,21 +868,27 @@ impl CodeBuilder<'_> {
                 Ok(())
             })();
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
-            // plan-39 I1: a lower bound established *inside* a loop / Match / Trap
-            // body must not leak past it (the guarded local may hold a different
-            // value after the construct), so drop all bounds once such a body has
-            // been lowered. Straight-line ops keep their bounds; the `If` arm has
-            // already set its own post-condition bound.
-            if matches!(
-                op,
+            // plan-39 I1: after lowering the op, invalidate range facts. A `Bind`/
+            // `Assign` drops just the reassigned local's bounds (its RHS, already
+            // lowered above, used the valid pre-assignment bound). A loop / Match /
+            // Trap body may reassign a guarded local, so any bound it established
+            // must not leak past it — drop all. Straight-line ops keep their bounds;
+            // the `If` arm has already set its own post-condition bound.
+            match op {
+                NirOp::Bind { name, .. } | NirOp::Assign { name, .. } => {
+                    self.integer_lower_bounds.remove(name);
+                    self.integer_strict_upper.remove(name);
+                }
                 NirOp::While { .. }
-                    | NirOp::For { .. }
-                    | NirOp::ForEach { .. }
-                    | NirOp::DoUntil { .. }
-                    | NirOp::Match { .. }
-                    | NirOp::Trap { .. }
-            ) {
-                self.integer_lower_bounds.clear();
+                | NirOp::For { .. }
+                | NirOp::ForEach { .. }
+                | NirOp::DoUntil { .. }
+                | NirOp::Match { .. }
+                | NirOp::Trap { .. } => {
+                    self.integer_lower_bounds.clear();
+                    self.integer_strict_upper.clear();
+                }
+                _ => {}
             }
             // A control-transfer statement branches away, so any interior-temp free
             // would be unreachable and a returned/moved temp belongs to the target;

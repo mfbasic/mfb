@@ -196,6 +196,12 @@ struct CodeBuilder<'a> {
     /// `local - const` when `C - const` provably cannot underflow — sound by
     /// construction (the default keeps the check).
     integer_lower_bounds: HashMap<String, i64>,
+    /// plan-39 I1 (upper side): Integer locals known to be **strictly less than
+    /// some i64** on the current path (established by a `WHILE local < S` body —
+    /// then `local + 1 <= S <= i64::MAX`, so the `add` cannot overflow). Used only
+    /// to elide the overflow check on `local + 1`; dropped on any assignment to the
+    /// local and cleared at every loop/Match/Trap boundary.
+    integer_strict_upper: std::collections::HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -2533,6 +2539,7 @@ fn lower_direct_builtin_runtime_helper(
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
+        integer_strict_upper: std::collections::HashSet::new(),
     };
 
     let args = spec
