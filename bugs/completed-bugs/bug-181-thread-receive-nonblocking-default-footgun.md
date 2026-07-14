@@ -1,9 +1,10 @@
 # bug-181 — `thread::receive`'s default `timeoutMs = 0` (non-blocking) makes a worker's natural "wait for a message" loop race the parent's `send`
 
-**Status:** FIX DECIDED (2026-07-13). Reshape `receive`/`accept` to two overloads:
-the no-arg form **blocks** (new default) and the explicit-timeout form takes a
-**non-negative** `timeoutMs`. Symmetric across parent `Thread` and worker
-`ThreadWorker`. See **Decision** below.
+**Status:** FIXED (2026-07-13, commit `94f63397`). Reshaped `receive`/`accept` to
+two overloads: the no-arg form **blocks** (new default) and the explicit-timeout
+form takes a **non-negative** `timeoutMs`. Symmetric across parent `Thread` and
+worker `ThreadWorker`. Verified: 56/56 thread unit tests, full acceptance 939/939
+green. See **Decision** below.
 **Severity:** LOW — documented behavior; no data corruption or leak. Intermittent
 `ErrInterrupted`/`ErrNotFound` in programs that rely on `thread::receive(self)`
 blocking. Fully avoidable by passing an explicit timeout.
