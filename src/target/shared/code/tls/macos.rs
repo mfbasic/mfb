@@ -3629,6 +3629,7 @@ mod encoding_error_release_tests {
         fn emit_thread_trampoline(
         &self,
         _platform_imports: &HashMap<String, String>,
+        _uses_stdin: bool,
     ) -> Result<crate::target::shared::code::CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_thread_trampoline") }
     }
 
