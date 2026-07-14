@@ -40,23 +40,29 @@ Also landed:
   overflow-safe division-only correction (exact floor; 0 mismatches vs Newton
   over 100k values + boundaries + near Integer-max). vector int 99→57 ms.
   C3 is moot for the int path (`length` stays a FUNC). vector fixed 14.6→14.0.
+- **A4 (native slice)** — DONE for window/chunks/take/drop. `try_inline_slice_op`
+  intercepts the internal `#collections_slice$T` helper (window/chunks) and emits a
+  native bulk range copy (adapts `lower_map_projection`'s byte-wise payload copy +
+  running offset; correct for every element type; start/stop clamped to [0,count]).
+  take/drop delegate to `__collections_slice`. window 203→117, chunks 30→15,
+  take 10.5→4.2 (COMPLETE), drop 10.8→4.3 (COMPLETE). Verified value-independence +
+  Integer/String/nested + all edge cases; accept 942, gate 0-diff, checksums same.
+  zip NOT done (builds Pair records, not a slice).
 
 ### Measured result (release mfb, `--run 10`, same metric as source logs)
 
 Rows moved to **COMPLETE (≤5 ms)**: io write 26.7→1.66, any 5.5→1.02,
 all 5.3→1.03, findIndex 13.8→2.60, findLastIndex 13.8→2.50, reduceRight
-23.5→2.85. Rows that now **beat Python** (cleared P1→P2): bignum modmul 228→23.2,
-modexp 123→12.9. Large in-band gains: sortBy 647→69, string case 155→68,
-csv 20→8.5, partition 18.4→14.6, vector int 99→57, vector fixed 14.6→14.0.
+23.5→2.85, take 10.5→4.2, drop 10.8→4.3. Rows that now **beat Python**
+(cleared P1→P2): bignum modmul 228→23.2, modexp 123→12.9. Large in-band gains:
+sortBy 647→69, string case 155→68, csv 20→8.5, partition 18.4→14.6, window
+203→117, chunks 30→15, vector int 99→57, vector fixed 14.6→14.0. Remaining P1s
+needing more work: window/chunks/zip (native slice landed for window/chunks;
+zip still source), sortBy/case/csv/partition (much faster but still lose to
+Python by construction).
 
 ### Still TODO (deferred — high-risk native codegen, next session)
 
-- **A4** native contiguous-range slice — clears window (203), chunks (30),
-  take (10.5), drop (10.8), zip (7.6). A list is one flat arena block
-  (header + fixed-size entry array + value blob, value_offsets block-relative);
-  a correct slice must copy entries **and** their value-blob regions and rewrite
-  offsets — real memory-safety surface, not a plain memcpy. Highest single win
-  remaining (window is the worst row) but the plan's highest-effort item.
 - **B** transcendental/float kernels (sin/cos/tan/pow/log/… P2 cluster, sqrt,
   leibniz/nbody/mandelbrot). Intricate NEON dd-Horner; precision-gated
   (`runtime_ulp.py`). B1 (shared out-of-line leaf) is the big structural win but
