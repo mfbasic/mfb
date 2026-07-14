@@ -670,6 +670,196 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// plan-39 A4: intercept `#collections_zip$A$B` and build the paired list
+    /// natively when A and B are both fixed-width scalars (the `Pair$A$B` record is
+    /// then a flat 16 bytes `[a@0][b@8]`). Anything else — a String/List/record
+    /// element, or a non-list argument — falls back to the FUNC (`Ok(None)`).
+    pub(super) fn try_inline_zip_op(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Result<Option<ValueResult>, String> {
+        let Some(rest) = target.strip_prefix("#collections_zip$") else {
+            return Ok(None);
+        };
+        if args.len() != 2 {
+            return Ok(None);
+        }
+        // The suffix is `<A>$<B>`; only accept it when both are simple fixed-width
+        // scalar type names (no nested `$`, so the split is unambiguous).
+        let parts: Vec<&str> = rest.split('$').collect();
+        if parts.len() != 2 {
+            return Ok(None);
+        }
+        let is_fixed = |t: &str| {
+            matches!(t, "Integer" | "Float" | "Fixed" | "Byte" | "Boolean" | "Scalar")
+        };
+        if !is_fixed(parts[0]) || !is_fixed(parts[1]) {
+            return Ok(None);
+        }
+        let list_type = format!("List OF Pair${}${}", parts[0], parts[1]);
+        let Some(layout) = CollectionTypeLayout::from_type(&list_type) else {
+            return Ok(None);
+        };
+        let result = self.lower_list_zip_fixed(args, &list_type, layout)?;
+        Ok(Some(result))
+    }
+
+    /// Build `List OF Pair$A$B` from two fixed-width-scalar lists: `n =
+    /// min(len a, len b)` entries, each holding the flat 16-byte record
+    /// `[a[i]@0][b[i]@8]`. Mirrors `lower_list_slice_range`'s allocate + header +
+    /// copy-loop shape; the copy reads one 8-byte value from each source blob.
+    fn lower_list_zip_fixed(
+        &mut self,
+        args: &[NirValue],
+        list_type: &str,
+        layout: CollectionTypeLayout,
+    ) -> Result<ValueResult, String> {
+        const REC: usize = 16; // Pair of two fixed-width fields: [f0@0][f1@8].
+        let s8 = self.temporary_vreg();
+        let s9 = self.temporary_vreg();
+        let s10 = self.temporary_vreg();
+        let s11 = self.temporary_vreg();
+        let s12 = self.temporary_vreg();
+        let s13 = self.temporary_vreg();
+        let s14 = self.temporary_vreg();
+        let s15 = self.temporary_vreg();
+        let s16 = self.temporary_vreg();
+        let s17 = self.temporary_vreg();
+        let s20 = self.temporary_vreg();
+        let s21 = self.temporary_vreg();
+        let s22 = self.temporary_vreg();
+
+        let a_slot = self.allocate_stack_object("zip_a", 8);
+        let b_slot = self.allocate_stack_object("zip_b", 8);
+        let n_slot = self.allocate_stack_object("zip_n", 8);
+        let result_slot = self.allocate_stack_object("zip_result", 8);
+
+        let a = self.lower_value(&args[0])?;
+        self.emit(abi::store_u64(&a.location, abi::stack_pointer(), a_slot));
+        let b = self.lower_value(&args[1])?;
+        self.emit(abi::store_u64(&b.location, abi::stack_pointer(), b_slot));
+
+        // n = min(count_a, count_b).
+        self.emit(abi::load_u64(&s8, abi::stack_pointer(), a_slot));
+        self.emit(abi::load_u64(&s9, &s8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&s10, abi::stack_pointer(), b_slot));
+        self.emit(abi::load_u64(&s11, &s10, COLLECTION_OFFSET_COUNT));
+        let n_from_b = self.label("zip_n_from_b");
+        let n_done = self.label("zip_n_done");
+        self.emit(abi::compare_registers(&s9, &s11));
+        self.emit(abi::branch_le(&n_done));
+        self.emit(abi::move_register(&s9, &s11));
+        self.emit(abi::label(&n_from_b));
+        self.emit(abi::label(&n_done));
+        self.emit(abi::store_u64(&s9, abi::stack_pointer(), n_slot));
+
+        // Allocate HEADER + n*ENTRY + n*REC.
+        self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::multiply_registers(&s15, &s9, &s14));
+        self.emit(abi::add_immediate(abi::return_register(), &s15, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&s16, "Integer", &REC.to_string()));
+        self.emit(abi::multiply_registers(&s16, &s9, &s16));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            &s16,
+        ));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        let alloc_ok = self.label("zip_alloc_ok");
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+
+        // Header. data_length = data_capacity = n*REC.
+        self.emit(abi::load_u64(&s9, abi::stack_pointer(), n_slot));
+        self.emit(abi::move_immediate(&s16, "Integer", &REC.to_string()));
+        self.emit(abi::multiply_registers(&s16, &s9, &s16));
+        self.emit(abi::move_immediate(&s13, "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(&s13, "Byte", &layout.key_type_code.to_string()));
+        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::move_immediate(&s13, "Byte", &layout.value_type_code.to_string()));
+        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate(&s13, "Byte", "1"));
+        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(&s16, abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(&s16, abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY));
+
+        // Copy loop: entry i holds [a[i]@0][b[i]@8] at blob offset i*REC.
+        self.emit(abi::load_u64(&s8, abi::stack_pointer(), a_slot));
+        self.emit(abi::load_u64(&s10, abi::stack_pointer(), b_slot));
+        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&s9, abi::stack_pointer(), n_slot));
+        // s12 = a entry ptr, s13 = b entry ptr, s17 = result entry ptr.
+        self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(&s13, &s10, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(&s17, abi::RET[1], COLLECTION_HEADER_SIZE));
+        // s20 = a blob base, s21 = b blob base, s22 = result blob base.
+        self.emit_collection_data_pointer(&s20, &s8);
+        self.emit_collection_data_pointer(&s21, &s10);
+        self.emit(abi::move_immediate(&s16, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::multiply_registers(&s22, &s9, &s16));
+        self.emit(abi::add_registers(&s22, &s17, &s22));
+        // s11 = running result-blob offset, s14 = i.
+        self.emit(abi::move_immediate(&s11, "Integer", "0"));
+        self.emit(abi::move_immediate(&s14, "Integer", "0"));
+        let loop_l = self.label("zip_copy_loop");
+        let loop_done = self.label("zip_copy_done");
+        self.emit(abi::label(&loop_l));
+        self.emit(abi::compare_registers(&s14, &s9));
+        self.emit(abi::branch_ge(&loop_done));
+        // result entry i: flags USED, key 0, value_offset = running, length = REC.
+        self.emit(abi::move_immediate(&s15, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()));
+        self.emit(abi::store_u8(&s15, &s17, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate(&s15, "Integer", "0"));
+        self.emit(abi::store_u64(&s15, &s17, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::store_u64(&s15, &s17, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::store_u64(&s11, &s17, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::move_immediate(&s15, "Integer", &REC.to_string()));
+        self.emit(abi::store_u64(&s15, &s17, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        // a[i] value: 8 bytes at a_blob + a_entry.value_offset.
+        self.emit(abi::load_u64(&s15, &s12, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::add_registers(&s15, &s20, &s15));
+        self.emit(abi::load_u64(&s15, &s15, 0));
+        // dest = result_blob + running.
+        self.emit(abi::add_registers(&s16, &s22, &s11));
+        self.emit(abi::store_u64(&s15, &s16, 0));
+        // b[i] value.
+        self.emit(abi::load_u64(&s15, &s13, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::add_registers(&s15, &s21, &s15));
+        self.emit(abi::load_u64(&s15, &s15, 0));
+        self.emit(abi::store_u64(&s15, &s16, 8));
+        // advance.
+        self.emit(abi::add_immediate(&s11, &s11, REC));
+        self.emit(abi::add_immediate(&s12, &s12, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&s13, &s13, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&s17, &s17, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&s14, &s14, 1));
+        self.emit(abi::branch(&loop_l));
+        self.emit(abi::label(&loop_done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("zip({list_type})"),
+        })
+    }
+
     /// plan-39 A4: intercept the internal `#collections_slice$T` helper and lower
     /// it as a native contiguous-range copy. The only callers are the window/chunks
     /// source generics, which always pass in-bounds `[start, stop)`; a non-list or

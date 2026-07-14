@@ -561,6 +561,11 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.try_inline_slice_op(target, args)? {
                     return Ok(result);
                 }
+                // plan-39 A4: lower `#collections_zip$A$B` over two fixed-width
+                // scalar lists as a native paired-blob build (Pair is flat 16 bytes).
+                if let Some(result) = self.try_inline_zip_op(target, args)? {
+                    return Ok(result);
+                }
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {
