@@ -7,6 +7,10 @@ pub enum TokenKind {
     Keyword(Keyword),
     String(String),
     Number(String),
+    /// A backtick scalar literal `` `x` `` carrying its decoded Unicode scalar
+    /// value (plan-41-A). Decoding happens at lex time so range/surrogate errors
+    /// surface at the true source location and the AST stays free of raw text.
+    Scalar(u32),
     Dot,
     Comma,
     Colon,
@@ -178,6 +182,7 @@ impl Lexer<'_> {
                     self.advance_line();
                 }
                 '\'' => self.skip_line_comment(),
+                '`' => self.lex_scalar(),
                 '"' => self.lex_string(),
                 '0'..='9' => self.lex_number(),
                 'A'..='Z' | 'a'..='z' => self.lex_identifier_or_keyword(),
@@ -392,6 +397,160 @@ impl Lexer<'_> {
             }
             self.advance();
             if ch == '"' {
+                return;
+            }
+        }
+    }
+
+    /// Lex a backtick scalar literal `` `x` `` (plan-41-A). The cursor is on the
+    /// opening backtick. Consumes exactly one Unicode scalar — either a raw source
+    /// scalar or an escape reusing the string-escape machinery (`` `\n` ``,
+    /// `` `\\` ``, `` `\`` ``, `` `\u{1F600}` ``) — then requires a closing
+    /// backtick, emitting `TokenKind::Scalar(codepoint)`. Rejects empty (`` `` ``),
+    /// multi-scalar (`` `ab` ``), unterminated, and invalid-escape literals with
+    /// the `TYPE_SCALAR_LITERAL_*` diagnostics (a malformed `\u{...}` reuses the
+    /// shared `MFB_LEX_INVALID_UNICODE_ESCAPE` path so string and scalar agree).
+    fn lex_scalar(&mut self) {
+        let line = self.line;
+        let start = self.column;
+        self.advance(); // consume opening backtick
+
+        if self.is_at_end() || self.peek() == '\n' {
+            self.report(
+                "TYPE_SCALAR_LITERAL_INVALID",
+                "A scalar literal reached the end of the line before a closing backtick.",
+                line,
+                start,
+                self.column,
+            );
+            return;
+        }
+
+        let ch = self.peek();
+        if ch == '`' {
+            // Empty literal `` `` ``.
+            self.advance();
+            self.report(
+                "TYPE_SCALAR_LITERAL_EMPTY",
+                "A scalar literal must contain exactly one Unicode scalar; `` is empty.",
+                line,
+                start,
+                self.column,
+            );
+            return;
+        }
+
+        let code_point: u32 = if ch == '\\' {
+            self.advance();
+            if self.is_at_end() || self.peek() == '\n' {
+                self.report(
+                    "TYPE_SCALAR_LITERAL_INVALID",
+                    "A scalar literal reached the end of the line before a closing backtick.",
+                    line,
+                    start,
+                    self.column,
+                );
+                return;
+            }
+            let escaped = self.peek();
+            match escaped {
+                '`' => {
+                    self.advance();
+                    '`' as u32
+                }
+                '\\' => {
+                    self.advance();
+                    '\\' as u32
+                }
+                'n' => {
+                    self.advance();
+                    '\n' as u32
+                }
+                't' => {
+                    self.advance();
+                    '\t' as u32
+                }
+                'r' => {
+                    self.advance();
+                    '\r' as u32
+                }
+                '0' => {
+                    self.advance();
+                    0
+                }
+                'u' => {
+                    // `\u{HEX}` — reuse the string decoder (the single validity
+                    // oracle: rejects surrogates and > U+10FFFF).
+                    self.advance();
+                    match self.lex_unicode_escape(line, start) {
+                        Some(decoded) => decoded as u32,
+                        None => {
+                            self.recover_scalar_literal();
+                            return;
+                        }
+                    }
+                }
+                other => {
+                    self.report(
+                        "TYPE_SCALAR_LITERAL_INVALID",
+                        &format!(
+                            "`\\{other}` is not a valid scalar-literal escape (use `\\n`, `\\t`, `\\r`, `\\0`, `\\\\`, `` \\` ``, or `\\u{{...}}`)."
+                        ),
+                        line,
+                        start,
+                        self.column,
+                    );
+                    self.recover_scalar_literal();
+                    return;
+                }
+            }
+        } else {
+            self.advance();
+            ch as u32
+        };
+
+        if self.is_at_end() || self.peek() == '\n' {
+            self.report(
+                "TYPE_SCALAR_LITERAL_INVALID",
+                "A scalar literal reached the end of the line before a closing backtick.",
+                line,
+                start,
+                self.column,
+            );
+            return;
+        }
+        if self.peek() != '`' {
+            // More than one scalar before the closing backtick.
+            self.report(
+                "TYPE_SCALAR_LITERAL_TOO_MANY",
+                "A scalar literal must contain exactly one Unicode scalar.",
+                line,
+                start,
+                self.column,
+            );
+            self.recover_scalar_literal();
+            return;
+        }
+        self.advance(); // consume closing backtick
+        self.tokens.push(Token {
+            kind: TokenKind::Scalar(code_point),
+            line,
+            start,
+            end: self.column,
+        });
+    }
+
+    /// After a fatal scalar-literal error, skip to and including the closing
+    /// backtick, or to a newline / EOF, so the remainder is not re-lexed as a
+    /// spurious token. Does not emit diagnostics — the caller already reported.
+    fn recover_scalar_literal(&mut self) {
+        while !self.is_at_end() {
+            let ch = self.peek();
+            if ch == '\n' {
+                return;
+            }
+            self.advance();
+            if ch == '`' {
                 return;
             }
         }
@@ -1342,6 +1501,62 @@ mod tests {
             "\"\\u{1F600\"\n",
             "\"\\u{7fffffff}\"\n",
             "\"\\u{GG}\"\n",
+        ] {
+            assert!(
+                lex(Path::new("main.mfb"), source).is_err(),
+                "expected lex error for {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn scalar_literals_decode_to_codepoints() {
+        // Raw scalar, string-shared escapes, backtick and apostrophe escapes,
+        // and an astral `\u{...}` (plan-41-A).
+        for (source, expected) in [
+            ("`A`\n", 'A' as u32),
+            ("`\\n`\n", '\n' as u32),
+            ("`\\t`\n", '\t' as u32),
+            ("`\\r`\n", '\r' as u32),
+            ("`\\0`\n", 0u32),
+            ("`\\\\`\n", '\\' as u32),
+            ("`\\``\n", '`' as u32),
+            ("`'`\n", '\'' as u32),
+            ("`\\u{1F600}`\n", 0x1F600),
+            ("`中`\n", '中' as u32),
+        ] {
+            let tokens = lex(Path::new("main.mfb"), source).expect("lex source");
+            assert_eq!(
+                tokens[0].kind,
+                TokenKind::Scalar(expected),
+                "source {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn apostrophe_comment_swallows_backticks_inertly() {
+        // A `'` line comment containing backticks must not start a scalar literal;
+        // the whole line is a comment and only the Newline/Eof remain.
+        let tokens = lex(Path::new("main.mfb"), "' a `A` and `\\u{1F600}` here\n")
+            .expect("lex source");
+        assert_eq!(
+            tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+            vec![&TokenKind::Newline, &TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn malformed_scalar_literals_are_errors() {
+        // Empty, multi-scalar, unterminated, bad escape, surrogate, out-of-range.
+        for source in [
+            "``\n",
+            "`ab`\n",
+            "`A\n",
+            "`\\q`\n",
+            "`\\u{D800}`\n",
+            "`\\u{110000}`\n",
+            "`\n",
         ] {
             assert!(
                 lex(Path::new("main.mfb"), source).is_err(),

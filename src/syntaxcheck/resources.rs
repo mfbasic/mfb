@@ -192,6 +192,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Integer
             | Type::Money
             | Type::Nothing
+            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
             // A collection slot holds a *borrow* of a resource (`RES File`),
@@ -251,6 +252,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Integer
             | Type::Money
             | Type::Nothing
+            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
             Type::List(element) => self.is_thread_sendable_type_with_seen(element, seen),

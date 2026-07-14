@@ -309,6 +309,7 @@ fn walk_expression(expression: &Expression, line: usize, visit: &mut impl FnMut(
         }
         Expression::String(_)
         | Expression::Number(_)
+        | Expression::Scalar(_)
         | Expression::Boolean(_)
         | Expression::Identifier(_) => {}
     }

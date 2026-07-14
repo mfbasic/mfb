@@ -614,6 +614,9 @@ pub enum MatchPattern {
 pub enum Expression {
     String(String),
     Number(String),
+    /// A backtick scalar literal `` `x` `` carrying its decoded Unicode scalar
+    /// value (plan-41-A). Intrinsically typed `Scalar`.
+    Scalar(u32),
     Boolean(bool),
     Binary {
         left: Box<Expression>,

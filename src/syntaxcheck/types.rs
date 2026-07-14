@@ -65,6 +65,7 @@ impl<'a> SyntaxChecker<'a> {
             "Integer" => Type::Integer,
             "Money" => Type::Money,
             "Nothing" => Type::Nothing,
+            "Scalar" => Type::Scalar,
             "String" => Type::String,
             "Unknown" => Type::Unknown,
             "Result" => Type::Result(Box::new(Type::Unknown)),
@@ -275,6 +276,14 @@ impl<'a> SyntaxChecker<'a> {
         matches!(type_, Type::String | Type::Unknown)
     }
 
+    /// An operand acceptable on either side of a `Scalar` ordering comparison
+    /// (`<`, `>`, `<=`, `>=`). `Scalar` orders by codepoint value and is
+    /// non-numeric — it does not order against `String` or any numeric type.
+    /// `Unknown` is permitted so a prior error does not cascade.
+    pub(super) fn is_orderable_scalar(&self, type_: &Type) -> bool {
+        matches!(type_, Type::Scalar | Type::Unknown)
+    }
+
     pub(super) fn is_comparable_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
         match type_ {
             Type::Boolean
@@ -286,6 +295,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Integer
             | Type::Money
             | Type::Nothing
+            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
             Type::List(_)

@@ -879,6 +879,7 @@ fn walk_expression(expression: &Expression, line: usize, path: &str, found: &mut
         }
         Expression::String(_)
         | Expression::Number(_)
+        | Expression::Scalar(_)
         | Expression::Boolean(_)
         | Expression::Identifier(_) => {}
     }

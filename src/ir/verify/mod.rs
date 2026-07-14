@@ -1871,11 +1871,16 @@ impl TypeEnv {
             |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown");
         let string = |t: &str| matches!(t, "String" | "Unknown");
         let boolean = |t: &str| matches!(t, "Boolean" | "Unknown");
+        // Scalar orders by codepoint value; non-numeric, and never orders against
+        // String (plan-41-A). Both operands must be Scalar (Unknown permissive).
+        let scalar = |t: &str| matches!(t, "Scalar" | "Unknown");
         let ok = match op {
             "AND" | "OR" | "XOR" => boolean(&lt) && boolean(&rt),
             "&" => string(&lt) && string(&rt),
             "<" | ">" | "<=" | ">=" => {
-                (numeric(&lt) && numeric(&rt)) || (string(&lt) && string(&rt))
+                (numeric(&lt) && numeric(&rt))
+                    || (string(&lt) && string(&rt))
+                    || (scalar(&lt) && scalar(&rt))
             }
             // Equality (`=`/`<>`): numeric pairs compare, otherwise both
             // operands must be compatible AND comparable. A crafted comparison
@@ -2012,7 +2017,7 @@ impl TypeEnv {
     fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
         match type_ {
             "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer" | "Money"
-            | "Nothing" | "String" | "Unknown" => return true,
+            | "Nothing" | "Scalar" | "String" | "Unknown" => return true,
             _ => {}
         }
         if type_.starts_with("List OF ")
@@ -2417,7 +2422,7 @@ impl TypeEnv {
     fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
         match type_ {
             "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer" | "Money"
-            | "Nothing" | "String" | "Unknown" => return true,
+            | "Nothing" | "Scalar" | "String" | "Unknown" => return true,
             _ => {}
         }
         if let Some(element) = type_.strip_prefix("List OF ") {

@@ -164,7 +164,10 @@ pub(super) fn collect_captured_locals(
                 collect_captured_locals(&update.value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_) => {}
     }
 }
 

@@ -461,6 +461,7 @@ impl<'a> FileParser<'a> {
         match token.kind {
             TokenKind::String(value) => Some(Expression::String(value)),
             TokenKind::Number(value) => Some(Expression::Number(value)),
+            TokenKind::Scalar(code_point) => Some(Expression::Scalar(code_point)),
             TokenKind::Keyword(Keyword::True) => Some(Expression::Boolean(true)),
             TokenKind::Keyword(Keyword::False) => Some(Expression::Boolean(false)),
             TokenKind::Keyword(Keyword::Nothing) => {

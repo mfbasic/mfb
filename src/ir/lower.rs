@@ -2048,6 +2048,7 @@ fn expression_type(
             }
             .to_string(),
         ),
+        Expression::Scalar(_) => Some("Scalar".to_string()),
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         Expression::Identifier(value) => {
@@ -2740,6 +2741,10 @@ fn lower_expression_with_expected(
                 value: canonical,
             }
         }
+        Expression::Scalar(code_point) => IrValue::Const {
+            type_: "Scalar".to_string(),
+            value: code_point.to_string(),
+        },
         Expression::Boolean(value) => IrValue::Const {
             type_: "Boolean".to_string(),
             value: value.to_string(),
@@ -3679,7 +3684,10 @@ fn collect_captured_locals(
         Expression::Trapped { expression, .. } => {
             collect_captured_locals(expression, outer_locals, local_names, seen, captures);
         }
-        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_) => {}
     }
 }
 
@@ -3699,6 +3707,7 @@ fn literal_expression_type(expression: &Expression) -> Option<String> {
             }
             .to_string(),
         ),
+        Expression::Scalar(_) => Some("Scalar".to_string()),
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         _ => None,

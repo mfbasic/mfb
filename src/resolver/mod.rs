@@ -23,6 +23,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Money",
     "Nothing",
     "Result",
+    "Scalar",
     "String",
     builtins::fs::FILE_TYPE,
     builtins::term::TERM_COLOR_TYPE,

@@ -1135,6 +1135,9 @@ impl ToAstJson for Expression {
                     json_string(value)
                 )
             }
+            Expression::Scalar(code_point) => {
+                format!("{{ \"kind\": \"scalar\", \"value\": {} }}", code_point)
+            }
             Expression::Boolean(value) => {
                 format!("{{ \"kind\": \"boolean\", \"value\": {} }}", value)
             }
@@ -1500,7 +1503,10 @@ pub(super) fn contains_placeholder(expression: &Expression) -> bool {
                     .iter()
                     .any(|update| contains_placeholder(&update.value))
         }
-        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => false,
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_) => false,
     }
 }
 

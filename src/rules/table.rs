@@ -743,6 +743,24 @@ pub(super) const RULES: &[Rule] = &[
         message: "scaling Money by a bare decimal literal uses inexact Float arithmetic",
     },
     Rule {
+        code: "2-203-0110",
+        name: "TYPE_SCALAR_LITERAL_EMPTY",
+        severity: Severity::Error,
+        message: "a backtick scalar literal must contain exactly one Unicode scalar",
+    },
+    Rule {
+        code: "2-203-0111",
+        name: "TYPE_SCALAR_LITERAL_TOO_MANY",
+        severity: Severity::Error,
+        message: "a backtick scalar literal must contain exactly one Unicode scalar",
+    },
+    Rule {
+        code: "2-203-0112",
+        name: "TYPE_SCALAR_LITERAL_INVALID",
+        severity: Severity::Error,
+        message: "a scalar literal must name a valid Unicode scalar value",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

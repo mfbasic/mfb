@@ -30,6 +30,7 @@ impl<'a> SyntaxChecker<'a> {
         self.allow_value_less_call = false;
         match expression {
             Expression::String(_) => Type::String,
+            Expression::Scalar(_) => Type::Scalar,
             Expression::Boolean(_) => Type::Boolean,
             Expression::Number(value) => match numeric::classify_literal(value).1 {
                 numeric::LiteralType::Integer => Type::Integer,
@@ -886,6 +887,12 @@ impl<'a> SyntaxChecker<'a> {
             if self.is_orderable_string(left) && self.is_orderable_string(right) {
                 return Type::Boolean;
             }
+            // Scalar is orderable by codepoint against another Scalar (plan-41-A).
+            // It is non-numeric and does not order against String; both operands
+            // must be Scalar (Unknown permitted to avoid cascades).
+            if self.is_orderable_scalar(left) && self.is_orderable_scalar(right) {
+                return Type::Boolean;
+            }
             return Type::Unknown;
         }
 
@@ -1123,6 +1130,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Boolean
             | Type::String
             | Type::Byte
+            | Type::Scalar
             | Type::Unknown => true,
             Type::List(inner) => matches!(**inner, Type::Byte),
             _ => false,

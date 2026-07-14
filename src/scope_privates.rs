@@ -461,7 +461,10 @@ fn rewrite_expr(
                 }
             }
         }
-        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_) => {}
     }
 }
 

@@ -1025,7 +1025,10 @@ impl Resolver<'_> {
         locals: &HashMap<String, Symbol>,
     ) {
         match expression {
-            Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
+            Expression::String(_)
+            | Expression::Number(_)
+            | Expression::Scalar(_)
+            | Expression::Boolean(_) => {}
             Expression::Binary { left, right, .. } => {
                 self.resolve_expression(file, left, line, imports, locals);
                 self.resolve_expression(file, right, line, imports, locals);

@@ -49,6 +49,10 @@ enum Type {
     },
     Nothing,
     Result(Box<Type>),
+    /// `Scalar`: a 32-bit Unicode scalar value (plan-41-A). Register-carried like
+    /// `Byte`, written with a backtick literal `` `x` ``. Comparable and orderable
+    /// by codepoint, but **not numeric** — it never enters the promotion lattice.
+    Scalar,
     String,
     // (message, resource, output). `resource` is the optional resource-plane
     // type carried by thread::transfer/accept; `None` for a data-only thread.
@@ -939,6 +943,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Integer
             | Type::Money
             | Type::Nothing
+            | Type::Scalar
             | Type::String
             | Type::Unknown => {}
         }
@@ -1903,6 +1908,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Integer
             | Type::Money
             | Type::Nothing
+            | Type::Scalar
             | Type::String
             | Type::Unknown => {}
         }
@@ -1918,6 +1924,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::Float => "Float".to_string(),
             Type::Integer => "Integer".to_string(),
             Type::Money => "Money".to_string(),
+            Type::Scalar => "Scalar".to_string(),
             Type::List(element) => format!("List OF {}", self.type_name(element)),
             Type::Map(key, value) => {
                 format!(

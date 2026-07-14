@@ -1303,6 +1303,7 @@ impl<'a> Monomorphizer<'a> {
             Expression::Identifier(value) => Expression::Identifier(value.clone()),
             Expression::String(value) => Expression::String(value.clone()),
             Expression::Number(value) => Expression::Number(value.clone()),
+            Expression::Scalar(code_point) => Expression::Scalar(*code_point),
             Expression::Boolean(value) => Expression::Boolean(*value),
         }
     }
@@ -1594,6 +1595,7 @@ impl<'a> Monomorphizer<'a> {
                 }
                 .to_string(),
             ),
+            Expression::Scalar(_) => Some("Scalar".to_string()),
             Expression::Boolean(_) => Some("Boolean".to_string()),
             Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
             Expression::Identifier(value) => context
