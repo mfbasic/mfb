@@ -188,6 +188,14 @@ struct CodeBuilder<'a> {
     /// Local names the escape analysis cleared for vector promotion (computed once
     /// per function, consulted at each `Bind`).
     promotable_vector_locals: HashSet<String>,
+    /// plan-39 I1: proven **lower bounds** for Integer locals on the current
+    /// straight-line path (`name -> C` means `name >= C` here). Established only by
+    /// a guard `IF local < K THEN <terminal> END IF` with an empty else, dropped on
+    /// any assignment to the local and cleared conservatively at every loop / Match
+    /// / Trap and after each `IF`. Used solely to elide the overflow check on
+    /// `local - const` when `C - const` provably cannot underflow — sound by
+    /// construction (the default keeps the check).
+    integer_lower_bounds: HashMap<String, i64>,
 }
 
 #[derive(Clone)]
@@ -2524,6 +2532,7 @@ fn lower_direct_builtin_runtime_helper(
         next_vector_native: 0,
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
+        integer_lower_bounds: HashMap::new(),
     };
 
     let args = spec

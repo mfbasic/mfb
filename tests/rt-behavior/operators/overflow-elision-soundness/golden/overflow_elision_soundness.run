@@ -1,0 +1,3 @@
+safeBound(2)=-4
+safeBound(100)=94
+nearMinBound underflow trapped: correct

@@ -1,0 +1,38 @@
+IMPORT io
+
+' plan-39 I1: the overflow check on `local - const` is elided only when a guard
+' proves `local >= C` and `C - const` cannot underflow. This fixture pins the
+' soundness: the safe case elides with correct results, and a bound close to
+' i64::MIN (where the subtraction can still underflow) must keep the check and trap.
+
+FUNC safeBound(n AS Integer) AS Integer
+  IF n < 2 THEN
+    RETURN n
+  END IF
+  RETURN n - 6
+END FUNC
+
+FUNC nearMinBound(n AS Integer) AS Integer
+  IF n < -9223372036854775803 THEN
+    RETURN n
+  END IF
+  RETURN n - 6
+END FUNC
+
+SUB main()
+  ' Elided-safe path: n >= 2 proves n - 6 never underflows.
+  io::print("safeBound(2)=" & toString(safeBound(2)))
+  io::print("safeBound(100)=" & toString(safeBound(100)))
+
+  ' Boundary: bound is near i64::MIN, so n - 6 CAN underflow -> check kept -> trap.
+  MUT trapped AS Boolean = FALSE
+  LET a AS Integer = nearMinBound(-9223372036854775803) TRAP(e)
+    trapped = TRUE
+    RECOVER 0
+  END TRAP
+  IF trapped THEN
+    io::print("nearMinBound underflow trapped: correct")
+  ELSE
+    io::print("nearMinBound NOT trapped: UNSOUND a=" & toString(a))
+  END IF
+END SUB

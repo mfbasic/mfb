@@ -1,0 +1,97 @@
+{
+  "project": "overflow_elision_soundness",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "safeBound",
+      "line": 8,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 8 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } },
+        "line": 9,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 10 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "6" } }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "nearMinBound",
+      "line": 15,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 15 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775803" } } },
+        "line": 16,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 17 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "6" } }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeBound(2)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeBound", "arguments": [{ "kind": "number", "value": "2" }] }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeBound(100)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeBound", "arguments": [{ "kind": "number", "value": "100" }] }] } }] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "trapped", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 29,
+        "expression": { "kind": "call", "callee": "nearMinBound", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775803" } }] },
+        "handler": [
+        { "kind": "assignment", "name": "trapped", "value": { "kind": "boolean", "value": true }, "line": 30 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 31 }
+        ]
+      }, "line": 29 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "trapped" },
+        "line": 33,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "nearMinBound underflow trapped: correct" }] }, "line": 34 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nearMinBound NOT trapped: UNSOUND a=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 36 }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

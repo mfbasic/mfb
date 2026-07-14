@@ -106,6 +106,9 @@ impl CodeBuilder<'_> {
         left: &NirValue,
         right: &NirValue,
     ) -> Result<ValueResult, String> {
+        // plan-39 I1: decide overflow-check elision from the *NIR* operands before
+        // they are lowered (and `left`/`right` are shadowed by their ValueResults).
+        let elide_overflow = op == "-" && self.integer_sub_elidable(left, right);
         let left = self.lower_value(left)?;
         // `d`-native float fast path (plan-01 float-dnative): when the operation
         // yields a `Float`, both operands are consumed directly in the FP domain
@@ -197,7 +200,14 @@ impl CodeBuilder<'_> {
         let mut result_location = register.clone();
         match result_type.as_str() {
             "Byte" | "Integer" => {
-                self.emit_integer_binary(op, &left, &right, &register, result_type == "Byte")?;
+                self.emit_integer_binary_checked(
+                    op,
+                    &left,
+                    &right,
+                    &register,
+                    result_type == "Byte",
+                    elide_overflow,
+                )?;
             }
             "Fixed" => {
                 if left.type_ == "Fixed" && right.type_ == "Fixed" {
@@ -868,6 +878,61 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// plan-39 I1: whether `left - right` on `Integer`s provably cannot overflow,
+    /// given the guard-derived lower bounds tracked in `integer_lower_bounds`.
+    /// Fires only for `local - positiveConst` where the local has a proven lower
+    /// bound `C` and `C - const` does not underflow (`checked_sub` is `Some`). A
+    /// signed subtraction of a positive constant never overflows *upward*
+    /// (`local - c < local <= i64::MAX`), so the lower bound is the whole proof.
+    /// Conservative default: `false` (the check stays), so this can only ever
+    /// remove a check that was provably unnecessary.
+    fn integer_sub_elidable(&self, left: &NirValue, right: &NirValue) -> bool {
+        let NirValue::Local(name) = left else {
+            return false;
+        };
+        let Some(&lower) = self.integer_lower_bounds.get(name) else {
+            return false;
+        };
+        let NirValue::Const { type_, value } = right else {
+            return false;
+        };
+        if type_ != "Integer" {
+            return false;
+        }
+        let Ok(c) = value.parse::<i64>() else {
+            return false;
+        };
+        // Only a strictly-positive constant subtrahend: then `local - c` can only
+        // underflow, and `lower - c` not underflowing bounds the whole range.
+        c > 0 && lower.checked_sub(c).is_some()
+    }
+
+    /// plan-39 I1: the lower bound a guard condition establishes on its fall-through
+    /// path — i.e. the bound implied by the condition being **false**. `local < K`
+    /// false gives `local >= K`; `local <= K` false gives `local >= K+1`. Only a
+    /// `Local < Integer-const` / `Local <= Integer-const` shape yields a bound.
+    /// The caller must apply it only when the then-branch is terminal and the else
+    /// is empty (so the fall-through is exactly the negated condition).
+    pub(super) fn guard_lower_bound(&self, condition: &NirValue) -> Option<(String, i64)> {
+        let NirValue::Binary {
+            op, left, right, ..
+        } = condition
+        else {
+            return None;
+        };
+        let (name, konst) = match (left.as_ref(), right.as_ref()) {
+            (NirValue::Local(n), NirValue::Const { type_, value }) if type_ == "Integer" => {
+                (n.clone(), value.parse::<i64>().ok()?)
+            }
+            _ => return None,
+        };
+        match op.as_str() {
+            "<" => Some((name, konst)),
+            "<=" => Some((name, konst.checked_add(1)?)),
+            _ => None,
+        }
+    }
+
     pub(super) fn emit_integer_binary(
         &mut self,
         op: &str,
@@ -875,6 +940,23 @@ impl CodeBuilder<'_> {
         right: &ValueResult,
         dst: &str,
         byte_result: bool,
+    ) -> Result<(), String> {
+        self.emit_integer_binary_checked(op, left, right, dst, byte_result, false)
+    }
+
+    /// As [`Self::emit_integer_binary`], but when `elide_overflow` is set the
+    /// `Integer` subtraction is proven (plan-39 I1) not to overflow, so the
+    /// `subs`+`b.vc` check is dropped in favour of a bare `sub`. The caller
+    /// establishes the proof from a guard-derived lower bound; it is only ever
+    /// `true` for the non-byte `-` path.
+    pub(super) fn emit_integer_binary_checked(
+        &mut self,
+        op: &str,
+        left: &ValueResult,
+        right: &ValueResult,
+        dst: &str,
+        byte_result: bool,
+        elide_overflow: bool,
     ) -> Result<(), String> {
         match op {
             "+" => {
@@ -903,6 +985,13 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&underflow_label));
                     self.emit_underflow_return()?;
                     self.emit(abi::label(&ok_label));
+                } else if elide_overflow {
+                    // Proven non-overflowing (guard-derived lower bound): bare sub.
+                    self.emit(abi::subtract_registers(
+                        dst,
+                        &left.location,
+                        &right.location,
+                    ));
                 } else {
                     self.emit(abi::subtract_registers_set_flags(
                         dst,

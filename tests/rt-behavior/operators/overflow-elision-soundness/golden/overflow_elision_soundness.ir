@@ -1,0 +1,101 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "overflow_elision_soundness",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "safeBound",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 8, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 9,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "then": [
+      { "op": "return", "line": 10, "value": { "kind": "local", "name": "n" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 12, "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "6" } } }
+    ]
+  },
+  {
+    "name": "nearMinBound",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 15, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9223372036854775803" } } },
+      "then": [
+      { "op": "return", "line": 17, "value": { "kind": "local", "name": "n" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 19, "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "6" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 22,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeBound(2)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeBound", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeBound(100)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeBound", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] }] } }] } },
+    { "op": "bind", "line": 28, "mutable": true, "name": "trapped", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "nearMinBound", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9223372036854775803" } }] } },
+    { "op": "bind", "line": 29, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "line": 29,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 29, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 29, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 30, "name": "trapped", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 31, "name": "$trap_val1", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    { "op": "bind", "line": 29, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    {
+      "op": "if",
+      "line": 33,
+      "condition": { "kind": "local", "name": "trapped" },
+      "then": [
+      { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "nearMinBound underflow trapped: correct" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nearMinBound NOT trapped: UNSOUND a=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] } }] } }
+      ]
+    }
+    ]
+  }
+  ]
+}

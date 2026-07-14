@@ -27,6 +27,27 @@ impl CodeBuilder<'_> {
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         let zero_slot = self.temporary_vreg();
         for op in ops {
+            // plan-39 I1: keep the guard-derived lower-bound map sound. Any op that
+            // reassigns a local (`Bind`/`Assign`) drops that local's bound, and any
+            // op that can re-enter or transfer control non-linearly (loops / Match /
+            // Trap) drops all bounds. Dropping a bound only ever *keeps* an overflow
+            // check, so this is unconditionally safe; the `If` arm re-establishes a
+            // bound afterwards when its guard proves one. Runs before the op is
+            // lowered — the RHS of a `name = name - k` then simply keeps its check.
+            match op {
+                NirOp::Bind { name, .. } | NirOp::Assign { name, .. } => {
+                    self.integer_lower_bounds.remove(name);
+                }
+                NirOp::While { .. }
+                | NirOp::For { .. }
+                | NirOp::ForEach { .. }
+                | NirOp::DoUntil { .. }
+                | NirOp::Match { .. }
+                | NirOp::Trap { .. } => {
+                    self.integer_lower_bounds.clear();
+                }
+                _ => {}
+            }
             // Fresh interior heap temporaries produced while lowering this
             // statement are freed when it finishes (plan-25 temp-lifetime fix), so
             // a hot loop body does not accumulate them until the function returns.
@@ -567,6 +588,10 @@ impl CodeBuilder<'_> {
                         then_body,
                         else_body,
                     } => {
+                        // plan-39 I1: derive the fall-through lower bound from the
+                        // raw condition before it is lowered/shadowed.
+                        let guard = self.guard_lower_bound(condition);
+                        let bounds_before_if = self.integer_lower_bounds.clone();
                         let condition = self.lower_value(condition)?;
                         let else_label = self.label("if_else");
                         let end_label = self.label("if_end");
@@ -574,14 +599,26 @@ impl CodeBuilder<'_> {
                         self.emit(abi::compare_immediate(&condition.location, "0"));
                         self.emit(abi::branch_eq(&else_label).field("reason", "ifFalse"));
                         self.lower_ops(then_body)?;
-                        if !self.current_block_returns() {
+                        let then_terminal = self.current_block_returns();
+                        if !then_terminal {
                             self.emit(abi::branch(&end_label));
                         }
                         self.emit(abi::label(&else_label));
                         self.restore_local_constants(&constants_before_if);
+                        self.integer_lower_bounds = bounds_before_if;
                         self.lower_ops(else_body)?;
                         self.emit(abi::label(&end_label));
                         self.clear_local_constants();
+                        // The merged path can inherit no bound (either branch may
+                        // have reassigned), so clear conservatively — then, if the
+                        // then-branch always exits and the else is empty, the
+                        // guard condition is provably false here: record its bound.
+                        self.integer_lower_bounds.clear();
+                        if then_terminal && else_body.is_empty() {
+                            if let Some((name, bound)) = guard {
+                                self.integer_lower_bounds.insert(name, bound);
+                            }
+                        }
                     }
                     NirOp::Match { value, cases } => {
                         let matched = self.lower_value(value)?;
@@ -815,6 +852,22 @@ impl CodeBuilder<'_> {
                 Ok(())
             })();
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
+            // plan-39 I1: a lower bound established *inside* a loop / Match / Trap
+            // body must not leak past it (the guarded local may hold a different
+            // value after the construct), so drop all bounds once such a body has
+            // been lowered. Straight-line ops keep their bounds; the `If` arm has
+            // already set its own post-condition bound.
+            if matches!(
+                op,
+                NirOp::While { .. }
+                    | NirOp::For { .. }
+                    | NirOp::ForEach { .. }
+                    | NirOp::DoUntil { .. }
+                    | NirOp::Match { .. }
+                    | NirOp::Trap { .. }
+            ) {
+                self.integer_lower_bounds.clear();
+            }
             // A control-transfer statement branches away, so any interior-temp free
             // would be unreachable and a returned/moved temp belongs to the target;
             // just forget them. Every other statement frees its interior temps here.
