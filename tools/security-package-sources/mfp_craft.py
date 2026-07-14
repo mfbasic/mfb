@@ -46,7 +46,9 @@ SECTION_RESOURCE_TABLE = 11
 SECTION_ABI_INDEX = 15
 SECTION_BINARY_REPR = 16
 
-FIRST_TABLE_TYPE_ID = 10
+# Must track `src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID`. Bumped 10 -> 20 by
+# plan-41-B (ids 11-19 are the reserved primitive band; id 10 is now `Scalar`).
+FIRST_TABLE_TYPE_ID = 20
 
 
 def _u16(value: int) -> bytes:

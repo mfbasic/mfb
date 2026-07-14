@@ -1,0 +1,10 @@
+IMPORT thread
+
+' plan-15 stdin-subscription workers. `doubleIt` subscribes to stdin (via the
+' parent's thread::openStdIn) but exits without reading stdin, exercising
+' teardown auto-unsubscribe. It consumes its one inbound message and doubles
+' its seed.
+EXPORT ISOLATED FUNC doubleIt(t AS ThreadWorker OF Integer TO Integer, data AS Integer) AS Integer
+  LET msg AS Integer = thread::receive(t)
+  RETURN data * 2
+END FUNC

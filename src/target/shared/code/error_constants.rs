@@ -757,6 +757,10 @@ pub(crate) const COLLECTION_TYPE_BYTE: usize = 7;
 /// as a signed integer (same scale ⇒ raw order = value order). Takes the free
 /// tag 8 between `Byte` (7) and `List` (20).
 pub(crate) const COLLECTION_TYPE_MONEY: usize = 8;
+/// `Scalar` collection element (plan-41-C): a 4-byte 32-bit Unicode codepoint
+/// lane, compared as an unsigned integer (codepoint order = value order). Takes
+/// the free tag 9 between `Money` (8) and `List` (20).
+pub(crate) const COLLECTION_TYPE_SCALAR: usize = 9;
 pub(crate) const COLLECTION_TYPE_LIST: usize = 20;
 pub(crate) const COLLECTION_TYPE_MAP: usize = 21;
 pub(crate) const COLLECTION_TYPE_OBJECT: usize = 22;

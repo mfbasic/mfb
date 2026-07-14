@@ -1,0 +1,11 @@
+{
+  "name": "os_env_race_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:os-env-race-workers",
+  "identKey": "ed25519-public:test-os-env-race-workers-ident",
+  "identFingerprint": "sha256:test-os-env-race-workers-ident",
+  "signingFingerprint": "sha256:test-os-env-race-workers-signing"
+}

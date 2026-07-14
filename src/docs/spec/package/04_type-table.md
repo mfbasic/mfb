@@ -21,6 +21,8 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 7          = Byte
 8          = Error
 9          = Money
+10         = Scalar
+11..19     = reserved (future primitives)
 0xFFFFFF00 = File      (handle/resource type)
 0xFFFFFEFF = Socket    (handle/resource type)
 0xFFFFFEFE = Listener  (handle/resource type)
@@ -28,11 +30,11 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 0xFFFFFEFC = TermSize  (builtin record)
 ```
 
-Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` — the freed old `TerminalSize` slot — is now `Money`, the exact base-10 fixed-point scalar (its constant payload is the 8-byte little-endian scaled i64 raw). The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`10`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID]]
+Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` — the freed old `TerminalSize` slot — is now `Money`, the exact base-10 fixed-point scalar (its constant payload is the 8-byte little-endian scaled i64 raw). Id `10` is `Scalar`, a 32-bit Unicode scalar value (its constant payload is a 4-byte little-endian codepoint). Ids `11..19` are **reserved for future primitives** — unmapped today (decoding one is an error); the next primitive claims one as a purely additive edit, with no further table renumber. The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`20`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID]]
 
 `Error` is structural (fields `code`, `message`), and `TermColor`/`TermSize` are structural builtin records (`TermColor` has `r`/`g`/`b`; `TermSize` has `columns`/`rows`); referencing them interns those field-name strings but still resolves to the reserved id.
 
-All user, package, and instantiated template types appear in the `TYPE_TABLE`. Type table entry ids start at `FIRST_TABLE_TYPE_ID` (`10`), immediately after the low reserved built-in ids, so entry index `0` has type id `10`.
+All user, package, and instantiated template types appear in the `TYPE_TABLE`. Type table entry ids start at `FIRST_TABLE_TYPE_ID` (`20`), immediately after the low reserved built-in ids (primitives `1..10` plus the reserved band `11..19`), so entry index `0` has type id `20`.
 
 ## Type entry
 

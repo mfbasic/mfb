@@ -29,6 +29,8 @@ Constant kinds:
 6 = String
 7 = Byte
 8 = Error    (reserved; not currently producible — see below)
+9 = Money
+10 = Scalar
 ```
 
 Encoding:
@@ -42,9 +44,11 @@ Fixed    i64 raw signed 32/32 fixed-point value (little-endian)
 String   stringId as u32
 Byte     u8
 Error    code i64, message stringId   (reserved layout; see below)
+Money    i64 exact base-10 scaled raw (little-endian)
+Scalar   u32 Unicode codepoint (little-endian)
 ```
 
-The current compiler's `ConstPool::add` produces kinds `1`-`7` only. Kind `8` (`Error`) has a reserved layout but is **not currently emitted** — there is no source form that lowers an `Error` literal into `CONST_POOL`, and `add` returns an error for any non-scalar constant. The reader will carry an unknown-but-well-formed entry through, but no producer writes one today.
+The current compiler's `ConstPool::add` produces kinds `1`-`7`, `9` (`Money`), and `10` (`Scalar`). Kind `8` (`Error`) has a reserved layout but is **not currently emitted** — there is no source form that lowers an `Error` literal into `CONST_POOL`, and `add` returns an error for any non-scalar constant. The reader will carry an unknown-but-well-formed entry through, but no producer writes one today.
 
 `Fixed` constants are parsed from a decimal string into a 32.32 fixed-point value with round-half-up on the fractional part (`fixed_raw_from_decimal`). [[src/binary_repr/writer.rs:fixed_raw_from_decimal]]
 

@@ -1,0 +1,29 @@
+IMPORT thread
+IMPORT os
+
+' bug-64 regression workers. `envWriter` relocates `environ` `data` times via
+' os::setEnv/unsetEnv; `envReader` walks it `data` times via os::environ()/
+' os::getEnvOr. With the process env lock every call sees a consistent snapshot.
+EXPORT ISOLATED FUNC envWriter(t AS ThreadWorker OF Nothing TO Integer, data AS Integer) AS Integer
+  MUT i AS Integer = 0
+  WHILE i < data
+    os::setEnv("MFB_RACE_KEY", "v")
+    os::unsetEnv("MFB_RACE_KEY")
+    i = i + 1
+  WEND
+  RETURN data
+END FUNC
+
+EXPORT ISOLATED FUNC envReader(t AS ThreadWorker OF Nothing TO Integer, data AS Integer) AS Integer
+  MUT i AS Integer = 0
+  MUT seen AS Integer = 0
+  WHILE i < data
+    LET env AS Map OF String TO String = os::environ()
+    LET v AS String = os::getEnvOr("MFB_RACE_KEY", "")
+    IF len(v) > 0 THEN
+      seen = seen + 1
+    END IF
+    i = i + 1
+  WEND
+  RETURN seen
+END FUNC

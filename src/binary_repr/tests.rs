@@ -799,6 +799,7 @@ mod sections_tests {
             ("Boolean", "true"),
             ("Byte", "255"),
             ("Money", "1.25"),
+            ("Scalar", "128512"),
         ];
         for (type_, value) in kinds {
             pool.add(
@@ -819,10 +820,33 @@ mod sections_tests {
         let raw = i64::from_le_bytes(int_entry.payload.clone().try_into().unwrap());
         assert_eq!(raw, -42);
         // Money `1.25` stores under wire id TYPE_MONEY with raw 125000 (5 places).
-        let money_entry = decoded.entries.last().unwrap();
+        let money_entry = &decoded.entries[decoded.entries.len() - 2];
         assert_eq!(money_entry.kind, TYPE_MONEY as u16);
         let money_raw = i64::from_le_bytes(money_entry.payload.clone().try_into().unwrap());
         assert_eq!(money_raw, 125_000);
+        // Scalar U+1F600 (128512) stores under wire id TYPE_SCALAR as a 4-byte LE
+        // codepoint, and re-encoding the pool is byte-identical (plan-41-B).
+        let scalar_entry = decoded.entries.last().unwrap();
+        assert_eq!(scalar_entry.kind, TYPE_SCALAR as u16);
+        let scalar_cp = u32::from_le_bytes(scalar_entry.payload.clone().try_into().unwrap());
+        assert_eq!(scalar_cp, 128_512);
+        assert_eq!(read_const_pool(&bytes).expect("re-decode").encode(), bytes);
+    }
+
+    #[test]
+    fn scalar_wire_id_and_reserved_band() {
+        // Scalar takes id 10; the table-type base moved to 20; ids 11–19 are the
+        // reserved primitive band and must have no name mapping (plan-41-B).
+        assert_eq!(TYPE_SCALAR, 10);
+        assert_eq!(FIRST_TABLE_TYPE_ID, 20);
+        assert_eq!(primitive_type_name(TYPE_SCALAR), Some("Scalar"));
+        for reserved in 11..=19 {
+            assert_eq!(
+                primitive_type_name(reserved),
+                None,
+                "reserved id {reserved} must be unmapped"
+            );
+        }
     }
 
     #[test]

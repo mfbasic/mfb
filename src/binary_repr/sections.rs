@@ -82,6 +82,7 @@ impl TypeTable {
             "Float" => TYPE_FLOAT,
             "Fixed" => TYPE_FIXED,
             "String" => TYPE_STRING,
+            "Scalar" => TYPE_SCALAR,
             "File" => TYPE_FILE_HANDLE,
             "Socket" => TYPE_SOCKET_HANDLE,
             "Listener" => TYPE_LISTENER_HANDLE,
@@ -392,6 +393,16 @@ impl ConstPool {
                     payload: vec![value
                         .parse::<u8>()
                         .map_err(|_| format!("invalid Byte constant `{value}`"))?],
+                },
+                // Scalar's `kind` is its wire type id (`TYPE_SCALAR` = 10); the
+                // payload is the 4-byte LE Unicode codepoint (plan-41-B §3).
+                "Scalar" => ConstEntry {
+                    kind: TYPE_SCALAR as u16,
+                    payload: value
+                        .parse::<u32>()
+                        .map_err(|_| format!("invalid Scalar constant `{value}`"))?
+                        .to_le_bytes()
+                        .to_vec(),
                 },
                 _ => return Err(format!("unsupported constant type `{type_}`")),
             },

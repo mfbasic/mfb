@@ -56,17 +56,27 @@ pub(crate) const TYPE_ERROR: u32 = 8;
 // freed low primitive slot, id 9 (the removed `TerminalSize`) — a primitive, so
 // it belongs in the low range, not the high reserved handle range.
 pub(crate) const TYPE_MONEY: u32 = 9;
+// `Scalar` (plan-41-B): a 4-byte 32-bit Unicode scalar primitive. It takes id 10,
+// the first slot past the previous `FIRST_TABLE_TYPE_ID`. Because assigning a new
+// primitive id forces a one-time renumber of every table-type wire id (they start
+// at `FIRST_TABLE_TYPE_ID`), and that cost is identical no matter how far the base
+// moves, we push the base to 20 and RESERVE ids 11–19 for future primitives. The
+// next primitive claims a reserved id (fill from 11) as a purely additive edit —
+// no second renumber, no second golden regeneration. Reserved ids stay unmapped
+// (no name→id entry, no `primitive_type_name` arm); decoding one is an error.
+pub(crate) const TYPE_SCALAR: u32 = 10;
 // `term::` builtin record types live in the high reserved id range alongside the
-// handle types (File/Socket/Listener), not the low primitive range: id 9 (the
-// removed `TerminalSize`) is now `TYPE_MONEY`, and ids at/above
-// `FIRST_TABLE_TYPE_ID` (10) would collide with per-package user/table type ids,
+// handle types (File/Socket/Listener), not the low primitive range: ids at/above
+// `FIRST_TABLE_TYPE_ID` (20) would collide with per-package user/table type ids,
 // silently hijacking another package's first table type in the signature hash.
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
 pub(crate) const TYPE_SOCKET_HANDLE: u32 = 0xffff_feff;
 pub(crate) const TYPE_LISTENER_HANDLE: u32 = 0xffff_fefe;
 pub(crate) const TYPE_TERM_COLOR: u32 = 0xffff_fefd;
 pub(crate) const TYPE_TERM_SIZE: u32 = 0xffff_fefc;
-const FIRST_TABLE_TYPE_ID: u32 = 10;
+// First wire id for per-package table (record/union/enum) types. Bumped 10 → 20
+// by plan-41-B; ids 11–19 are the reserved primitive band (see `TYPE_SCALAR`).
+const FIRST_TABLE_TYPE_ID: u32 = 20;
 
 const FUNCTION_BINARY_REPR: u16 = 1;
 
