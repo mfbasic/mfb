@@ -1,7 +1,7 @@
 # goal-04: Full compiler source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-13
-Status: NOT STARTED (0 / 267 files reviewed)
+Status: COMPLETE (267 / 267 files reviewed) — bugs 190–245 filed
 
 ## Objective
 
@@ -159,9 +159,70 @@ call.)
 
 | Finding | File(s) | Class | Severity | Status |
 |---------|---------|-------|----------|--------|
-| _(none yet)_ | | | | |
+| bug-190 | `ir/verify/mod.rs` | memory-safety/security | HIGH | Open |
+| bug-191 | `ast/expr.rs` | memory-safety | HIGH | Open |
+| bug-192 | `arch/x86_64/encode/emitter.rs` | correctness | HIGH | Open |
+| bug-206 | `shared/code/audio/alsa.rs` | memory-safety | HIGH | Open |
+| bug-193 | `ast/testing.rs` | memory-safety | MEDIUM | Open |
+| bug-194 | `ir/lower.rs` | memory-safety | MEDIUM | Open |
+| bug-195 | `manifest/package.rs` (+audit/cli) | security | MEDIUM | Open |
+| bug-196 | `monomorph/lower.rs` | correctness | MEDIUM | Open |
+| bug-197 | `monomorph/lower.rs` | correctness | MEDIUM | Open |
+| bug-198 | `resolver/resolution.rs` | correctness | MEDIUM | Open |
+| bug-199 | `target/macos_aarch64/plan.rs` | correctness | MEDIUM | Open |
+| bug-200 | `shared/code/builder_money.rs` | memory-safety | MEDIUM | Open |
+| bug-201 | `shared/code/fs_helpers_atomic.rs` | memory-safety | MEDIUM | Open |
+| bug-202 | `shared/code/tls/openssl.rs` | security | MEDIUM | Open |
+| bug-203 | `linux_gtk/term_draw.rs` | correctness | MEDIUM | Open |
+| bug-204 | `linux_gtk/mod.rs` | docs | MEDIUM | Open |
+| bug-205 | `shared/code/runtime_helpers_thread.rs` | correctness | MEDIUM | Open |
+| bug-207 | `shared/code/audio/alsa.rs` | correctness | MEDIUM | Open |
+| bug-208 | `shared/code/io_helpers.rs` | memory-safety | MEDIUM | Open |
+| bug-209 | `shared/plan/symbols.rs` | correctness | MEDIUM | Open |
+| bug-210 | `audit/text.rs`, `cli/pkg.rs` | security | LOW | Open |
+| bug-211 | `audit/collect/source.rs` | correctness | LOW | Open |
+| bug-212 | `manifest/package.rs` | correctness | LOW | Open |
+| bug-213 | `builtins/audio.rs`, `builtins/fs.rs` | footgun | LOW | Open |
+| bug-214 | `docs/man/mod.rs` | correctness | LOW | Open |
+| bug-215 | `binary_repr/reader.rs`, `writer.rs` | security | LOW | Open |
+| bug-216 | `rules/table.rs` | dead-code | LOW | Open |
+| bug-217 | `arch/aarch64/encode/emitter.rs` | dead-code | LOW | Open |
+| bug-218 | `arch/riscv64/select.rs` | correctness | LOW | Open |
+| bug-219 | `cli/resolve.rs` | correctness | LOW | Open |
+| bug-220 | `cli/fmt.rs` | footgun | LOW | Open |
+| bug-221 | `builtins/thread.rs` | footgun | LOW | Open |
+| bug-222 | `builtins/strings.rs` | correctness | LOW | Open |
+| bug-223 | `target/linux_riscv64/{mod,code}.rs` | footgun/docs | LOW | Open |
+| bug-224 | `os/linux/link/elf.rs` | security | LOW | Open |
+| bug-225 | `os/linux/link/{mod,elf}.rs` | memory-safety/dead-code | LOW | Open |
+| bug-226 | `monomorph/{helpers,lower}.rs` | correctness | LOW | Open |
+| bug-227 | `syntaxcheck/{checking,mod}.rs` | dead-code/docs | LOW | Open |
+| bug-228 | `os/macos/link/commands.rs` | footgun | LOW | Open |
+| bug-229 | `target/linux_x86_64/code.rs` | docs | LOW | Open |
+| bug-230 | `shared/code/builder_money_math.rs` | correctness | LOW | Open |
+| bug-231 | `syntaxcheck/resources.rs` | correctness | LOW | Open |
+| bug-232 | `shared/code/builder_collection_queries.rs` | memory-safety/footgun | LOW | Open |
+| bug-233 | `shared/code/builder_codegen_primitives.rs`, `builder_collection_layout.rs` | docs | LOW | Open |
+| bug-234 | `shared/code/{builder_fs_paths,builder_collection_queries,builder_strings_package,fs_helpers_atomic}.rs` | dead-code | LOW | Open |
+| bug-235 | `shared/code/builder_simd_float_math.rs` | footgun | LOW | Open |
+| bug-236 | `shared/code/tls/{openssl,macos}.rs` | memory-safety | LOW | Open |
+| bug-237 | `shared/code/crypto_ec/{openssl,macos}.rs` | memory-safety/docs | LOW | Open |
+| bug-238 | `shared/code/link_thunk.rs` | correctness | LOW | Open |
+| bug-239 | `shared/code/net/{poll,io}.rs` | footgun | LOW | Open |
+| bug-240 | `linux_gtk/{bootstrap,app_io}.rs` | correctness/memory-safety/docs | LOW | Open |
+| bug-241 | `macos_aarch64/app/{term_view,bootstrap,app_io}.rs` | correctness/memory-safety/dead-code | LOW | Open |
+| bug-242 | `shared/code/regalloc/{analysis,linear_scan}.rs` | docs/footgun | LOW | Open |
+| bug-243 | `shared/code/stdin_broadcast.rs` | footgun | LOW | Open |
+| bug-244 | `shared/code/{fma_fusion,module_analysis}.rs`, `runtime/audio_specs.rs` | docs | LOW | Open |
+| bug-245 | `arch/x86_64/select.rs` | footgun | LOW | Open |
 
-Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 0 · dead-code 0.
+Tallies: CRITICAL 0 · HIGH 4 · MEDIUM 16 · LOW 36 · **total 56** (bugs 190–245).
+
+Two pre-existing findings were re-confirmed still-open and NOT re-filed:
+`strings_specs.rs` dead runtime specs (bug-120.1) and untruthful `IO_PRINT_CLOBBERS`
+(bug-120.2). The known-open arena transient-churn coalesce issue
+(allocator-20-coalesce-size-authority.md) and bug-117 (GTK tearing race) were also
+referenced, not duplicated.
 
 ## File census & progress
 
@@ -170,408 +231,408 @@ directory; LOC shown to help sequence the effort.
 
 **`src/arch/`**
 
-- [ ] `src/arch/mod.rs` (6 loc)
-- [ ] `src/arch/ops.rs` (714 loc)
+- [x] `src/arch/mod.rs` (6 loc) — clean
+- [x] `src/arch/ops.rs` (714 loc) — clean
 
 **`src/arch/aarch64/`**
 
-- [ ] `src/arch/aarch64/backend.rs` (32 loc)
-- [ ] `src/arch/aarch64/mod.rs` (9 loc)
-- [ ] `src/arch/aarch64/regmodel.rs` (272 loc)
-- [ ] `src/arch/aarch64/reloc.rs` (44 loc)
-- [ ] `src/arch/aarch64/select.rs` (101 loc)
+- [x] `src/arch/aarch64/backend.rs` (32 loc) — clean
+- [x] `src/arch/aarch64/mod.rs` (9 loc) — clean
+- [x] `src/arch/aarch64/regmodel.rs` (272 loc) — clean
+- [x] `src/arch/aarch64/reloc.rs` (44 loc) — clean
+- [x] `src/arch/aarch64/select.rs` (101 loc) — clean
 
 **`src/arch/aarch64/encode/`**
 
-- [ ] `src/arch/aarch64/encode/data.rs` (59 loc)
-- [ ] `src/arch/aarch64/encode/emitter.rs` (1198 loc)
-- [ ] `src/arch/aarch64/encode/mod.rs` (169 loc)
-- [ ] `src/arch/aarch64/encode/operand.rs` (110 loc)
-- [ ] `src/arch/aarch64/encode/sizing.rs` (146 loc)
+- [x] `src/arch/aarch64/encode/data.rs` (59 loc) — clean
+- [x] `src/arch/aarch64/encode/emitter.rs` (1198 loc) — bug-217
+- [x] `src/arch/aarch64/encode/mod.rs` (169 loc) — clean
+- [x] `src/arch/aarch64/encode/operand.rs` (110 loc) — clean
+- [x] `src/arch/aarch64/encode/sizing.rs` (146 loc) — clean
 
 **`src/arch/riscv64/`**
 
-- [ ] `src/arch/riscv64/backend.rs` (55 loc)
-- [ ] `src/arch/riscv64/mod.rs` (21 loc)
-- [ ] `src/arch/riscv64/regmodel.rs` (248 loc)
-- [ ] `src/arch/riscv64/reloc.rs` (48 loc)
-- [ ] `src/arch/riscv64/select.rs` (1026 loc)
-- [ ] `src/arch/riscv64/v128.rs` (1023 loc)
+- [x] `src/arch/riscv64/backend.rs` (55 loc) — clean
+- [x] `src/arch/riscv64/mod.rs` (21 loc) — clean
+- [x] `src/arch/riscv64/regmodel.rs` (248 loc) — clean
+- [x] `src/arch/riscv64/reloc.rs` (48 loc) — clean
+- [x] `src/arch/riscv64/select.rs` (1026 loc) — bug-218
+- [x] `src/arch/riscv64/v128.rs` (1023 loc) — clean
 
 **`src/arch/riscv64/encode/`**
 
-- [ ] `src/arch/riscv64/encode/data.rs` (59 loc)
-- [ ] `src/arch/riscv64/encode/emitter.rs` (697 loc)
-- [ ] `src/arch/riscv64/encode/mod.rs` (140 loc)
-- [ ] `src/arch/riscv64/encode/operand.rs` (114 loc)
-- [ ] `src/arch/riscv64/encode/sizing.rs` (190 loc)
+- [x] `src/arch/riscv64/encode/data.rs` (59 loc) — clean
+- [x] `src/arch/riscv64/encode/emitter.rs` (697 loc) — clean
+- [x] `src/arch/riscv64/encode/mod.rs` (140 loc) — clean
+- [x] `src/arch/riscv64/encode/operand.rs` (114 loc) — clean
+- [x] `src/arch/riscv64/encode/sizing.rs` (190 loc) — clean
 
 **`src/arch/x86_64/`**
 
-- [ ] `src/arch/x86_64/backend.rs` (57 loc)
-- [ ] `src/arch/x86_64/mod.rs` (18 loc)
-- [ ] `src/arch/x86_64/regmodel.rs` (275 loc)
-- [ ] `src/arch/x86_64/reloc.rs` (46 loc)
-- [ ] `src/arch/x86_64/select.rs` (1076 loc)
+- [x] `src/arch/x86_64/backend.rs` (57 loc) — clean
+- [x] `src/arch/x86_64/mod.rs` (18 loc) — clean
+- [x] `src/arch/x86_64/regmodel.rs` (275 loc) — clean
+- [x] `src/arch/x86_64/reloc.rs` (46 loc) — clean
+- [x] `src/arch/x86_64/select.rs` (1076 loc) — bug-245
 
 **`src/arch/x86_64/encode/`**
 
-- [ ] `src/arch/x86_64/encode/data.rs` (63 loc)
-- [ ] `src/arch/x86_64/encode/emitter.rs` (2195 loc)
-- [ ] `src/arch/x86_64/encode/mod.rs` (148 loc)
-- [ ] `src/arch/x86_64/encode/operand.rs` (83 loc)
-- [ ] `src/arch/x86_64/encode/sizing.rs` (12 loc)
+- [x] `src/arch/x86_64/encode/data.rs` (63 loc) — clean
+- [x] `src/arch/x86_64/encode/emitter.rs` (2195 loc) — bug-192
+- [x] `src/arch/x86_64/encode/mod.rs` (148 loc) — clean
+- [x] `src/arch/x86_64/encode/operand.rs` (83 loc) — clean
+- [x] `src/arch/x86_64/encode/sizing.rs` (12 loc) — clean
 
 **`src/ast/`**
 
-- [ ] `src/ast/expr.rs` (811 loc)
-- [ ] `src/ast/items.rs` (1367 loc)
-- [ ] `src/ast/lexical.rs` (127 loc)
-- [ ] `src/ast/manifest.rs` (591 loc)
-- [ ] `src/ast/mod.rs` (36 loc)
-- [ ] `src/ast/parser.rs` (312 loc)
-- [ ] `src/ast/serialize.rs` (1669 loc)
-- [ ] `src/ast/stmt.rs` (738 loc)
-- [ ] `src/ast/testing.rs` (141 loc)
-- [ ] `src/ast/types.rs` (678 loc)
+- [x] `src/ast/expr.rs` (811 loc) — bug-191
+- [x] `src/ast/items.rs` (1367 loc) — clean
+- [x] `src/ast/lexical.rs` (127 loc) — clean
+- [x] `src/ast/manifest.rs` (591 loc) — clean
+- [x] `src/ast/mod.rs` (36 loc) — clean
+- [x] `src/ast/parser.rs` (312 loc) — clean
+- [x] `src/ast/serialize.rs` (1669 loc) — clean
+- [x] `src/ast/stmt.rs` (738 loc) — clean
+- [x] `src/ast/testing.rs` (141 loc) — bug-193
+- [x] `src/ast/types.rs` (678 loc) — clean
 
 **`src/audit/`**
 
-- [ ] `src/audit/json.rs` (552 loc)
-- [ ] `src/audit/mod.rs` (298 loc)
-- [ ] `src/audit/report.rs` (477 loc)
-- [ ] `src/audit/text.rs` (402 loc)
+- [x] `src/audit/json.rs` (552 loc) — clean
+- [x] `src/audit/mod.rs` (298 loc) — clean
+- [x] `src/audit/report.rs` (477 loc) — clean
+- [x] `src/audit/text.rs` (402 loc) — bug-210
 
 **`src/audit/collect/`**
 
-- [ ] `src/audit/collect/dependencies.rs` (220 loc)
-- [ ] `src/audit/collect/findings.rs` (513 loc)
-- [ ] `src/audit/collect/lockfile.rs` (163 loc)
-- [ ] `src/audit/collect/mod.rs` (187 loc)
-- [ ] `src/audit/collect/project.rs` (351 loc)
-- [ ] `src/audit/collect/source.rs` (1112 loc)
+- [x] `src/audit/collect/dependencies.rs` (220 loc) — bug-195
+- [x] `src/audit/collect/findings.rs` (513 loc) — bug-195
+- [x] `src/audit/collect/lockfile.rs` (163 loc) — clean
+- [x] `src/audit/collect/mod.rs` (187 loc) — clean
+- [x] `src/audit/collect/project.rs` (351 loc) — clean
+- [x] `src/audit/collect/source.rs` (1112 loc) — bug-211
 
 **`src/binary_repr/`**
 
-- [ ] `src/binary_repr/builder.rs` (273 loc)
-- [ ] `src/binary_repr/mod.rs` (590 loc)
-- [ ] `src/binary_repr/reader.rs` (1549 loc)
-- [ ] `src/binary_repr/sections.rs` (665 loc)
-- [ ] `src/binary_repr/util.rs` (303 loc)
-- [ ] `src/binary_repr/writer.rs` (1076 loc)
+- [x] `src/binary_repr/builder.rs` (273 loc) — clean
+- [x] `src/binary_repr/mod.rs` (590 loc) — clean
+- [x] `src/binary_repr/reader.rs` (1549 loc) — bug-215
+- [x] `src/binary_repr/sections.rs` (665 loc) — clean
+- [x] `src/binary_repr/util.rs` (303 loc) — clean
+- [x] `src/binary_repr/writer.rs` (1076 loc) — bug-215
 
 **`src/builtins/`**
 
-- [ ] `src/builtins/audio.rs` (687 loc)
-- [ ] `src/builtins/bits.rs` (237 loc)
-- [ ] `src/builtins/collections.rs` (533 loc)
-- [ ] `src/builtins/crypto.rs` (814 loc)
-- [ ] `src/builtins/csv.rs` (190 loc)
-- [ ] `src/builtins/datetime.rs` (793 loc)
-- [ ] `src/builtins/encoding.rs` (582 loc)
-- [ ] `src/builtins/errorcode.rs` (118 loc)
-- [ ] `src/builtins/fs.rs` (697 loc)
-- [ ] `src/builtins/general.rs` (1502 loc)
-- [ ] `src/builtins/http.rs` (594 loc)
-- [ ] `src/builtins/io.rs` (126 loc)
-- [ ] `src/builtins/json.rs` (279 loc)
-- [ ] `src/builtins/math.rs` (600 loc)
-- [ ] `src/builtins/mod.rs` (987 loc)
-- [ ] `src/builtins/money.rs` (166 loc)
-- [ ] `src/builtins/net.rs` (746 loc)
-- [ ] `src/builtins/os.rs` (256 loc)
-- [ ] `src/builtins/regex.rs` (304 loc)
-- [ ] `src/builtins/resource.rs` (341 loc)
-- [ ] `src/builtins/strings.rs` (517 loc)
-- [ ] `src/builtins/term.rs` (331 loc)
-- [ ] `src/builtins/testing.rs` (173 loc)
-- [ ] `src/builtins/thread.rs` (770 loc)
-- [ ] `src/builtins/tls.rs` (433 loc)
-- [ ] `src/builtins/vector.rs` (791 loc)
+- [x] `src/builtins/audio.rs` (687 loc) — bug-213
+- [x] `src/builtins/bits.rs` (237 loc) — clean
+- [x] `src/builtins/collections.rs` (533 loc) — clean
+- [x] `src/builtins/crypto.rs` (814 loc) — clean
+- [x] `src/builtins/csv.rs` (190 loc) — clean
+- [x] `src/builtins/datetime.rs` (793 loc) — clean
+- [x] `src/builtins/encoding.rs` (582 loc) — clean
+- [x] `src/builtins/errorcode.rs` (118 loc) — clean
+- [x] `src/builtins/fs.rs` (697 loc) — bug-213
+- [x] `src/builtins/general.rs` (1502 loc) — clean
+- [x] `src/builtins/http.rs` (594 loc) — clean
+- [x] `src/builtins/io.rs` (126 loc) — clean
+- [x] `src/builtins/json.rs` (279 loc) — clean
+- [x] `src/builtins/math.rs` (600 loc) — clean
+- [x] `src/builtins/mod.rs` (987 loc) — clean
+- [x] `src/builtins/money.rs` (166 loc) — clean
+- [x] `src/builtins/net.rs` (746 loc) — clean
+- [x] `src/builtins/os.rs` (256 loc) — clean
+- [x] `src/builtins/regex.rs` (304 loc) — clean
+- [x] `src/builtins/resource.rs` (341 loc) — clean
+- [x] `src/builtins/strings.rs` (517 loc) — bug-222
+- [x] `src/builtins/term.rs` (331 loc) — clean
+- [x] `src/builtins/testing.rs` (173 loc) — clean
+- [x] `src/builtins/thread.rs` (770 loc) — bug-221
+- [x] `src/builtins/tls.rs` (433 loc) — clean
+- [x] `src/builtins/vector.rs` (791 loc) — clean
 
 **`src/cli/`**
 
-- [ ] `src/cli/build.rs` (1793 loc)
-- [ ] `src/cli/doc.rs` (237 loc)
-- [ ] `src/cli/fmt.rs` (275 loc)
-- [ ] `src/cli/init.rs` (324 loc)
-- [ ] `src/cli/man.rs` (439 loc)
-- [ ] `src/cli/mod.rs` (298 loc)
-- [ ] `src/cli/pkg.rs` (1876 loc)
-- [ ] `src/cli/repo.rs` (369 loc)
-- [ ] `src/cli/resolve.rs` (1046 loc)
-- [ ] `src/cli/spec.rs` (342 loc)
+- [x] `src/cli/build.rs` (1793 loc) — clean
+- [x] `src/cli/doc.rs` (237 loc) — clean
+- [x] `src/cli/fmt.rs` (275 loc) — bug-220
+- [x] `src/cli/init.rs` (324 loc) — clean
+- [x] `src/cli/man.rs` (439 loc) — clean
+- [x] `src/cli/mod.rs` (298 loc) — clean
+- [x] `src/cli/pkg.rs` (1876 loc) — bug-210
+- [x] `src/cli/repo.rs` (369 loc) — clean
+- [x] `src/cli/resolve.rs` (1046 loc) — bug-219
+- [x] `src/cli/spec.rs` (342 loc) — clean
 
 **`src/docs/`**
 
-- [ ] `src/docs/mod.rs` (8 loc)
-- [ ] `src/docs/render.rs` (957 loc)
+- [x] `src/docs/mod.rs` (8 loc) — clean
+- [x] `src/docs/render.rs` (957 loc) — clean
 
 **`src/docs/man/`**
 
-- [ ] `src/docs/man/mod.rs` (319 loc)
+- [x] `src/docs/man/mod.rs` (319 loc) — bug-214
 
 **`src/docs/spec/`**
 
-- [ ] `src/docs/spec/mod.rs` (139 loc)
+- [x] `src/docs/spec/mod.rs` (139 loc) — clean
 
 **`src/ir/`**
 
-- [ ] `src/ir/binary.rs` (1366 loc)
-- [ ] `src/ir/json.rs` (932 loc)
-- [ ] `src/ir/link.rs` (84 loc)
-- [ ] `src/ir/lower.rs` (3845 loc)
-- [ ] `src/ir/mod.rs` (144 loc)
-- [ ] `src/ir/op.rs` (129 loc)
-- [ ] `src/ir/package.rs` (321 loc)
-- [ ] `src/ir/types.rs` (85 loc)
-- [ ] `src/ir/value.rs` (164 loc)
+- [x] `src/ir/binary.rs` (1366 loc) — clean
+- [x] `src/ir/json.rs` (932 loc) — clean
+- [x] `src/ir/link.rs` (84 loc) — clean
+- [x] `src/ir/lower.rs` (3845 loc) — bug-194
+- [x] `src/ir/mod.rs` (144 loc) — clean
+- [x] `src/ir/op.rs` (129 loc) — clean
+- [x] `src/ir/package.rs` (321 loc) — clean
+- [x] `src/ir/types.rs` (85 loc) — clean
+- [x] `src/ir/value.rs` (164 loc) — clean
 
 **`src/ir/verify/`**
 
-- [ ] `src/ir/verify/mod.rs` (4545 loc)
+- [x] `src/ir/verify/mod.rs` (4545 loc) — bug-190
 
 **`src/manifest/`**
 
-- [ ] `src/manifest/entry.rs` (280 loc)
-- [ ] `src/manifest/mod.rs` (702 loc)
-- [ ] `src/manifest/package.rs` (1521 loc)
+- [x] `src/manifest/entry.rs` (280 loc) — clean
+- [x] `src/manifest/mod.rs` (702 loc) — clean
+- [x] `src/manifest/package.rs` (1521 loc) — bug-195, bug-212
 
 **`src/monomorph/`**
 
-- [ ] `src/monomorph/helpers.rs` (958 loc)
-- [ ] `src/monomorph/lower.rs` (2660 loc)
-- [ ] `src/monomorph/mod.rs` (101 loc)
+- [x] `src/monomorph/helpers.rs` (958 loc) — bug-226
+- [x] `src/monomorph/lower.rs` (2660 loc) — bug-196, bug-197, bug-226
+- [x] `src/monomorph/mod.rs` (101 loc) — clean
 
 **`src/os/`**
 
-- [ ] `src/os/mod.rs` (2 loc)
+- [x] `src/os/mod.rs` (2 loc) — clean
 
 **`src/os/linux/`**
 
-- [ ] `src/os/linux/flavor.rs` (16 loc)
-- [ ] `src/os/linux/mod.rs` (132 loc)
-- [ ] `src/os/linux/object.rs` (1051 loc)
+- [x] `src/os/linux/flavor.rs` (16 loc) — clean
+- [x] `src/os/linux/mod.rs` (132 loc) — clean
+- [x] `src/os/linux/object.rs` (1051 loc) — clean
 
 **`src/os/linux/link/`**
 
-- [ ] `src/os/linux/link/elf.rs` (703 loc)
-- [ ] `src/os/linux/link/mod.rs` (569 loc)
+- [x] `src/os/linux/link/elf.rs` (703 loc) — bug-224, bug-225
+- [x] `src/os/linux/link/mod.rs` (569 loc) — bug-225
 
 **`src/os/macos/`**
 
-- [ ] `src/os/macos/icon.rs` (203 loc)
-- [ ] `src/os/macos/mod.rs` (147 loc)
-- [ ] `src/os/macos/object.rs` (1410 loc)
+- [x] `src/os/macos/icon.rs` (203 loc) — clean
+- [x] `src/os/macos/mod.rs` (147 loc) — clean
+- [x] `src/os/macos/object.rs` (1410 loc) — clean
 
 **`src/os/macos/link/`**
 
-- [ ] `src/os/macos/link/commands.rs` (552 loc)
-- [ ] `src/os/macos/link/macho.rs` (295 loc)
-- [ ] `src/os/macos/link/mod.rs` (555 loc)
+- [x] `src/os/macos/link/commands.rs` (552 loc) — bug-228
+- [x] `src/os/macos/link/macho.rs` (295 loc) — clean
+- [x] `src/os/macos/link/mod.rs` (555 loc) — clean
 
 **`src/resolver/`**
 
-- [ ] `src/resolver/mod.rs` (1073 loc)
-- [ ] `src/resolver/packages.rs` (460 loc)
-- [ ] `src/resolver/resolution.rs` (2245 loc)
+- [x] `src/resolver/mod.rs` (1073 loc) — clean
+- [x] `src/resolver/packages.rs` (460 loc) — clean
+- [x] `src/resolver/resolution.rs` (2245 loc) — bug-198
 
 **`src/rules/`**
 
-- [ ] `src/rules/mod.rs` (275 loc)
-- [ ] `src/rules/table.rs` (1287 loc)
+- [x] `src/rules/mod.rs` (275 loc) — clean
+- [x] `src/rules/table.rs` (1287 loc) — bug-216
 
 **`src/syntaxcheck/`**
 
-- [ ] `src/syntaxcheck/builtins.rs` (3084 loc)
-- [ ] `src/syntaxcheck/checking.rs` (1409 loc)
-- [ ] `src/syntaxcheck/helpers.rs` (885 loc)
-- [ ] `src/syntaxcheck/inference.rs` (2608 loc)
-- [ ] `src/syntaxcheck/mod.rs` (2884 loc)
-- [ ] `src/syntaxcheck/resources.rs` (791 loc)
-- [ ] `src/syntaxcheck/types.rs` (982 loc)
+- [x] `src/syntaxcheck/builtins.rs` (3084 loc) — clean
+- [x] `src/syntaxcheck/checking.rs` (1409 loc) — bug-227
+- [x] `src/syntaxcheck/helpers.rs` (885 loc) — clean
+- [x] `src/syntaxcheck/inference.rs` (2608 loc) — clean
+- [x] `src/syntaxcheck/mod.rs` (2884 loc) — bug-227
+- [x] `src/syntaxcheck/resources.rs` (791 loc) — bug-231
+- [x] `src/syntaxcheck/types.rs` (982 loc) — clean
 
 **`src/target/linux_aarch64/`**
 
-- [ ] `src/target/linux_aarch64/code.rs` (764 loc)
-- [ ] `src/target/linux_aarch64/mod.rs` (413 loc)
-- [ ] `src/target/linux_aarch64/plan.rs` (440 loc)
+- [x] `src/target/linux_aarch64/code.rs` (764 loc) — clean
+- [x] `src/target/linux_aarch64/mod.rs` (413 loc) — clean
+- [x] `src/target/linux_aarch64/plan.rs` (440 loc) — clean
 
 **`src/target/linux_gtk/`**
 
-- [ ] `src/target/linux_gtk/app_io.rs` (625 loc)
-- [ ] `src/target/linux_gtk/bootstrap.rs` (811 loc)
-- [ ] `src/target/linux_gtk/mod.rs` (853 loc)
-- [ ] `src/target/linux_gtk/term_draw.rs` (749 loc)
+- [x] `src/target/linux_gtk/app_io.rs` (625 loc) — bug-240
+- [x] `src/target/linux_gtk/bootstrap.rs` (811 loc) — bug-240
+- [x] `src/target/linux_gtk/mod.rs` (853 loc) — bug-204
+- [x] `src/target/linux_gtk/term_draw.rs` (749 loc) — bug-203
 
 **`src/target/linux_riscv64/`**
 
-- [ ] `src/target/linux_riscv64/code.rs` (753 loc)
-- [ ] `src/target/linux_riscv64/mod.rs` (442 loc)
-- [ ] `src/target/linux_riscv64/plan.rs` (470 loc)
+- [x] `src/target/linux_riscv64/code.rs` (753 loc) — bug-223
+- [x] `src/target/linux_riscv64/mod.rs` (442 loc) — bug-223
+- [x] `src/target/linux_riscv64/plan.rs` (470 loc) — clean
 
 **`src/target/linux_x86_64/`**
 
-- [ ] `src/target/linux_x86_64/code.rs` (809 loc)
-- [ ] `src/target/linux_x86_64/mod.rs` (441 loc)
-- [ ] `src/target/linux_x86_64/plan.rs` (509 loc)
+- [x] `src/target/linux_x86_64/code.rs` (809 loc) — bug-229
+- [x] `src/target/linux_x86_64/mod.rs` (441 loc) — clean
+- [x] `src/target/linux_x86_64/plan.rs` (509 loc) — clean
 
 **`src/target/macos_aarch64/`**
 
-- [ ] `src/target/macos_aarch64/code.rs` (796 loc)
-- [ ] `src/target/macos_aarch64/mod.rs` (410 loc)
-- [ ] `src/target/macos_aarch64/plan.rs` (826 loc)
-- [ ] `src/target/macos_aarch64/tls.rs` (230 loc)
+- [x] `src/target/macos_aarch64/code.rs` (796 loc) — clean
+- [x] `src/target/macos_aarch64/mod.rs` (410 loc) — clean
+- [x] `src/target/macos_aarch64/plan.rs` (826 loc) — bug-199
+- [x] `src/target/macos_aarch64/tls.rs` (230 loc) — clean
 
 **`src/target/macos_aarch64/app/`**
 
-- [ ] `src/target/macos_aarch64/app/app_io.rs` (1240 loc)
-- [ ] `src/target/macos_aarch64/app/bootstrap.rs` (965 loc)
-- [ ] `src/target/macos_aarch64/app/icon.rs` (9 loc)
-- [ ] `src/target/macos_aarch64/app/mod.rs` (796 loc)
-- [ ] `src/target/macos_aarch64/app/term_view.rs` (1504 loc)
+- [x] `src/target/macos_aarch64/app/app_io.rs` (1240 loc) — bug-241
+- [x] `src/target/macos_aarch64/app/bootstrap.rs` (965 loc) — bug-241
+- [x] `src/target/macos_aarch64/app/icon.rs` (9 loc) — clean
+- [x] `src/target/macos_aarch64/app/mod.rs` (796 loc) — clean
+- [x] `src/target/macos_aarch64/app/term_view.rs` (1504 loc) — bug-241
 
 **`src/target/package_mfp/`**
 
-- [ ] `src/target/package_mfp/mod.rs` (499 loc)
+- [x] `src/target/package_mfp/mod.rs` (499 loc) — clean
 
 **`src/target/shared/`**
 
-- [ ] `src/target/shared/abi.rs` (1330 loc)
-- [ ] `src/target/shared/lower.rs` (22 loc)
-- [ ] `src/target/shared/mod.rs` (14 loc)
-- [ ] `src/target/shared/regmodel.rs` (110 loc)
-- [ ] `src/target/shared/validate.rs` (1710 loc)
+- [x] `src/target/shared/abi.rs` (1330 loc) — clean
+- [x] `src/target/shared/lower.rs` (22 loc) — clean
+- [x] `src/target/shared/mod.rs` (14 loc) — clean
+- [x] `src/target/shared/regmodel.rs` (110 loc) — clean
+- [x] `src/target/shared/validate.rs` (1710 loc) — clean
 
 **`src/target/shared/code/`**
 
-- [ ] `src/target/shared/code/builder_arena_transfer.rs` (896 loc)
-- [ ] `src/target/shared/code/builder_bits.rs` (293 loc)
-- [ ] `src/target/shared/code/builder_codegen_primitives.rs` (2206 loc)
-- [ ] `src/target/shared/code/builder_collection_compare.rs` (474 loc)
-- [ ] `src/target/shared/code/builder_collection_layout.rs` (1872 loc)
-- [ ] `src/target/shared/code/builder_collection_mutate.rs` (4426 loc)
-- [ ] `src/target/shared/code/builder_collection_queries.rs` (1392 loc)
-- [ ] `src/target/shared/code/builder_collection_query.rs` (625 loc)
-- [ ] `src/target/shared/code/builder_control.rs` (1485 loc)
-- [ ] `src/target/shared/code/builder_conversions.rs` (1151 loc)
-- [ ] `src/target/shared/code/builder_emit_helpers.rs` (525 loc)
-- [ ] `src/target/shared/code/builder_fixed_math.rs` (1026 loc)
-- [ ] `src/target/shared/code/builder_fs_paths.rs` (669 loc)
-- [ ] `src/target/shared/code/builder_inplace_assign.rs` (612 loc)
-- [ ] `src/target/shared/code/builder_math.rs` (1393 loc)
-- [ ] `src/target/shared/code/builder_money.rs` (136 loc)
-- [ ] `src/target/shared/code/builder_money_math.rs` (361 loc)
-- [ ] `src/target/shared/code/builder_numeric.rs` (1881 loc)
-- [ ] `src/target/shared/code/builder_pow.rs` (906 loc)
-- [ ] `src/target/shared/code/builder_search.rs` (1120 loc)
-- [ ] `src/target/shared/code/builder_simd_fixed_math.rs` (331 loc)
-- [ ] `src/target/shared/code/builder_simd_float_math.rs` (1435 loc)
-- [ ] `src/target/shared/code/builder_simd_math.rs` (831 loc)
-- [ ] `src/target/shared/code/builder_strings.rs` (1686 loc)
-- [ ] `src/target/shared/code/builder_strings_builtins.rs` (2780 loc)
-- [ ] `src/target/shared/code/builder_strings_package.rs` (450 loc)
-- [ ] `src/target/shared/code/builder_value_semantics.rs` (886 loc)
-- [ ] `src/target/shared/code/builder_values.rs` (1758 loc)
-- [ ] `src/target/shared/code/builder_vector_inline.rs` (363 loc)
-- [ ] `src/target/shared/code/code_impl.rs` (329 loc)
-- [ ] `src/target/shared/code/codegen_utils.rs` (752 loc)
-- [ ] `src/target/shared/code/crypto.rs` (276 loc)
-- [ ] `src/target/shared/code/crypto_ec.rs` (278 loc)
-- [ ] `src/target/shared/code/data_objects.rs` (1300 loc)
-- [ ] `src/target/shared/code/datetime.rs` (167 loc)
-- [ ] `src/target/shared/code/entry_and_arena.rs` (2266 loc)
-- [ ] `src/target/shared/code/error_constants.rs` (791 loc)
-- [ ] `src/target/shared/code/float_format.rs` (602 loc)
-- [ ] `src/target/shared/code/fma_fusion.rs` (303 loc)
-- [ ] `src/target/shared/code/fs_helpers.rs` (153 loc)
-- [ ] `src/target/shared/code/fs_helpers_atomic.rs` (1801 loc)
-- [ ] `src/target/shared/code/fs_helpers_io.rs` (2251 loc)
-- [ ] `src/target/shared/code/fs_helpers_paths.rs` (1943 loc)
-- [ ] `src/target/shared/code/function_lowering.rs` (940 loc)
-- [ ] `src/target/shared/code/io_helpers.rs` (2252 loc)
-- [ ] `src/target/shared/code/link_thunk.rs` (1076 loc)
-- [ ] `src/target/shared/code/mir.rs` (1785 loc)
-- [ ] `src/target/shared/code/mod.rs` (3386 loc)
-- [ ] `src/target/shared/code/module_analysis.rs` (1086 loc)
-- [ ] `src/target/shared/code/os.rs` (1507 loc)
-- [ ] `src/target/shared/code/peephole.rs` (449 loc)
-- [ ] `src/target/shared/code/runtime_helpers.rs` (981 loc)
-- [ ] `src/target/shared/code/runtime_helpers_thread.rs` (1352 loc)
-- [ ] `src/target/shared/code/serialization_utils.rs` (17 loc)
-- [ ] `src/target/shared/code/simd_kernel_coeffs.rs` (101 loc)
-- [ ] `src/target/shared/code/stdin_broadcast.rs` (749 loc)
-- [ ] `src/target/shared/code/term.rs` (886 loc)
-- [ ] `src/target/shared/code/term_grid.rs` (1031 loc)
-- [ ] `src/target/shared/code/type_utils.rs` (365 loc)
-- [ ] `src/target/shared/code/types.rs` (580 loc)
-- [ ] `src/target/shared/code/validation.rs` (552 loc)
+- [x] `src/target/shared/code/builder_arena_transfer.rs` (896 loc) — clean
+- [x] `src/target/shared/code/builder_bits.rs` (293 loc) — clean
+- [x] `src/target/shared/code/builder_codegen_primitives.rs` (2206 loc) — bug-233
+- [x] `src/target/shared/code/builder_collection_compare.rs` (474 loc) — clean
+- [x] `src/target/shared/code/builder_collection_layout.rs` (1872 loc) — bug-233
+- [x] `src/target/shared/code/builder_collection_mutate.rs` (4426 loc) — clean
+- [x] `src/target/shared/code/builder_collection_queries.rs` (1392 loc) — bug-232, bug-234
+- [x] `src/target/shared/code/builder_collection_query.rs` (625 loc) — clean
+- [x] `src/target/shared/code/builder_control.rs` (1485 loc) — clean
+- [x] `src/target/shared/code/builder_conversions.rs` (1151 loc) — clean
+- [x] `src/target/shared/code/builder_emit_helpers.rs` (525 loc) — clean
+- [x] `src/target/shared/code/builder_fixed_math.rs` (1026 loc) — clean
+- [x] `src/target/shared/code/builder_fs_paths.rs` (669 loc) — bug-234
+- [x] `src/target/shared/code/builder_inplace_assign.rs` (612 loc) — clean
+- [x] `src/target/shared/code/builder_math.rs` (1393 loc) — clean
+- [x] `src/target/shared/code/builder_money.rs` (136 loc) — bug-200
+- [x] `src/target/shared/code/builder_money_math.rs` (361 loc) — bug-230
+- [x] `src/target/shared/code/builder_numeric.rs` (1881 loc) — clean
+- [x] `src/target/shared/code/builder_pow.rs` (906 loc) — clean
+- [x] `src/target/shared/code/builder_search.rs` (1120 loc) — clean
+- [x] `src/target/shared/code/builder_simd_fixed_math.rs` (331 loc) — clean
+- [x] `src/target/shared/code/builder_simd_float_math.rs` (1435 loc) — bug-235
+- [x] `src/target/shared/code/builder_simd_math.rs` (831 loc) — clean
+- [x] `src/target/shared/code/builder_strings.rs` (1686 loc) — clean
+- [x] `src/target/shared/code/builder_strings_builtins.rs` (2780 loc) — clean
+- [x] `src/target/shared/code/builder_strings_package.rs` (450 loc) — bug-234
+- [x] `src/target/shared/code/builder_value_semantics.rs` (886 loc) — clean
+- [x] `src/target/shared/code/builder_values.rs` (1758 loc) — clean
+- [x] `src/target/shared/code/builder_vector_inline.rs` (363 loc) — clean
+- [x] `src/target/shared/code/code_impl.rs` (329 loc) — clean
+- [x] `src/target/shared/code/codegen_utils.rs` (752 loc) — clean
+- [x] `src/target/shared/code/crypto.rs` (276 loc) — clean
+- [x] `src/target/shared/code/crypto_ec.rs` (278 loc) — clean
+- [x] `src/target/shared/code/data_objects.rs` (1300 loc) — clean
+- [x] `src/target/shared/code/datetime.rs` (167 loc) — clean
+- [x] `src/target/shared/code/entry_and_arena.rs` (2266 loc) — clean
+- [x] `src/target/shared/code/error_constants.rs` (791 loc) — clean
+- [x] `src/target/shared/code/float_format.rs` (602 loc) — clean
+- [x] `src/target/shared/code/fma_fusion.rs` (303 loc) — bug-244
+- [x] `src/target/shared/code/fs_helpers.rs` (153 loc) — clean
+- [x] `src/target/shared/code/fs_helpers_atomic.rs` (1801 loc) — bug-201, bug-234
+- [x] `src/target/shared/code/fs_helpers_io.rs` (2251 loc) — clean
+- [x] `src/target/shared/code/fs_helpers_paths.rs` (1943 loc) — clean
+- [x] `src/target/shared/code/function_lowering.rs` (940 loc) — clean
+- [x] `src/target/shared/code/io_helpers.rs` (2252 loc) — bug-208
+- [x] `src/target/shared/code/link_thunk.rs` (1076 loc) — bug-238
+- [x] `src/target/shared/code/mir.rs` (1785 loc) — clean
+- [x] `src/target/shared/code/mod.rs` (3386 loc) — clean
+- [x] `src/target/shared/code/module_analysis.rs` (1086 loc) — bug-244
+- [x] `src/target/shared/code/os.rs` (1507 loc) — clean
+- [x] `src/target/shared/code/peephole.rs` (449 loc) — clean
+- [x] `src/target/shared/code/runtime_helpers.rs` (981 loc) — clean
+- [x] `src/target/shared/code/runtime_helpers_thread.rs` (1352 loc) — bug-205
+- [x] `src/target/shared/code/serialization_utils.rs` (17 loc) — clean
+- [x] `src/target/shared/code/simd_kernel_coeffs.rs` (101 loc) — clean
+- [x] `src/target/shared/code/stdin_broadcast.rs` (749 loc) — bug-243
+- [x] `src/target/shared/code/term.rs` (886 loc) — clean
+- [x] `src/target/shared/code/term_grid.rs` (1031 loc) — clean
+- [x] `src/target/shared/code/type_utils.rs` (365 loc) — clean
+- [x] `src/target/shared/code/types.rs` (580 loc) — clean
+- [x] `src/target/shared/code/validation.rs` (552 loc) — clean
 
 **`src/target/shared/code/audio/`**
 
-- [ ] `src/target/shared/code/audio/alsa.rs` (1531 loc)
-- [ ] `src/target/shared/code/audio/macos.rs` (2289 loc)
-- [ ] `src/target/shared/code/audio/mod.rs` (123 loc)
+- [x] `src/target/shared/code/audio/alsa.rs` (1531 loc) — bug-206, bug-207
+- [x] `src/target/shared/code/audio/macos.rs` (2289 loc) — clean
+- [x] `src/target/shared/code/audio/mod.rs` (123 loc) — clean
 
 **`src/target/shared/code/crypto_ec/`**
 
-- [ ] `src/target/shared/code/crypto_ec/macos.rs` (1441 loc)
-- [ ] `src/target/shared/code/crypto_ec/openssl.rs` (1774 loc)
+- [x] `src/target/shared/code/crypto_ec/macos.rs` (1441 loc) — bug-237
+- [x] `src/target/shared/code/crypto_ec/openssl.rs` (1774 loc) — bug-237
 
 **`src/target/shared/code/net/`**
 
-- [ ] `src/target/shared/code/net/io.rs` (1784 loc)
-- [ ] `src/target/shared/code/net/mod.rs` (853 loc)
-- [ ] `src/target/shared/code/net/poll.rs` (246 loc)
+- [x] `src/target/shared/code/net/io.rs` (1784 loc) — bug-239
+- [x] `src/target/shared/code/net/mod.rs` (853 loc) — clean
+- [x] `src/target/shared/code/net/poll.rs` (246 loc) — bug-239
 
 **`src/target/shared/code/private/`**
 
-- [ ] `src/target/shared/code/private/mod.rs` (1 loc)
-- [ ] `src/target/shared/code/private/unicode.rs` (983 loc)
+- [x] `src/target/shared/code/private/mod.rs` (1 loc) — clean
+- [x] `src/target/shared/code/private/unicode.rs` (983 loc) — clean
 
 **`src/target/shared/code/regalloc/`**
 
-- [ ] `src/target/shared/code/regalloc/analysis.rs` (694 loc)
-- [ ] `src/target/shared/code/regalloc/linear_scan.rs` (402 loc)
-- [ ] `src/target/shared/code/regalloc/mod.rs` (384 loc)
+- [x] `src/target/shared/code/regalloc/analysis.rs` (694 loc) — bug-242
+- [x] `src/target/shared/code/regalloc/linear_scan.rs` (402 loc) — bug-242
+- [x] `src/target/shared/code/regalloc/mod.rs` (384 loc) — clean
 
 **`src/target/shared/code/tls/`**
 
-- [ ] `src/target/shared/code/tls/macos.rs` (3811 loc)
-- [ ] `src/target/shared/code/tls/mod.rs` (416 loc)
-- [ ] `src/target/shared/code/tls/openssl.rs` (2357 loc)
+- [x] `src/target/shared/code/tls/macos.rs` (3811 loc) — bug-236
+- [x] `src/target/shared/code/tls/mod.rs` (416 loc) — clean
+- [x] `src/target/shared/code/tls/openssl.rs` (2357 loc) — bug-202, bug-236
 
 **`src/target/shared/nir/`**
 
-- [ ] `src/target/shared/nir/json.rs` (1051 loc)
-- [ ] `src/target/shared/nir/lower.rs` (544 loc)
-- [ ] `src/target/shared/nir/mod.rs` (377 loc)
-- [ ] `src/target/shared/nir/symbols.rs` (78 loc)
+- [x] `src/target/shared/nir/json.rs` (1051 loc) — clean
+- [x] `src/target/shared/nir/lower.rs` (544 loc) — clean
+- [x] `src/target/shared/nir/mod.rs` (377 loc) — clean
+- [x] `src/target/shared/nir/symbols.rs` (78 loc) — clean
 
 **`src/target/shared/plan/`**
 
-- [ ] `src/target/shared/plan/function_builder.rs` (656 loc)
-- [ ] `src/target/shared/plan/json.rs` (181 loc)
-- [ ] `src/target/shared/plan/lower.rs` (206 loc)
-- [ ] `src/target/shared/plan/mod.rs` (515 loc)
-- [ ] `src/target/shared/plan/symbols.rs` (810 loc)
+- [x] `src/target/shared/plan/function_builder.rs` (656 loc) — clean
+- [x] `src/target/shared/plan/json.rs` (181 loc) — clean
+- [x] `src/target/shared/plan/lower.rs` (206 loc) — clean
+- [x] `src/target/shared/plan/mod.rs` (515 loc) — clean
+- [x] `src/target/shared/plan/symbols.rs` (810 loc) — bug-209
 
 **`src/target/shared/runtime/`**
 
-- [ ] `src/target/shared/runtime/audio_specs.rs` (353 loc)
-- [ ] `src/target/shared/runtime/catalog.rs` (176 loc)
-- [ ] `src/target/shared/runtime/crypto_specs.rs` (153 loc)
-- [ ] `src/target/shared/runtime/datetime_specs.rs` (48 loc)
-- [ ] `src/target/shared/runtime/fs_specs.rs` (495 loc)
-- [ ] `src/target/shared/runtime/io_specs.rs` (212 loc)
-- [ ] `src/target/shared/runtime/mod.rs` (142 loc)
-- [ ] `src/target/shared/runtime/net_specs.rs` (627 loc)
-- [ ] `src/target/shared/runtime/os_specs.rs` (231 loc)
-- [ ] `src/target/shared/runtime/strings_specs.rs` (189 loc)
-- [ ] `src/target/shared/runtime/term_specs.rs` (227 loc)
-- [ ] `src/target/shared/runtime/thread_specs.rs` (309 loc)
-- [ ] `src/target/shared/runtime/usage.rs` (307 loc)
+- [x] `src/target/shared/runtime/audio_specs.rs` (353 loc) — bug-244
+- [x] `src/target/shared/runtime/catalog.rs` (176 loc) — clean
+- [x] `src/target/shared/runtime/crypto_specs.rs` (153 loc) — clean
+- [x] `src/target/shared/runtime/datetime_specs.rs` (48 loc) — clean
+- [x] `src/target/shared/runtime/fs_specs.rs` (495 loc) — clean
+- [x] `src/target/shared/runtime/io_specs.rs` (212 loc) — bug-120.2 (already filed, unfixed)
+- [x] `src/target/shared/runtime/mod.rs` (142 loc) — clean
+- [x] `src/target/shared/runtime/net_specs.rs` (627 loc) — clean
+- [x] `src/target/shared/runtime/os_specs.rs` (231 loc) — clean
+- [x] `src/target/shared/runtime/strings_specs.rs` (189 loc) — bug-120.1 (already filed, unfixed)
+- [x] `src/target/shared/runtime/term_specs.rs` (227 loc) — clean
+- [x] `src/target/shared/runtime/thread_specs.rs` (309 loc) — clean
+- [x] `src/target/shared/runtime/usage.rs` (307 loc) — clean
 
 **`src/testing/`**
 
-- [ ] `src/testing/desugar.rs` (1331 loc)
+- [x] `src/testing/desugar.rs` (1331 loc) — clean
