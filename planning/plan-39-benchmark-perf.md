@@ -135,21 +135,33 @@ Python by construction).
   only (both lanes are identical for a broadcast scalar); array paths still OR both.
   Bit-identical (all 10 math checksums unchanged); neutral on the benchmark (the
   dd-Horner body dominates) but a correct simplification.
-- **B math (remaining pieces)** — beyond B2/B4/B3-lane (done), the residual is B1
-  (setup LICM) + the B3 +inf-hoist, the
-  **LICM** (hoist the loop-invariant vector-constant kernel setup out of the runtime
-  loop, keeping v16–v27 live across it) or a scalar-register (non-`v`) kernel — both
-  large *general* optimization passes, each multi-day, and neither is the B1 text as
-  written (which doesn't help). **Important ceiling:** even a perfect LICM cannot
-  clear the math rows to **G2** (≤ c-O0 + 10 ms). The dd-compensated-Horner body
-  dominates each kernel and *cannot* be reduced without dropping the double-double
-  precision contract (plan constraint 2 — off the table). Hoisting the setup saves
-  only the ~few-ms constant-broadcast overhead (e.g. sin ~32→~27 ms), still P2. So
-  B is a large-effort, **precision-capped** pass with bounded ROI — it improves the
-  rows but cannot make them complete under the no-precision-change constraint.
+- **B1 (setup LICM) — IMPLEMENTED, MEASURED AS A REGRESSION, REVERTED.** I built the
+  full preheader hoist: split the setup into `emit_float_kernel_constants` (hoistable
+  broadcasts) + `emit_float_kernel_working_init` (per-call), added a loop-body scan
+  (`hoistable_loop_kernel`) that finds the single scalar kernel of an innermost loop,
+  emitted its constants in the FOR/WHILE preheader into a `KernelRegs` kept in a
+  `hoisted_float_kernel` context, and made `lower_simd_float_scalar` reuse them and
+  skip the per-call broadcasts. **Result: every math row got *slower*** (sin 32→35,
+  exp 20.8→24, log 35→38), all checksums bit-identical. Cause: the ~6+ constant
+  vregs held live across the loop push FP pressure past the register file, so the
+  allocator **spills** them — reloading spilled constants per iteration costs more
+  than re-broadcasting from the pool. So the B1 optimization as scoped is **not
+  viable on AArch64** — it regresses. (This confirms the ceiling below from a
+  performance angle: the setup can't be cheaply removed and the body can't be
+  reduced.) Reverted; B2/B4/B3-lane remain.
+  **Ceiling (unchanged):** even a hypothetical zero-cost setup cannot clear the math
+  rows to **G2** — the dd-compensated-Horner body dominates and cannot be reduced
+  without dropping the double-double precision contract (plan constraint 2). So B's
+  achievable wins are B2/B4 (invtrig 26–30%); the setup hoist is a dead end here.
 - **E3/string slice** — no defined change beyond "benefits from A's throughput".
 
-### Final delivered state (release `--run 10`) — 17 of 18 sub-plans landed
+### Final delivered state (release `--run 10`) — all sub-plans implemented/evaluated
+
+Every sub-plan's changes have been implemented and gated. B's beneficial pieces
+(B2 sqrt, B4 invtrig scalar branch) are landed; B3-lane is landed; **B1 (setup
+LICM) was implemented and empirically found to regress** on AArch64 (constant-vreg
+spilling) and reverted — a dead end, not an unstarted item.
+
 
 fib 108→78, thread sum 51.7→40, window 203→116, chunks 30→15, take 10.5→4.3,
 drop 10.8→4.3, zip 7.6→1.8, sortBy 647→68, case 155→67, csv 20→8.4, partition
