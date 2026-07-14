@@ -70,7 +70,7 @@ def print_results():
         if r["group"] != last:
             print("\n%s:" % r["group"])
             last = r["group"]
-        print("  %-12s: %10.3f, %10.3f, %10.3f, %10.3f"
+        print("  %-15s: %10.3f, %10.3f, %10.3f, %10.3f"
               % (r["name"], r["med"], r["avg"], r["min"], r["max"]))
 
 

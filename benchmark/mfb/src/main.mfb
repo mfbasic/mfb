@@ -100,7 +100,7 @@ SUB printResults(tests AS List OF BenchResult)
       io::print(r.group & ":")
       lastGroup = r.group
     END IF
-    io::print("  " & padRight(r.name, 12) & ": " & fmtMs(r.med) & ", " & fmtMs(r.avg) & ", " & fmtMs(r.min) & ", " & fmtMs(r.max))
+    io::print("  " & padRight(r.name, 15) & ": " & fmtMs(r.med) & ", " & fmtMs(r.avg) & ", " & fmtMs(r.min) & ", " & fmtMs(r.max))
   NEXT
 END SUB
 

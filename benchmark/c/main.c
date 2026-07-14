@@ -94,7 +94,7 @@ static void print_results(void) {
       printf("\n%s:\n", r->group);
       last = r->group;
     }
-    printf("  %-12s: %10.3f, %10.3f, %10.3f, %10.3f\n", r->name, r->med, r->avg, r->min, r->max);
+    printf("  %-15s: %10.3f, %10.3f, %10.3f, %10.3f\n", r->name, r->med, r->avg, r->min, r->max);
   }
 }
 
