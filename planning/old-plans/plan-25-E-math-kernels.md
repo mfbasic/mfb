@@ -1,7 +1,19 @@
 # plan-25-E: Transcendental kernel throughput (Goal 2)
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 Effort: large (3h–1d) — but see status: most of it is already done or obsolete.
+
+> **CLOSED (2026-07-14).** Superseded by `planning/plan-39-benchmark-perf.md`
+> sub-plan **B** (transcendental + float kernels), which covers the whole math band
+> — including `pow` — and explicitly folds in this plan's lone remaining lever:
+> "Overlaps `planning/plan-25-E-math-kernels.md` (pow unroll) — fold that in"
+> (`plan-39-benchmark-perf.md:221-222`). Of the four original levers, E1 was
+> superseded (scalar bit0 branch), E3 is obsolete (4-segment fdlibm atan), E4 is
+> DONE, and E2's home-reuse half landed via `PowHomes`. The only survivor — the E2
+> pow-array-loop unroll — is subsumed by plan-39-B's stronger B1 fix (emit each
+> scalar transcendental as one shared out-of-line leaf, attacking the per-call
+> setup re-emitted 2M× rather than just unrolling the array loop). No live work
+> remains here; track it under plan-39-B. Kept for historical context.
 
 > **Status (2026-07-12 re-review).** The kernels have moved a lot since this plan
 > was written; three of the four levers are overtaken by events. Summary:
