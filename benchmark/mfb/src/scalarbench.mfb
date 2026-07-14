@@ -1,0 +1,168 @@
+' Scalar / codepoint-processing benchmarks (plan-40 Theme 7) — tracks plan-41's
+' `Scalar` primitive, which had zero benchmark coverage. Four hot paths the
+' `string` rows never hit: inline UTF-8 decode/encode at the string<->scalar
+' boundary, the Unicode-category table the is* predicates share, the
+' scalar/int conversion round-trip, and the new 4-byte List OF Scalar payload
+' width. Group `scalarbench`. Python peers use ord/chr/str.isX; C uses char32_t.
+'
+' Classification and codepoint arithmetic are done over ASCII so the counts and
+' transformed codepoints match across mfb / C / Python (non-ASCII Unicode
+' classification is not guaranteed identical across a libc/Python/mfb triple).
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+' string <-> scalars round-trip — decompose a multi-KB mixed-script string into a
+' List OF Scalar with toScalars, then rebuild it with fromScalars, in a loop (the
+' inline-UTF-8 decode+encode hot path + the 4-byte collection build).
+'
+' TODO(plan-39-A): the inner count (5) and the base repeat (8) are deliberately
+' TINY. Each pass allocates a fresh List OF Scalar, and the runtime arena free
+' list degrades quadratically under that transient churn. Raise both when
+' plan-39-A lands.
+FUNC test_scalar_roundtrip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET frag AS String = "caf\u{00E9} \u{4E2D}\u{6587} rocket\u{1F680} nai\u{0308}ve Stra\u{00DF}e "
+  MUT base AS String = ""
+  FOR i = 0 TO 7
+    base = base & frag
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 4
+      LET scalars AS List OF Scalar = strings::toScalars(base)
+      acc = acc + len(scalars)
+      LET back AS String = strings::fromScalars(scalars)
+      acc = acc + len(back)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("scalar_roundtrip = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("scalarbench", "roundtrip", times))
+END FUNC
+
+' classification sweep — tally how many scalars satisfy each of isLetter /
+' isDigit / isWhitespace / isUpper / isLower over a List OF Scalar, repeated for
+' timing (the shared Unicode-category-table lookup under load). The five counts
+' are packed into the checksum. API: isLetter / isDigit / isWhitespace / isUpper
+' / isLower.
+FUNC test_scalar_classify(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS String = "The Quick Brown Fox 123 JUMPS over 42 lazy Dogs! Now 7 Cats and 9 Owls."
+  LET scalars AS List OF Scalar = strings::toScalars(base)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nLetter AS Integer = 0
+    MUT nDigit AS Integer = 0
+    MUT nWhite AS Integer = 0
+    MUT nUpper AS Integer = 0
+    MUT nLower AS Integer = 0
+    FOR pass = 0 TO 1999
+      nLetter = 0
+      nDigit = 0
+      nWhite = 0
+      nUpper = 0
+      nLower = 0
+      FOR EACH sc IN scalars
+        IF strings::isLetter(sc) THEN nLetter = nLetter + 1
+        IF strings::isDigit(sc) THEN nDigit = nDigit + 1
+        IF strings::isWhitespace(sc) THEN nWhite = nWhite + 1
+        IF strings::isUpper(sc) THEN nUpper = nUpper + 1
+        IF strings::isLower(sc) THEN nLower = nLower + 1
+      NEXT
+    NEXT
+    checksum = nLetter + nDigit * 100 + nWhite * 10000 + nUpper * 1000000 + nLower * 100000000
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("scalar_classify = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("scalarbench", "classify", times))
+END FUNC
+
+' transform pipeline — map each Scalar through toInt -> codepoint arithmetic
+' (ROT-13 over ASCII letters) -> toScalar, then fromScalars back to a String, in
+' a loop (the scalar<->int conversion round-trip in a tight loop). checksum =
+' sum of the transformed codepoints (independent of the pass count).
+'
+' TODO(plan-39-A): each pass builds a fresh List OF Scalar via append, so the
+' pass count (200) is kept modest — the runtime arena free list degrades under
+' that transient churn. Raise it when plan-39-A lands.
+FUNC test_scalar_transform(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS String = "The Quick Brown Fox Jumps Over The Lazy Dog"
+  LET scalars AS List OF Scalar = strings::toScalars(base)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT total AS Integer = 0
+    FOR pass = 0 TO 199
+      MUT out AS List OF Scalar = []
+      FOR EACH sc IN scalars
+        LET cp AS Integer = toInt(sc)
+        MUT cp2 AS Integer = cp
+        IF cp >= 97 AND cp <= 122 THEN
+          cp2 = ((cp - 97 + 13) MOD 26) + 97
+        END IF
+        IF cp >= 65 AND cp <= 90 THEN
+          cp2 = ((cp - 65 + 13) MOD 26) + 65
+        END IF
+        out = collections::append(out, toScalar(cp2))
+      NEXT
+      LET rebuilt AS String = strings::fromScalars(out)
+      total = len(rebuilt)
+      MUT sumcp AS Integer = 0
+      FOR EACH sc2 IN out
+        sumcp = sumcp + toInt(sc2)
+      NEXT
+      total = total + sumcp
+    NEXT
+    checksum = total
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("scalar_transform = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("scalarbench", "transform", times))
+END FUNC
+
+' 4-byte payload gate — build/scan/compare a List OF Scalar, exercising the new
+' 4-byte collection payload width and codepoint ordering (`<`/`>`, non-numeric).
+' Contrast the 8-byte Integer and 1-byte Byte list rows to isolate the width.
+' checksum = ascending-adjacent-pair count over the scan.
+'
+' TODO(plan-39-A): the base repeat (6) is deliberately TINY — the List OF Scalar
+' build is the arena-sensitive part. Raise it when plan-39-A lands.
+FUNC test_scalar_listchurn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET frag AS String = "azbyAZ09 mkq!Wp"
+  MUT base AS String = ""
+  FOR i = 0 TO 5
+    base = base & frag
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT ascents AS Integer = 0
+    FOR pass = 0 TO 1999
+      LET scalars AS List OF Scalar = strings::toScalars(base)
+      LET n AS Integer = len(scalars)
+      MUT a AS Integer = 0
+      FOR i = 0 TO n - 2
+        IF collections::get(scalars, i) < collections::get(scalars, i + 1) THEN
+          a = a + 1
+        END IF
+      NEXT
+      ascents = a
+    NEXT
+    checksum = ascents
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("scalar_listchurn = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("scalarbench", "listchurn", times))
+END FUNC

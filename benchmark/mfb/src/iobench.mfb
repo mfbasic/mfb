@@ -1,0 +1,139 @@
+' IO-buffering benchmarks (plan-40 Theme 4). The existing `io write`/`io read`
+' rows measure buffered whole-file streaming of Integer lines; these add the
+' read+parse loop, the buffered-vs-unbuffered contrast (quantifying plan-39-F's
+' win), mixed-type output formatting, and a binary byte round-trip. Group `io`.
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+IMPORT fs
+
+' Write `count` "i\n" lines, optionally buffered. Handle closes on scope drop.
+FUNC writeLinesBuffered(path AS String, count AS Integer, buffered AS Boolean) AS Integer
+  RES f AS File = fs::open(path, "write")
+  fs::setBuffered(f, buffered)
+  FOR i = 0 TO count - 1
+    fs::writeAll(f, toString(i) & "\n")
+  NEXT
+  RETURN count
+END FUNC
+
+' readnum — read a many-line file back line-by-line and parse each line to an
+' Integer, summing them (the read+tokenize hot path; the existing `io read`
+' only counts lines). API: fs::readLine + toInt.
+FUNC test_io_readnum(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-readnum.txt")
+  LET wrote AS Integer = writeLinesFile(path, 20000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT sumv AS Integer = 0
+    RES f AS File = fs::open(path, "read")
+    WHILE NOT fs::eof(f)
+      LET line AS String = fs::readLine(f)
+      sumv = sumv + toInt(line)
+    WEND
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_readnum = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "readnum", times))
+END FUNC
+
+' buffered — 20k incremental writes with per-handle output buffering ON.
+FUNC test_io_buf_on(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-bufon.txt")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = writeLinesBuffered(path, 20000, TRUE)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_buf_on = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "buf_on", times))
+END FUNC
+
+' unbuffered — the same 20k writes with buffering OFF (one write() per line), to
+' quantify the buffering win and guard plan-39-F. Same checksum as buf_on.
+FUNC test_io_buf_off(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-bufoff.txt")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = writeLinesBuffered(path, 20000, FALSE)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_buf_off = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "buf_off", times))
+END FUNC
+
+' format — a loop of toString of mixed Integer / Float / String values written to
+' a file (the console-formatting hot path; exercises the Float formatter that the
+' Integer-only `io write` misses). Written to a temp file so it never pollutes
+' the result table on stdout. Checksum is the line count (like `io write`).
+FUNC test_io_format(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-format.txt")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    RES f AS File = fs::open(path, "write")
+    fs::setBuffered(f, TRUE)
+    FOR i = 0 TO 19999
+      LET line AS String = toString(i) & " " & toString(toFloat(i) * 0.5, toByte(3)) & " row" & toString(i) & "\n"
+      fs::writeAll(f, line)
+    NEXT
+    checksum = 20000
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_format = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "format", times))
+END FUNC
+
+' binary — strings::toBytes of a string, fs::writeBytes, then fs::readBytes back,
+' summing the byte values (the binary-io path).
+'
+' TODO(plan-39-A): the inner count (5) is deliberately TINY. strings::toBytes
+' allocates a fresh List OF Byte each pass, and the runtime arena free list
+' degrades quadratically under that mixed-size transient churn. Raise the count
+' to realistic size in the commit that lands plan-39-A.
+FUNC test_io_binary(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-binary.bin")
+  MUT payload AS String = ""
+  FOR i = 0 TO 255
+    payload = payload & "byte" & toString(i) & ";"
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR pass = 0 TO 4
+      LET bytes AS List OF Byte = strings::toBytes(payload)
+      fs::writeBytes(path, bytes)
+      LET back AS List OF Byte = fs::readBytes(path)
+      MUT sb AS Integer = 0
+      FOR EACH b IN back
+        sb = sb + toInt(b)
+      NEXT
+      acc = acc + sb
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_binary = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "binary", times))
+END FUNC

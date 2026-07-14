@@ -1013,6 +1013,12 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_leibniz(run, tests)
   tests = test_nbody(run, tests)
   tests = test_mandelbrot(run, tests)
+  tests = test_matmul(run, tests)
+
+  ' mathpipe group (mathpipe.mfb) — chained float/transcendental pipelines
+  tests = test_dft(run, tests)
+  tests = test_stats(run, tests)
+  tests = test_finance(run, tests)
 
   ' math group (math.mfb)
   tests = test_sin(run, tests)
@@ -1074,11 +1080,21 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_liststr_hof(run, tests)
   tests = test_liststr_reshape(run, tests)
 
+  ' listchurn group (listchurn.mfb) — grow/prepend/nested churn
+  tests = test_listchurn_append(run, tests)
+  tests = test_listchurn_prepend(run, tests)
+  tests = test_listchurn_nested(run, tests)
+
   ' map group (map.mfb)
   tests = test_map_set(run, tests)
   tests = test_map_lookup(run, tests)
   tests = test_map_int_ops(run, tests)
   tests = test_map_str_ops(run, tests)
+
+  ' mapchurn group (mapchurn.mfb) — grow/rehash, insert/delete, iterate
+  tests = test_mapchurn_grow(run, tests)
+  tests = test_mapchurn_churn(run, tests)
+  tests = test_mapchurn_iterate(run, tests)
 
   ' string group (string.mfb)
   tests = test_string_concat(run, tests)
@@ -1086,6 +1102,13 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_string_search(run, tests)
   tests = test_string_slice(run, tests)
   tests = test_string_unicode(run, tests)
+  tests = test_string_unibig(run, tests)
+
+  ' strbuild group (strbuild.mfb) — concat/join/splitjoin/clean
+  tests = test_strbuild_concat(run, tests)
+  tests = test_strbuild_join(run, tests)
+  tests = test_strbuild_splitjoin(run, tests)
+  tests = test_strbuild_clean(run, tests)
 
   ' bits group (bits.mfb)
   tests = test_bits_ops(run, tests)
@@ -1099,14 +1122,36 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_parse_json(run, tests)
   tests = test_parse_regex(run, tests)
 
+  ' regexbench group (regexbench.mfb) — compile/capture/alternation/replace
+  tests = test_regex_compile(run, tests)
+  tests = test_regex_capture(run, tests)
+  tests = test_regex_alternation(run, tests)
+  tests = test_regex_replace(run, tests)
+
   tests = test_io_write(run, tests)
   tests = test_io_read(run, tests)
+  tests = test_io_readnum(run, tests)
+  tests = test_io_buf_on(run, tests)
+  tests = test_io_buf_off(run, tests)
+  tests = test_io_format(run, tests)
+  tests = test_io_binary(run, tests)
 
   ' vector group (vector.mfb)
   tests = test_vector_math(run, tests)
   tests = test_vector_float(run, tests)
   tests = test_vector_fixed(run, tests)
   tests = test_vector_int(run, tests)
+
+  ' arena group (arena.mfb) — plan-39-A regression gate (authored tiny)
+  tests = test_arena_transient(run, tests)
+  tests = test_arena_mixed(run, tests)
+  tests = test_arena_growshrink(run, tests)
+
+  ' scalarbench group (scalarbench.mfb) — plan-41 Scalar coverage
+  tests = test_scalar_roundtrip(run, tests)
+  tests = test_scalar_classify(run, tests)
+  tests = test_scalar_transform(run, tests)
+  tests = test_scalar_listchurn(run, tests)
 
   tests = test_primes(run, tests)
 

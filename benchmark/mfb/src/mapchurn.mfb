@@ -1,0 +1,109 @@
+' Map-churn benchmarks (plan-40 Theme 1) — the grow/rehash, insert/delete, and
+' materialize-in-a-loop hot paths that the per-member `map` rows never hit (they
+' touch each op once over a pre-built map). Group `mapchurn`.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' grow+rehash — insert N distinct keys one-by-one into an initially-empty map
+' (forcing repeated grow/rehash), then look each up. Contrast `map set` (N=1000):
+' this row is 5x larger so the rehash path dominates. API: set / hasKey / get.
+FUNC test_mapchurn_grow(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+    FOR i = 0 TO 4999
+      m = collections::set(m, toString(i), i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR i = 0 TO 4999
+      IF collections::hasKey(m, toString(i)) THEN
+        sumv = sumv + collections::get(m, toString(i))
+      END IF
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("mapchurn_grow = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("mapchurn", "grow", times))
+END FUNC
+
+' insert/delete churn — steady-state add + removeKey cycling so the map stays
+' ~fixed size while the bucket array churns (tombstone/rehash stress). Each step
+' inserts one fresh key and removes one old key; the live set slides forward.
+' API: set / hasKey / removeKey.
+FUNC test_mapchurn_churn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS Integer = 500
+  LET cycles AS Integer = 4000
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+    FOR i = 0 TO base - 1
+      m = collections::set(m, toString(i), i)
+    NEXT
+    MUT removed AS Integer = 0
+    FOR stp = 0 TO cycles - 1
+      LET newkey AS Integer = base + stp
+      m = collections::set(m, toString(newkey), newkey)
+      IF collections::hasKey(m, toString(stp)) THEN
+        m = collections::removeKey(m, toString(stp))
+        removed = removed + 1
+      END IF
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR EACH v IN collections::values(m)
+      sumv = sumv + v
+    NEXT
+    checksum = sumv + removed
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("mapchurn_churn = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("mapchurn", "churn", times))
+END FUNC
+
+' iterate — keys / values / mapValues / merge over a large map, repeated in a
+' loop. The per-member `map` rows call these once; this measures the repeated
+' materialization cost (a fresh keys/values list + a fresh mapped/merged map each
+' pass). API: keys / values / mapValues / merge.
+FUNC test_mapchurn_iterate(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 1000
+  LET passes AS Integer = 100
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+    FOR i = 0 TO n - 1
+      m = collections::set(m, toString(i), i)
+    NEXT
+    MUT other AS Map OF String TO Integer = Map OF String TO Integer {}
+    FOR i = n TO n + 9
+      other = collections::set(other, toString(i), i)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR p = 0 TO passes - 1
+      LET ks AS List OF String = collections::keys(m)
+      acc = acc + len(ks)
+      MUT sv AS Integer = 0
+      FOR EACH v IN collections::values(m)
+        sv = sv + v
+      NEXT
+      acc = acc + sv
+      LET dbl AS Map OF String TO Integer = collections::mapValues(m, mapDoubleVal)
+      acc = acc + collections::get(dbl, "10")
+      LET mg AS Map OF String TO Integer = collections::merge(m, other, TRUE)
+      acc = acc + len(collections::keys(mg))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("mapchurn_iterate = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("mapchurn", "iterate", times))
+END FUNC

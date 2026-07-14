@@ -1,0 +1,103 @@
+' Arena-stress benchmarks (plan-40 Theme 6) — the regression gate for plan-39-A.
+' These isolate the mixed-size transient-churn path the README calls out: the
+' runtime arena free list degrades quadratically under short-lived List/String
+' temporaries of many different sizes. Group `arena`.
+'
+' TODO(plan-39-A): every inner count here is deliberately TINY so the suite stays
+' in the linear regime and does not hang. Raise each to realistic size in the
+' commit that lands plan-39-A — these three rows are that fix's acceptance gate:
+' they must jump from tiny to realistic and stay LINEAR (a fresh row starts fast;
+' today each `run` repeat gets dramatically slower because the degradation is
+' process-global and cumulative). The C/Python mirrors keep the same tiny counts
+' only so the table lines up; their allocators are not affected.
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+' transient mixed churn — allocate and immediately drop many mixed-size
+' short-lived List/String temporaries (build a small list, slice a string,
+' discard). This is the exact pattern that degrades the free list.
+FUNC test_arena_transient(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS String = "abcdefghij"
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 399
+      LET size AS Integer = (i MOD 16) + 1
+      MUT tmp AS List OF Integer = []
+      FOR k = 0 TO size - 1
+        tmp = collections::append(tmp, k)
+      NEXT
+      acc = acc + collections::sum(tmp)
+      LET slicelen AS Integer = (i MOD 7) + 1
+      LET s AS String = strings::left(base, slicelen)
+      acc = acc + len(s)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("arena_transient = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("arena", "transient", times))
+END FUNC
+
+' long-lived + short-lived mix — hold a large long-lived structure while churning
+' mixed-size short-lived temporaries around it (fragmentation stress).
+FUNC test_arena_mixed(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT longLived AS List OF Integer = []
+  FOR i = 0 TO 999
+    longLived = collections::append(longLived, i)
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 399
+      LET size AS Integer = (i MOD 20) + 1
+      MUT tmp AS List OF Integer = []
+      FOR k = 0 TO size - 1
+        tmp = collections::append(tmp, k)
+      NEXT
+      acc = acc + collections::sum(tmp)
+      LET s AS String = strings::repeat("ab", (i MOD 5) + 1)
+      acc = acc + len(s)
+    NEXT
+    acc = acc + len(longLived)
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("arena_mixed = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("arena", "mixed", times))
+END FUNC
+
+' grow-shrink — repeatedly grow a fresh collection then take/drop it back down
+' (free-list coalescing stress). API: append / take / drop.
+FUNC test_arena_growshrink(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET grow AS Integer = 100
+  LET cycles AS Integer = 200
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR cycle = 0 TO cycles - 1
+      MUT xs AS List OF Integer = []
+      FOR k = 0 TO grow - 1
+        xs = collections::append(xs, k)
+      NEXT
+      LET head AS List OF Integer = collections::take(xs, 10)
+      LET tail AS List OF Integer = collections::drop(xs, grow - 10)
+      acc = acc + len(head) + len(tail)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("arena_growshrink = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("arena", "growshrink", times))
+END FUNC

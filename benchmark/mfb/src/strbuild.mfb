@@ -1,0 +1,99 @@
+' String-builder benchmarks (plan-40 Theme 3). The per-member `string` rows do
+' one-shot ops; these are the accumulate/tokenize/clean hot paths real text code
+' hits. Group `strbuild`. (Realistic-size unicode churn lives in `string unibig`,
+' arena-gated.)
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+' concat — accumulate a large string via repeated `&` (the classic O(n²) trap:
+' each `&` copies the whole prefix). Contrast `strbuild join` below, which builds
+' the identical string in O(n); the two share a checksum (the final length).
+FUNC test_strbuild_concat(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT s AS String = ""
+    FOR i = 0 TO 3999
+      s = s & toString(i) & ","
+    NEXT
+    checksum = len(s)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("strbuild_concat = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("strbuild", "concat", times))
+END FUNC
+
+' join — build the same string as `concat` by collecting tokens in a list and
+' calling strings::join once (the O(n) path). Same checksum (final length).
+FUNC test_strbuild_join(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT parts AS List OF String = []
+    FOR i = 0 TO 3999
+      parts = collections::append(parts, toString(i))
+    NEXT
+    LET s AS String = strings::join(parts, ",") & ","
+    checksum = len(s)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("strbuild_join = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("strbuild", "join", times))
+END FUNC
+
+' splitjoin — split a CSV-ish line into fields then join back, in a loop (the
+' tokenizer round-trip hot path). API: split / join.
+FUNC test_strbuild_splitjoin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT fields AS List OF String = []
+  FOR i = 0 TO 99
+    fields = collections::append(fields, "field" & toString(i))
+  NEXT
+  LET line AS String = strings::join(fields, ",")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR p = 0 TO 1999
+      LET parts AS List OF String = strings::split(line, ",")
+      LET rejoined AS String = strings::join(parts, ",")
+      acc = acc + len(parts) + len(rejoined)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("strbuild_splitjoin = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("strbuild", "splitjoin", times))
+END FUNC
+
+' clean — a replace / trimChars / stripPrefix / padLeft chain over many short
+' strings (the text-cleaning hot path). API: replace / trimChars / stripPrefix /
+' padLeft. Comparable scale to the existing `string case`/`search`/`slice` rows.
+FUNC test_strbuild_clean(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 19999
+      LET s AS String = "  key_" & toString(i) & "__  "
+      MUT t AS String = strings::trimChars(s, " _")
+      t = strings::replace(t, "key", "K")
+      t = strings::stripPrefix(t, "K")
+      t = strings::padLeft(t, 12)
+      acc = acc + len(t)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("strbuild_clean = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("strbuild", "clean", times))
+END FUNC

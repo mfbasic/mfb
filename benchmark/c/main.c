@@ -22,12 +22,18 @@
 #include <string.h>
 #include <time.h>
 
+#include "arenabench.h"
 #include "bench.h"
 #include "bitsbench.h"
+#include "churnbench.h"
 #include "list.h"
 #include "mapbench.h"
 #include "mathbench.h"
+#include "mathpipe.h"
 #include "parsebench.h"
+#include "regexbench.h"
+#include "scalarbench.h"
+#include "strbuildbench.h"
 #include "stringbench.h"
 #include "vectorbench.h"
 
@@ -442,6 +448,140 @@ static void test_io_read(void) {
   free(t);
 }
 
+/* Write `count` "i\n" lines, optionally with full stdio buffering. */
+static long write_lines_buffered(const char *path, int count, int buffered) {
+  FILE *f = fopen(path, "w");
+  if (buffered)
+    setvbuf(f, NULL, _IOFBF, 65536);
+  else
+    setvbuf(f, NULL, _IONBF, 0); /* one write() per line */
+  for (int i = 0; i < count; i++) fprintf(f, "%d\n", i);
+  fclose(f);
+  return count;
+}
+
+/* readnum — read a many-line file back and parse each line to an int, summing
+ * them (the read+tokenize hot path; `io read` only counts lines). */
+static void test_io_readnum(void) {
+  char path[512];
+  io_path(path, sizeof path, "c-bench-io-readnum.txt");
+  write_lines(path, 20000);
+  long long *t = alloc_times();
+  long checksum = 0;
+  char buf[64];
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    FILE *f = fopen(path, "r");
+    long sumv = 0;
+    while (fgets(buf, sizeof buf, f)) sumv += atol(buf);
+    fclose(f);
+    checksum = sumv;
+    t[r] = now_ns() - t0;
+  }
+  remove(path);
+  fprintf(stderr, "io_readnum = %ld\n", checksum);
+  record("io", "readnum", t, RUN);
+  free(t);
+}
+
+/* buffered — 20k incremental writes with output buffering ON. */
+static void test_io_buf_on(void) {
+  char path[512];
+  io_path(path, sizeof path, "c-bench-io-bufon.txt");
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    checksum = write_lines_buffered(path, 20000, 1);
+    t[r] = now_ns() - t0;
+  }
+  remove(path);
+  fprintf(stderr, "io_buf_on = %ld\n", checksum);
+  record("io", "buf_on", t, RUN);
+  free(t);
+}
+
+/* unbuffered — the same 20k writes with buffering OFF (one write() per line). */
+static void test_io_buf_off(void) {
+  char path[512];
+  io_path(path, sizeof path, "c-bench-io-bufoff.txt");
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    checksum = write_lines_buffered(path, 20000, 0);
+    t[r] = now_ns() - t0;
+  }
+  remove(path);
+  fprintf(stderr, "io_buf_off = %ld\n", checksum);
+  record("io", "buf_off", t, RUN);
+  free(t);
+}
+
+/* format — mixed Integer/Float/String formatting to a temp file. */
+static void test_io_format(void) {
+  char path[512];
+  io_path(path, sizeof path, "c-bench-io-format.txt");
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    FILE *f = fopen(path, "w");
+    setvbuf(f, NULL, _IOFBF, 65536);
+    for (int i = 0; i < 20000; i++) fprintf(f, "%d %.3f row%d\n", i, (double)i * 0.5, i);
+    fclose(f);
+    checksum = 20000;
+    t[r] = now_ns() - t0;
+  }
+  remove(path);
+  fprintf(stderr, "io_format = %ld\n", checksum);
+  record("io", "format", t, RUN);
+  free(t);
+}
+
+/* binary — byte round-trip: build a payload, write it, read it back, sum bytes;
+ * 5 passes accumulate (checksum 803430). */
+static void test_io_binary(void) {
+  char path[512];
+  io_path(path, sizeof path, "c-bench-io-binary.bin");
+  /* payload = concatenation of "byte%d;" for i=0..255 */
+  char *payload = NULL;
+  size_t plen = 0, pcap = 0;
+  char tok[16];
+  for (int i = 0; i < 256; i++) {
+    int nl = snprintf(tok, sizeof tok, "byte%d;", i);
+    if (plen + (size_t)nl + 1 > pcap) { pcap = (plen + (size_t)nl + 1) * 2; payload = realloc(payload, pcap); }
+    memcpy(payload + plen, tok, (size_t)nl);
+    plen += (size_t)nl;
+  }
+  long long *t = alloc_times();
+  long checksum = 0;
+  unsigned char *back = malloc(plen);
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    long acc = 0;
+    for (int pass = 0; pass < 5; pass++) {
+      FILE *wf = fopen(path, "wb");
+      fwrite(payload, 1, plen, wf);
+      fclose(wf);
+      FILE *rf = fopen(path, "rb");
+      size_t got = fread(back, 1, plen, rf);
+      fclose(rf);
+      long sb = 0;
+      for (size_t k = 0; k < got; k++) sb += back[k];
+      acc += sb;
+    }
+    checksum = acc;
+    t[r] = now_ns() - t0;
+  }
+  remove(path);
+  fprintf(stderr, "io_binary = %ld\n", checksum);
+  record("io", "binary", t, RUN);
+  free(t);
+  free(payload);
+  free(back);
+}
+
 /* GROUP: vector lives in vectorbench.c (see run_vector_group). */
 
 /* ===================================================================== */
@@ -520,15 +660,25 @@ int main(int argc, char **argv) {
   test_leibniz();
   test_nbody();
   test_mandelbrot();
+  test_matmul();
+
+  run_mathpipe_group();
 
   run_math_group();
 
   run_list_group();
   run_liststr_group();
 
+  run_listchurn_group();
+
   run_map_group();
 
+  run_mapchurn_group();
+
   run_string_group();
+  test_string_unibig();
+
+  run_strbuild_group();
 
   run_bits_group();
 
@@ -539,10 +689,21 @@ int main(int argc, char **argv) {
 
   run_parse_group();
 
+  run_regexbench_group();
+
   test_io_write();
   test_io_read();
+  test_io_readnum();
+  test_io_buf_on();
+  test_io_buf_off();
+  test_io_format();
+  test_io_binary();
 
   run_vector_group();
+
+  run_arena_group();
+
+  run_scalarbench_group();
 
   test_primes();
 

@@ -1,0 +1,164 @@
+' Float / transcendental pipeline benchmarks (plan-40 Theme 2). The per-kernel
+' `math` rows isolate each transcendental; real numeric code chains them. matmul
+' extends the `float` group (dense FMA); dft/stats/finance form the `mathpipe`
+' group. `finance` is mfb-only (Money has no C/Python peer), like `math fixed`.
+IMPORT io
+IMPORT math
+IMPORT money
+IMPORT collections
+IMPORT datetime
+
+' matmul — dense N×N Float matrix multiply (FMA-heavy, cache/register pressure).
+' Distinct from nbody (a fixed 5-body simulation): this scales with N. Pure IEEE
+' arithmetic in a fixed loop order, so the checksum is bit-identical across
+' languages. Group `float`.
+FUNC test_matmul(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 64
+  MUT a AS List OF Float = []
+  MUT b AS List OF Float = []
+  FOR i = 0 TO n - 1
+    FOR j = 0 TO n - 1
+      a = collections::append(a, toFloat((i * 7 + j * 3) MOD 97) / 97.0)
+      b = collections::append(b, toFloat((i * 5 + j * 13) MOD 89) / 89.0)
+    NEXT
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT sum AS Float = 0.0
+    FOR i = 0 TO n - 1
+      FOR j = 0 TO n - 1
+        MUT acc AS Float = 0.0
+        FOR k = 0 TO n - 1
+          acc = acc + collections::get(a, i * n + k) * collections::get(b, k * n + j)
+        NEXT
+        sum = sum + acc
+      NEXT
+    NEXT
+    checksum = sum
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("matmul = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("float", "matmul", times))
+END FUNC
+
+' dft — a naive O(N²) discrete Fourier transform of a two-tone signal, sin/cos
+' interleaved with float multiply/accumulate (not isolated like the per-kernel
+' rows). The checksum is the two dominant bin indices, robust to low-bit sin/cos
+' differences between mfb's kernel and libm. Group `mathpipe`.
+FUNC test_dft(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 256
+  LET pi AS Float = 3.141592653589793
+  LET two_pi AS Float = 2.0 * pi
+  MUT sig AS List OF Float = []
+  FOR t = 0 TO n - 1
+    LET tf AS Float = toFloat(t)
+    sig = collections::append(sig, math::cos(two_pi * 5.0 * tf / toFloat(n)) + 0.5 * math::cos(two_pi * 20.0 * tf / toFloat(n)))
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT best1 AS Integer = 0
+    MUT best2 AS Integer = 0
+    MUT mag1 AS Float = -1.0
+    MUT mag2 AS Float = -1.0
+    FOR k = 0 TO n / 2 - 1
+      MUT re AS Float = 0.0
+      MUT im AS Float = 0.0
+      LET kf AS Float = toFloat(k)
+      FOR t = 0 TO n - 1
+        LET ang AS Float = two_pi * kf * toFloat(t) / toFloat(n)
+        LET s AS Float = collections::get(sig, t)
+        re = re + s * math::cos(ang)
+        im = im - s * math::sin(ang)
+      NEXT
+      LET mag AS Float = re * re + im * im
+      IF mag > mag1 THEN
+        mag2 = mag1
+        best2 = best1
+        mag1 = mag
+        best1 = k
+      ELSE
+        IF mag > mag2 THEN
+          mag2 = mag
+          best2 = k
+        END IF
+      END IF
+    NEXT
+    checksum = best1 * 1000 + best2
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("dft = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("mathpipe", "dft", times))
+END FUNC
+
+' stats — mean / variance / stddev over a large Float array (the reduction
+' pattern the per-kernel rows miss: two accumulation passes plus a final sqrt).
+' mean and variance are pure IEEE arithmetic and bit-identical across languages,
+' so the checksum reports them; stddev exercises sqrt but is left out of the
+' checksum. Group `mathpipe`.
+FUNC test_stats(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 200000
+  MUT xs AS List OF Float = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, toFloat(i MOD 1000))
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS String = ""
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT sum AS Float = 0.0
+    FOR EACH v IN xs
+      sum = sum + v
+    NEXT
+    LET mean AS Float = sum / toFloat(n)
+    MUT sq AS Float = 0.0
+    FOR EACH v IN xs
+      LET d AS Float = v - mean
+      sq = sq + d * d
+    NEXT
+    LET variance AS Float = sq / toFloat(n)
+    LET stddev AS Float = math::sqrt(variance)
+    checksum = toString(mean, toByte(6)) & "," & toString(variance, toByte(6))
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("stats = " & checksum)
+  RETURN collections::append(tests, makeResult("mathpipe", "stats", times))
+END FUNC
+
+' finance (mfb-only) — an exact-decimal running-balance / compound-interest calc
+' over Money, the flagship exact base-10 financial type with no C/Python peer.
+' Each pass amortizes a fresh balance across `months` of interest + deposit,
+' settling to whole cents with money::round under the default Commercial mode.
+' Marks Money as a tracked feature. Group `mathpipe`, mfb-only (like `math fixed`).
+FUNC test_finance(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET months AS Integer = 120
+  LET passes AS Integer = 2000
+  LET rate AS Float = 1.004
+  LET deposit AS Money = toMoney(100)
+  LET start AS Money = toMoney(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS String = ""
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT last AS Money = start
+    FOR p = 0 TO passes - 1
+      MUT balance AS Money = start
+      FOR m = 0 TO months - 1
+        balance = money::round(balance * rate, 2)
+        balance = balance + deposit
+      NEXT
+      last = balance
+    NEXT
+    checksum = toString(last)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("finance = " & checksum)
+  RETURN collections::append(tests, makeResult("mathpipe", "finance", times))
+END FUNC

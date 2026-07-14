@@ -143,3 +143,41 @@ FUNC test_string_unicode(run AS Integer, tests AS List OF BenchResult) AS List O
   io::printError("string_unicode = " & toString(checksum))
   RETURN collections::append(tests, makeResult("string", "unicode", times))
 END FUNC
+
+' Unicode at (eventually) realistic size — graphemes / graphemeAt / normalizeNfc
+' / caseFold over a multi-KB mixed-script string. This is the throughput /
+' regression gate for the unicode-churn half of plan-39-E, distinct from the
+' `string unicode` surface smoke-test above.
+'
+' TODO(plan-39-A): the inner count (5) and the base-string repeat (8) are
+' deliberately TINY. graphemes / graphemeAt / normalizeNfc / caseFold allocate
+' mixed-size short-lived List/String temporaries, and the runtime arena free list
+' degrades quadratically under that churn (process-global, cumulative across the
+' `run` loop). Raise both counts to realistic size in the commit that lands
+' plan-39-A; this row is that fix's acceptance gate (tiny -> realistic, linear).
+FUNC test_string_unibig(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET frag AS String = "caf\u{00E9} \u{4E2D}\u{6587} rocket\u{1F680} nai\u{0308}ve Stra\u{00DF}e "
+  MUT base AS String = ""
+  FOR i = 0 TO 7
+    base = base & frag
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 4
+      LET g AS List OF String = strings::graphemes(base)
+      acc = acc + len(g)
+      acc = acc + strings::graphemesCount(base)
+      acc = acc + len(strings::graphemeAt(base, 0))
+      acc = acc + len(strings::normalizeNfc(base))
+      acc = acc + len(strings::caseFold(base))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_unibig = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "unibig", times))
+END FUNC

@@ -1,0 +1,92 @@
+' List-churn benchmarks (plan-40 Theme 1) — build-by-append, prepend-shift, and
+' nested value-semantics copy paths. The per-member `list` rows use tiny N and
+' touch each op once; these grow a real collection in a loop. Group `listchurn`.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' build-by-append — grow a large list via repeated append (the amortized-growth
+' path). 20x the per-member `list append` row so the reallocation path dominates.
+FUNC test_listchurn_append(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 19999
+      nums = collections::append(nums, i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR EACH v IN nums
+      sumv = sumv + v
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("listchurn_append = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("listchurn", "append", times))
+END FUNC
+
+' prepend — grow via repeated prepend, the O(n) front-shift path (quadratic
+' overall). Smaller N than append because every prepend moves the whole list.
+FUNC test_listchurn_prepend(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 1999
+      nums = collections::prepend(nums, i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR EACH v IN nums
+      sumv = sumv + v
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("listchurn_prepend = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("listchurn", "prepend", times))
+END FUNC
+
+' nested — build a List OF List OF Integer, flatten it, and groupBy into a
+' Map OF Integer TO List OF Integer, repeated in a loop. Exercises the
+' value-semantics copy path at depth (append of inner lists, flatten's
+' materialize, groupBy's per-key list growth). API: append / flatten / groupBy.
+FUNC test_listchurn_nested(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET outer AS Integer = 200
+  LET inner AS Integer = 20
+  LET passes AS Integer = 20
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR p = 0 TO passes - 1
+      MUT nested AS List OF List OF Integer = []
+      FOR i = 0 TO outer - 1
+        MUT row AS List OF Integer = []
+        FOR j = 0 TO inner - 1
+          row = collections::append(row, i * inner + j)
+        NEXT
+        nested = collections::append(nested, row)
+      NEXT
+      LET flat AS List OF Integer = collections::flatten(nested)
+      acc = acc + len(flat)
+      MUT sf AS Integer = 0
+      FOR EACH v IN flat
+        sf = sf + v
+      NEXT
+      acc = acc + sf
+      LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(flat, bucketKey, identity)
+      acc = acc + len(groups)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("listchurn_nested = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("listchurn", "nested", times))
+END FUNC

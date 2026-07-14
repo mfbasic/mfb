@@ -13,7 +13,9 @@ cross-checked. The workloads mirror the mfb and C references so the columns line
 up; the bignum test deliberately avoids Python's native pow() and does the same
 base-2^28 limb-list arithmetic as the other two.
 """
+import arenabench
 import bitsbench
+import churnbench
 import csv
 import io
 import json
@@ -21,9 +23,13 @@ import list as listbench
 import mapbench
 import math
 import mathbench
+import mathpipe
 import os
 import re
+import regexbench
+import scalarbench
 import stringbench
+import strbuildbench
 import sys
 import tempfile
 import threading
@@ -571,6 +577,104 @@ def test_io_read():
     record("io", "read", times)
 
 
+def test_io_readnum():
+    path = tmp_path("py-bench-io-readnum.txt")
+    write_lines(path, 20000)
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        sumv = 0
+        with open(path) as f:
+            for line in f:
+                sumv += int(line)
+        checksum = sumv
+        times.append(now_ns() - t0)
+    os.remove(path)
+    print("io_readnum = %d" % checksum, file=sys.stderr)
+    record("io", "readnum", times)
+
+
+def _write_lines_buffered(path, count, buffered):
+    if buffered:
+        f = open(path, "w")            # default (block) buffering
+    else:
+        f = open(path, "w", buffering=1)  # line-buffered ~ one write per line
+    try:
+        for i in range(count):
+            f.write("%d\n" % i)
+    finally:
+        f.close()
+    return count
+
+
+def test_io_buf_on():
+    path = tmp_path("py-bench-io-bufon.txt")
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        checksum = _write_lines_buffered(path, 20000, True)
+        times.append(now_ns() - t0)
+    os.remove(path)
+    print("io_buf_on = %d" % checksum, file=sys.stderr)
+    record("io", "buf_on", times)
+
+
+def test_io_buf_off():
+    path = tmp_path("py-bench-io-bufoff.txt")
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        checksum = _write_lines_buffered(path, 20000, False)
+        times.append(now_ns() - t0)
+    os.remove(path)
+    print("io_buf_off = %d" % checksum, file=sys.stderr)
+    record("io", "buf_off", times)
+
+
+def test_io_format():
+    path = tmp_path("py-bench-io-format.txt")
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        with open(path, "w") as f:
+            for i in range(20000):
+                f.write("%d %.3f row%d\n" % (i, float(i) * 0.5, i))
+        checksum = 20000
+        times.append(now_ns() - t0)
+    os.remove(path)
+    print("io_format = %d" % checksum, file=sys.stderr)
+    record("io", "format", times)
+
+
+def test_io_binary():
+    path = tmp_path("py-bench-io-binary.bin")
+    payload = "".join("byte%d;" % i for i in range(256))
+    data = payload.encode("utf-8")
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        acc = 0
+        for _pass in range(5):
+            with open(path, "wb") as f:
+                f.write(data)
+            with open(path, "rb") as f:
+                back = f.read()
+            sb = 0
+            for b in back:
+                sb += b
+            acc += sb
+        checksum = acc
+        times.append(now_ns() - t0)
+    os.remove(path)
+    print("io_binary = %d" % checksum, file=sys.stderr)
+    record("io", "binary", times)
+
+
 # ===================================================================== #
 # GROUP: primes                                                         #
 # ===================================================================== #
@@ -653,6 +757,9 @@ def main():
     test_nbody()
     test_mandelbrot()
 
+    # float matmul + mathpipe group (dft, stats); finance is mfb-only
+    mathpipe.run_all(RUN, now_ns, record)
+
     test_sin(); test_cos(); test_tan(); test_atan2()
     test_asin(); test_acos(); test_atan()
     test_exp(); test_log(); test_log10(); test_pow(); test_sqrt()
@@ -663,11 +770,20 @@ def main():
     # list group + liststr rows
     listbench.run_all(RUN, now_ns, record)
 
+    # listchurn group (append/prepend/nested)
+    churnbench.run_listchurn(RUN, now_ns, record)
+
     # map group (set/lookup/int_ops/str_ops)
     mapbench.run_all(RUN, now_ns, record)
 
+    # mapchurn group (grow/churn/iterate)
+    churnbench.run_mapchurn(RUN, now_ns, record)
+
     # string group (concat/case/search/slice/unicode)
     stringbench.run_all(RUN, now_ns, record)
+
+    # string unibig + strbuild group (concat/join/splitjoin/clean)
+    strbuildbench.run_all(RUN, now_ns, record)
 
     # bits group (ops)
     bitsbench.run_all(RUN, now_ns, record)
@@ -681,11 +797,25 @@ def main():
     test_parse_json()
     test_parse_regex()
 
+    # regexbench group (compile/capture/alternation/replace)
+    regexbench.run_all(RUN, now_ns, record)
+
     test_io_write()
     test_io_read()
+    test_io_readnum()
+    test_io_buf_on()
+    test_io_buf_off()
+    test_io_format()
+    test_io_binary()
 
     # vector group (math/float/int)
     vectorbench.run_all(RUN, now_ns, record)
+
+    # arena group (transient/mixed/growshrink)
+    arenabench.run_all(RUN, now_ns, record)
+
+    # scalarbench group (roundtrip/classify/transform/listchurn)
+    scalarbench.run_all(RUN, now_ns, record)
 
     test_primes()
 

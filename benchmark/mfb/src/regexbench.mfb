@@ -1,0 +1,104 @@
+' Regex benchmarks (plan-40 Theme 5). The single `parse regex` row measures one
+' findAll shape; these add compile-once/match-many, capture-group rewriting,
+' alternation find-all, and pattern-driven replace, all over ASCII inputs so the
+' match counts are identical across mfb / C (POSIX) / Python. Group `regexbench`.
+'
+' NOTE: mfb's regex compiles the pattern on every call (there is no compiled-
+' pattern handle), so the `compile` row pays a compile per line where C/Python
+' compile once — that gap is itself part of what this row measures. The inputs
+' are kept small (comparable to the existing `parse regex` row): mfb's regex cost
+' grows quadratically in text length, so a genuinely large text would hang the
+' suite. The distinct value here is the shape (capture / alternation / replace),
+' not the volume.
+IMPORT io
+IMPORT strings
+IMPORT regex
+IMPORT collections
+IMPORT datetime
+
+' compile — one pattern, matched over N separate lines (compile-once/match-many;
+' the realistic usage). checksum = total number-token matches across all lines.
+FUNC test_regex_compile(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT lines AS List OF String = []
+  FOR i = 0 TO 24
+    lines = collections::append(lines, "row" & toString(i) & " val " & toString(i * 7))
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT total AS Integer = 0
+    FOR EACH line IN lines
+      total = total + len(regex::findAll(line, "[0-9]+"))
+    NEXT
+    checksum = total
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("regex_compile = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("regexbench", "compile", times))
+END FUNC
+
+' capture — extract 2-3 capture groups per match and rewrite, over many
+' date-like tokens (the tokenizing/parsing hot path; a modest count — see note). $1$2$3 concatenates the
+' three groups, dropping the dashes, so the result is shorter by 2 per match:
+' the length change proves the groups were captured. checksum = result length.
+FUNC test_regex_capture(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT toks AS List OF String = []
+  FOR i = 0 TO 69
+    toks = collections::append(toks, toString(2000 + i) & "-" & toString(i MOD 12) & "-" & toString(i MOD 28))
+  NEXT
+  LET text AS String = strings::join(toks, " ")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET out AS String = regex::replace(text, "([0-9]+)-([0-9]+)-([0-9]+)", "$1$2$3")
+    checksum = len(out)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("regex_capture = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("regexbench", "capture", times))
+END FUNC
+
+' alternation — a `|`-heavy pattern, find-all matches over a repeated text
+' (backtracking / alternation stress). checksum = total match count.
+FUNC test_regex_alternation(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT frags AS List OF String = []
+  FOR i = 0 TO 29
+    frags = collections::append(frags, "the cat and dog saw a bird near fish and owl")
+  NEXT
+  LET text AS String = strings::join(frags, " ")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = len(regex::findAll(text, "cat|dog|bird|fish|owl"))
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("regex_alternation = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("regexbench", "alternation", times))
+END FUNC
+
+' replace — pattern-driven substitution over a string: mask every number-token
+' with "#". checksum = length of the rewritten string.
+FUNC test_regex_replace(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT toks AS List OF String = []
+  FOR i = 0 TO 299
+    toks = collections::append(toks, toString(i) & "-x")
+  NEXT
+  LET text AS String = strings::join(toks, " ")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET out AS String = regex::replace(text, "[0-9]+", "#")
+    checksum = len(out)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("regex_replace = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("regexbench", "replace", times))
+END FUNC
