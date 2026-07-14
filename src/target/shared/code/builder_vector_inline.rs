@@ -8,9 +8,13 @@
 //! `dot` -> `a.x*b.x + a.y*b.y + a.z*b.z`), so the result and its
 //! finiteness-observation (each lane / the final sum) are **bit-identical** to
 //! the FUNC path — it is lowered through the same tested `lower_value` pipeline.
-//! Only ops whose body is pure Float arithmetic are handled, and only when every
-//! operand is cheap and side-effect-free to re-evaluate (the field reads
-//! duplicate each operand once per lane); anything else falls back to the FUNC.
+//! The pure-arithmetic ops (`scale`/`dot`/`cross`) are handled for every element
+//! type — Float, Fixed, and Integer — since their re-lowered `*`/`+`/`-` trees are
+//! bit-identical to the FUNC body (plan-39 C1). `lerp`/`length`/`distance` stay
+//! Float-only (they use `math::sqrt` / Float clamp constants; the Fixed/Integer
+//! bodies differ). Inlining fires only when every operand is cheap and
+//! side-effect-free to re-evaluate (the field reads duplicate each operand once
+//! per lane); anything else falls back to the FUNC.
 
 use super::*;
 
@@ -45,44 +49,73 @@ fn vector_field_index(member: &str) -> Option<usize> {
     }
 }
 
-/// The `_floatN` type suffix, its constructor type name, and its field names.
-fn float_vector_shape(target: &str) -> Option<(&'static str, &'static [&'static str])> {
-    if target.ends_with("_float2") {
-        Some(("Float2", &["x", "y"]))
-    } else if target.ends_with("_float3") {
-        Some(("Float3", &["x", "y", "z"]))
-    } else if target.ends_with("_float4") {
-        Some(("Float4", &["x", "y", "z", "w"]))
-    } else {
-        None
+/// The nine register-native vector shapes: the `_<element><dim>` target suffix,
+/// its constructor type name, its field names, and its element type. plan-39 C1
+/// extends inlining from the Float shapes to the Fixed/Integer shapes for the
+/// pure-arithmetic ops (see `vector_op_inlinable`).
+const VECTOR_SHAPES: &[(&str, &str, &[&str], &str)] = &[
+    ("_float2", "Float2", &["x", "y"], "Float"),
+    ("_float3", "Float3", &["x", "y", "z"], "Float"),
+    ("_float4", "Float4", &["x", "y", "z", "w"], "Float"),
+    ("_fixed2", "Fixed2", &["x", "y"], "Fixed"),
+    ("_fixed3", "Fixed3", &["x", "y", "z"], "Fixed"),
+    ("_fixed4", "Fixed4", &["x", "y", "z", "w"], "Fixed"),
+    ("_integer2", "Integer2", &["x", "y"], "Integer"),
+    ("_integer3", "Integer3", &["x", "y", "z"], "Integer"),
+    ("_integer4", "Integer4", &["x", "y", "z", "w"], "Integer"),
+];
+
+/// The `_<element><dim>` type suffix decoded to its constructor type name, field
+/// names, and element type.
+fn vector_op_shape(target: &str) -> Option<(&'static str, &'static [&'static str], &'static str)> {
+    VECTOR_SHAPES
+        .iter()
+        .find(|(suffix, _, _, _)| target.ends_with(suffix))
+        .map(|(_, type_name, fields, element)| (*type_name, *fields, *element))
+}
+
+/// The bare op name for a `#vector_<op>_<element><dim>` target (suffix stripped).
+fn vector_op_name(target: &str) -> Option<&str> {
+    let op = target.strip_prefix("#vector_")?;
+    Some(
+        VECTOR_SHAPES
+            .iter()
+            .find_map(|(suffix, _, _, _)| op.strip_suffix(suffix))
+            .unwrap_or(op),
+    )
+}
+
+/// Whether `op` (with `argc` args on a vector of `type_name`/`element`) is one of
+/// the ops `try_inline_vector_op` rewrites. `scale`/`dot`/`cross` are pure
+/// arithmetic and inline for **every** element type (their re-lowered `*`/`+`/`-`
+/// trees are bit-identical to the FUNC body, including the integer overflow
+/// checks). `lerp`/`lerp_unclamped`/`length`/`distance` stay Float-only: they use
+/// `math::sqrt` or Float clamp constants, and the Fixed/Integer bodies differ
+/// (software isqrt etc.), so those keep their FUNC path.
+fn vector_op_inlinable(op: &str, argc: usize, type_name: &str, element: &str) -> bool {
+    match (op, argc) {
+        ("scale", 2) | ("dot", 2) => true,
+        ("cross", 2) => type_name.ends_with('3'),
+        ("lerp_unclamped", 3) | ("lerp", 3) | ("length", 1) | ("distance", 2) => element == "Float",
+        _ => false,
     }
 }
 
 /// Whether a `vector::` op call with `target`/`args` will be inlined by
 /// `try_inline_vector_op` (so a `Local` argument to it is read as lanes, never
 /// materialized). Single source of truth shared with the promotion escape
-/// analysis — must mirror the `try_inline_vector_op` match exactly.
+/// analysis — must mirror the `try_inline_vector_op` gate exactly.
 pub(super) fn vector_call_is_inlined(target: &str, args: &[NirValue]) -> bool {
-    let Some((type_name, _)) = float_vector_shape(target) else {
+    let Some((type_name, _, element)) = vector_op_shape(target) else {
         return false;
     };
-    let Some(op) = target.strip_prefix("#vector_") else {
+    let Some(op) = vector_op_name(target) else {
         return false;
     };
-    let op = op
-        .strip_suffix("_float2")
-        .or_else(|| op.strip_suffix("_float3"))
-        .or_else(|| op.strip_suffix("_float4"))
-        .unwrap_or(op);
     if !args.iter().all(is_reevaluation_safe) {
         return false;
     }
-    match (op, args.len()) {
-        ("scale", 2) | ("dot", 2) | ("lerp_unclamped", 3) | ("lerp", 3) | ("length", 1)
-        | ("distance", 2) => true,
-        ("cross", 2) => type_name == "Float3",
-        _ => false,
-    }
+    vector_op_inlinable(op, args.len(), type_name, element)
 }
 
 /// Whether `value` is cheap and side-effect-free to evaluate more than once (a
@@ -199,22 +232,20 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         loc: NirSourceLoc,
     ) -> Result<Option<ValueResult>, String> {
-        let Some(op) = target.strip_prefix("#vector_") else {
+        let Some((type_name, fields, element)) = vector_op_shape(target) else {
             return Ok(None);
         };
-        let Some((type_name, fields)) = float_vector_shape(target) else {
+        let Some(op) = vector_op_name(target) else {
             return Ok(None);
         };
-        // `op` still carries the `_floatN` suffix; keep only the op name.
-        let op = op
-            .strip_suffix("_float2")
-            .or_else(|| op.strip_suffix("_float3"))
-            .or_else(|| op.strip_suffix("_float4"))
-            .unwrap_or(op);
 
-        // Only the pure-Float-arithmetic ops are inlined; every operand must be
+        // Only the recognized ops are inlined (scale/dot/cross for every element
+        // type; lerp/length/distance for Float only); every operand must be
         // re-evaluation-safe (the field reads duplicate it per lane).
         if !args.iter().all(is_reevaluation_safe) {
+            return Ok(None);
+        }
+        if !vector_op_inlinable(op, args.len(), type_name, element) {
             return Ok(None);
         }
         // A binary `op x` node over two synthetic operands at the call's location.
@@ -300,7 +331,7 @@ impl CodeBuilder<'_> {
             // cross (3D, two args): the standard right-handed cross product. The 2D
             // (1-arg perpendicular) and 4D (3-arg) forms have different shapes and
             // are left to the FUNC.
-            ("cross", 2) if type_name == "Float3" => {
+            ("cross", 2) if type_name.ends_with('3') => {
                 let (a, b) = (&args[0], &args[1]);
                 let m = |v: &NirValue, f: &str| Self::vector_field(v, f);
                 let lanes = vec![
