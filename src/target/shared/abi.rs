@@ -1066,6 +1066,11 @@ vector_two_misc!(vector_fcmge_zero, "fcmge_zero_v");
 vector_two_misc!(vector_fcmeq_zero, "fcmeq_zero_v");
 vector_two_misc!(vector_fcmlt_zero, "fcmlt_zero_v");
 vector_two_misc!(vector_fcmle_zero, "fcmle_zero_v");
+// plan-39 K2: `CNT Vd.8B, Vn.8B` (per-byte popcount) and `ADDV Bd, Vn.8B`
+// (horizontal add of the low 8 bytes). Both are `(dst, src)`-shaped; the `.8B`
+// arrangement lives in the encoder base word.
+vector_two_misc!(vector_cnt8b, "cnt8b_v");
+vector_two_misc!(vector_addv8b, "addv8b_v");
 
 vector_shift_imm!(vector_shl, "shl_v");
 vector_shift_imm!(vector_sshr, "sshr_v");

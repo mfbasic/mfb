@@ -149,6 +149,8 @@ impl CodeInstruction {
             | CodeOp::ScvtfV
             | CodeOp::NegV
             | CodeOp::AbsV
+            | CodeOp::Cnt8bV
+            | CodeOp::Addv8bV
             | CodeOp::FCmGtZeroV
             | CodeOp::FCmGeZeroV
             | CodeOp::FCmEqZeroV

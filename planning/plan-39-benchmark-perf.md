@@ -99,10 +99,16 @@ Python by construction).
     (test framework §22), so an outlined overflow handler must preserve the
     per-site source loc AND the per-TRAP-context routing (`error_exit_destination`
     varies by nesting) — so it can't be one shared stub. Real, delicate work.
-- **K** bits popcount — needs a new neutral popcount MIR op; unlike `Clz` (a 1:1
-  native mirror) aarch64 popcount is a multi-instruction NEON expansion
-  (fmov/cnt/addv/fmov), plus x86 POPCNT / riscv codegen I cannot execute-verify on
-  this macOS host. Single P4 row, plan-marked optional — deferred.
+- **K2 (NEON popcount)** — DONE. Added `Backend::is_aarch64()`, the `v128.cnt8b` /
+  `v128.addv8b` MIR ops (`CNT Vd.8B` + `ADDV Bd, Vn.8B` encodings), and an aarch64
+  branch in `lower_bits_popcount` (dup→cnt→addv→umov); x86/riscv keep the exact
+  SWAR (`is_aarch64` false, they never see the new ops — zero change, verified by
+  0-diff gate). popCount verified exact (0,1,7,255,-1,0x5555,2^62,…). Bits ops
+  6.63→~6.55 ms — **neutral** on this benchmark (popCount is 1/18 of the loop and
+  the GPR↔SIMD move latency offsets the fewer instructions), but a correct,
+  faithful K2 that helps popcount-heavy code. **K1** (keep operands
+  register-resident across a fused bits expression) is a general regalloc concern,
+  not bits-specific — not separately addressed.
 - **B math** the real fix is LICM (hoist the loop-invariant vector-constant setup
   out of the runtime loop) or a scalar-register (non-`v`) kernel rewrite — both
   large *general* changes, each multi-day, not the B1 text as written.

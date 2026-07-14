@@ -180,6 +180,9 @@ pub(crate) enum CodeOp {
     // Integer two-reg-misc `.2d`.
     NegV,
     AbsV,
+    // plan-39 K2: `.8B` popcount + horizontal add (for `bits::popCount`).
+    Cnt8bV,
+    Addv8bV,
     // Bitwise three-same `.16b`.
     AndV,
     OrrV,
@@ -362,6 +365,8 @@ impl CodeOp {
             CodeOp::UshlV => "ushl_v",
             CodeOp::NegV => "neg_v",
             CodeOp::AbsV => "abs_v",
+            CodeOp::Cnt8bV => "cnt8b_v",
+            CodeOp::Addv8bV => "addv8b_v",
             CodeOp::AndV => "and_v",
             CodeOp::OrrV => "orr_v",
             CodeOp::EorV => "eor_v",
@@ -517,6 +522,8 @@ impl CodeOp {
             "ushl_v" => Ok(CodeOp::UshlV),
             "neg_v" => Ok(CodeOp::NegV),
             "abs_v" => Ok(CodeOp::AbsV),
+            "cnt8b_v" => Ok(CodeOp::Cnt8bV),
+            "addv8b_v" => Ok(CodeOp::Addv8bV),
             "and_v" => Ok(CodeOp::AndV),
             "orr_v" => Ok(CodeOp::OrrV),
             "eor_v" => Ok(CodeOp::EorV),
@@ -682,6 +689,8 @@ mod tests {
             CodeOp::UshlV,
             CodeOp::NegV,
             CodeOp::AbsV,
+            CodeOp::Cnt8bV,
+            CodeOp::Addv8bV,
             CodeOp::AndV,
             CodeOp::OrrV,
             CodeOp::EorV,

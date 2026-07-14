@@ -368,7 +368,7 @@ impl Encoder {
             "fabs_v" | "fneg_v" | "fsqrt_v" | "frintp_v" | "frintm_v" | "frinta_v" | "frintn_v"
             | "frintz_v" | "fcvtzs_v" | "fcvtas_v" | "scvtf_v" | "neg_v" | "abs_v"
             | "fcmgt_zero_v" | "fcmge_zero_v" | "fcmeq_zero_v" | "fcmlt_zero_v"
-            | "fcmle_zero_v" => self.emit_v_two_misc(
+            | "fcmle_zero_v" | "cnt8b_v" | "addv8b_v" => self.emit_v_two_misc(
                 instruction.op,
                 vreg(field(instruction, "dst")?)?,
                 vreg(field(instruction, "src")?)?,
@@ -482,6 +482,10 @@ impl Encoder {
             CodeOp::FCmEqZeroV => 0x4ee0_d800,
             CodeOp::FCmLtZeroV => 0x4ee0_e800,
             CodeOp::FCmLeZeroV => 0x6ee0_d800,
+            // plan-39 K2: `CNT Vd.8B, Vn.8B` and `ADDV Bd, Vn.8B` — both `.8B`
+            // arrangement (Q=0), so they read the low 8 bytes of Vn only.
+            CodeOp::Cnt8bV => 0x0e20_5800,
+            CodeOp::Addv8bV => 0x0e31_b800,
             other => {
                 return Err(format!(
                     "{} is not a two-reg-misc NEON op",

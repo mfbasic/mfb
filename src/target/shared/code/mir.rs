@@ -240,6 +240,8 @@ mir_ops!(
         // Integer two-reg-misc `.2d`.
         NegV => "v128.neg",
         AbsV => "v128.abs",
+        Cnt8bV => "v128.cnt8b",
+        Addv8bV => "v128.addv8b",
         // Bitwise three-same `.16b`.
         AndV => "v128.and",
         OrrV => "v128.or",
@@ -533,6 +535,13 @@ pub(crate) trait Backend: Sync {
     fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction>;
     /// The register model the shared allocator colors vregs against.
     fn register_model(&self) -> &'static dyn RegisterModel;
+    /// Whether this backend is AArch64 — lets shared codegen pick a NEON path
+    /// (e.g. `bits::popCount` via `CNT`+`ADDV`, plan-39 K2) that other ISAs can't
+    /// express cheaply, while they keep the portable integer sequence. Default
+    /// `false`; only the AArch64 backend overrides it.
+    fn is_aarch64(&self) -> bool {
+        false
+    }
     /// Extra bytes a *called* function must add to its 16-byte-aligned frame so
     /// the stack pointer is 16-byte aligned at its own call sites. On x86-64 the
     /// `call` instruction pushes the 8-byte return address, so a frame that is a
@@ -907,6 +916,8 @@ mod tests {
             (CodeOp::UshlV, "v128.ushl"),
             (CodeOp::NegV, "v128.neg"),
             (CodeOp::AbsV, "v128.abs"),
+            (CodeOp::Cnt8bV, "v128.cnt8b"),
+            (CodeOp::Addv8bV, "v128.addv8b"),
             (CodeOp::AndV, "v128.and"),
             (CodeOp::OrrV, "v128.or"),
             (CodeOp::EorV, "v128.xor"),
@@ -984,6 +995,8 @@ mod tests {
             (CodeOp::UshlV, "2xi64", "unsigned variable shift: rhs>=0 left, rhs<0 logical right"),
             (CodeOp::NegV, "2xi64", "two's-complement negate per lane"),
             (CodeOp::AbsV, "2xi64", "absolute value per lane"),
+            (CodeOp::Cnt8bV, "8xi8", "population count per byte (low 64 bits)"),
+            (CodeOp::Addv8bV, "8xi8", "horizontal unsigned add of the low 8 bytes into lane 0"),
             (CodeOp::AndV, "16xi8", "bitwise and over all 128 bits"),
             (CodeOp::OrrV, "16xi8", "bitwise or over all 128 bits"),
             (CodeOp::EorV, "16xi8", "bitwise xor over all 128 bits"),

@@ -29,4 +29,8 @@ impl Backend for Aarch64Backend {
     fn register_model(&self) -> &'static dyn RegisterModel {
         &AARCH64_MODEL
     }
+
+    fn is_aarch64(&self) -> bool {
+        true
+    }
 }

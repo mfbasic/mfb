@@ -223,6 +223,24 @@ impl CodeBuilder<'_> {
             return Err(format!("bits.popCount does not accept {}", value.type_));
         }
         let text = format!("bits.popCount({})", value.text);
+
+        // plan-39 K2: on AArch64 the 64-bit Hamming weight is a short NEON
+        // sequence — move the value into a `d` register, `CNT` per byte, `ADDV`
+        // the 8 byte-counts into lane 0, and move the (0..=64) sum back — instead
+        // of the 12-instruction SWAR. Other ISAs keep the portable SWAR below.
+        if mir::active_backend().is_aarch64() {
+            let dst = self.allocate_register()?;
+            self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &value.location));
+            self.emit(abi::vector_cnt8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+            self.emit(abi::vector_addv8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+            self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
+            return Ok(ValueResult {
+                type_: "Integer".to_string(),
+                location: dst,
+                text,
+            });
+        }
+
         let acc = self.allocate_register()?;
         let temp = self.allocate_register()?;
         let mask = self.allocate_register()?;
