@@ -1144,24 +1144,32 @@ impl CodeBuilder<'_> {
 
     fn lower_math_sqrt(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        // Fixed keeps its GPR path (raw Q32.32 sqrt); only Float goes d-native.
+        if value.type_ == "Float" {
+            // plan-39 B2: keep sqrt d-register-native — read the operand straight
+            // into a `d` register (no materialize-to-GPR + move-back shuttle),
+            // `fcmp`/`fsqrt` there, and return the `%fN` result so the consumer
+            // (observe_float / a store / another float op) takes it in the FP
+            // domain with no re-load. `fsqrt` is IEEE-exact, so the value and the
+            // domain trap (x<0 or NaN -> ErrFloatDomain) are bit-identical.
+            let text = format!("math.sqrt({})", value.text);
+            let src = self.operand_as_double(&value)?;
+            self.emit(abi::float_compare_zero_d(&src));
+            let valid = self.label("math_sqrt_valid");
+            self.emit(abi::branch_ge(&valid));
+            self.emit_float_domain_return()?;
+            self.emit(abi::label(&valid));
+            let result = self.allocate_fp_register()?;
+            self.emit(abi::float_sqrt_d(&result, &src));
+            return Ok(ValueResult {
+                type_: "Float".to_string(),
+                location: result,
+                text,
+            });
+        }
         let value = self.materialize_float(value)?;
         match value.type_.as_str() {
-            "Float" => {
-                let dst = self.allocate_register()?;
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
-                self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[0]));
-                let valid = self.label("math_sqrt_valid");
-                self.emit(abi::branch_ge(&valid));
-                self.emit_float_domain_return()?;
-                self.emit(abi::label(&valid));
-                self.emit(abi::float_sqrt_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
-                self.emit(abi::float_move_x_from_d(&dst, abi::FP_SCRATCH[0]));
-                Ok(ValueResult {
-                    type_: "Float".to_string(),
-                    location: dst,
-                    text: format!("math.sqrt({})", value.text),
-                })
-            }
+            "Float" => unreachable!("Float handled above"),
             "Fixed" => {
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let valid = self.label("math_fixed_sqrt_valid");
