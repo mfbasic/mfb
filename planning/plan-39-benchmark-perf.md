@@ -131,7 +131,12 @@ Python by construction).
   ≤1 vs macOS-libm). atan 24.5→17.1, asin 29.4→21.2, acos 29.7→22.0, atan2
   31.4→22.3 ms (~26–30% each). Gated: math acceptance 65, artifact-gate 0-diff,
   full acceptance.
-- **B math (remaining pieces)** — beyond B2/B4 (done), the residual is B1/B3, the
+- **B3 (scalar lane-drop)** — DONE. The scalar float error-reduce reads lane 0
+  only (both lanes are identical for a broadcast scalar); array paths still OR both.
+  Bit-identical (all 10 math checksums unchanged); neutral on the benchmark (the
+  dd-Horner body dominates) but a correct simplification.
+- **B math (remaining pieces)** — beyond B2/B4/B3-lane (done), the residual is B1
+  (setup LICM) + the B3 +inf-hoist, the
   **LICM** (hoist the loop-invariant vector-constant kernel setup out of the runtime
   loop, keeping v16–v27 live across it) or a scalar-register (non-`v`) kernel — both
   large *general* optimization passes, each multi-day, and neither is the B1 text as
@@ -149,8 +154,10 @@ Python by construction).
 fib 108→78, thread sum 51.7→40, window 203→116, chunks 30→15, take 10.5→4.3,
 drop 10.8→4.3, zip 7.6→1.8, sortBy 647→68, case 155→67, csv 20→8.4, partition
 18→15, vector int 99→57, modmul 228→22 & modexp 123→12 (beat Python), io write
-26.7→1.7, any/all/findIndex/findLastIndex/reduceRight all ≤3 (COMPLETE). 11 rows
-now COMPLETE (≤5 ms); 2 P1s cleared to beat Python. Every change gated: full
+26.7→1.7, any/all/findIndex/findLastIndex/reduceRight all ≤3 (COMPLETE),
+**atan 24.5→17, asin 29→21, acos 30→22, atan2 31→22 (B4 invtrig scalar branch,
+~26–30%, bit-identical)**. 11 rows now COMPLETE (≤5 ms); 2 P1s cleared to beat
+Python. Every change gated: full
 acceptance 943, artifact-gate 0-diff (byte-deterministic), all checksums unchanged,
 overflow-elision soundness pinned by a new regression fixture. **Only B (the
 precision-capped math-kernel LICM/scalar-rewrite) is not landed.**
