@@ -61,6 +61,25 @@ needing more work: window/chunks/zip (native slice landed for window/chunks;
 zip still source), sortBy/case/csv/partition (much faster but still lose to
 Python by construction).
 
+### Additional findings (2026-07-14, second pass)
+
+- **B2 (sqrt d-native)** — DONE. `lower_math_sqrt` reads the Float operand into a
+  `d` register (`operand_as_double`, no GPR shuttle), `fcmp`/`fsqrt`, returns the
+  `%fN` result d-native. Bit-identical (sqrt checksum 2980093.768938). Committed.
+- **G json/regex do NOT benefit** — investigated and rejected. `strings::graphemes`
+  is a **native O(n)** op; replacing it with a source scalar loop
+  (`utf32Encode`+per-cp `utf32Decode`) regressed json ~1000× (6→5649 ms — the
+  source per-char loop is far slower than the native splitter). csv was the only
+  real parse win because csv's cost was the O(n²) `field & ch` concat, not the
+  materialization. **json/regex are effectively complete as-is** (json 6 ms,
+  regex ~15 ms — regex is structurally heavy by design per the original analysis).
+- **B1 benefit is doubtful for the benchmark shape** — the per-call kernel setup
+  (vector constant broadcasts) executes every *runtime* iteration because it sits
+  in the loop body; a shared out-of-line leaf runs the same setup per call, so it
+  does not remove the per-iteration cost. The real fix would be loop-invariant
+  code motion (hoist the constant setup out of the loop) or a truly scalar
+  (d-register, non-`v`) kernel — both large general changes beyond B1's scope.
+
 ### Still TODO (deferred — high-risk native codegen, next session)
 
 - **B** transcendental/float kernels (sin/cos/tan/pow/log/… P2 cluster, sqrt,
