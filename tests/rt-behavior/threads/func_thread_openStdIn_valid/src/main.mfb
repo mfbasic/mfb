@@ -1,0 +1,28 @@
+IMPORT io
+IMPORT thread
+
+' plan-15: thread::openStdIn / thread::closeStdIn self-form. The main thread is
+' implicitly subscribed at program entry, so openStdIn() is idempotent; after
+' closeStdIn() a stdin read traps ErrInvalidContext (77050019) without touching
+' the OS, so this is deterministic regardless of what stdin holds.
+FUNC main AS Integer
+  thread::openStdIn()
+  thread::closeStdIn()
+  MUT code1 AS Integer = 0
+  LET l1 AS String = io::readLine() TRAP(e)
+    code1 = e.code
+    RECOVER ""
+  END TRAP
+
+  thread::openStdIn()
+  thread::closeStdIn()
+  MUT code2 AS Integer = 0
+  LET l2 AS String = io::readLine() TRAP(e)
+    code2 = e.code
+    RECOVER ""
+  END TRAP
+
+  io::print("closed1=" & toString(code1))
+  io::print("closed2=" & toString(code2))
+  RETURN 0
+END FUNC

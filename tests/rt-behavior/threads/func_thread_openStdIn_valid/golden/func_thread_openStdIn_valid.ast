@@ -1,0 +1,55 @@
+{
+  "project": "func_thread_openStdIn_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.openStdIn", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.closeStdIn", "arguments": [] }, "line": 10 },
+      { "kind": "binding", "mutable": true, "name": "code1", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "l1", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 12,
+        "expression": { "kind": "call", "callee": "io.readLine", "arguments": [] },
+        "handler": [
+        { "kind": "assignment", "name": "code1", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 13 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 14 }
+        ]
+      }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.openStdIn", "arguments": [] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.closeStdIn", "arguments": [] }, "line": 18 },
+      { "kind": "binding", "mutable": true, "name": "code2", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "l2", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 20,
+        "expression": { "kind": "call", "callee": "io.readLine", "arguments": [] },
+        "handler": [
+        { "kind": "assignment", "name": "code2", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 21 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 22 }
+        ]
+      }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closed1=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code1" }] } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closed2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code2" }] } }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}

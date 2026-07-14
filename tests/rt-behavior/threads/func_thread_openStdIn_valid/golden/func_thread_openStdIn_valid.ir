@@ -1,0 +1,66 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_thread_openStdIn_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [] } },
+    { "op": "bind", "line": 11, "mutable": true, "name": "code1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [] } },
+    { "op": "bind", "line": 12, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
+    {
+      "op": "if",
+      "line": 12,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 12, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 12, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 13, "name": "code1", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "assign", "line": 14, "name": "$trap_val1", "value": { "kind": "const", "type": "String", "value": "" } }
+      ]
+    },
+    { "op": "bind", "line": 12, "mutable": false, "name": "l1", "type": "String", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [] } },
+    { "op": "bind", "line": 19, "mutable": true, "name": "code2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [] } },
+    { "op": "bind", "line": 20, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
+    {
+      "op": "if",
+      "line": 20,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "line": 20, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 20, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 21, "name": "code2", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "assign", "line": 22, "name": "$trap_val3", "value": { "kind": "const", "type": "String", "value": "" } }
+      ]
+    },
+    { "op": "bind", "line": 20, "mutable": false, "name": "l2", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "closed1=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "code1" }] } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "closed2=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "code2" }] } }] } },
+    { "op": "return", "line": 27, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

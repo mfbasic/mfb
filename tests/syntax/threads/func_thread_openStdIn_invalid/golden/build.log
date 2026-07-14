@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/threads/func_thread_openStdIn_invalid
+   4 | ' Integer argument is rejected at compile time.
+   5 | FUNC main AS Integer
+   6 |   thread::openStdIn(42)
+     | ^
+tests/syntax/threads/func_thread_openStdIn_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.openStdIn` has argument type(s) (Integer), expected () or Thread OF Msg TO Out.
+[exit 1]

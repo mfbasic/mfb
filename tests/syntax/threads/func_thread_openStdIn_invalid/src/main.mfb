@@ -1,0 +1,8 @@
+IMPORT thread
+
+' plan-15: thread::openStdIn accepts only () or a parent Thread handle. An
+' Integer argument is rejected at compile time.
+FUNC main AS Integer
+  thread::openStdIn(42)
+  RETURN 0
+END FUNC
