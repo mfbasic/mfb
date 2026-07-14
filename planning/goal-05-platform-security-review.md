@@ -1,7 +1,7 @@
 # goal-05: MFBASIC platform security review — code-grounded, trust-boundary audit
 
-Last updated: 2026-07-13
-Status: NOT STARTED (0 / 8 surfaces audited)
+Last updated: 2026-07-14
+Status: COMPLETE (8 / 8 surfaces audited) — see `planning/audit-2-summary.md`
 
 ## Objective
 
@@ -230,13 +230,32 @@ Each finding must include:
 
 ## Findings ledger
 
-Update as findings are filed.
+Full detail in `planning/audit-2-summary.md` + per-surface `audit-2-*.md`. Open
+items only (all four audit-1 CRITICAL and most HIGH re-verified as FIXED).
 
 | ID | Surface | Title | Severity | Repro | Bug doc |
 |----|---------|-------|----------|-------|---------|
-| _(none yet)_ | | | | | |
+| FE-02 | 2 frontend | Monomorph polymorphic recursion → SIGABRT | HIGH | built binary | bug-182 |
+| FE-03 | 2 frontend | Statement-block recursion → SIGABRT (before ir::verify) | HIGH | built binary | bug-183 |
+| OS-01 | 4 fs/net | File builtins open 0o666 → world-readable secrets | HIGH | code | bug-184 |
+| OS-02 | 4 fs/net | net.accept ignores timeoutMs → indefinite block | HIGH | code | bug-185 |
+| LNK-01 | 6 linker | Linux non-PIE (ET_EXEC @ 0x400000) → ASLR defeated | HIGH | readelf | bug-186 |
+| OS-09 | 4 fs/net | HTTP header CRLF injection (request splitting) | MEDIUM | code | — (small) |
+| SUP-02 | 8 supply | First-contact TOFU on registry server key | MEDIUM | scenario | bug-189 |
+| SUP-03 | 8 supply | Unauthenticated /index version list → downgrade | MEDIUM | scenario | bug-189 |
+| LNK-08 | 6 linker | Program constants writable at runtime (no rodata) | MEDIUM | readelf/otool | bug-187 |
+| REPO-13 | 7 registry | No rate/quota on /validate+/publish → CPU/disk DoS | MEDIUM | curl | bug-188 |
+| REPO-12 | 7 registry | Global register/login rate buckets → lockout DoS | MEDIUM | curl | — (small) |
+| OS-03/04/05 | 4 fs/net | TOCTOU / symlink / unbounded (audit-1, still open) | MEDIUM | — | — |
+| LNK-02/03 | 6 linker | No GNU_STACK / Linux RELRO (fold into PIE rework) | MEDIUM | — | bug-186 |
+| REPO-09 | 7 registry | Global Mutex<Connection> + poison (audit-1, open) | MEDIUM | — | — |
+| PKG-08 | 1 decode | Scalar const escapes literal-range verifier | LOW | sketch | — |
+| MEM-09 | 3 codegen | Bin-park double-free guard parity gap | LOW | — | — |
+| (LOW×14, NTH×3) | — | see audit-2-summary.md master table | LOW/NTH | — | — |
 
-Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 0 · NTH 0.
+Tallies: CRITICAL 0 · HIGH 5 · MEDIUM 12 · LOW 19 · NTH 3 (+2 not-demonstrated).
+All 5 HIGH are re-verified still-open audit-1 items; 0 new HIGH, 0 CRITICAL.
+Bug docs filed: bug-182..bug-189 (8). Next free bug number: 190.
 
 ## Attack-surface map & progress
 
@@ -246,105 +265,113 @@ Audited by surface. Mark `- [x]` with a verdict when a surface is fully covered
 
 **Surface 1 — Untrusted `.mfp` package decode + signature / IR verification**
 _Untrusted party: author of a `.mfp` artifact on the dependency path._
+_Verdict: **HARDENED** — PKG-01..07 all fixed & re-verified; one new LOW (PKG-08). `audit-2-package-decode.md`._
 
-- [ ] `src/binary_repr/reader.rs`
-- [ ] `src/binary_repr/sections.rs`
-- [ ] `src/binary_repr/util.rs`
-- [ ] `src/binary_repr/builder.rs`
-- [ ] `src/binary_repr/mod.rs`
-- [ ] `src/target/package_mfp/mod.rs`
-- [ ] `src/manifest/entry.rs`
-- [ ] `src/manifest/package.rs`
-- [ ] `src/manifest/mod.rs`
-- [ ] `src/target/shared/validate.rs`
-- [ ] `src/cli/build.rs` (signature/hash gate at import/build)
-- [ ] `src/cli/resolve.rs`
+- [x] `src/binary_repr/reader.rs`
+- [x] `src/binary_repr/sections.rs`
+- [x] `src/binary_repr/util.rs`
+- [x] `src/binary_repr/builder.rs`
+- [x] `src/binary_repr/mod.rs`
+- [x] `src/target/package_mfp/mod.rs`
+- [x] `src/manifest/entry.rs`
+- [x] `src/manifest/package.rs`
+- [x] `src/manifest/mod.rs`
+- [x] `src/target/shared/validate.rs`
+- [x] `src/cli/build.rs` (signature/hash gate at import/build)
+- [x] `src/cli/resolve.rs`
 
 **Surface 2 — Language front-end (lexer / parser / resolver / syntaxcheck / monomorph)**
 _Untrusted party: author of an arbitrary `.mfb` source file._
+_Verdict: FE-01/04/05 fixed; **FE-02 & FE-03 HIGH still-open DoS** (reproduced) → bug-182/183. `audit-2-frontend.md`._
 
-- [ ] `src/lexer.rs`
-- [ ] `src/escape.rs`
-- [ ] `src/numeric.rs`
-- [ ] `src/ast/**` (expr/stmt recursion depth)
-- [ ] `src/resolver/**`
-- [ ] `src/syntaxcheck/**`
-- [ ] `src/monomorph/**` (polymorphic-recursion instantiation)
-- [ ] `src/ir/**` (verify / lower)
+- [x] `src/lexer.rs`
+- [x] `src/escape.rs`
+- [x] `src/numeric.rs`
+- [x] `src/ast/**` (expr/stmt recursion depth)
+- [x] `src/resolver/**`
+- [x] `src/syntaxcheck/**`
+- [x] `src/monomorph/**` (polymorphic-recursion instantiation)
+- [x] `src/ir/**` (verify / lower)
 
 **Surface 3 — Codegen & runtime memory safety (arena / collections / strings / arithmetic / SIMD / vector)**
 _Untrusted party: whoever controls runtime inputs (sizes, strings, transfers)._
+_Verdict: **HARDENED** — MEM-01..08 all fixed; new MEM-09 LOW (guard parity), MEM-10 not-demonstrated. `audit-2-codegen-memory.md`._
 
-- [ ] `src/target/shared/code/entry_and_arena.rs`
-- [ ] `src/target/shared/code/builder_arena_transfer.rs`
-- [ ] `src/target/shared/code/builder_strings.rs`
-- [ ] `src/target/shared/code/builder_strings_builtins.rs`
-- [ ] `src/target/shared/code/builder_collection_layout.rs`
-- [ ] `src/target/shared/code/builder_collection_queries.rs`
-- [ ] `src/target/shared/code/builder_values.rs`
-- [ ] `src/target/shared/code/builder_numeric.rs`
-- [ ] `src/target/shared/code/builder_money_math.rs`
-- [ ] `src/target/shared/code/builder_simd_math.rs`
-- [ ] `src/target/shared/code/builder_simd_float_math.rs`
-- [ ] `src/target/shared/code/builder_vector_inline.rs`
-- [ ] `src/target/shared/code/runtime_helpers.rs`
-- [ ] `src/target/shared/code/validation.rs`
-- [ ] `src/arch/**`, `src/target/{linux_aarch64,linux_x86_64,linux_riscv64,macos_aarch64}/**` (per-target emit)
+- [x] `src/target/shared/code/entry_and_arena.rs`
+- [x] `src/target/shared/code/builder_arena_transfer.rs`
+- [x] `src/target/shared/code/builder_strings.rs`
+- [x] `src/target/shared/code/builder_strings_builtins.rs`
+- [x] `src/target/shared/code/builder_collection_layout.rs`
+- [x] `src/target/shared/code/builder_collection_queries.rs`
+- [x] `src/target/shared/code/builder_values.rs`
+- [x] `src/target/shared/code/builder_numeric.rs`
+- [x] `src/target/shared/code/builder_money_math.rs`
+- [x] `src/target/shared/code/builder_simd_math.rs`
+- [x] `src/target/shared/code/builder_simd_float_math.rs`
+- [x] `src/target/shared/code/builder_vector_inline.rs`
+- [x] `src/target/shared/code/runtime_helpers.rs`
+- [x] `src/target/shared/code/validation.rs`
+- [x] `src/arch/**`, `src/target/{linux_aarch64,linux_x86_64,linux_riscv64,macos_aarch64}/**` (per-target emit)
 
 **Surface 4 — Filesystem / network / thread runtime helpers**
 _Untrusted party: remote net/http peer; attacker-controlled paths/filenames._
+_Verdict: **OS-01 & OS-02 HIGH still-open** → bug-184/185; new OS-09 MEDIUM (CRLF), OS-10/11 LOW. `audit-2-fs-net-thread.md`._
 
-- [ ] `src/target/shared/code/fs_helpers_io.rs`
-- [ ] `src/target/shared/code/fs_helpers_paths.rs`
-- [ ] `src/target/shared/code/fs_helpers_atomic.rs`
-- [ ] `src/target/shared/code/builder_fs_paths.rs`
-- [ ] `src/target/shared/code/os.rs`
-- [ ] `src/target/shared/code/stdin_broadcast.rs`
-- [ ] `src/builtins/{fs,net,http,thread,os,io}.rs`
-- [ ] `src/target/shared/runtime/{fs_specs,net_specs,os_specs,thread_specs,io_specs}.rs`
+- [x] `src/target/shared/code/fs_helpers_io.rs`
+- [x] `src/target/shared/code/fs_helpers_paths.rs`
+- [x] `src/target/shared/code/fs_helpers_atomic.rs`
+- [x] `src/target/shared/code/builder_fs_paths.rs`
+- [x] `src/target/shared/code/os.rs`
+- [x] `src/target/shared/code/stdin_broadcast.rs`
+- [x] `src/builtins/{fs,net,http,thread,os,io}.rs`
+- [x] `src/target/shared/runtime/{fs_specs,net_specs,os_specs,thread_specs,io_specs}.rs`
 
 **Surface 5 — Crypto / TLS / verification**
 _Untrusted party: remote TLS peer; author of a signed `.mfp`._
+_Verdict: **CLEAN** — fail-closed TLS+ECDSA, no bypass/predictable-secret; only CRY-01/02 LOW, CRY-03 NTH; bug-96 fixed. `audit-2-crypto-tls.md`._
 
-- [ ] `src/target/shared/code/crypto_ec.rs`
-- [ ] `src/target/shared/runtime/crypto_specs.rs`
-- [ ] `src/builtins/crypto.rs`
-- [ ] `src/builtins/tls.rs`
-- [ ] Ed25519 `.mfp` signature path (cross-ref Surface 1)
-- [ ] `repository/src/crypto.rs` (cross-ref Surface 7)
+- [x] `src/target/shared/code/crypto_ec.rs`
+- [x] `src/target/shared/runtime/crypto_specs.rs`
+- [x] `src/builtins/crypto.rs`
+- [x] `src/builtins/tls.rs`
+- [x] Ed25519 `.mfp` signature path (cross-ref Surface 1)
+- [x] `repository/src/crypto.rs` (cross-ref Surface 7)
 
 **Surface 6 — Custom linker & emitted-binary hardening (Mach-O / ELF)**
 _Untrusted party: attacker exploiting an emitted binary at runtime._
+_Verdict: LNK-04/06 + macOS RELRO fixed; **LNK-01 HIGH still-open** (non-PIE) → bug-186; new LNK-08 MEDIUM → bug-187; LNK-02/03(linux) MEDIUM. `audit-2-linker-hardening.md`._
 
-- [ ] `src/os/linux/link/elf.rs`
-- [ ] `src/os/linux/link/mod.rs`
-- [ ] `src/os/linux/object.rs`
-- [ ] `src/os/macos/link/macho.rs`
-- [ ] `src/os/macos/link/commands.rs`
-- [ ] `src/os/macos/link/mod.rs`
-- [ ] `src/os/macos/object.rs`
-- [ ] `src/os/macos/icon.rs`
+- [x] `src/os/linux/link/elf.rs`
+- [x] `src/os/linux/link/mod.rs`
+- [x] `src/os/linux/object.rs`
+- [x] `src/os/macos/link/macho.rs`
+- [x] `src/os/macos/link/commands.rs`
+- [x] `src/os/macos/link/mod.rs`
+- [x] `src/os/macos/object.rs`
+- [x] `src/os/macos/icon.rs`
 
 **Surface 7 — Package registry HTTP service (auth / transparency log / TUF metadata / blobs)**
 _Untrusted party: any remote registry client (anonymous or token-holding)._
+_Verdict: authz sound (no cross-owner bypass/forgery); REPO-01/05/07/08/10/11 fixed; new REPO-12/13 MEDIUM (DoS) → bug-188, REPO-14..19 LOW/NTH. `audit-2-repository.md`._
 
-- [ ] `repository/src/server.rs` (all routes: auth/challenge/login, signing, log/*, keys/rotate, machines/*, tokens/*, packages/transfer/*, root/snapshot/timestamp.json, validate, publish, blob)
-- [ ] `repository/src/validation.rs`
-- [ ] `repository/src/crypto.rs`
-- [ ] `repository/src/abi.rs`
-- [ ] `repository/src/store.rs`
-- [ ] `repository/src/local.rs`
-- [ ] `repository/src/blobstore.rs`
-- [ ] `repository/src/package.rs`
-- [ ] `repository/src/log.rs`
-- [ ] `repository/docker-entrypoint.sh` (untrusted config only)
+- [x] `repository/src/server.rs` (all routes: auth/challenge/login, signing, log/*, keys/rotate, machines/*, tokens/*, packages/transfer/*, root/snapshot/timestamp.json, validate, publish, blob)
+- [x] `repository/src/validation.rs`
+- [x] `repository/src/crypto.rs`
+- [x] `repository/src/abi.rs`
+- [x] `repository/src/store.rs`
+- [x] `repository/src/local.rs`
+- [x] `repository/src/blobstore.rs`
+- [x] `repository/src/package.rs`
+- [x] `repository/src/log.rs`
+- [x] `repository/docker-entrypoint.sh` (untrusted config only)
 
 **Surface 8 — Supply chain: install / resolve / registry client (compiler side)**
 _Untrusted party: malicious or MITM'd registry; spoofed dependency source._
+_Verdict: install NOT blind (SUP-04 positive — dual §3.5 verify); new SUP-02/03 MEDIUM (bootstrap TOFU + downgrade) → bug-189, SUP-01 LOW. `audit-2-supply-chain.md`._
 
-- [ ] `src/cli/pkg.rs`
-- [ ] `src/cli/repo.rs`
-- [ ] `src/cli/resolve.rs`
-- [ ] `src/cli/init.rs`
-- [ ] `repository/src/client.rs`
-- [ ] cross-ref Surface 1 (`.mfp` verification) and Surface 5 (signature crypto)
+- [x] `src/cli/pkg.rs`
+- [x] `src/cli/repo.rs`
+- [x] `src/cli/resolve.rs`
+- [x] `src/cli/init.rs`
+- [x] `repository/src/client.rs`
+- [x] cross-ref Surface 1 (`.mfp` verification) and Surface 5 (signature crypto)
