@@ -17,6 +17,7 @@ pub(crate) fn lower_program_entry(
     seed_rng: bool,
     register_signal_handlers: bool,
     capture_args: bool,
+    subscribe_stdin: bool,
 ) -> Result<CodeFunction, String> {
     // bug-175 I: the `entry_exit_range_error` handler (and its label) is emitted
     // only for an `Integer` entry, but the range-check branch to it is emitted for
@@ -321,6 +322,18 @@ pub(crate) fn lower_program_entry(
             abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
             abi::branch_ne(error_label),
         ]);
+    }
+    // plan-15 §4.5: subscribe the main thread to the stdin broadcast log at the
+    // current frontier (fill == 0 here), so a single-threaded program reads stdin
+    // with no `thread::openStdIn` call and stays byte-identical to a direct reader.
+    // Runs after the global/link initializers (so the log's lazy setup is
+    // single-threaded) and before the entry call; clobbers x0–x17, but the args
+    // materialization below re-derives x0 from the frame. Workers subscribe
+    // explicitly via `thread::openStdIn(worker)`.
+    if subscribe_stdin {
+        instructions.push(abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER));
+        instructions.push(abi::branch_link(STDIN_SUBSCRIBE_SYMBOL));
+        relocations.push(internal_branch(entry_symbol, STDIN_SUBSCRIBE_SYMBOL));
     }
     if language_entry_accepts_args {
         // The args region sits at the top of the entry frame (above the

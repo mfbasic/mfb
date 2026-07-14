@@ -558,6 +558,11 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// (plan-31-B). Set only when the module uses `os.args`, so the entry of a
     /// program that never calls `os::args()` is byte-identical to before.
     pub(crate) capture_args: bool,
+    /// Subscribe the main thread to the stdin broadcast log at entry (plan-15 §4.5).
+    /// Set when the module uses a stdin builtin, so a single-threaded program reads
+    /// stdin with no `thread::openStdIn` call and is byte-identical to a direct
+    /// reader; a worker still subscribes explicitly with `thread::openStdIn(worker)`.
+    pub(crate) subscribe_stdin: bool,
 }
 
 #[derive(Clone, Copy)]

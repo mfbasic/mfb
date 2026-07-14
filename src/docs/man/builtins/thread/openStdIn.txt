@@ -25,17 +25,17 @@ DESCRIPTION
   joins at the current frontier — the next byte the runtime has yet to read — and
   sees every byte that arrives after. There is no "replay from the start" form.
 
-  Every thread that reads standard input must subscribe first — including the main
-  thread. There is no implicit subscription, so the simplest line-reading program
-  calls openStdIn() before its first io::readLine. openStdIn is idempotent —
-  subscribing an already-subscribed thread is a no-op.
+  A single-threaded program never needs to call openStdIn: the compiler inserts an
+  implicit main-thread subscription at program entry (before any input is read),
+  so main's cursor starts at offset 0 and it sees the whole stream. openStdIn is
+  idempotent — subscribing an already-subscribed thread is a no-op — so the
+  explicit call is harmless and documents intent.
 
   A thread that reads stdin (io::readLine, io::input, io::readChar, io::readByte)
   without a subscription raises ErrInvalidContext rather than silently seeing an
   empty stream. Reclamation is bounded: the log's memory is bounded by a
-  build-time high-water mark (the project.json "config" stdinLogCap, default
-  4 MiB), and a stalled subscriber applies backpressure to the reader rather than
-  growing memory without limit.
+  build-time high-water mark, and a stalled subscriber applies backpressure to the
+  reader rather than growing memory without limit.
 
 PARAMETERS
   t AS Thread OF Msg TO Out
@@ -49,7 +49,7 @@ RETURN VALUE
     current stream frontier.
 
 EXAMPLES
-  Subscribe the calling thread before reading (required):
+  Subscribe the calling thread explicitly:
 
     thread::openStdIn()
     LET line AS String = io::readLine()

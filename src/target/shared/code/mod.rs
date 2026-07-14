@@ -779,6 +779,8 @@ pub(crate) fn lower_module_for_platform(
                     seed_rng: uses_rng,
                     register_signal_handlers,
                     capture_args: module_uses_call(module, "os.args"),
+                    // App mode reads the window input pipe, not fd 0 — no broadcast log.
+                    subscribe_stdin: false,
                 },
                 &platform_imports,
             )?);
@@ -800,6 +802,18 @@ pub(crate) fn lower_module_for_platform(
                     seed_rng: uses_rng,
                     register_signal_handlers,
                     capture_args: module_uses_call(module, "os.args"),
+                    subscribe_stdin: module_uses_any_call(
+                        module,
+                        &[
+                            "io.readLine",
+                            "io.input",
+                            "io.readChar",
+                            "io.readByte",
+                            "io.pollInput",
+                            "thread.openStdIn",
+                            "thread.closeStdIn",
+                        ],
+                    ),
                 },
                 &platform_imports,
             )?);
