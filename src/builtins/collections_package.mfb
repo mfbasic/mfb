@@ -63,18 +63,13 @@ FUNC __collections_sort OF T(value AS List OF T) AS List OF T
   RETURN src
 END FUNC
 
+' plan-39 A4: take/drop are contiguous ranges, so delegate to __collections_slice
+' (natively lowered as a bulk range copy). __collections_slice clamps start into
+' [0, len] and stop into [start, len], which reproduces the old element-by-element
+' bounds exactly: take(count) = slice(0, count) (count<0 or >len both collapse the
+' same way), drop(count) = slice(count, len).
 FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
-  MUT result AS List OF T = []
-  MUT limit AS Integer = count
-  IF limit > len(value) THEN
-    limit = len(value)
-  END IF
-  MUT i AS Integer = 0
-  WHILE i < limit
-    result = collections::append(result, collections::get(value, i))
-    i = i + 1
-  WEND
-  RETURN result
+  RETURN __collections_slice(value, 0, count)
 END FUNC
 
 ' --- internal helpers ---------------------------------------------------------
@@ -162,16 +157,7 @@ FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS 
 END FUNC
 
 FUNC __collections_drop OF T(value AS List OF T, count AS Integer) AS List OF T
-  MUT result AS List OF T = []
-  MUT i AS Integer = count
-  IF i < 0 THEN
-    i = 0
-  END IF
-  WHILE i < len(value)
-    result = collections::append(result, collections::get(value, i))
-    i = i + 1
-  WEND
-  RETURN result
+  RETURN __collections_slice(value, count, len(value))
 END FUNC
 
 FUNC __collections_reduceRight OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U

@@ -555,6 +555,12 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.try_inline_vector_op(target, args, *loc)? {
                     return Ok(result);
                 }
+                // plan-39 A4: lower the internal `#collections_slice$T` helper
+                // (window/chunks) as a native contiguous-range copy instead of the
+                // element-by-element FUNC. Non-list / unsupported types fall back.
+                if let Some(result) = self.try_inline_slice_op(target, args)? {
+                    return Ok(result);
+                }
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {
