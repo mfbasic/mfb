@@ -1,12 +1,16 @@
 # plan-40: Benchmark coverage — critical-feature hot paths to add
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 Effort: medium (each benchmark is a self-contained `test_*` in all three languages)
 Companion to `planning/plan-39-benchmark-perf.md` (the fix plan).
 
 The current suite (`benchmark/{mfb,c,python}`) is an **API-surface coverage
 check**: it calls *every* `collections::`, `math::`, `vector::`, `bits::`,
-`strings::` member once over each element type. That proves the surface works and
+`strings::` member once over each element type — but it does **not** yet touch the
+`Scalar` primitive (plan-41: 32-bit Unicode codepoint, backtick literal, `toScalar`/
+`toInt`/`toByte`/`toString` conversions with inline UTF-8, `strings::toScalars`/
+`fromScalars` + the five `is*` predicates, and a 4-byte `List OF Scalar` payload
+width) at all. That proves the surface works and
 catches single-op regressions, but it does **not** exercise the *patterns real
 programs hit* — sustained churn, mixed pipelines, compile-once/run-many. This plan
 adds throughput benchmarks for those hot paths, tracked as **critical MFB
@@ -137,16 +141,50 @@ calls out. These exist **to catch the quadratic regression** and prove A fixed i
 24. **grow-shrink** — repeatedly grow a collection then `take`/`drop` it back down
     (free-list coalescing stress). API: `append`/`take`/`drop`.
 
+### Theme 7 — Scalar / codepoint processing (new group `scalarbench`) — tracks plan-41
+
+The `Scalar` primitive (plan-41) is a flagship new feature with **zero** benchmark
+coverage. It touches four hot paths the string rows above never hit: inline UTF-8
+encode/decode at the string↔scalar boundary, the Unicode-category table the `is*`
+predicates share, the scalar/int/byte conversion round-trip, and the new **4-byte**
+collection payload width (`store_u32`/`load_u32`, distinct from the 8-byte Integer
+and 1-byte Byte lists). These rows make Scalar a tracked feature and give plan-41's
+codegen a throughput regression gate. Python peers exist (`ord`/`chr`/`str.isalpha`
+&c.), so keep them cross-language; C peers use `char32_t`/manual UTF-8.
+
+25. **string ↔ scalars round-trip** — `strings::toScalars` decomposes a multi-KB
+    mixed-script string into a `List OF Scalar`, then `strings::fromScalars`
+    reassembles it, in a loop (the inline-UTF-8 decode+encode hot path + 4-byte
+    collection build). **Arena-gated (plan-39-A):** allocates a fresh `List OF
+    Scalar` each pass — author tiny now, raise N when A lands.
+26. **scalar classification sweep** — over a large `List OF Scalar`, tally how many
+    satisfy each of `strings::isLetter`/`isDigit`/`isWhitespace`/`isUpper`/`isLower`
+    (the shared Unicode-category-table lookup; also the first row to pay the
+    companion table parse under load). Checksum the five counts across languages.
+    API: `isLetter`/`isDigit`/`isWhitespace`/`isUpper`/`isLower`.
+27. **scalar transform pipeline** — map each `Scalar` through `toInt` → codepoint
+    arithmetic (e.g. a ROT-style shift / case toggle) → `toScalar`, then
+    `fromScalars` back to a string, in a loop (the scalar↔int conversion round-trip
+    in a tight loop). Cross-language via `ord`/`chr`. API: `toInt`/`toScalar` +
+    `toScalars`/`fromScalars`.
+28. **scalar list churn (4-byte payload gate)** — build/scan/compare a large `List
+    OF Scalar`, exercising the new 4-byte collection payload width and codepoint
+    ordering (`<`/`>` by codepoint, non-numeric). Contrast against the 8-byte
+    Integer and 1-byte Byte list rows to isolate the width. **Arena-gated
+    (plan-39-A):** author tiny, raise N when A lands. Ties to plan-41-C's layout.
+
 ## Rollout / phasing
 
 - **Phase 1 (now, safe):** themes 1–5 rows that are *not* arena-sensitive (map
   grow/rehash, matmul, fft, stats, string builder, split/join, line-read, buffered
-  vs unbuffered, stdout, regex compile-once/capture/alternation/replace). These
-  measure real gaps immediately and give plan-39 more signal.
+  vs unbuffered, stdout, regex compile-once/capture/alternation/replace), plus the
+  Scalar rows that don't build a large `List OF Scalar` per pass (classification
+  sweep, transform pipeline — authored tiny for the list-build portion, `TODO(plan-39-A)`).
+  These measure real gaps immediately and give plan-39 more signal.
 - **Phase 2 (with plan-39-A):** all arena-gated rows (unicode realistic, binary
-  round-trip, arena-stress group, transient churn) — authored tiny in Phase 1 with
-  `TODO(plan-39-A)`, bumped to realistic N in the commit that lands A, doubling as
-  its acceptance gate.
+  round-trip, arena-stress group, transient churn, Scalar string↔scalars round-trip
+  and scalar list churn) — authored tiny in Phase 1 with `TODO(plan-39-A)`, bumped
+  to realistic N in the commit that lands A, doubling as its acceptance gate.
 - Each new row lands in all three languages simultaneously with a matching
   checksum, updates `benchmark/README.md`'s coverage table, and keeps the
   git-ignored logs regenerable via `benchmark/run.sh`.
