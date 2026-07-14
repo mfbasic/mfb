@@ -1,0 +1,12 @@
+{
+  "name": "func_thread_closeStdIn_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "stdin_workers", "version": "=0.1.0", "source": "file:packages/stdin_workers.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

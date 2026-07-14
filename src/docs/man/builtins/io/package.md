@@ -57,6 +57,18 @@ each standard stream: in a normal console program these are file descriptors 0,
 1, and 2; in app mode the same calls are routed to the application transcript
 window, which is treated as an interactive terminal.
 
+Standard input is a per-thread broadcast. The runtime owns file descriptor 0 and
+reads it in chunks into one process-global append-only log; each *subscribed*
+thread reads its own cursor over that log, so the syscall count collapses from one
+`read` per byte to roughly one per several kilobytes, every subscriber sees the
+whole stdin stream from its subscription point, and a byte read by one thread is
+never consumed out from under another. A single-threaded program is byte-identical
+to a direct per-byte reader: the compiler subscribes the main thread at program
+entry, so the same bytes, the same end-of-input position, and the same
+`io::pollInput` results are observed with no source change. A thread other than
+main must subscribe with `thread::openStdIn` before reading, or the read raises
+`ErrInvalidContext`; `thread::closeStdIn` unsubscribes.
+
 Thread cancellation is cooperative: the runtime does not asynchronously interrupt
 a standard-input read, so a worker that needs prompt cancellation should poll
 with `io::pollInput` and check `thread::isCancelled` between waits.
@@ -70,3 +82,4 @@ with `io::pollInput` and check `thread::isCancelled` between waits.
 | `77020004` | `ErrEncoding` | raised by `io::input`, `io::readLine`, and `io::readChar` when the bytes read do not form a valid UTF-8 sequence [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
 | `77020005` | `ErrInput` | raised by `io::input`, `io::readLine`, `io::readChar`, `io::readByte`, and `io::pollInput` when reading or polling standard input fails for any other reason [[src/target/shared/code/error_constants.rs:ERR_INPUT_CODE]] |
 | `77010001` | `ErrOutOfMemory` | raised by `io::input`, `io::readLine`, and `io::readChar` when the line buffer or returned `String` cannot be allocated [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050019` | `ErrInvalidContext` | raised by `io::input`, `io::readLine`, `io::readChar`, and `io::readByte` when the calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn` [[src/target/shared/code/error_constants.rs:ERR_INVALID_CONTEXT_CODE]] |

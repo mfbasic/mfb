@@ -1,0 +1,25 @@
+IMPORT io
+IMPORT thread
+IMPORT stdin_workers
+
+' plan-15: exercise every thread::openStdIn / thread::closeStdIn overload — the
+' no-arg self form and the parent-Thread-handle worker form — plus the teardown
+' auto-unsubscribe of a subscribed worker that exits without reading. No stdin is
+' read, so the result is deterministic regardless of what stdin holds.
+FUNC main AS Integer
+  LET w1 AS Thread OF Integer TO Integer = thread::start(stdin_workers::doubleIt, 21, 1, 1)
+  LET w2 AS Thread OF Integer TO Integer = thread::start(stdin_workers::doubleIt, 100, 1, 1)
+  thread::openStdIn(w1)
+  thread::openStdIn(w2)
+  thread::closeStdIn(w1)
+  thread::openStdIn(w1)
+  thread::openStdIn()
+  thread::closeStdIn()
+  thread::send(w1, 0)
+  thread::send(w2, 0)
+  LET c1 AS Integer = thread::waitFor(w1)
+  LET c2 AS Integer = thread::waitFor(w2)
+  io::print("c1=" & toString(c1))
+  io::print("c2=" & toString(c2))
+  RETURN 0
+END FUNC

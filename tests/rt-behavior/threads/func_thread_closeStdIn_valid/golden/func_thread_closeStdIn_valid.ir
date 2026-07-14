@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_thread_closeStdIn_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 10, "mutable": false, "name": "w1", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "stdin_workers.doubleIt", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "21" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "w2", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "stdin_workers.doubleIt", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [{ "kind": "local", "name": "w1" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [{ "kind": "local", "name": "w2" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [{ "kind": "local", "name": "w1" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [{ "kind": "local", "name": "w1" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "w1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "w2" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "c1", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "w1" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "c2", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "w2" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "c1=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "c1" }] } }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "c2=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "c2" }] } }] } },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

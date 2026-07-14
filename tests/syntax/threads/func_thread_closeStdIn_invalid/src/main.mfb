@@ -1,0 +1,8 @@
+IMPORT thread
+
+' plan-15: thread::closeStdIn accepts only () or a parent Thread handle. A String
+' argument is rejected at compile time.
+FUNC main AS Integer
+  thread::closeStdIn("nope")
+  RETURN 0
+END FUNC
