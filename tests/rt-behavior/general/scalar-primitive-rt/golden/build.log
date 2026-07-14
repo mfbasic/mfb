@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/rt-behavior/general/scalar-primitive-rt
+Wrote AST to tests/rt-behavior/general/scalar-primitive-rt/scalar_primitive_rt.ast
+Wrote IR to tests/rt-behavior/general/scalar-primitive-rt/scalar_primitive_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/scalar-primitive-rt
+Wrote executable to tests/rt-behavior/general/scalar-primitive-rt/scalar_primitive_rt.out
+[exit 0]
+$ tests/rt-behavior/general/scalar-primitive-rt/scalar_primitive_rt.out
+eq
+ne
+lt
+gt
+le
+ge
+astral-order
+default
+copy
+len=4
+get0
+get-astral
+get-cjk
+append
+contains
+mapkey
+mapval
+[exit 0]

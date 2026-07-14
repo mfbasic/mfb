@@ -1,0 +1,212 @@
+{
+  "project": "scalar_primitive_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 4 },
+    { "module": "collections", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dup",
+      "line": 7,
+      "params": [
+      { "name": "x", "type": "Scalar", "default": null, "line": 7 }
+      ],
+      "returnType": "Scalar",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": { "kind": "scalar", "value": 97 }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "nl", "type": null, "value": { "kind": "scalar", "value": 10 }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "emoji", "type": null, "value": { "kind": "scalar", "value": 128512 }, "line": 15 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "scalar", "value": 97 } },
+        "line": 16,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "eq" }] }, "line": 17 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "scalar", "value": 98 } },
+        "line": 19,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ne" }] }, "line": 20 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "scalar", "value": 97 }, "right": { "kind": "scalar", "value": 98 } },
+        "line": 22,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "lt" }] }, "line": 23 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "scalar", "value": 98 }, "right": { "kind": "scalar", "value": 97 } },
+        "line": 25,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "gt" }] }, "line": 26 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<=", "left": { "kind": "scalar", "value": 97 }, "right": { "kind": "scalar", "value": 97 } },
+        "line": 28,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "le" }] }, "line": 29 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "scalar", "value": 98 }, "right": { "kind": "scalar", "value": 97 } },
+        "line": 31,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ge" }] }, "line": 32 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "emoji" }, "right": { "kind": "scalar", "value": 65 } },
+        "line": 34,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "astral-order" }] }, "line": 35 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "d", "type": "Scalar", "value": null, "line": 39 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "d" }, "right": { "kind": "scalar", "value": 0 } },
+        "line": 40,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "default" }] }, "line": 41 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "dup", "arguments": [{ "kind": "scalar", "value": 90 }] }, "right": { "kind": "scalar", "value": 90 } },
+        "line": 45,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "copy" }] }, "line": 46 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF Scalar", "value": { "kind": "list", "values": [{ "kind": "scalar", "value": 65 }, { "kind": "scalar", "value": 122 }, { "kind": "identifier", "value": "emoji" }, { "kind": "scalar", "value": 20013 }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] }] } }] }, "line": 51 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] }, "right": { "kind": "scalar", "value": 65 } },
+        "line": 52,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "get0" }] }, "line": 53 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "2" }] }, "right": { "kind": "scalar", "value": 128512 } },
+        "line": 55,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "get-astral" }] }, "line": 56 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "3" }] }, "right": { "kind": "scalar", "value": 20013 } },
+        "line": 58,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "get-cjk" }] }, "line": 59 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "scalar", "value": 81 }] }, "line": 61 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "4" }] }, "right": { "kind": "scalar", "value": 81 } },
+        "line": 62,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "append" }] }, "line": 63 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "scalar", "value": 122 }] },
+        "line": 65,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "contains" }] }, "line": 66 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "m", "type": "Map OF Scalar TO Integer", "value": { "kind": "map", "keyType": "Scalar", "valueType": "Integer", "entries": [] }, "line": 70 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "scalar", "value": 107 }, { "kind": "number", "value": "99" }] }, "line": 71 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "scalar", "value": 107 }] }, "right": { "kind": "number", "value": "99" } },
+        "line": 72,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "mapkey" }] }, "line": 73 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Map OF String TO Scalar", "value": { "kind": "map", "keyType": "String", "valueType": "Scalar", "entries": [] }, "line": 75 },
+      { "kind": "assignment", "name": "n", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "string", "value": "one" }, { "kind": "scalar", "value": 49 }] }, "line": 76 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "string", "value": "one" }] }, "right": { "kind": "scalar", "value": 49 } },
+        "line": 77,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "mapval" }] }, "line": 78 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 80 }
+      ]
+    }
+    ]
+  }
+  ]
+}

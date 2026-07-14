@@ -1,0 +1,17 @@
+eq
+ne
+lt
+gt
+le
+ge
+astral-order
+default
+copy
+len=4
+get0
+get-astral
+get-cjk
+append
+contains
+mapkey
+mapval

@@ -69,6 +69,7 @@ pub(super) fn collection_type_code(type_: &str) -> Option<usize> {
         "Float" => Some(COLLECTION_TYPE_FLOAT),
         "Fixed" => Some(COLLECTION_TYPE_FIXED),
         "Money" => Some(COLLECTION_TYPE_MONEY),
+        "Scalar" => Some(COLLECTION_TYPE_SCALAR),
         "String" => Some(COLLECTION_TYPE_STRING),
         _ if type_.starts_with("List OF ") => Some(COLLECTION_TYPE_LIST),
         _ if type_.starts_with("Map OF ") => Some(COLLECTION_TYPE_MAP),
@@ -90,6 +91,9 @@ pub(super) fn collection_payload_alignment_for_code(code: usize) -> usize {
         | COLLECTION_TYPE_LIST
         | COLLECTION_TYPE_MAP
         | COLLECTION_TYPE_OBJECT => 8,
+        // Scalar is a 4-byte codepoint lane (plan-41-C), a width distinct from the
+        // 1-byte (Byte/Boolean/String) and 8-byte groups.
+        COLLECTION_TYPE_SCALAR => 4,
         _ => 1,
     }
 }

@@ -1,0 +1,81 @@
+' plan-41-C: Scalar primitive native codegen — literals, escapes, all six
+' comparison operators (codepoint order), default materialization, and a
+' 4-byte-aligned List OF Scalar / Map OF Scalar with astral + CJK codepoints.
+IMPORT io
+IMPORT collections
+
+FUNC dup(x AS Scalar) AS Scalar
+  RETURN x
+END FUNC
+
+FUNC main() AS Integer
+  ' Literals + escapes.
+  LET a = `a`
+  LET nl = `\n`
+  LET emoji = `\u{1F600}`
+  IF a = `a` THEN
+    io::print("eq")
+  END IF
+  IF a <> `b` THEN
+    io::print("ne")
+  END IF
+  IF `a` < `b` THEN
+    io::print("lt")
+  END IF
+  IF `b` > `a` THEN
+    io::print("gt")
+  END IF
+  IF `a` <= `a` THEN
+    io::print("le")
+  END IF
+  IF `b` >= `a` THEN
+    io::print("ge")
+  END IF
+  IF emoji > `A` THEN
+    io::print("astral-order")
+  END IF
+
+  ' Default materialization = U+0000.
+  MUT d AS Scalar
+  IF d = `\u{0}` THEN
+    io::print("default")
+  END IF
+
+  ' Value copy through a call.
+  IF dup(`Z`) = `Z` THEN
+    io::print("copy")
+  END IF
+
+  ' List OF Scalar: 4-byte inline payloads, ASCII + astral + CJK.
+  MUT xs AS List OF Scalar = [`A`, `z`, emoji, `中`]
+  io::print("len=" & toString(len(xs)))
+  IF collections::get(xs, 0) = `A` THEN
+    io::print("get0")
+  END IF
+  IF collections::get(xs, 2) = `\u{1F600}` THEN
+    io::print("get-astral")
+  END IF
+  IF collections::get(xs, 3) = `中` THEN
+    io::print("get-cjk")
+  END IF
+  xs = collections::append(xs, `Q`)
+  IF collections::get(xs, 4) = `Q` THEN
+    io::print("append")
+  END IF
+  IF collections::contains(xs, `z`) THEN
+    io::print("contains")
+  END IF
+
+  ' Map with a Scalar key and a Scalar value.
+  MUT m AS Map OF Scalar TO Integer = Map OF Scalar TO Integer {}
+  m = collections::set(m, `k`, 99)
+  IF collections::get(m, `k`) = 99 THEN
+    io::print("mapkey")
+  END IF
+  MUT n AS Map OF String TO Scalar = Map OF String TO Scalar {}
+  n = collections::set(n, "one", `1`)
+  IF collections::get(n, "one") = `1` THEN
+    io::print("mapval")
+  END IF
+  RETURN 0
+END FUNC

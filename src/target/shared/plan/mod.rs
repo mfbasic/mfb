@@ -141,6 +141,10 @@ pub(crate) enum StorageClass {
     /// class (not a reuse of `Integer`) so the immediate/const-fold path selects
     /// `money_raw_from_decimal` cleanly and future divergence stays localized.
     Money,
+    /// `Scalar`: a 4-byte 32-bit Unicode codepoint carrier (plan-41-C). A distinct
+    /// class so the collection/immediate paths select the 4-byte width cleanly;
+    /// register-carried like `Integer`, never heap.
+    Scalar,
     Boolean,
     Reference,
 }
@@ -367,6 +371,7 @@ impl StorageType {
             | StorageClass::Float
             | StorageClass::Fixed
             | StorageClass::Money
+            | StorageClass::Scalar
             | StorageClass::Reference => {
                 if self.size == 0 || self.align == 0 {
                     return Err(format!(

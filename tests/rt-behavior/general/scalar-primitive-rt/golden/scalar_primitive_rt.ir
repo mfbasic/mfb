@@ -1,0 +1,210 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "scalar_primitive_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "dup",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 7, "type": "Scalar", "default": null }
+    ],
+    "returns": "Scalar",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 13, "mutable": false, "name": "a", "type": "Scalar", "value": { "kind": "const", "type": "Scalar", "value": "97" } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "nl", "type": "Scalar", "value": { "kind": "const", "type": "Scalar", "value": "10" } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "emoji", "type": "Scalar", "value": { "kind": "const", "type": "Scalar", "value": "128512" } },
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Scalar", "value": "97" } },
+      "then": [
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "eq" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 19,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Scalar", "value": "98" } },
+      "then": [
+      { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ne" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 22,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "const", "type": "Scalar", "value": "97" }, "right": { "kind": "const", "type": "Scalar", "value": "98" } },
+      "then": [
+      { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "lt" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 25,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "const", "type": "Scalar", "value": "98" }, "right": { "kind": "const", "type": "Scalar", "value": "97" } },
+      "then": [
+      { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "gt" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 28,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "const", "type": "Scalar", "value": "97" }, "right": { "kind": "const", "type": "Scalar", "value": "97" } },
+      "then": [
+      { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "le" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 31,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "const", "type": "Scalar", "value": "98" }, "right": { "kind": "const", "type": "Scalar", "value": "97" } },
+      "then": [
+      { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ge" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 34,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "emoji" }, "right": { "kind": "const", "type": "Scalar", "value": "65" } },
+      "then": [
+      { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "astral-order" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 39, "mutable": true, "name": "d", "type": "Scalar", "value": null },
+    {
+      "op": "if",
+      "line": 40,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Scalar", "value": "0" } },
+      "then": [
+      { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "default" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 45,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Scalar", "target": "dup", "args": [{ "kind": "const", "type": "Scalar", "value": "90" }] }, "right": { "kind": "const", "type": "Scalar", "value": "90" } },
+      "then": [
+      { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "copy" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 50, "mutable": true, "name": "xs", "type": "List OF Scalar", "value": { "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "const", "type": "Scalar", "value": "65" }, { "kind": "const", "type": "Scalar", "value": "122" }, { "kind": "local", "name": "emoji" }, { "kind": "const", "type": "Scalar", "value": "20013" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }] } }] } },
+    {
+      "op": "if",
+      "line": 52,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Scalar", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "Scalar", "value": "65" } },
+      "then": [
+      { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "get0" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 55,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Scalar", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "2" }] }, "right": { "kind": "const", "type": "Scalar", "value": "128512" } },
+      "then": [
+      { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "get-astral" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 58,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Scalar", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "3" }] }, "right": { "kind": "const", "type": "Scalar", "value": "20013" } },
+      "then": [
+      { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "get-cjk" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "assign", "line": 61, "name": "xs", "value": { "kind": "call", "type": "List OF Scalar", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Scalar", "value": "81" }] } },
+    {
+      "op": "if",
+      "line": 62,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Scalar", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "4" }] }, "right": { "kind": "const", "type": "Scalar", "value": "81" } },
+      "then": [
+      { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "append" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 65,
+      "condition": { "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Scalar", "value": "122" }] },
+      "then": [
+      { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "contains" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 70, "mutable": true, "name": "m", "type": "Map OF Scalar TO Integer", "value": { "kind": "map", "type": "Map OF Scalar TO Integer", "entries": [] } },
+    { "op": "assign", "line": 71, "name": "m", "value": { "kind": "call", "type": "Map OF Scalar TO Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "Scalar", "value": "107" }, { "kind": "const", "type": "Integer", "value": "99" }] } },
+    {
+      "op": "if",
+      "line": 72,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "Scalar", "value": "107" }] }, "right": { "kind": "const", "type": "Integer", "value": "99" } },
+      "then": [
+      { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "mapkey" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 75, "mutable": true, "name": "n", "type": "Map OF String TO Scalar", "value": { "kind": "map", "type": "Map OF String TO Scalar", "entries": [] } },
+    { "op": "assign", "line": 76, "name": "n", "value": { "kind": "call", "type": "Map OF String TO Scalar", "target": "collections.set", "args": [{ "kind": "local", "name": "n" }, { "kind": "const", "type": "String", "value": "one" }, { "kind": "const", "type": "Scalar", "value": "49" }] } },
+    {
+      "op": "if",
+      "line": 77,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Scalar", "target": "collections.get", "args": [{ "kind": "local", "name": "n" }, { "kind": "const", "type": "String", "value": "one" }] }, "right": { "kind": "const", "type": "Scalar", "value": "49" } },
+      "then": [
+      { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "mapval" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 80, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

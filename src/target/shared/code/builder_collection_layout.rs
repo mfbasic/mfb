@@ -61,6 +61,8 @@ impl CodeBuilder<'_> {
         match type_ {
             "Boolean" | "Byte" | "String" => 1,
             "Integer" | "Float" | "Fixed" | "Money" => 8,
+            // A Scalar is a 4-byte codepoint payload with alignment 4 (plan-41-C).
+            "Scalar" => 4,
             // A function value is an 8-byte code/closure pointer (bug-73).
             other if is_function_type(other) => 8,
             other if self.is_pointer_collection_payload_type(other) => 8,
@@ -1508,6 +1510,9 @@ impl CodeBuilder<'_> {
             "Boolean" | "Byte" => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
             }
+            "Scalar" => {
+                self.emit(abi::move_immediate(&scratch8, "Integer", "4"));
+            }
             "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
@@ -1610,6 +1615,14 @@ impl CodeBuilder<'_> {
                     payload.slot,
                 ));
                 self.emit(abi::store_u8(&scratch12, &scratch10, 0));
+            }
+            "Scalar" => {
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
+                self.emit(abi::store_u32(&scratch12, &scratch10, 0));
             }
             "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::load_u64(
@@ -1763,6 +1776,11 @@ impl CodeBuilder<'_> {
             "Boolean" | "Byte" => {
                 let result = self.allocate_register()?;
                 self.emit(abi::load_u8(&result, &data, 0));
+                Ok(result)
+            }
+            "Scalar" => {
+                let result = self.allocate_register()?;
+                self.emit(abi::load_u32(&result, &data, 0));
                 Ok(result)
             }
             "Integer" | "Float" | "Fixed" | "Money" => {

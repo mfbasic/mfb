@@ -55,7 +55,7 @@ impl CodeBuilder<'_> {
                     text: "default Boolean".to_string(),
                 })
             }
-            "Byte" | "Integer" | "Float" | "Fixed" | "Money" => {
+            "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {

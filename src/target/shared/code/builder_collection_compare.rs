@@ -92,7 +92,10 @@ impl CodeBuilder<'_> {
             // `emit_collection_payload*` and the documented map-literal key
             // semantics (0.0 != -0.0, NaN == NaN). Using `float_compare_d`
             // gave inconsistent FP semantics for record-field Floats.
-            "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" | "Money" => {
+            // Scalar joins here: a value operand is a full zero-extended register
+            // spilled to an 8-byte slot, so the 64-bit equality compare is correct
+            // (the packed 4-byte form is handled by the memory-read arms below).
+            "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" | "Money" | "Scalar" => {
                 self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
                 self.emit(abi::compare_registers(lval, rval));
@@ -209,6 +212,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
+            "Scalar" => {
+                let candidate = self.allocate_register()?;
+                self.emit(abi::load_u32(&candidate, &data, 0));
+                self.emit(abi::compare_registers(&candidate, value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
             "Integer" | "Float" | "Fixed" | "Money" => {
                 let candidate = self.allocate_register()?;
                 self.emit(abi::load_u64(&candidate, &data, 0));
@@ -309,6 +319,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
+            "Scalar" => {
+                self.emit(abi::load_u32(cval, cur, 0));
+                self.emit(abi::compare_registers(cval, value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
             "Integer" | "Float" | "Fixed" | "Money" => {
                 self.emit(abi::load_u64(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value));
@@ -405,6 +421,13 @@ impl CodeBuilder<'_> {
             "Boolean" | "Byte" => {
                 self.emit(abi::load_u8(lval, lcur, 0));
                 self.emit(abi::load_u8(rval, rcur, 0));
+                self.emit(abi::compare_registers(lval, rval));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "Scalar" => {
+                self.emit(abi::load_u32(lval, lcur, 0));
+                self.emit(abi::load_u32(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
