@@ -29,13 +29,49 @@ checksums unchanged where applicable):
   `lower_strings_normalize_nfc` returns a plain byte copy (ASCII is already NFC),
   skipping decompose/reorder/compose. Differential-tested compose/keep/mixed.
 
-Debug-build medians (relative gains; release gains larger): sortBy 647→~69,
-any/all ~1, findIndex/findLastIndex ~2.5, reduceRight ~2.8, partition 18→14.7,
-string case 155→68. Remaining: A4 (window/chunks/take/drop/zip native slice),
-B, C, G, I, K, E3/slice.
+Also landed:
+- **G (csv only)** — DONE. `__csv_parse` scans Unicode scalars
+  (`encoding::utf32Encode`) and builds fields with `encoding::utf32Decode`, no
+  grapheme List-OF-String materialization, no O(n²) concat. csv 20→8.5 ms,
+  checksum 6003000 unchanged. json/regex **deferred** (json threads
+  `List OF String` through 15+ functions; regex is structurally heavy).
+- **C1/C2 (vector)** — DONE. C1 inlines scale/dot/cross for Fixed/Integer
+  (bit-identical). C2 seeds `__vector_isqrtFloor` from the hardware Float sqrt +
+  overflow-safe division-only correction (exact floor; 0 mismatches vs Newton
+  over 100k values + boundaries + near Integer-max). vector int 99→57 ms.
+  C3 is moot for the int path (`length` stays a FUNC). vector fixed 14.6→14.0.
 
-Still TODO: **A4** native slice, **B** transcendental kernels, **C** vector
-inline, **G** parse packages, **I** overflow elision, **K** bits.
+### Measured result (release mfb, `--run 10`, same metric as source logs)
+
+Rows moved to **COMPLETE (≤5 ms)**: io write 26.7→1.66, any 5.5→1.02,
+all 5.3→1.03, findIndex 13.8→2.60, findLastIndex 13.8→2.50, reduceRight
+23.5→2.85. Rows that now **beat Python** (cleared P1→P2): bignum modmul 228→23.2,
+modexp 123→12.9. Large in-band gains: sortBy 647→69, string case 155→68,
+csv 20→8.5, partition 18.4→14.6, vector int 99→57, vector fixed 14.6→14.0.
+
+### Still TODO (deferred — high-risk native codegen, next session)
+
+- **A4** native contiguous-range slice — clears window (203), chunks (30),
+  take (10.5), drop (10.8), zip (7.6). A list is one flat arena block
+  (header + fixed-size entry array + value blob, value_offsets block-relative);
+  a correct slice must copy entries **and** their value-blob regions and rewrite
+  offsets — real memory-safety surface, not a plain memcpy. Highest single win
+  remaining (window is the worst row) but the plan's highest-effort item.
+- **B** transcendental/float kernels (sin/cos/tan/pow/log/… P2 cluster, sqrt,
+  leibniz/nbody/mandelbrot). Intricate NEON dd-Horner; precision-gated
+  (`runtime_ulp.py`). B1 (shared out-of-line leaf) is the big structural win but
+  risky; B2/B3 have small reach and need the %fN float-native carrier plumbing.
+- **I** overflow-check elision (fib 108, thread sum 51). I3 (error-stub outline)
+  is largely already done by plan-16 (`_mfb_make_error_result`); I1/I2 (range
+  elision + infallibility) are the plan's highest-risk change — they touch every
+  integer +/- and must not weaken the overflow-trap contract.
+- **K** bits popcount — needs a new neutral popcount MIR op + per-backend
+  lowering (aarch64 CNT / x86 POPCNT / riscv SWAR) for a single P4 row; lowest
+  priority, deferred.
+- **G json/regex**, **E3/string slice** — deferred with A4's allocation work.
+
+All landed changes gated: full acceptance 942, artifact-gate 0-diff
+(byte-deterministic), every affected checksum unchanged.
 
 This is the **master plan + Task-1 ordered priority list** for the benchmark
 performance push. It classifies every row in the current benchmark logs against
