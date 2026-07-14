@@ -472,6 +472,13 @@ impl CodeBuilder<'_> {
             FloatKernel::Sin => self.emit_sin_cos_body_scalar(false, k),
             FloatKernel::Cos => self.emit_sin_cos_body_scalar(true, k),
             FloatKernel::Tan => self.emit_tan_body_scalar(k),
+            // plan-39 B4: single-lane invtrig branches to one atan segment.
+            FloatKernel::Atan => {
+                self.emit_atan_core_scalar(k);
+                self.emit_result_nan_into_mask(k);
+            }
+            FloatKernel::Asin => self.emit_asin_acos_body_scalar(false, k),
+            FloatKernel::Acos => self.emit_asin_acos_body_scalar(true, k),
             _ => self.emit_float_kernel_body(kernel, k),
         }
         for err in kernel.errors() {
@@ -599,6 +606,30 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// plan-39 B4: scalar `asin`/`acos` — identical to `emit_asin_acos_body` but
+    /// with the scalar-branching `emit_atan_core_scalar`. The domain reduction and
+    /// the `|x| > 1` mask are the same, so the result and the `ErrInvalidArgument`
+    /// domain error are bit-identical.
+    fn emit_asin_acos_body_scalar(&mut self, want_acos: bool, k: &KernelRegs) {
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], &k.v19)); // ax
+        self.emit(abi::vector_fcmgt(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[1], &k.v16)); // ax > 1
+        self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[6]));
+        if !want_acos {
+            self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], &k.v16, &k.v16)); // 1.0
+            self.emit(abi::vector_fmls(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // 1 - x*x
+            self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7]));
+            self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[7]));
+            self.emit_atan_core_scalar(k);
+        } else {
+            self.emit(abi::vector_fsub(abi::VEC_SCRATCH[6], &k.v16, abi::VEC_SCRATCH[0])); // 1 - x
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], &k.v16, abi::VEC_SCRATCH[0])); // 1 + x
+            self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[7]));
+            self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+            self.emit_atan_core_scalar(k);
+            self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // 2*atan(...)
+        }
+    }
+
     /// `atan(x)` core (input in `v0`, result in `v0`): for `|x|<=1` evaluate
     /// `ax*P(ax^2)`; for `|x|>1` use `pi/2 - inv*P(inv^2)` with `inv=1/|x|`;
     /// restore the sign. Constants: v16=1.0, v17=pi/2, v18=sign mask, v19=abs
@@ -678,6 +709,16 @@ impl CodeBuilder<'_> {
         self.emit_vsel(&k.v26, &k.v31, abi::VEC_SCRATCH[3]);
         self.broadcast_f64(abi::VEC_SCRATCH[3], ATAN_LO[3]);
         self.emit_vsel(&k.v27, &k.v31, abi::VEC_SCRATCH[3]);
+        self.emit_atan_poly_recombine(k);
+    }
+
+    /// Shared tail of `atan` (plan-39 B4): the fdlibm `aT` polynomial in the
+    /// `s1`/`s2` split, the double-double recombine with the segment's `atan(c)`
+    /// (`v26`/`v27`), and the sign restore (`v25`). Inputs: reduced angle in `v2`,
+    /// off hi/lo in `v26`/`v27`, sign in `v25`; result in `v0`. Factored out so the
+    /// branchless (`emit_atan_core`) and scalar-branching (`emit_atan_core_scalar`)
+    /// segment selects run the *identical* polynomial — bit-for-bit.
+    fn emit_atan_poly_recombine(&mut self, k: &KernelRegs) {
         // Polynomial: z=reduced^2, w=z^2; s1=z*odd, s2=w*even (fdlibm split).
         self.emit(abi::vector_fmul(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // z
         self.emit(abi::vector_fmul(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5])); // w
@@ -705,6 +746,83 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_fsub(abi::VEC_SCRATCH[0], &k.v26, abi::VEC_SCRATCH[4]));
         // Restore the sign (atan(|x|) >= 0).
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], &k.v25));
+    }
+
+    /// plan-39 B4: scalar-lane `atan` core. Both lanes hold the same value, so the
+    /// segment is the same for both — branch to the single segment's reduction
+    /// instead of computing all five and masking. Each branch writes the *exact*
+    /// `reduced`/`off_hi`/`off_lo` the branchless `emit_atan_core` selects for that
+    /// segment (same ops, same constants), then runs the shared
+    /// `emit_atan_poly_recombine`, so the result is bit-identical. Saves ~4 of the 5
+    /// segment reductions (each a NEON `fdiv`).
+    fn emit_atan_core_scalar(&mut self, k: &KernelRegs) {
+        self.emit(abi::vector_and(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], &k.v19)); // ax = |x|
+        self.emit(abi::vector_and(&k.v25, abi::VEC_SCRATCH[0], &k.v18)); // sign(x)
+        let poly = self.label("atan_scalar_poly");
+        // Try segments high threshold first (cumulative masks: highest wins).
+        let seg_labels = [
+            self.label("atan_scalar_seg0"),
+            self.label("atan_scalar_seg1"),
+            self.label("atan_scalar_seg2"),
+            self.label("atan_scalar_seg3"),
+        ];
+        // ax >= THRESH[3] -> seg3, else >=[2] -> seg2, else >=[1] -> seg1, else
+        // >=[0] -> seg0, else default. Emit the comparisons top-down as branches so
+        // the highest threshold met wins (matching the branchless cumulative masks).
+        for thresh in [3usize, 2, 1, 0] {
+            self.broadcast_f64(abi::VEC_SCRATCH[4], ATAN_SEG_THRESH[thresh]);
+            self.emit(abi::vector_fcmge(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+            let bit = self.temporary_vreg();
+            self.emit(abi::vector_extract_to_x(&bit, abi::VEC_SCRATCH[5], 0));
+            self.emit(abi::compare_immediate(&bit, "0"));
+            self.emit(abi::branch_ne(&seg_labels[thresh]));
+        }
+        // Default segment (ax < THRESH[0]): reduced=ax, off=0.
+        self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+        self.emit(abi::vector_eor(&k.v26, &k.v26, &k.v26));
+        self.emit(abi::vector_eor(&k.v27, &k.v27, &k.v27));
+        self.emit(abi::branch(&poly));
+        // Segment 0: reduced=(2ax-1)/(2+ax), off=atan(0.5).
+        self.emit(abi::label(&seg_labels[0]));
+        self.broadcast_f64(abi::VEC_SCRATCH[4], 2.0);
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[7]));
+        self.broadcast_f64(&k.v26, ATAN_HI[0]);
+        self.broadcast_f64(&k.v27, ATAN_LO[0]);
+        self.emit(abi::branch(&poly));
+        // Segment 1: reduced=(ax-1)/(ax+1), off=atan(1).
+        self.emit(abi::label(&seg_labels[1]));
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[7]));
+        self.broadcast_f64(&k.v26, ATAN_HI[1]);
+        self.broadcast_f64(&k.v27, ATAN_LO[1]);
+        self.emit(abi::branch(&poly));
+        // Segment 2: reduced=(ax-1.5)/(1+1.5ax), off=atan(1.5).
+        self.emit(abi::label(&seg_labels[2]));
+        self.broadcast_f64(abi::VEC_SCRATCH[4], 1.5);
+        self.emit(abi::vector_fmul(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fadd(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_fsub(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[4]));
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[7]));
+        self.broadcast_f64(&k.v26, ATAN_HI[2]);
+        self.broadcast_f64(&k.v27, ATAN_LO[2]);
+        self.emit(abi::branch(&poly));
+        // Segment 3: reduced=-1/ax, off=atan(inf).
+        self.emit(abi::label(&seg_labels[3]));
+        self.broadcast_f64(abi::VEC_SCRATCH[6], 1.0);
+        self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[1]));
+        self.emit(abi::vector_fneg(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+        self.broadcast_f64(&k.v26, ATAN_HI[3]);
+        self.broadcast_f64(&k.v27, ATAN_LO[3]);
+        // fall through to poly.
+        self.emit(abi::label(&poly));
+        self.emit_atan_poly_recombine(k);
     }
 
     /// Cody-Waite reduce `x` to `r in [-pi/4, pi/4]` and quadrant `q & 3`. Leaves
@@ -1290,7 +1408,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&loop_done));
         self.emit(abi::vector_load(abi::VEC_SCRATCH[0], &left_data, 0));
         self.emit(abi::vector_load(abi::VEC_SCRATCH[1], &right_data, 0));
-        self.emit_float_binary_body(kernel, k);
+        self.emit_float_binary_body(kernel, k, false);
         self.emit(abi::vector_store(abi::VEC_SCRATCH[0], &out_data, 0));
         self.emit(abi::add_immediate(&left_data, &left_data, 16));
         self.emit(abi::add_immediate(&right_data, &right_data, 16));
@@ -1311,7 +1429,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &lane));
         self.emit(abi::load_u64(&lane, &right_data, 0));
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[1], &lane));
-        self.emit_float_binary_body(kernel, k);
+        self.emit_float_binary_body(kernel, k, false);
         let res_lane = self.temporary_vreg();
         self.emit(abi::vector_extract_to_x(&res_lane, abi::VEC_SCRATCH[0], 0));
         self.emit(abi::store_u64(&res_lane, &out_data, 0));
@@ -1360,7 +1478,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
         self.emit(abi::vector_eor(&k.v24, &k.v24, &k.v24)); // inf/overflow mask
         self.emit_float_binary_setup(kernel, k);
-        self.emit_float_binary_body(kernel, k);
+        self.emit_float_binary_body(kernel, k, true);
         for err in kernel.errors() {
             self.emit_float_error_reduce(*err, k)?;
         }
@@ -1386,7 +1504,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    fn emit_float_binary_body(&mut self, kernel: FloatBinaryKernel, k: &KernelRegs) {
+    fn emit_float_binary_body(&mut self, kernel: FloatBinaryKernel, k: &KernelRegs, scalar: bool) {
         match kernel {
             FloatBinaryKernel::Atan2 => {
                 // atan2(y=v0, x=v1) = atan(y/x) + (x<0 ? copysign(pi, y) : 0).
@@ -1402,7 +1520,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_fcmlt_zero(&k.v20, abi::VEC_SCRATCH[1])); // x < 0 mask
                 self.emit(abi::vector_and(&k.v21, abi::VEC_SCRATCH[0], &k.v18)); // sign(y)
                 self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])); // q = y/x
-                self.emit_atan_core(k); // v0 = atan(q)
+                // plan-39 B4: a single-lane scalar call branches to one atan
+                // segment (bit-identical to the branchless core).
+                if scalar {
+                    self.emit_atan_core_scalar(k); // v0 = atan(q)
+                } else {
+                    self.emit_atan_core(k); // v0 = atan(q)
+                }
                 self.emit(abi::vector_orr(abi::VEC_SCRATCH[2], &k.v23, &k.v21)); // copysign(pi, y)
                 self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], &k.v20)); // & (x<0)
                 self.emit(abi::vector_fadd(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2]));

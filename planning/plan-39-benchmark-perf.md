@@ -123,7 +123,15 @@ Python by construction).
   faithful K2 that helps popcount-heavy code. **K1** (keep operands
   register-resident across a fused bits expression) is a general regalloc concern,
   not bits-specific — not separately addressed.
-- **B math (the one sub-plan NOT landed)** — beyond B2 (done), the real fix is
+- **B4 (invtrig scalar branch)** — DONE. atan/asin/acos/atan2 scalar calls now
+  branch to the *single* atan segment their value lands in (the branchless array
+  core computes all five because its two lanes can differ; a scalar call has one
+  lane). The shared `emit_atan_poly_recombine` runs the identical fdlibm polynomial,
+  so results are **bit-identical** (all four checksums unchanged; atan2 ULP 100%
+  ≤1 vs macOS-libm). atan 24.5→17.1, asin 29.4→21.2, acos 29.7→22.0, atan2
+  31.4→22.3 ms (~26–30% each). Gated: math acceptance 65, artifact-gate 0-diff,
+  full acceptance.
+- **B math (remaining pieces)** — beyond B2/B4 (done), the residual is B1/B3, the
   **LICM** (hoist the loop-invariant vector-constant kernel setup out of the runtime
   loop, keeping v16–v27 live across it) or a scalar-register (non-`v`) kernel — both
   large *general* optimization passes, each multi-day, and neither is the B1 text as
