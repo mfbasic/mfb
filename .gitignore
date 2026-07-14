@@ -8,10 +8,6 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
-# Local planning / scratch folder (not part of the repo; the canonical
-# specification is embedded under src/docs/spec and shown by `mfb spec`).
-/planning/
-
 # Local editor and OS files
 .DS_Store
 *.swp
