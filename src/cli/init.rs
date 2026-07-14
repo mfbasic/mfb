@@ -79,10 +79,14 @@ pub(crate) fn project_manifest(location: &Path) -> String {
             "    }}\n",
             "  ],\n",
             "  \"entry\": \"main\",\n",
-            "  \"targets\": [\"native\"]\n",
+            "  \"targets\": [\"native\"],\n",
+            "  \"config\": {{\n",
+            "    \"stdinLogCap\": {}\n",
+            "  }}\n",
             "}}"
         ),
-        name
+        name,
+        crate::target::shared::code::STDIN_LOG_CAP_DEFAULT
     )
 }
 
@@ -102,10 +106,14 @@ fn package_project_manifest(location: &Path) -> String {
             "      \"role\": \"package\",\n",
             "      \"include\": [\"**/*.mfb\"]\n",
             "    }}\n",
-            "  ]\n",
+            "  ],\n",
+            "  \"config\": {{\n",
+            "    \"stdinLogCap\": {}\n",
+            "  }}\n",
             "}}"
         ),
-        name
+        name,
+        crate::target::shared::code::STDIN_LOG_CAP_DEFAULT
     )
 }
 
@@ -194,6 +202,12 @@ mod tests {
                 .map(String::as_str),
             Some("demo")
         );
+        // plan-15 D3: the scaffold seeds config.stdinLogCap at the runtime default,
+        // and it round-trips through the manifest reader.
+        assert_eq!(
+            crate::manifest::stdin_log_cap(object),
+            Some(crate::target::shared::code::STDIN_LOG_CAP_DEFAULT)
+        );
     }
 
     #[test]
@@ -209,6 +223,10 @@ mod tests {
                 .and_then(|v| v.get::<String>())
                 .map(String::as_str),
             Some("package")
+        );
+        assert_eq!(
+            crate::manifest::stdin_log_cap(object),
+            Some(crate::target::shared::code::STDIN_LOG_CAP_DEFAULT)
         );
     }
 
