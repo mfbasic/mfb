@@ -131,7 +131,6 @@ impl code::CodegenPlatform for Platform {
             spec.seed_rng,
             spec.register_signal_handlers,
             spec.capture_args,
-            spec.subscribe_stdin,
         )?;
         // The shared entry's `store xzr, [..]` zero-inits now encode an immediate
         // zero (`mov r/m, 0`) on x86, not a store of a pinned zero register, so

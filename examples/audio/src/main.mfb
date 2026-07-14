@@ -1,8 +1,11 @@
 IMPORT audio
 IMPORT collections
 IMPORT io
+IMPORT thread
 
 SUB main()
+  ' Subscribe this thread to standard input before reading it (plan-15).
+  thread::openStdIn()
   LET devices AS List OF AudioDevice = audio::devices()
   LET outDevices AS List OF AudioDevice = collections::filter(devices, LAMBDA(d AS AudioDevice) -> d.canOutput)
   LET inDevices AS List OF AudioDevice = collections::filter(devices, LAMBDA(d AS AudioDevice) -> d.canInput)

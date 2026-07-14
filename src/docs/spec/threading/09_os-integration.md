@@ -78,15 +78,16 @@ A thread subscribes with `thread::openStdIn` and unsubscribes with
 forms take a parent `Thread` handle and act on the worker behind it, reaching the
 worker's arena through `THREAD_OFFSET_ARENA_STATE`). Subscription joins at the
 current stream frontier — a subscriber sees every byte that arrives afterward, never
-a replay of bytes already read. The compiler subscribes the **main** thread at
-program entry whenever the module uses a stdin builtin, so a single-threaded program
-is byte-identical to a direct per-byte reader with no source change. Any other
-thread that reads stdin without a subscription raises `ErrInvalidContext`
-(`77050019`).
+a replay of bytes already read. **Every thread that reads standard input must
+subscribe first, including the main thread**: there is no implicit subscription, so
+a read from an unsubscribed thread raises `ErrInvalidContext` (`77050019`). The
+simplest line-reading program therefore calls `thread::openStdIn()` before its first
+`io::readLine`.
 
-The log is bounded by a fixed high-water mark: the reader refuses to advance past
-`base + cap` and blocks on the condvar until a slow subscriber advances the
-minimum cursor (`base`) or unsubscribes, so a stalled subscriber applies
+The log is bounded by a fixed high-water mark (`STDIN_LOG_CAP`, baked from the
+`project.json` `"config"` `stdinLogCap`, default 4 MiB): the reader refuses to
+advance past `base + cap` and blocks on the condvar until a slow subscriber advances
+the minimum cursor (`base`) or unsubscribes, so a stalled subscriber applies
 backpressure rather than growing memory without limit. Worker teardown
 auto-unsubscribes (the trampoline calls `_mfb_rt_stdin_unsubscribe` for the worker
 arena when the module uses stdin), so an exited or crashed worker never permanently

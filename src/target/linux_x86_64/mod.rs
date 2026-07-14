@@ -208,6 +208,7 @@ impl NativeBackend for Backend {
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
+        stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
         // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
         let _ = app_icon;
@@ -218,6 +219,7 @@ impl NativeBackend for Backend {
             packages,
             signing_metadata,
             build_mode,
+            stdin_log_cap,
         )
     }
 
@@ -272,6 +274,7 @@ impl NativeBackend for Backend {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_executable(
     project_dir: &Path,
     ir: &IrProject,
@@ -279,8 +282,9 @@ fn write_executable(
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
+    stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
     // The console build emits one executable per libc world — `<name>-glibc.out`
     // (libc.so.6, /lib64/ld-linux-x86-64.so.2) and `<name>-musl.out`
     // (libc.musl-x86_64.so.1, /lib/ld-musl-x86_64.so.1) — exactly like
@@ -325,7 +329,7 @@ fn write_nir(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
     fs::write(&nir_path, module.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", nir_path.display()))?;
@@ -339,7 +343,7 @@ fn write_native_plan(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
     // The single-flavor diagnostic dumps (.nplan/.nobj/.ncode/.mir) use the glibc
     // flavor, matching linux-aarch64, so a cross-target dump diff stays consistent.
     // `write_executable` still builds both flavors for the shipped binaries.
@@ -358,7 +362,7 @@ fn write_native_object_plan(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
     let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
@@ -371,7 +375,7 @@ fn write_native_code_plan(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
     let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
@@ -390,7 +394,7 @@ fn write_mir(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
     let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
@@ -415,6 +419,7 @@ fn lower_validated_module(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    stdin_log_cap: Option<u64>,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
@@ -429,7 +434,7 @@ fn lower_validated_module(
             build_mode.as_str()
         ));
     }
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     Ok(module)

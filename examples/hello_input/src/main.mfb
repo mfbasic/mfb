@@ -1,7 +1,10 @@
 IMPORT io
+IMPORT thread
 
 ' Asks for the user's name, then reads WASD keypresses.
 FUNC main AS Integer
+  ' Subscribe this thread to standard input before reading it (plan-15).
+  thread::openStdIn()
   LET name AS String = io::input("What is your name? ")
   io::print("Hello " & name & "!")
 

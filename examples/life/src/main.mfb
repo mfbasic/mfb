@@ -4,6 +4,7 @@ IMPORT io
 IMPORT math
 IMPORT strings
 IMPORT term
+IMPORT thread
 
 ' Conway's Game of Life — a full-screen terminal cellular automaton built on the
 ' term:: TUI module.
@@ -263,6 +264,9 @@ FUNC main AS Integer
     io::printError("life: run this from an interactive terminal.")
     RETURN 1
   END IF
+
+  ' Subscribe this thread to standard input before reading keys (plan-15).
+  thread::openStdIn()
 
   term::on()
   term::hideCursor()

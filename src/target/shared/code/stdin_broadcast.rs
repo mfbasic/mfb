@@ -204,6 +204,10 @@ pub(super) fn emit_stdin_poll_ready_check(
 pub(super) fn lower_stdin_next_byte(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    // Backpressure high-water cap baked into this build (plan-15 D3): the reader
+    // refuses to advance `fill` past `base + cap` and waits. From the manifest
+    // `"config"` `stdinLogCap`, or `STDIN_LOG_CAP_DEFAULT` (4 MiB).
+    stdin_log_cap: u64,
 ) -> Result<CodeFunction, String> {
     let symbol = STDIN_NEXT_BYTE_SYMBOL;
     let l = |s: &str| format!("{symbol}_{s}");
@@ -281,7 +285,7 @@ pub(super) fn lower_stdin_next_byte(
         abi::branch_ne(&l("wait")),
         // Backpressure: fill >= base + cap?
         abi::load_u64("%v56", "%v78", STDIN_LOG_BASE_OFFSET),
-        abi::move_immediate("%v62", "Integer", &STDIN_LOG_CAP_DEFAULT.to_string()),
+        abi::move_immediate("%v62", "Integer", &stdin_log_cap.to_string()),
         abi::add_registers("%v77", "%v56", "%v62"),
         // fill >= base + cap (unsigned) => backpressure (`lim <= fill`).
         abi::compare_registers("%v77", "%v70"),

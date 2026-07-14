@@ -469,6 +469,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     .map(|signing| signing.executable_metadata.as_slice()),
                 build_mode,
                 app_icon.as_deref(),
+                // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
+                crate::manifest::stdin_log_cap(&manifest),
             )
             .map_err(|err| {
                 eprintln!("error: {err}");

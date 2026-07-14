@@ -71,9 +71,10 @@ so every subscriber sees the whole stdin stream from its subscription point and 
 byte is consumed out from under another thread. `thread::openStdIn()` subscribes
 the calling thread and `thread::openStdIn(t)` subscribes the worker behind a parent
 `Thread` handle; `thread::closeStdIn` unsubscribes (thread teardown auto-
-unsubscribes). A single-threaded program is byte-identical to a direct reader: the
-compiler subscribes the main thread at entry, so it never needs to call `openStdIn`.
-A thread that reads stdin without a subscription raises `ErrInvalidContext`.
+unsubscribes). Every thread that reads standard input must subscribe first —
+including the main thread; there is no implicit subscription, so a read from an
+unsubscribed thread raises `ErrInvalidContext`. The backpressure high-water cap is
+baked from the `project.json` `"config"` `stdinLogCap` (default 4 MiB).
 [[src/builtins/thread.rs:OPEN_STD_IN]]
 
 ## Errors

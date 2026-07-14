@@ -8,11 +8,13 @@ pub(crate) fn lower_module(
     ir: &IrProject,
     target: String,
     build_mode: crate::target::NativeBuildMode,
+    stdin_log_cap: Option<u64>,
     runtime_helpers: Vec<RuntimeHelper>,
 ) -> Result<NirModule, String> {
     Ok(NirModule {
         target,
         build_mode,
+        stdin_log_cap: stdin_log_cap.unwrap_or(crate::target::shared::code::STDIN_LOG_CAP_DEFAULT),
         project: ir.name.clone(),
         entry: ir.entry.as_ref().map(lower_entry),
         globals: ir

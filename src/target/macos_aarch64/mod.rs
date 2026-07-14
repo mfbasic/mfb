@@ -199,6 +199,7 @@ impl NativeBackend for Backend {
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
+        stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
             project_dir,
@@ -208,6 +209,7 @@ impl NativeBackend for Backend {
             signing_metadata,
             build_mode,
             app_icon,
+            stdin_log_cap,
         )
     }
 
@@ -262,6 +264,7 @@ impl NativeBackend for Backend {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_executable(
     project_dir: &Path,
     ir: &IrProject,
@@ -270,10 +273,11 @@ fn write_executable(
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
+    stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -314,7 +318,7 @@ fn write_nir(
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
@@ -332,7 +336,7 @@ fn write_native_plan(
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -352,7 +356,7 @@ fn write_native_object_plan(
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -369,7 +373,7 @@ fn write_native_code_plan(
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -392,7 +396,7 @@ fn write_mir(
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;

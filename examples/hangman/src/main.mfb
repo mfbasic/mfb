@@ -3,6 +3,7 @@ IMPORT io
 IMPORT math
 IMPORT strings
 IMPORT term
+IMPORT thread
 
 ' Hangman — a small terminal word-guessing game built on the term:: TUI module.
 '
@@ -109,6 +110,8 @@ SUB drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Int
 END SUB
 
 FUNC main AS Integer
+  ' Subscribe this thread to standard input before reading keys (plan-15).
+  thread::openStdIn()
   LET words AS List OF String = ["PROGRAM", "TERMINAL", "KEYBOARD", "COMPUTER", "MOUNTAIN", "ELEPHANT", "RAINBOW", "GUITAR", "PYRAMID", "DOLPHIN", "JOURNEY", "OXYGEN", "PUZZLE", "GALAXY", "VICTORY"]
   LET alphabet AS String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 

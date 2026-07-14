@@ -99,6 +99,7 @@ pub(crate) trait NativeBackend: Sync {
     fn target(&self) -> BuildTarget;
     fn capabilities(&self) -> BackendCapabilities;
     fn validate(&self, ir: &IrProject, packages: &[PathBuf]) -> Result<(), String>;
+    #[allow(clippy::too_many_arguments)]
     fn write_executable(
         &self,
         project_dir: &Path,
@@ -107,6 +108,9 @@ pub(crate) trait NativeBackend: Sync {
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
+        // plan-15 D3: stdin broadcast-log backpressure cap from the manifest
+        // `"config"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
+        stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String>;
     fn write_nir(
         &self,
@@ -177,6 +181,7 @@ pub fn target_supports_app_mode(target: &BuildTarget) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn write_executable(
     project_dir: &Path,
     ir: &IrProject,
@@ -185,6 +190,7 @@ pub fn write_executable(
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
+    stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().executable {
@@ -194,7 +200,15 @@ pub fn write_executable(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_executable(project_dir, ir, packages, signing_metadata, build_mode, app_icon)
+    backend.write_executable(
+        project_dir,
+        ir,
+        packages,
+        signing_metadata,
+        build_mode,
+        app_icon,
+        stdin_log_cap,
+    )
 }
 
 pub fn write_nir(

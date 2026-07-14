@@ -62,12 +62,13 @@ reads it in chunks into one process-global append-only log; each *subscribed*
 thread reads its own cursor over that log, so the syscall count collapses from one
 `read` per byte to roughly one per several kilobytes, every subscriber sees the
 whole stdin stream from its subscription point, and a byte read by one thread is
-never consumed out from under another. A single-threaded program is byte-identical
-to a direct per-byte reader: the compiler subscribes the main thread at program
-entry, so the same bytes, the same end-of-input position, and the same
-`io::pollInput` results are observed with no source change. A thread other than
-main must subscribe with `thread::openStdIn` before reading, or the read raises
-`ErrInvalidContext`; `thread::closeStdIn` unsubscribes.
+never consumed out from under another. **A thread must subscribe with
+`thread::openStdIn` before it reads standard input** — including the main thread;
+a read from a thread that has not subscribed raises `ErrInvalidContext`.
+`thread::closeStdIn` unsubscribes. There is no implicit subscription: the simplest
+line-reading program is `IMPORT thread` + `thread::openStdIn()` before the first
+`io::readLine`. (`io::pollInput` does not consume input and may be called without
+subscribing; it reports whether a subsequent read would find data ready.)
 
 Thread cancellation is cooperative: the runtime does not asynchronously interrupt
 a standard-input read, so a worker that needs prompt cancellation should poll

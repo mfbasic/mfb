@@ -39,6 +39,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `targets` | array | no | build targets; emitted by `mfb init` as `["native"]` |
+| `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
 manifest inputs: they are outputs of `mfb build --sign`, stamped into
@@ -69,11 +70,22 @@ macOS-only — a Linux/GTK app build ignores it.
 Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url`/`icon`
 (optional strings), `kind`, `mode`, and `sources` are *validated* by the manifest
 validator. The
-remaining fields (`ident`, `packages`, `targets`, and the per-source `role`)
-are read lazily by later stages — `package_metadata`, `package_dependencies`,
-and the source selector — and are **not** schema-checked here; an absent or
-wrong-typed value simply defaults rather than erroring.
+remaining fields (`ident`, `packages`, `targets`, `config`, and the per-source
+`role`) are read lazily by later stages — `package_metadata`,
+`package_dependencies`, the source selector, and the codegen tunable readers — and
+are **not** schema-checked here; an absent or wrong-typed value simply defaults
+rather than erroring.
 [[src/manifest/mod.rs:validate_project_manifest]] [[src/manifest/package.rs:package_metadata]]
+
+⁴ `config` holds build-time runtime tunables baked into the compiled executable
+(plan-15 D3). Currently one key is read: `stdinLogCap`, the stdin broadcast-log
+backpressure high-water mark in bytes (plan-15 §4.1) — the runtime reader blocks a
+producer rather than growing the log past `base + stdinLogCap`. It is read lazily
+on the executable codegen path and defaults to `STDIN_LOG_CAP_DEFAULT` (4 MiB) when
+absent, non-numeric, or below one read chunk (8 KiB, which could not hold a single
+chunk); unknown keys under `config` are ignored. It is not a runtime env var or
+setter — the value is fixed into the binary at build time.
+[[src/manifest/mod.rs:stdin_log_cap]]
 
 ## Source Entries
 

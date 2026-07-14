@@ -17,6 +17,11 @@ pub(crate) struct NirModule {
     /// Native build mode this module was lowered for (`console` or `macos-app`).
     /// Recorded so downstream plan/code stages and goldens reflect app mode.
     pub(crate) build_mode: crate::target::NativeBuildMode,
+    /// Stdin broadcast-log backpressure cap in bytes, baked into the executable
+    /// (plan-15 D3). Sourced from the `project.json` `"config"` section's
+    /// `stdinLogCap` on the executable path; defaults to `STDIN_LOG_CAP_DEFAULT`
+    /// (4 MiB) everywhere else. Read by `lower_stdin_next_byte`.
+    pub(crate) stdin_log_cap: u64,
     pub(crate) project: String,
     pub(crate) entry: Option<NirEntryPoint>,
     pub(crate) globals: Vec<NirGlobal>,
