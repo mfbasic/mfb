@@ -51,9 +51,9 @@ Also landed:
 
 ### Measured result (release mfb, `--run 10`, same metric as source logs)
 
-Rows moved to **COMPLETE (≤5 ms)**: io write 26.7→1.66, any 5.5→1.02,
-all 5.3→1.03, findIndex 13.8→2.60, findLastIndex 13.8→2.50, reduceRight
-23.5→2.85, take 10.5→4.2, drop 10.8→4.3. Rows that now **beat Python**
+Rows moved to **COMPLETE (≤5 ms)**: io write 26.7→1.7, any 5.5→1.0,
+all 5.3→1.0, findIndex 13.8→2.6, findLastIndex 13.8→2.5, reduceRight
+23.5→2.8, take 10.5→4.3, drop 10.8→4.4, **zip 7.6→1.8**. Rows that now **beat Python**
 (cleared P1→P2): bignum modmul 228→23.2, modexp 123→12.9. Large in-band gains:
 sortBy 647→69, string case 155→68, csv 20→8.5, partition 18.4→14.6, window
 203→117, chunks 30→15, vector int 99→57, vector fixed 14.6→14.0. Remaining P1s
