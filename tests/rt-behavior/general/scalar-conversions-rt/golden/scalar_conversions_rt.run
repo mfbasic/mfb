@@ -1,0 +1,12 @@
+int65=65
+byte=122
+str=20013
+enc1=A
+enc2=é
+enc3=中
+enc4=😀
+tb=200
+surrogate=77050002
+toobig=77050002
+empty=77050002
+multi=77050002

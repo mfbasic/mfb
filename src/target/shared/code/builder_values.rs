@@ -689,6 +689,9 @@ impl CodeBuilder<'_> {
                 if target == "toMoney" && args.len() == 1 {
                     return self.lower_to_money(&args[0]);
                 }
+                if target == "toScalar" && args.len() == 1 {
+                    return self.lower_to_scalar(&args[0]);
+                }
                 if target == "isNumeric" && args.len() == 1 {
                     return self.lower_is_numeric(&args[0]);
                 }
@@ -758,7 +761,7 @@ impl CodeBuilder<'_> {
                 // instead of auto-propagating, then materialize the `Result`.
                 if matches!(
                     target.as_str(),
-                    "toInt" | "toFloat" | "toFixed" | "toByte" | "toMoney"
+                    "toInt" | "toFloat" | "toFixed" | "toByte" | "toMoney" | "toScalar"
                 ) && (args.len() == 1 || (target == "toInt" && args.len() == 2))
                 {
                     return self.lower_inline_conversion_raw(target, args);
@@ -1404,6 +1407,7 @@ impl CodeBuilder<'_> {
             "toFixed" => self.lower_to_fixed(&args[0]),
             "toByte" => self.lower_to_byte(&args[0]),
             "toMoney" => self.lower_to_money(&args[0]),
+            "toScalar" => self.lower_to_scalar(&args[0]),
             other => Err(format!("native raw conversion '{other}' is not supported")),
         };
         self.raw_result_capture = previous;

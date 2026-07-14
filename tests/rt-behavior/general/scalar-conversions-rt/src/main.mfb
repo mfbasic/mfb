@@ -1,0 +1,40 @@
+' plan-41-D Phase 1: Scalar conversions — toScalar(Integer/String/Byte),
+' toInt(Scalar), toByte(Scalar), toString(Scalar) (UTF-8 encode across all four
+' byte lengths), plus the fallible traps (surrogate/range/empty/multi-scalar).
+IMPORT io
+
+FUNC scInt(n AS Integer) AS Integer
+  LET s = toScalar(n) TRAP(err)
+    RETURN err.code
+  END TRAP
+  RETURN toInt(s)
+END FUNC
+
+FUNC scStr(s AS String) AS Integer
+  LET sc = toScalar(s) TRAP(err)
+    RETURN err.code
+  END TRAP
+  RETURN toInt(sc)
+END FUNC
+
+FUNC main() AS Integer
+  ' toScalar(Integer) valid + toInt round-trip
+  io::print("int65=" & toString(scInt(65)))
+  ' toScalar(Byte) infallible
+  io::print("byte=" & toString(toInt(toScalar(toByte(122)))))
+  ' toScalar(String) single scalar
+  io::print("str=" & toString(scStr("中")))
+  ' toString(Scalar) UTF-8 encode: 1/2/3/4-byte
+  io::print("enc1=" & toString(toScalar(65)))
+  io::print("enc2=" & toString(toScalar(233)))
+  io::print("enc3=" & toString(toScalar(20013)))
+  io::print("enc4=" & toString(toScalar(128512)))
+  ' toByte(Scalar) valid
+  io::print("tb=" & toString(toByte(toScalar(200))))
+  ' Fallible traps -> ErrInvalidArgument 77050002
+  io::print("surrogate=" & toString(scInt(55296)))
+  io::print("toobig=" & toString(scInt(1114112)))
+  io::print("empty=" & toString(scStr("")))
+  io::print("multi=" & toString(scStr("ab")))
+  RETURN 0
+END FUNC

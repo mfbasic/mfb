@@ -171,7 +171,8 @@ callOrCtor     = primary { "(" [ callArgList ] ")" | "[" [ callArgList ] "]" } ;
 primary        = literal | ident | qualifiedIdent | lambda
                | enumMember | listLit | mapLit
                | "(" expr ")" ;
-literal        = integer | decimal | string | "TRUE" | "FALSE" | "NOTHING" ;
+literal        = integer | decimal | string | scalar | "TRUE" | "FALSE" | "NOTHING" ;
+scalar         = "`" ( scalarChar | escape ) "`" ; (* one Unicode scalar; §2.3 *)
 
 qualifiedIdent = ident "::" ident ;         (* package::identifier only *)
 enumMember     = ident "." ident ;         (* EnumType.Member *)

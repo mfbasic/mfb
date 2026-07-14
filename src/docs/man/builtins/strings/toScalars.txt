@@ -1,0 +1,72 @@
+NAME
+  toScalars - split a string into its Unicode scalars
+
+SYNOPSIS
+  strings::toScalars(value AS String) AS List OF Scalar
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
+
+DESCRIPTION
+  toScalars decodes value into its Unicode scalar values and returns them, in
+  order, as a List of Scalar. Each element is one Scalar (a 32-bit Unicode
+  scalar value), not a grapheme cluster: a base letter and a following combining
+  mark are two separate scalars, and an astral character such as an emoji is a
+  single scalar.
+
+  This is the entry point for walking a string one scalar at a time - compare,
+  MATCH, or classify each Scalar (see strings::isLetter and friends), then
+  rebuild a String with strings::fromScalars. The round trip is exact:
+  strings::fromScalars(strings::toScalars(s)) equals s for every String s.
+
+  The scalars appear in the same left-to-right order as in value. An empty value
+  produces an empty List. value is not modified; the returned List is a fresh
+  value.
+
+PARAMETERS
+  value AS String
+    The string to decode. Any String is accepted, including the empty string.
+
+RETURN VALUE
+  AS List OF Scalar
+    A List whose elements are the Unicode scalars of value, in order. The empty
+    string yields an empty List.
+
+ERRORS
+  No errors. Every String is valid UTF-8, so decoding always succeeds.
+
+EXAMPLES
+  Count the scalars in a string with an astral character:
+
+    IMPORT io
+    IMPORT strings
+    IMPORT collections
+
+    FUNC main AS Integer
+      LET scalars = strings::toScalars("a中😀")
+      io::print(toString(len(scalars)))
+      RETURN 0
+    END FUNC
+
+  Keep only the letters and digits, then rebuild:
+
+    IMPORT io
+    IMPORT strings
+    IMPORT collections
+
+    FUNC main AS Integer
+      MUT kept AS List OF Scalar = []
+      FOR EACH sc IN strings::toScalars("a1 b2! c3")
+        IF strings::isLetter(sc) OR strings::isDigit(sc) THEN
+          kept = collections::append(kept, sc)
+        END IF
+      NEXT
+      io::print(strings::fromScalars(kept))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  fromScalars, isLetter, isDigit, graphemes

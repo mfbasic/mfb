@@ -1015,9 +1015,12 @@ pub(super) fn value_may_return_invalid_format(
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
-            "toInt" if args.len() == 1 => {
-                static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
-            }
+            // `toInt(Byte)` and `toInt(Scalar)` are infallible width-preserving
+            // moves; every other 1-arg form can fail.
+            "toInt" if args.len() == 1 => !matches!(
+                static_type_name_with_types(&args[0], types).as_deref(),
+                Some("Byte") | Some("Scalar")
+            ),
             // The 2-arg `toInt(text, base)` form parses a String in a runtime
             // base; it FAILs `77050003` on an empty string, an out-of-range
             // base, or a digit invalid for the base (plan-02-cleanup §5).

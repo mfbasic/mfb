@@ -22,12 +22,18 @@ trimming and case mapping (`trim`, `trimStart`, `trimEnd`, `trimChars`, `upper`,
 `graphemes`, `graphemeAt`, `graphemesCount`), tests and search (`startsWith`,
 `endsWith`, `contains`, `startsWithAny`, `endsWithAny`, `find`, `count`), slicing
 and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
-`join`, `replace`, `repeat`, `padLeft`, `padRight`), and length and byte queries
-(`byteLen`, `toBytes`). [[src/builtins/strings.rs:is_strings_call]]
+`join`, `replace`, `repeat`, `padLeft`, `padRight`), length and byte queries
+(`byteLen`, `toBytes`), and the Unicode-scalar seam (`toScalars`, `fromScalars`,
+and the `Scalar` classifiers `isLetter`, `isDigit`, `isWhitespace`, `isUpper`,
+`isLower`). [[src/builtins/strings.rs:is_strings_call]]
 
 These helpers do not mutate their arguments. Functions that transform text return
 a new `String`; `graphemes` and `split` return a `List OF String`, `toBytes`
-returns a `List OF Byte`, and the original value is left unchanged.
+returns a `List OF Byte`, `toScalars` returns a `List OF Scalar`, and the
+original value is left unchanged. The scalar seam bridges `String` and the
+`Scalar` primitive: `toScalars` walks a string one Unicode scalar at a time and
+`fromScalars` rebuilds one, an exact round trip; the five `isX(Scalar)`
+predicates classify a single scalar by its Unicode general category.
 [[src/builtins/strings.rs:call_return_type_name]]
 
 Index- and count-based functions (`find`, `mid`, `left`, `right`) measure

@@ -1078,6 +1078,7 @@ pub(super) fn static_type_name_with_types(
             "toFixed" => Some("Fixed".to_string()),
             "toByte" => Some("Byte".to_string()),
             "toMoney" => Some("Money".to_string()),
+            "toScalar" => Some("Scalar".to_string()),
             "isNumeric" => Some("Boolean".to_string()),
             _ => None,
         },

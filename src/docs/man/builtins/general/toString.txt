@@ -8,6 +8,7 @@ SYNOPSIS
   toString(value AS Boolean) AS String
   toString(value AS String) AS String
   toString(value AS Byte) AS String
+  toString(value AS Scalar) AS String
   toString(value AS List OF Byte) AS String
 
 PACKAGE
@@ -100,7 +101,8 @@ TYPE CHECKING
   toString is defined only for the overloads listed in this page. Calling
   toString on user-defined records, unions, enums, resources, threads,
   functions, lambdas, List values other than List OF Byte, or Map values is a
-  compile-time type error.
+  compile-time type error. toString(Scalar) is infallible and yields the
+  one-scalar UTF-8 string for the code point.
 
   No implicit conversion is performed for unsupported argument types. Convert to
   one of the supported types explicitly, or provide a domain-specific formatter.

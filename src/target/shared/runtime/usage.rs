@@ -24,6 +24,7 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "toFloat"
             | "toInt"
             | "toMoney"
+            | "toScalar"
             | "toString"
             | "isEmpty"
             | "isEven"

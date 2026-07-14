@@ -55,6 +55,10 @@ A string literal is delimited by `"`. It may not span a line — reaching a newl
 
 A `\` immediately before a newline is **not** a line continuation — no in-string continuation exists — and is the same lexer error as a bare newline (`MFB_LEX_UNTERMINATED_STRING`). A `\` at end-of-file is likewise unterminated.
 
+## 2.3 Scalar literals
+
+A **scalar literal** is delimited by backticks and holds exactly one Unicode scalar: `` `A` ``, `` `中` ``, `` `😀` ``. It lexes to the `Scalar` type (`mfb spec language types` §4.1). The backtick is otherwise unused in the grammar, so introducing it disturbs nothing — in particular the line-comment character `'` is unchanged, and `` `'` `` is simply the apostrophe scalar. The one scalar may be a raw source scalar or an escape, reusing the string-escape machinery: `` `\n` ``, `` `\t` ``, `` `\r` ``, `` `\0` ``, `` `\\` ``, the backtick escape `` `\`` ``, and `` `\u{HEX}` `` (1–6 hex digits, e.g. `` `\u{1F600}` `` is 😀). A `\u{...}` naming a surrogate or a value above `U+10FFFF` is `MFB_LEX_INVALID_UNICODE_ESCAPE`, exactly as in a string. An **empty** literal `` `` `` is `TYPE_SCALAR_LITERAL_EMPTY`; **more than one** scalar before the close (`` `ab` ``) is `TYPE_SCALAR_LITERAL_TOO_MANY`; an unterminated literal (newline or end-of-file before the closing backtick) or an unknown escape (`` `\q` ``) is `TYPE_SCALAR_LITERAL_INVALID`. [[src/lexer.rs:lex_scalar]]
+
 For **any other** escape, the lexer drops the backslash and keeps the following character verbatim: `"\q"` lexes to `q`. Escape handling is identical in every lexing mode — there is a single `lex_string` routine, so internal/source-package lexing decodes `\r`, `\0`, and `\u{...}` exactly as ordinary lexing does.
 
 A string carrying an embedded NUL (`\0`) is truncated at the NUL when handed to a C/syscall boundary that reads a NUL-terminated C string (e.g. a filesystem path); MFBASIC string operations that use the explicit `byteLength` (length, slicing, comparison, concatenation) see the full payload.

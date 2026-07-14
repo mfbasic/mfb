@@ -1,0 +1,77 @@
+REM MFBASIC strings scalar companion (plan-41-D). Internal helpers backing the
+REM native strings::toScalars / strings::fromScalars seam and the five scalar
+REM classification predicates. The Unicode general-category table
+REM (__strings_genCat) is appended from regex_unicode.mfb at build time with its
+REM function renamed from __regex_genCat (see strings.rs::source_file), so it
+REM never collides with the regex companion's own copy when both are imported.
+
+IMPORT collections
+IMPORT encoding
+
+REM ---------------------------------------------------------------------------
+REM String <-> List OF Scalar seam
+REM ---------------------------------------------------------------------------
+
+REM Decode a String into its Unicode scalars in order. `utf32Encode` walks the
+REM UTF-8 once yielding valid code points, so `toScalar` never actually fails;
+REM the inline TRAP is unreachable and only keeps the function total (infallible).
+FUNC __strings_toScalars(s AS String) AS List OF Scalar
+  MUT out AS List OF Scalar = []
+  LET cps AS List OF Integer = encoding::utf32Encode(s)
+  FOR EACH cp IN cps
+    LET sc AS Scalar = toScalar(cp) TRAP(err)
+      RETURN out
+    END TRAP
+    out = collections::append(out, sc)
+  NEXT
+  RETURN out
+END FUNC
+
+REM Rebuild a String from scalars in order. Every Scalar is a valid, non-surrogate
+REM code point, so `utf32Decode` never fails; the inline TRAP is unreachable.
+FUNC __strings_fromScalars(scalars AS List OF Scalar) AS String
+  MUT cps AS List OF Integer = []
+  FOR EACH sc IN scalars
+    cps = collections::append(cps, toInt(sc))
+  NEXT
+  LET result AS String = encoding::utf32Decode(cps) TRAP(err)
+    RETURN ""
+  END TRAP
+  RETURN result
+END FUNC
+
+REM ---------------------------------------------------------------------------
+REM Scalar classification predicates (total over every Scalar)
+REM ---------------------------------------------------------------------------
+
+FUNC __strings_isLetter(sc AS Scalar) AS Boolean
+  LET cat AS String = __strings_genCat(toInt(sc))
+  RETURN cat = "Lu" OR cat = "Ll" OR cat = "Lt" OR cat = "Lm" OR cat = "Lo"
+END FUNC
+
+FUNC __strings_isDigit(sc AS Scalar) AS Boolean
+  RETURN __strings_genCat(toInt(sc)) = "Nd"
+END FUNC
+
+FUNC __strings_isWhitespace(sc AS Scalar) AS Boolean
+  LET cp AS Integer = toInt(sc)
+  LET cat AS String = __strings_genCat(cp)
+  IF cat = "Zs" OR cat = "Zl" OR cat = "Zp" THEN
+    RETURN TRUE
+  END IF
+  IF cp >= 9 AND cp <= 13 THEN
+    RETURN TRUE
+  END IF
+  IF cp = 133 THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __strings_isUpper(sc AS Scalar) AS Boolean
+  RETURN __strings_genCat(toInt(sc)) = "Lu"
+END FUNC
+
+FUNC __strings_isLower(sc AS Scalar) AS Boolean
+  RETURN __strings_genCat(toInt(sc)) = "Ll"
+END FUNC

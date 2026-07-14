@@ -39,6 +39,16 @@ const TO_BYTES: &str = "strings.toBytes";
 const FIND: &str = "strings.find";
 const MID: &str = "strings.mid";
 const REPLACE: &str = "strings.replace";
+// The Scalar seam + classification predicates (plan-41-D). These are backed by
+// the source companion `strings_package.mfb` (dispatched via `implementation_name`
+// to the `__strings_*` helpers), not native codegen.
+const TO_SCALARS: &str = "strings.toScalars";
+const FROM_SCALARS: &str = "strings.fromScalars";
+const IS_LETTER: &str = "strings.isLetter";
+const IS_DIGIT: &str = "strings.isDigit";
+const IS_WHITESPACE: &str = "strings.isWhitespace";
+const IS_UPPER: &str = "strings.isUpper";
+const IS_LOWER: &str = "strings.isLower";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -78,6 +88,13 @@ pub(crate) fn is_strings_call(name: &str) -> bool {
             | FIND
             | MID
             | REPLACE
+            | TO_SCALARS
+            | FROM_SCALARS
+            | IS_LETTER
+            | IS_DIGIT
+            | IS_WHITESPACE
+            | IS_UPPER
+            | IS_LOWER
     )
 }
 
@@ -104,6 +121,9 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         FIND => Some(&[&["value"], &["needle"], &["start"]]),
         MID => Some(&[&["value"], &["start"], &["count"]]),
         REPLACE => Some(&[&["value"], &["old", "needle"], &["new", "replacement"]]),
+        TO_SCALARS => Some(&[&["value"]]),
+        FROM_SCALARS => Some(&[&["scalars"]]),
+        IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => Some(&[&["scalar"]]),
         _ => None,
     }
 }
@@ -120,6 +140,9 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         STRIP_PREFIX | STRIP_SUFFIX | LEFT | RIGHT | REPEAT | PAD_LEFT | PAD_RIGHT
         | GRAPHEME_AT | TRIM_CHARS | MID | REPLACE => Some("String"),
         FIND => Some("Integer"),
+        TO_SCALARS => Some("List OF Scalar"),
+        FROM_SCALARS => Some("String"),
+        IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => Some("Boolean"),
         _ => None,
     }
 }
@@ -164,6 +187,13 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         MID if exact(arg_types, &["String", "Integer", "Integer"]) => Cow::Borrowed("String"),
         REPLACE if exact(arg_types, &["String", "String", "String"]) => Cow::Borrowed("String"),
+        TO_SCALARS if exact(arg_types, &["String"]) => Cow::Borrowed("List OF Scalar"),
+        FROM_SCALARS if exact(arg_types, &["List OF Scalar"]) => Cow::Borrowed("String"),
+        IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER
+            if exact(arg_types, &["Scalar"]) =>
+        {
+            Cow::Borrowed("Boolean")
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -183,6 +213,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         FIND => Some("String, String[, Integer]"),
         MID => Some("String, Integer, Integer"),
         REPLACE => Some("String, String, String"),
+        TO_SCALARS => Some("String"),
+        FROM_SCALARS => Some("List OF Scalar"),
+        IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => Some("Scalar"),
         _ => None,
     }
 }
@@ -196,8 +229,203 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         | TRIM_CHARS => Some((2, 2)),
         PAD_LEFT | PAD_RIGHT | FIND => Some((2, 3)),
         MID | REPLACE => Some((3, 3)),
+        TO_SCALARS | FROM_SCALARS | IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => {
+            Some((1, 1))
+        }
         _ => None,
     }
+}
+
+/// The source-companion implementation name (`__strings_*`) for the Scalar seam
+/// and classification predicates (plan-41-D). Only these members are backed by
+/// `strings_package.mfb`; every other `strings::` member is native codegen and
+/// returns `None` here so it keeps its native lowering.
+pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
+    match name {
+        TO_SCALARS => Some("__strings_toScalars"),
+        FROM_SCALARS => Some("__strings_fromScalars"),
+        IS_LETTER => Some("__strings_isLetter"),
+        IS_DIGIT => Some("__strings_isDigit"),
+        IS_WHITESPACE => Some("__strings_isWhitespace"),
+        IS_UPPER => Some("__strings_isUpper"),
+        IS_LOWER => Some("__strings_isLower"),
+        _ => None,
+    }
+}
+
+/// The source companion backing the Scalar seam/predicates: the scalar helpers
+/// plus the shared Unicode general-category table (`__regex_genCat`), appended
+/// from `regex_unicode.mfb`. Both are file-local, so this copy of the table never
+/// collides with the regex companion's own copy when both packages are imported.
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    // The Unicode general-category table is the same generated source as the
+    // regex companion (`regex_unicode.mfb`, one source of truth), but its sole
+    // function `__regex_genCat` is renamed to `__strings_genCat` so the two
+    // companions never collide on a project-global symbol when both `regex` and
+    // `strings` are imported.
+    let table = include_str!("regex_unicode.mfb").replace("__regex_genCat", "__strings_genCat");
+    let combined = format!("{}\n{}", include_str!("strings_package.mfb"), table);
+    crate::ast::parse_source_internal(
+        std::path::Path::new("<builtin-strings>"),
+        "builtins/strings.mfb",
+        &combined,
+    )
+}
+
+/// The seven scalar-seam members backed by the source companion. Their short
+/// (unqualified) names, used to gate injection on actual usage.
+const SEAM_SHORT_NAMES: &[&str] = &[
+    "toScalars",
+    "fromScalars",
+    "isLetter",
+    "isDigit",
+    "isWhitespace",
+    "isUpper",
+    "isLower",
+];
+
+fn callee_is_seam(callee: &str) -> bool {
+    // The callee may be source-qualified (`strings::toScalars`), aliased
+    // (`s::toScalars`), or canonicalized to the dotted form (`strings.toScalars`)
+    // depending on which pass runs the gate; reduce to the final segment across
+    // both separators. Over-matching (a user's own `toScalars`) only injects the
+    // companion unnecessarily, never wrongly.
+    let short = callee
+        .rsplit("::")
+        .next()
+        .unwrap_or(callee)
+        .rsplit('.')
+        .next()
+        .unwrap_or(callee);
+    SEAM_SHORT_NAMES.contains(&short)
+}
+
+/// Whether the project uses `strings` AND references at least one scalar-seam
+/// member. The companion carries the full ~4k-line Unicode general-category
+/// table, so injecting it for every `IMPORT strings` would tax the common case;
+/// gating on actual usage keeps a plain strings program cheap (plan-41-D).
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    let imports_strings = ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "strings")
+    });
+    imports_strings
+        && ast
+            .files
+            .iter()
+            .any(|file| file.items.iter().any(item_references_seam))
+}
+
+fn item_references_seam(item: &crate::ast::Item) -> bool {
+    use crate::ast::Item;
+    match item {
+        Item::Function(f) => f.body.iter().any(stmt_references_seam),
+        Item::Binding(b) => b.value.as_ref().is_some_and(expr_references_seam),
+        _ => false,
+    }
+}
+
+fn stmt_references_seam(stmt: &crate::ast::Statement) -> bool {
+    use crate::ast::Statement;
+    let body = |stmts: &[Statement]| stmts.iter().any(stmt_references_seam);
+    match stmt {
+        Statement::Let { value, .. }
+        | Statement::Return { value, .. }
+        | Statement::Recover { value, .. }
+        | Statement::Exit { code: value, .. } => value.as_ref().is_some_and(expr_references_seam),
+        Statement::Fail { error, .. } => expr_references_seam(error),
+        Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
+            expr_references_seam(value)
+        }
+        Statement::Expression { expression, .. } => expr_references_seam(expression),
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => expr_references_seam(condition) || body(then_body) || body(else_body),
+        Statement::Match {
+            expression, cases, ..
+        } => {
+            expr_references_seam(expression)
+                || cases.iter().any(|case| case.body.iter().any(stmt_references_seam))
+        }
+        Statement::For {
+            start,
+            end,
+            step,
+            body: b,
+            ..
+        } => {
+            expr_references_seam(start)
+                || expr_references_seam(end)
+                || step.as_ref().is_some_and(expr_references_seam)
+                || body(b)
+        }
+        Statement::ForEach { iterable, body: b, .. } => {
+            expr_references_seam(iterable) || body(b)
+        }
+        Statement::While {
+            condition, body: b, ..
+        }
+        | Statement::DoUntil {
+            condition, body: b, ..
+        } => expr_references_seam(condition) || body(b),
+        Statement::Continue { .. } | Statement::Propagate { .. } => false,
+    }
+}
+
+fn expr_references_seam(expr: &crate::ast::Expression) -> bool {
+    use crate::ast::{CallArg, ConstructorArg, Expression};
+    let arg = |a: &CallArg| match a {
+        CallArg::Positional(v) | CallArg::Named { value: v, .. } => expr_references_seam(v),
+    };
+    match expr {
+        Expression::Call {
+            callee, arguments, ..
+        } => callee_is_seam(callee) || arguments.iter().any(arg),
+        Expression::Binary { left, right, .. } => {
+            expr_references_seam(left) || expr_references_seam(right)
+        }
+        Expression::Unary { operand, .. } => expr_references_seam(operand),
+        Expression::Lambda { body, .. } => expr_references_seam(body),
+        Expression::Constructor { arguments, .. } => arguments.iter().any(|a| match a {
+            ConstructorArg::Positional(v) | ConstructorArg::Named { value: v, .. } => {
+                expr_references_seam(v)
+            }
+        }),
+        Expression::WithUpdate { target, updates } => {
+            expr_references_seam(target)
+                || updates.iter().any(|u| expr_references_seam(&u.value))
+        }
+        Expression::ListLiteral(values) => values.iter().any(expr_references_seam),
+        Expression::MapLiteral { entries, .. } => entries
+            .iter()
+            .any(|(k, v)| expr_references_seam(k) || expr_references_seam(v)),
+        Expression::MemberAccess { target, .. } => expr_references_seam(target),
+        Expression::Trapped {
+            expression,
+            handler,
+            ..
+        } => expr_references_seam(expression) || handler.iter().any(stmt_references_seam),
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_)
+        | Expression::Identifier(_) => false,
+    }
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
 }
 
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {

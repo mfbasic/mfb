@@ -741,6 +741,7 @@ impl CodeBuilder<'_> {
             }),
             "Boolean" => self.lower_boolean_to_string(&value_register),
             "Byte" => self.emit_integer_to_string_value(&value_register, false),
+            "Scalar" => self.emit_scalar_to_string_value(&value_register),
             "Integer" => self.emit_integer_to_string_value(&value_register, true),
             "List OF Byte" => self.emit_byte_list_to_string_value(&value_register),
             "Fixed" => {

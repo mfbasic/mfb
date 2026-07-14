@@ -1,0 +1,36 @@
+' plan-41-D Phase 2/3: strings::toScalars / fromScalars round-trip over
+' ASCII/multibyte/astral, and the five scalar classification predicates.
+IMPORT io
+IMPORT strings
+IMPORT collections
+
+SUB check(label AS String, cond AS Boolean)
+  IF cond THEN
+    io::print(label)
+  END IF
+END SUB
+
+FUNC main() AS Integer
+  LET s AS String = "héllo中😀"
+  LET scalars AS List OF Scalar = strings::toScalars(s)
+  io::print("count=" & toString(len(scalars)))
+  check("roundtrip", strings::fromScalars(scalars) = s)
+  check("first", collections::get(scalars, 0) = `h`)
+  check("astral", collections::get(scalars, 6) = `\u{1F600}`)
+  ' Walk a string, keep only letters/digits, rebuild.
+  MUT kept AS List OF Scalar = []
+  FOR EACH sc IN strings::toScalars("a1 b2! c3")
+    IF strings::isLetter(sc) OR strings::isDigit(sc) THEN
+      kept = collections::append(kept, sc)
+    END IF
+  NEXT
+  io::print("filtered=" & strings::fromScalars(kept))
+  check("isLetter", strings::isLetter(`中`))
+  check("notLetter", NOT strings::isLetter(`5`))
+  check("isDigit", strings::isDigit(`7`))
+  check("isWhitespace", strings::isWhitespace(`\t`))
+  check("isUpper", strings::isUpper(`Q`))
+  check("isLower", strings::isLower(`q`))
+  check("notUpper", NOT strings::isUpper(`q`))
+  RETURN 0
+END FUNC

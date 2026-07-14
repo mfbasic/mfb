@@ -139,6 +139,9 @@ pub fn check_project_collect(
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)?;
+    // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
+    // (plan-41-D).
+    let augmented = builtins::strings::augmented_project(&augmented)?;
     let augmented = builtins::encoding::augmented_project(&augmented)?;
     let mut checker = SyntaxChecker::new(project_dir, &augmented);
     checker.check();

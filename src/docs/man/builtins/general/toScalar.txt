@@ -1,0 +1,89 @@
+NAME
+  toScalar - convert an Integer, String, or Byte to a Scalar
+
+SYNOPSIS
+  toScalar(value AS Integer) AS Scalar
+  toScalar(value AS String) AS Scalar
+  toScalar(value AS Byte) AS Scalar
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are always available without an IMPORT statement.
+
+DESCRIPTION
+  toScalar produces a Scalar - a single 32-bit Unicode scalar value - from a
+  code point (Integer), a one-scalar String, or a Byte.
+
+  toScalar(Integer) interprets value as a Unicode code point. A valid code
+  point is in the range 0 through 1114111 (U+10FFFF) and is not a surrogate
+  (55296 through 57343, U+D800 through U+DFFF). A value outside that range or in
+  the surrogate band cannot name a scalar and the conversion raises an error
+  rather than substituting a replacement character.
+
+  toScalar(String) returns the single scalar of a string that contains exactly
+  one Unicode scalar. An empty string, or a string holding more than one scalar,
+  is rejected.
+
+  toScalar(Byte) is infallible: every byte 0 through 255 is a valid,
+  non-surrogate code point, so the widening never fails.
+
+  toScalar is the narrowing inverse of toInt(Scalar) (which yields the code
+  point) and toString(Scalar) (which yields the one-scalar UTF-8 string).
+
+OVERLOADS
+  toScalar(value AS Integer) AS Scalar
+    Interprets value as a Unicode code point, raising an error when value is
+    negative, above 1114111, or a surrogate.
+
+  toScalar(value AS String) AS Scalar
+    Returns the single scalar of a one-scalar string, raising an error when the
+    string is empty or holds more than one scalar.
+
+  toScalar(value AS Byte) AS Scalar
+    Widens a Byte to the Scalar with the same code point. Never fails.
+
+PARAMETERS
+  value AS Integer
+    A Unicode code point in 0 through 1114111, excluding the surrogate band
+    55296 through 57343.
+
+  value AS String
+    A string holding exactly one Unicode scalar.
+
+  value AS Byte
+    Any byte 0 through 255.
+
+RETURN VALUE
+  AS Scalar
+    The Scalar naming the given code point. toScalar(65) is `A`, toScalar("中")
+    is the CJK ideograph, and toScalar(toByte(122)) is `z`.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when an Integer value is negative, above 1114111, or a surrogate, or
+  when a String value is empty or contains more than one scalar. The Byte
+  overload never raises.
+
+TYPE CHECKING
+  toScalar accepts only Integer, String, and Byte values. Calling it with any
+  other type is a compile-time error.
+
+EXAMPLES
+  Convert a code point:
+
+    LET a AS Scalar = toScalar(65)
+
+  Convert a one-scalar string (handling the fallible cases):
+
+    LET s AS Scalar = toScalar("中") TRAP(err)
+      io::print("not a single scalar")
+    END TRAP
+
+  Widen a Byte without failure:
+
+    LET b AS Scalar = toScalar(toByte(122))
+
+SEE ALSO
+  toInt, toString, toByte

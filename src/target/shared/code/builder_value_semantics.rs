@@ -681,6 +681,7 @@ impl CodeBuilder<'_> {
                 "toFixed" => Some("Fixed".to_string()),
                 "toByte" => Some("Byte".to_string()),
                 "toMoney" => Some("Money".to_string()),
+                "toScalar" => Some("Scalar".to_string()),
                 "isNumeric" => Some("Boolean".to_string()),
                 // A list element read resolves to the list's element type, so an
                 // append/set whose item is a `get` (or arithmetic over `get`s)

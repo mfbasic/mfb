@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   toByte(value AS Integer) AS Byte
   toByte(value AS Money) AS Byte
+  toByte(value AS Scalar) AS Byte
 
 PACKAGE
   general
@@ -30,6 +31,14 @@ OVERLOADS
     Narrows an Integer to Byte, raising an error when value is outside the
     range 0 through 255.
 
+  toByte(value AS Money) AS Byte
+    Narrows the whole-unit part of a Money to Byte, raising an error when it is
+    outside the range 0 through 255.
+
+  toByte(value AS Scalar) AS Byte
+    Narrows a Scalar's code point to Byte, raising an error when the code point
+    is greater than 255. The inverse of toScalar(Byte).
+
 PARAMETERS
   value AS Integer
     A signed 64-bit value to narrow to a Byte. It must be in the range 0
@@ -47,8 +56,9 @@ ERRORS
   represented as an 8-bit Byte.
 
 TYPE CHECKING
-  toByte accepts only Integer and Money values. Calling it with any other type is a
-  compile-time error; convert such values to Integer explicitly first.
+  toByte accepts only Integer, Money, and Scalar values. Calling it with any
+  other type is a compile-time error; convert such values to Integer explicitly
+  first.
 
 EXAMPLES
   Convert a literal:
@@ -61,4 +71,4 @@ EXAMPLES
     LET next AS Byte = toByte(toInt(original) + 1)
 
 SEE ALSO
-  toInt, toFloat, toFixed, toString
+  toInt, toFloat, toFixed, toString, toScalar

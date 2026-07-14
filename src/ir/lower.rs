@@ -190,6 +190,10 @@ pub fn lower_project_with_external_functions(
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)
         .expect("built-in crypto package source must parse");
+    // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
+    // (plan-41-D scalar seam).
+    let augmented = builtins::strings::augmented_project(&augmented)
+        .expect("built-in strings package source must parse");
     let augmented = builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
     let ast = &augmented;
@@ -3110,6 +3114,7 @@ fn lower_expression_with_expected(
                         .or_else(|| builtins::regex::implementation_name(&canonical_callee))
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| builtins::encoding::implementation_name(&canonical_callee))
+                        .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })
                 .unwrap_or_else(|| canonical_callee.clone());

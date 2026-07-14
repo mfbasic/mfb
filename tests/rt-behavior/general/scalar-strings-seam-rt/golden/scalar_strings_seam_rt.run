@@ -1,0 +1,12 @@
+count=7
+roundtrip
+first
+astral
+filtered=a1b2c3
+isLetter
+notLetter
+isDigit
+isWhitespace
+isUpper
+isLower
+notUpper

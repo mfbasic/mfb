@@ -14,9 +14,10 @@ impl CodeBuilder<'_> {
         // A `d`-native float's bits are read by the conversion, so materialize it
         // into a GPR first (plan-01 float-dnative). Identity for other types.
         let value = self.materialize_float(value)?;
-        // `toInt(value)` with a `Byte` is a width-narrowing move; the 2-arg
-        // radix form is `String`-only, so a `Byte` here is always 1-arg.
-        if value.type_ == "Byte" {
+        // `toInt(value)` with a `Byte` or `Scalar` is a width-preserving move: a
+        // Byte's value and a Scalar's zero-extended codepoint are already their
+        // Integer value. The 2-arg radix form is `String`-only, so both are 1-arg.
+        if matches!(value.type_.as_str(), "Byte" | "Scalar") {
             let register = self.allocate_register()?;
             self.emit(abi::move_register(&register, &value.location));
             return Ok(ValueResult {
@@ -462,7 +463,7 @@ impl CodeBuilder<'_> {
 
     pub(super) fn lower_to_byte(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        if !matches!(value.type_.as_str(), "Integer" | "Money") {
+        if !matches!(value.type_.as_str(), "Integer" | "Money" | "Scalar") {
             return Err(format!(
                 "native toByte does not accept argument type '{}'",
                 value.type_
@@ -495,6 +496,302 @@ impl CodeBuilder<'_> {
             type_: "Byte".to_string(),
             location: result,
             text: format!("toByte({})", value.text),
+        })
+    }
+
+    /// `toScalar(Integer|String|Byte) -> Scalar` (plan-41-D). `Byte` is an
+    /// infallible widen (every byte is a valid scalar); `Integer` fails
+    /// `ErrInvalidArgument` for a surrogate (U+D800..U+DFFF) or a value outside
+    /// 0..U+10FFFF; `String` decodes the single scalar of a one-scalar string,
+    /// failing for an empty or multi-scalar string.
+    pub(super) fn lower_to_scalar(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        match value.type_.as_str() {
+            "Byte" => {
+                let register = self.allocate_register()?;
+                self.emit(abi::move_register(&register, &value.location));
+                Ok(ValueResult {
+                    type_: "Scalar".to_string(),
+                    location: register,
+                    text: format!("toScalar({})", value.text),
+                })
+            }
+            "Integer" => {
+                let cp = value.location.clone();
+                let ok = self.label("to_scalar_ok");
+                let invalid = self.label("to_scalar_invalid");
+                let not_surrogate = self.label("to_scalar_not_surrogate");
+                // cp < 0 -> invalid.
+                self.emit(abi::compare_immediate(&cp, "0"));
+                self.emit(abi::branch_lt(&invalid));
+                // cp > 0x10FFFF (1114111) -> invalid.
+                self.emit(abi::compare_immediate(&cp, "1114111"));
+                self.emit(abi::branch_hi(&invalid));
+                // Surrogate band 0xD800..0xDFFF (55296..57343) -> invalid.
+                self.emit(abi::compare_immediate(&cp, "55296"));
+                self.emit(abi::branch_lo(&not_surrogate));
+                self.emit(abi::compare_immediate(&cp, "57343"));
+                self.emit(abi::branch_le(&invalid));
+                self.emit(abi::label(&not_surrogate));
+                self.emit(abi::branch(&ok));
+                self.emit(abi::label(&invalid));
+                self.emit_invalid_argument_return()?;
+                self.emit(abi::label(&ok));
+                let register = self.allocate_register()?;
+                self.emit(abi::move_register(&register, &cp));
+                Ok(ValueResult {
+                    type_: "Scalar".to_string(),
+                    location: register,
+                    text: format!("toScalar({})", value.text),
+                })
+            }
+            "String" => {
+                let result = self.emit_string_to_scalar_value(&value.location)?;
+                Ok(ValueResult {
+                    type_: "Scalar".to_string(),
+                    location: result,
+                    text: format!("toScalar({})", value.text),
+                })
+            }
+            other => Err(format!(
+                "native toScalar does not accept argument type '{other}'"
+            )),
+        }
+    }
+
+    /// Decode the single Unicode scalar of a one-scalar `String` into a codepoint
+    /// register. A `String` is guaranteed valid UTF-8, so the decoder trusts
+    /// well-formedness and only enforces "exactly one scalar": it computes the
+    /// lead byte's expected length, reassembles the codepoint, and traps
+    /// `ErrInvalidArgument` when the string is empty or its byte length differs
+    /// from that scalar's length (i.e. zero or more than one scalar).
+    pub(super) fn emit_string_to_scalar_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<String, String> {
+        let string_v = self.temporary_vreg();
+        let length_v = self.temporary_vreg();
+        let b0_v = self.temporary_vreg();
+        let cp_v = self.temporary_vreg();
+        let cont_v = self.temporary_vreg();
+        let mask_v = self.temporary_vreg();
+        let nbytes_v = self.temporary_vreg();
+        let string = string_v.as_str();
+        let length = length_v.as_str();
+        let b0 = b0_v.as_str();
+        let cp = cp_v.as_str();
+        let cont = cont_v.as_str();
+        let mask = mask_v.as_str();
+        let nbytes = nbytes_v.as_str();
+
+        let one_byte = self.label("str_scalar_one");
+        let two_byte = self.label("str_scalar_two");
+        let three_byte = self.label("str_scalar_three");
+        let four_byte = self.label("str_scalar_four");
+        let assembled = self.label("str_scalar_assembled");
+        let invalid = self.label("str_scalar_invalid");
+        let ok = self.label("str_scalar_ok");
+
+        self.emit(abi::move_register(string, source_register));
+        self.emit(abi::load_u64(length, string, 0));
+        // Empty string -> invalid.
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(&invalid));
+        self.emit(abi::load_u8(b0, string, 8));
+        // Classify the lead byte by its high bits.
+        self.emit(abi::compare_immediate(b0, "128")); // < 0x80 -> 1 byte
+        self.emit(abi::branch_lo(&one_byte));
+        self.emit(abi::compare_immediate(b0, "192")); // 0x80..0xBF lead -> invalid
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(b0, "224")); // < 0xE0 -> 2 bytes
+        self.emit(abi::branch_lo(&two_byte));
+        self.emit(abi::compare_immediate(b0, "240")); // < 0xF0 -> 3 bytes
+        self.emit(abi::branch_lo(&three_byte));
+        self.emit(abi::compare_immediate(b0, "248")); // < 0xF8 -> 4 bytes
+        self.emit(abi::branch_lo(&four_byte));
+        self.emit(abi::branch(&invalid));
+
+        // 1 byte: cp = b0.
+        self.emit(abi::label(&one_byte));
+        self.emit(abi::move_immediate(nbytes, "Integer", "1"));
+        self.emit(abi::move_register(cp, b0));
+        self.emit(abi::branch(&assembled));
+
+        // 2 bytes: cp = (b0 & 0x1F) << 6 | (b1 & 0x3F).
+        self.emit(abi::label(&two_byte));
+        self.emit(abi::move_immediate(nbytes, "Integer", "2"));
+        self.emit(abi::move_immediate(mask, "Integer", "31"));
+        self.emit(abi::and_registers(cp, b0, mask));
+        self.emit(abi::shift_left_immediate(cp, cp, 6));
+        self.emit(abi::load_u8(cont, string, 9));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(cont, cont, mask));
+        self.emit(abi::or_registers(cp, cp, cont));
+        self.emit(abi::branch(&assembled));
+
+        // 3 bytes: cp = (b0 & 0x0F) << 12 | (b1 & 0x3F) << 6 | (b2 & 0x3F).
+        self.emit(abi::label(&three_byte));
+        self.emit(abi::move_immediate(nbytes, "Integer", "3"));
+        self.emit(abi::move_immediate(mask, "Integer", "15"));
+        self.emit(abi::and_registers(cp, b0, mask));
+        self.emit(abi::shift_left_immediate(cp, cp, 12));
+        self.emit(abi::load_u8(cont, string, 9));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(cont, cont, mask));
+        self.emit(abi::shift_left_immediate(cont, cont, 6));
+        self.emit(abi::or_registers(cp, cp, cont));
+        self.emit(abi::load_u8(cont, string, 10));
+        self.emit(abi::and_registers(cont, cont, mask));
+        self.emit(abi::or_registers(cp, cp, cont));
+        self.emit(abi::branch(&assembled));
+
+        // 4 bytes: cp = (b0 & 0x07)<<18 | (b1&0x3F)<<12 | (b2&0x3F)<<6 | (b3&0x3F).
+        self.emit(abi::label(&four_byte));
+        self.emit(abi::move_immediate(nbytes, "Integer", "4"));
+        self.emit(abi::move_immediate(mask, "Integer", "7"));
+        self.emit(abi::and_registers(cp, b0, mask));
+        self.emit(abi::shift_left_immediate(cp, cp, 18));
+        self.emit(abi::load_u8(cont, string, 9));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(cont, cont, mask));
+        self.emit(abi::shift_left_immediate(cont, cont, 12));
+        self.emit(abi::or_registers(cp, cp, cont));
+        self.emit(abi::load_u8(cont, string, 10));
+        self.emit(abi::and_registers(cont, cont, mask));
+        self.emit(abi::shift_left_immediate(cont, cont, 6));
+        self.emit(abi::or_registers(cp, cp, cont));
+        self.emit(abi::load_u8(cont, string, 11));
+        self.emit(abi::and_registers(cont, cont, mask));
+        self.emit(abi::or_registers(cp, cp, cont));
+        self.emit(abi::branch(&assembled));
+
+        // Exactly-one-scalar check: the byte length must equal the lead byte's
+        // expected length; anything else is zero or more than one scalar.
+        self.emit(abi::label(&assembled));
+        self.emit(abi::compare_registers(length, nbytes));
+        self.emit(abi::branch_ne(&invalid));
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&invalid));
+        self.emit_invalid_argument_return()?;
+        self.emit(abi::label(&ok));
+        let result = self.allocate_register()?;
+        self.emit(abi::move_register(&result, cp));
+        Ok(result)
+    }
+
+    /// `toString(Scalar) -> String` (plan-41-D): UTF-8-encode the one codepoint
+    /// into a fresh 1–4 byte `String`. Infallible — every valid `Scalar` is a
+    /// valid UTF-8 string. Writes the encoded bytes into a stack buffer, then
+    /// materializes an owned arena `String` from them.
+    pub(super) fn emit_scalar_to_string_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<ValueResult, String> {
+        let cp_v = self.temporary_vreg();
+        let buf_v = self.temporary_vreg();
+        let len_v = self.temporary_vreg();
+        let tmp_v = self.temporary_vreg();
+        let mask_v = self.temporary_vreg();
+        let cp = cp_v.as_str();
+        let buf = buf_v.as_str();
+        let len = len_v.as_str();
+        let tmp = tmp_v.as_str();
+        let mask = mask_v.as_str();
+        let buf_slot = self.allocate_stack_object("scalar_utf8_buf", 8);
+
+        let enc1 = self.label("scalar_str_enc1");
+        let enc2 = self.label("scalar_str_enc2");
+        let enc3 = self.label("scalar_str_enc3");
+        let enc4 = self.label("scalar_str_enc4");
+        let encoded = self.label("scalar_str_encoded");
+
+        self.emit(abi::move_register(cp, source_register));
+        self.emit(abi::add_immediate(buf, abi::stack_pointer(), buf_slot));
+        self.emit(abi::compare_immediate(cp, "128")); // < 0x80 -> 1 byte
+        self.emit(abi::branch_lo(&enc1));
+        self.emit(abi::compare_immediate(cp, "2048")); // < 0x800 -> 2 bytes
+        self.emit(abi::branch_lo(&enc2));
+        self.emit(abi::compare_immediate(cp, "65536")); // < 0x10000 -> 3 bytes
+        self.emit(abi::branch_lo(&enc3));
+        self.emit(abi::branch(&enc4));
+
+        // 1 byte: [cp].
+        self.emit(abi::label(&enc1));
+        self.emit(abi::store_u8(cp, buf, 0));
+        self.emit(abi::move_immediate(len, "Integer", "1"));
+        self.emit(abi::branch(&encoded));
+
+        // 2 bytes: [0xC0 | cp>>6, 0x80 | cp&0x3F].
+        self.emit(abi::label(&enc2));
+        self.emit(abi::shift_right_immediate(tmp, cp, 6));
+        self.emit(abi::move_immediate(mask, "Integer", "192"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 0));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(tmp, cp, mask));
+        self.emit(abi::move_immediate(mask, "Integer", "128"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 1));
+        self.emit(abi::move_immediate(len, "Integer", "2"));
+        self.emit(abi::branch(&encoded));
+
+        // 3 bytes: [0xE0 | cp>>12, 0x80 | (cp>>6)&0x3F, 0x80 | cp&0x3F].
+        self.emit(abi::label(&enc3));
+        self.emit(abi::shift_right_immediate(tmp, cp, 12));
+        self.emit(abi::move_immediate(mask, "Integer", "224"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 0));
+        self.emit(abi::shift_right_immediate(tmp, cp, 6));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(tmp, tmp, mask));
+        self.emit(abi::move_immediate(mask, "Integer", "128"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(tmp, cp, mask));
+        self.emit(abi::move_immediate(mask, "Integer", "128"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 2));
+        self.emit(abi::move_immediate(len, "Integer", "3"));
+        self.emit(abi::branch(&encoded));
+
+        // 4 bytes: [0xF0 | cp>>18, 0x80 | (cp>>12)&0x3F, 0x80 | (cp>>6)&0x3F,
+        //           0x80 | cp&0x3F].
+        self.emit(abi::label(&enc4));
+        self.emit(abi::shift_right_immediate(tmp, cp, 18));
+        self.emit(abi::move_immediate(mask, "Integer", "240"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 0));
+        self.emit(abi::shift_right_immediate(tmp, cp, 12));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(tmp, tmp, mask));
+        self.emit(abi::move_immediate(mask, "Integer", "128"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 1));
+        self.emit(abi::shift_right_immediate(tmp, cp, 6));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(tmp, tmp, mask));
+        self.emit(abi::move_immediate(mask, "Integer", "128"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 2));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(tmp, cp, mask));
+        self.emit(abi::move_immediate(mask, "Integer", "128"));
+        self.emit(abi::or_registers(tmp, tmp, mask));
+        self.emit(abi::store_u8(tmp, buf, 3));
+        self.emit(abi::move_immediate(len, "Integer", "4"));
+        self.emit(abi::branch(&encoded));
+
+        self.emit(abi::label(&encoded));
+        // Re-derive the buffer address after the branches (the arena call inside
+        // materialize spills it) and build the owned String.
+        let buf_addr = self.allocate_register()?;
+        self.emit(abi::add_immediate(&buf_addr, abi::stack_pointer(), buf_slot));
+        let result = self.emit_materialize_string_from_bytes(&buf_addr, len)?;
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "toString(Scalar)".to_string(),
         })
     }
 

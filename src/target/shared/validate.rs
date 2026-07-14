@@ -1321,6 +1321,7 @@ fn validate_value(
                 || target == "toFloat"
                 || target == "toInt"
                 || target == "toMoney"
+                || target == "toScalar"
                 || target == "toString"
                 || target == "isNumeric"
                 || runtime::is_native_direct_call(target)

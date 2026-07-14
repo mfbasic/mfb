@@ -35,12 +35,16 @@ element count of a `List OF T`, or the entry count of a `Map OF K TO V`.
 value itself. [[src/builtins/general.rs:expected_arguments]]
 
 The conversion family moves between the numeric and text types. `toInt`,
-`toFloat`, `toFixed`, and `toByte` produce the named type; `toString` renders
-`Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, and `List OF Byte`
-values as text. `toString` on `Float` and `Fixed` takes an optional precision
-(also spelled `decimals`) that defaults to 2, and `toInt` takes an optional
-second `base` argument (2 through 36) as a separate arity, not a default
-parameter. None of the conversions mutate their argument.
+`toFloat`, `toFixed`, `toByte`, and `toScalar` produce the named type;
+`toString` renders `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`,
+`Scalar`, and `List OF Byte` values as text. `toScalar` builds a `Scalar` (a
+32-bit Unicode scalar value) from an `Integer` code point, a one-scalar
+`String`, or a `Byte`; `toInt(Scalar)` and `toString(Scalar)` are its infallible
+inverses, and `toByte(Scalar)` narrows a code point below 256. `toString` on
+`Float` and `Fixed` takes an optional precision (also spelled `decimals`) that
+defaults to 2, and `toInt` takes an optional second `base` argument (2 through
+36) as a separate arity, not a default parameter. None of the conversions mutate
+their argument.
 [[src/builtins/general.rs:call_param_names]]
 
 The predicates return a `Boolean` and inspect their argument without side
