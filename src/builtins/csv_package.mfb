@@ -1,5 +1,6 @@
 IMPORT collections
 IMPORT strings
+IMPORT encoding
 
 ' Carriage return (U+000D). The lexer decodes the "\r" escape (plan-27), so a
 ' "\r" literal is a one-character CR string directly.
@@ -18,12 +19,19 @@ END FUNC
 ' CRLF is handled by peeking (__csv_separatorLength): the runtime grapheme
 ' splitter may yield "\r" and "\n" as two separate graphemes, so the scanner must
 ' not assume CR+LF arrives as one cursor step.
+' plan-39 G1/G2: scan the input over its Unicode scalars (one-pass utf32Encode ->
+' List OF Integer) instead of materializing a grapheme List OF String, and build
+' each field in a scalar buffer flushed with encoding::utf32Decode — avoiding the
+' ~n single-grapheme string allocations and the O(n^2) `field = field & ch`
+' concat. Every structural CSV character (comma, quote, CR, LF) is ASCII, and a
+' grapheme cluster split into scalars and rejoined is byte-identical, so the grid
+' is unchanged. Scalar codes: comma=44, double-quote=34, CR=13, LF=10.
 FUNC __csv_parse(value AS String) AS List OF List OF String
-  LET chars AS List OF String = strings::graphemes(value)
+  LET chars AS List OF Integer = encoding::utf32Encode(value)
   LET count AS Integer = len(chars)
   MUT rows AS List OF List OF String = []
   MUT row AS List OF String = []
-  MUT field AS String = ""
+  MUT fieldBuf AS List OF Integer = []
   MUT index AS Integer = 0
   MUT inQuotes AS Boolean = FALSE
   MUT fieldStarted AS Boolean = FALSE
@@ -31,11 +39,11 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
   MUT recordPending AS Boolean = FALSE
 
   WHILE index < count
-    LET ch AS String = collections::get(chars, index)
+    LET ch AS Integer = collections::get(chars, index)
     IF inQuotes THEN
-      IF ch = "\"" THEN
+      IF ch = 34 THEN
         IF __csv_isDoubledQuote(chars, count, index) THEN
-          field = field & "\""
+          fieldBuf = collections::append(fieldBuf, 34)
           index = index + 2
         ELSE
           inQuotes = FALSE
@@ -43,33 +51,33 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
           index = index + 1
         END IF
       ELSE
-        field = field & ch
+        fieldBuf = collections::append(fieldBuf, ch)
         index = index + 1
       END IF
     ELSEIF __csv_separatorLength(chars, count, index) > 0 THEN
-      row = collections::append(row, field)
+      row = collections::append(row, encoding::utf32Decode(fieldBuf))
       rows = collections::append(rows, row)
       row = []
-      field = ""
+      fieldBuf = []
       fieldStarted = FALSE
       wasQuoted = FALSE
       recordPending = FALSE
       index = index + __csv_separatorLength(chars, count, index)
-    ELSEIF ch = "," THEN
-      row = collections::append(row, field)
-      field = ""
+    ELSEIF ch = 44 THEN
+      row = collections::append(row, encoding::utf32Decode(fieldBuf))
+      fieldBuf = []
       fieldStarted = FALSE
       wasQuoted = FALSE
       recordPending = TRUE
       index = index + 1
     ELSEIF wasQuoted THEN
       FAIL error(77050003, "invalid CSV format")
-    ELSEIF ch = "\"" AND fieldStarted = FALSE THEN
+    ELSEIF ch = 34 AND fieldStarted = FALSE THEN
       inQuotes = TRUE
       fieldStarted = TRUE
       index = index + 1
     ELSE
-      field = field & ch
+      fieldBuf = collections::append(fieldBuf, ch)
       fieldStarted = TRUE
       index = index + 1
     END IF
@@ -80,39 +88,35 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
   END IF
 
   IF fieldStarted OR recordPending OR wasQuoted THEN
-    row = collections::append(row, field)
+    row = collections::append(row, encoding::utf32Decode(fieldBuf))
     rows = collections::append(rows, row)
   END IF
 
   RETURN rows
 END FUNC
 
-FUNC __csv_isDoubledQuote(chars AS List OF String, count AS Integer, index AS Integer) AS Boolean
+FUNC __csv_isDoubledQuote(chars AS List OF Integer, count AS Integer, index AS Integer) AS Boolean
   IF index + 1 >= count THEN
     RETURN FALSE
   END IF
-  IF collections::get(chars, index + 1) = "\"" THEN
+  IF collections::get(chars, index + 1) = 34 THEN
     RETURN TRUE
   END IF
   RETURN FALSE
 END FUNC
 
-' Length, in graphemes, of a record separator starting at index, or 0 if the
-' grapheme there is not a separator. A bare LF or a merged "\r\n" grapheme is one
-' step; a "\r" followed by a "\n" grapheme is two steps; a lone "\r" is data (0).
-FUNC __csv_separatorLength(chars AS List OF String, count AS Integer, index AS Integer) AS Integer
-  LET cr AS String = __csv_crChar()
-  LET crlf AS String = cr & "\n"
-  LET ch AS String = collections::get(chars, index)
-  IF ch = "\n" THEN
+' Length, in scalars, of a record separator starting at index, or 0 if the scalar
+' there is not a separator. A bare LF is one step; a CR (13) followed by an LF
+' (10) is two steps; a lone CR is data (0). utf32Encode never merges CRLF, so the
+' two-scalar case is the only CRLF form.
+FUNC __csv_separatorLength(chars AS List OF Integer, count AS Integer, index AS Integer) AS Integer
+  LET ch AS Integer = collections::get(chars, index)
+  IF ch = 10 THEN
     RETURN 1
   END IF
-  IF ch = crlf THEN
-    RETURN 1
-  END IF
-  IF ch = cr THEN
+  IF ch = 13 THEN
     IF index + 1 < count THEN
-      IF collections::get(chars, index + 1) = "\n" THEN
+      IF collections::get(chars, index + 1) = 10 THEN
         RETURN 2
       END IF
     END IF
