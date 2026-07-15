@@ -148,13 +148,15 @@ pub(super) fn encode_dynamic_elf(
     image: &EncodedImage,
 ) -> Result<Vec<u8>, String> {
     let dynamic = DynamicPayload::build(arch, flavor, image)?;
-    let ph_count = 5_u16;
+    // PHDR, INTERP, LOAD(text), LOAD(data), DYNAMIC, GNU_STACK.
+    let ph_count = 6_u16;
     let interp = interpreter(arch, flavor).as_bytes();
     let interp_offset = 64 + ph_count as usize * 56;
     let text_offset = TEXT_FILE_OFFSET;
-    let text_vmaddr = IMAGE_BASE + text_offset as u64;
+    // PIE (ET_DYN): file-relative virtual addresses, loader adds the slide.
+    let text_vmaddr = DYN_IMAGE_BASE + text_offset as u64;
     let data_offset = align(text_offset + text.len(), PAGE_SIZE);
-    let data_vmaddr = IMAGE_BASE + data_offset as u64;
+    let data_vmaddr = DYN_IMAGE_BASE + data_offset as u64;
     let data_file_size = data.len() + dynamic.bytes.len();
     let file_size = data_offset + data_file_size;
     let dynamic_offset = data_offset + data.len() + dynamic.dynamic_offset;
@@ -165,7 +167,9 @@ pub(super) fn encode_dynamic_elf(
     bytes.extend_from_slice(&[0x7f, b'E', b'L', b'F']);
     bytes.extend_from_slice(&[2, 1, 1, 0]);
     bytes.resize(16, 0);
-    put_u16(&mut bytes, 2);
+    // ET_DYN: a position-independent executable the loader maps at a random base
+    // (bug-186). macOS is already PIE; this brings Linux in line.
+    put_u16(&mut bytes, 3);
     // e_machine: EM_AARCH64 (183), EM_X86_64 (62), or EM_RISCV (243).
     put_u16(&mut bytes, e_machine(arch));
     put_u32(&mut bytes, 1);
@@ -188,8 +192,8 @@ pub(super) fn encode_dynamic_elf(
         6,
         4,
         64,
-        IMAGE_BASE + 64,
-        IMAGE_BASE + 64,
+        DYN_IMAGE_BASE + 64,
+        DYN_IMAGE_BASE + 64,
         ph_count as u64 * 56,
         ph_count as u64 * 56,
         8,
@@ -199,8 +203,8 @@ pub(super) fn encode_dynamic_elf(
         3,
         4,
         interp_offset as u64,
-        IMAGE_BASE + interp_offset as u64,
-        IMAGE_BASE + interp_offset as u64,
+        DYN_IMAGE_BASE + interp_offset as u64,
+        DYN_IMAGE_BASE + interp_offset as u64,
         (interp.len() + 1) as u64,
         (interp.len() + 1) as u64,
         1,
@@ -210,8 +214,8 @@ pub(super) fn encode_dynamic_elf(
         1,
         5,
         0,
-        IMAGE_BASE,
-        IMAGE_BASE,
+        DYN_IMAGE_BASE,
+        DYN_IMAGE_BASE,
         (text_offset + text.len()) as u64,
         (text_offset + text.len()) as u64,
         PAGE_SIZE as u64,
@@ -238,6 +242,10 @@ pub(super) fn encode_dynamic_elf(
         dynamic_size as u64,
         8,
     );
+    // PT_GNU_STACK: mark the stack non-executable (R+W, no X) — LNK-02 / bug-186.
+    // (PT_GNU_RELRO is deferred to compose with the bug-187 const/mutable data
+    // partition, which page-isolates the GOT from the writable arena global.)
+    program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
 
     bytes.resize(interp_offset, 0);
     bytes.extend_from_slice(interp);
@@ -449,7 +457,12 @@ impl DynamicPayload {
         let hash_offset = align(dynsym_offset + dynsym_size, 8);
         let hash_size = (2 + 1 + image.imports.len() + 1) * 4;
         let rela_offset = align(hash_offset + hash_size, 8);
-        let rela_size = image.imports.len() * 24;
+        // .rela.dyn holds the import GLOB_DAT/JUMP_SLOT bindings first, then one
+        // R_*_RELATIVE per DT_INIT_ARRAY entry that biases its absolute function
+        // pointer into the PIE (bug-186). DT_RELA/DT_RELASZ cover the whole table;
+        // DT_JMPREL/DT_PLTRELSZ cover only the leading import portion.
+        let import_rela_size = image.imports.len() * 24;
+        let rela_size = import_rela_size + image.initializers.len() * 24;
         let got_offset = align(rela_offset + rela_size, 8);
         let got_size = image.imports.len() * 8;
         // `.gnu.version` (one Elf64_Half per dynsym) and `.gnu.version_r` follow
@@ -493,7 +506,8 @@ impl DynamicPayload {
             TEXT_FILE_OFFSET + image.text.len() + image.imports.len() * 12,
             PAGE_SIZE,
         );
-        let data_vmaddr = IMAGE_BASE + data_offset as u64;
+        // PIE: file-relative (base 0); the loader biases GOT/.rela/DT_* itself.
+        let data_vmaddr = DYN_IMAGE_BASE + data_offset as u64;
 
         let mut bytes = Vec::new();
         bytes.resize(dynstr_offset - payload_start, 0);
@@ -558,6 +572,32 @@ impl DynamicPayload {
             );
             put_u64(&mut bytes, 0);
         }
+        // One R_*_RELATIVE per DT_INIT_ARRAY slot: *(base + r_offset) = base +
+        // r_addend, biasing the absolute initializer pointer for the PIE slide
+        // (bug-186). Symbol index 0 (RELATIVE has no symbol). Emitted after the
+        // import bindings; DT_JMPREL's size stays the import-only prefix so the
+        // PLT pass never sees these.
+        let relative_type = match arch {
+            "x86_64" => R_X86_64_RELATIVE,
+            "riscv64" => R_RISCV_RELATIVE,
+            _ => R_AARCH64_RELATIVE,
+        };
+        for (index, name) in image.initializers.iter().enumerate() {
+            let symbol = image
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == *name && symbol.section == EncodedSection::Text)
+                .ok_or_else(|| format!("initializer '{name}' does not resolve to a text symbol"))?;
+            put_u64(
+                &mut bytes,
+                data_vmaddr + init_array_offset as u64 + (index * 8) as u64,
+            );
+            put_u64(&mut bytes, relative_type as u64);
+            put_u64(
+                &mut bytes,
+                DYN_IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64,
+            );
+        }
 
         bytes.resize(got_offset - payload_start, 0);
         bytes.resize(bytes.len() + got_size, 0);
@@ -606,9 +646,14 @@ impl DynamicPayload {
                     .ok_or_else(|| {
                         format!("initializer '{name}' does not resolve to a text symbol")
                     })?;
+                // PIE: store the file-relative addend; the R_*_RELATIVE reloc
+                // emitted in the .rela table biases it to base + addend at load
+                // time (bug-186). The value here is also the addend the loader
+                // reads, so pre-filling it keeps REL/RELA implementations that
+                // add-in-place correct too.
                 put_u64(
                     &mut bytes,
-                    IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64,
+                    DYN_IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64,
                 );
             }
         }
@@ -628,7 +673,9 @@ impl DynamicPayload {
         put_dynamic(&mut bytes, 9, 24);
         put_dynamic(&mut bytes, 20, 7);
         put_dynamic(&mut bytes, 23, data_vmaddr + rela_offset as u64);
-        put_dynamic(&mut bytes, 2, rela_size as u64);
+        // DT_PLTRELSZ is the import (PLT/GOT) prefix only; the R_*_RELATIVE tail is
+        // covered by DT_RELASZ above, not the JMPREL pass (bug-186).
+        put_dynamic(&mut bytes, 2, import_rela_size as u64);
         put_dynamic(&mut bytes, 30, 8);
         if versioned {
             // DT_VERSYM, DT_VERNEED, DT_VERNEEDNUM.
@@ -698,6 +745,8 @@ pub(super) fn dynamic_prefix_size(image: &EncodedImage, text_len_with_stubs: usi
     let hash_size = (2 + 1 + image.imports.len() + 1) * 4;
     let _ = text_len_with_stubs;
     let rela_offset = align(hash_offset + hash_size, 8);
-    let rela_size = image.imports.len() * 24;
+    // Must match DynamicPayload::build: imports + one R_*_RELATIVE per initializer
+    // (bug-186), so the GOT offset baked into each stub stays correct.
+    let rela_size = (image.imports.len() + image.initializers.len()) * 24;
     align(rela_offset + rela_size, 8)
 }

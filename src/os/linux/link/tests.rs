@@ -423,9 +423,12 @@ fn write_executable_x86_dynamic_covers_all_reloc_kinds() {
     )
     .expect("link x86 dynamic elf");
     let bytes = std::fs::read(&path).unwrap();
-    // EM_X86_64 dynamic ELF: 5 program headers, interpreter present.
+    // EM_X86_64 PIE (ET_DYN) dynamic ELF: 6 program headers (incl. PT_GNU_STACK),
+    // interpreter present (bug-186).
+    assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3); // ET_DYN
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62);
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 5);
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 6);
+    assert!(has_gnu_stack(&bytes), "PT_GNU_STACK must be present");
     assert!(bytes
         .windows(b"ld-linux-x86-64.so.2".len())
         .any(|window| window == b"ld-linux-x86-64.so.2"));
@@ -1171,12 +1174,26 @@ fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
     .expect("link riscv dynamic elf");
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
-    // EM_RISCV (243) with EF_RISCV_FLOAT_ABI_DOUBLE in e_flags (offset 48).
+    // PIE (ET_DYN); EM_RISCV (243) with EF_RISCV_FLOAT_ABI_DOUBLE in e_flags
+    // (offset 48) (bug-186).
+    assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3); // ET_DYN
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243);
     assert_eq!(u32::from_le_bytes(bytes[48..52].try_into().unwrap()) & 0x4, 0x4);
-    // 5 program headers (dynamic) and the riscv64 interpreter path.
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 5);
+    // 6 program headers (dynamic + PT_GNU_STACK) and the riscv64 interpreter path.
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 6);
+    assert!(has_gnu_stack(&bytes), "PT_GNU_STACK must be present");
     assert!(bytes
         .windows(b"ld-linux-riscv64".len())
         .any(|window| window == b"ld-linux-riscv64"));
+}
+
+/// Whether the ELF's program-header table contains a `PT_GNU_STACK` entry
+/// (bug-186 NX-stack marker). Reads e_phoff/e_phnum from the header.
+fn has_gnu_stack(bytes: &[u8]) -> bool {
+    let phoff = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+    let phnum = u16::from_le_bytes([bytes[56], bytes[57]]) as usize;
+    (0..phnum).any(|i| {
+        let base = phoff + i * 56;
+        u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap()) == 0x6474_e551
+    })
 }

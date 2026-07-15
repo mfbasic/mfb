@@ -5,8 +5,8 @@ Effort: x-large (1d–3d)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/linux_pie_headers (readelf-based check, to be added)
+Status: Fixed (dynamic path — every real program; PT_GNU_RELRO deferred to bug-187)
+Regression Test: tests/linux_pie_headers.rs
 
 Every executable the linker emits for Linux (aarch64, x86_64, riscv64) is
 `ET_EXEC` with a fixed load base of `0x400000`. The main image — code, constant
@@ -101,20 +101,37 @@ per-run randomization; not real ASLR.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add a build-and-`readelf` check asserting `Type: DYN`; confirm it fails.
-- [ ] Enumerate every absolute-address bake-in site in `link/mod.rs` that must
-      become a `RELATIVE` relocation.
+- [x] Added `tests/linux_pie_headers.rs` (build + inspect `e_type`/entry/PT_GNU_STACK
+      on all three arches); confirmed it failed against the `ET_EXEC` build.
+- [x] Audit result — **no self-relocation needed for the common case**: every
+      emitted code reference is already PC-relative (`adrp`/`add`, `auipc`+`addi`,
+      `%rip`-relative `lea`), and `push_symbol_address` materializes even internal
+      symbol addresses PC-relatively, so `image.data` holds *no* absolute internal
+      pointers. Only the loader-relocated metadata (GOT, `.rela` r_offsets, `DT_*`
+      pointers) needs the base — the dynamic loader applies that itself. The one
+      absolute internal pointer, `DT_INIT_ARRAY`, gets `R_*_RELATIVE` relocs.
 
 ### Phase 2 — the fix
-- [ ] Emit `ET_DYN` + `PT_PHDR`, base 0, and the `RELATIVE` self-relocations;
-      add the startup self-relocation bootstrap for the static case.
-- [ ] Fold in `PT_GNU_STACK` (LNK-02) and `PT_GNU_RELRO` (LNK-03 Linux) while the
-      segment layout is being reworked, if cheap.
+- [x] `encode_dynamic_elf`: `ET_DYN`, load base 0 (`DYN_IMAGE_BASE`), and one
+      `R_AARCH64/X86_64/RISCV_RELATIVE` per `DT_INIT_ARRAY` slot (appended to
+      `.rela.dyn`; `DT_JMPREL`/`DT_PLTRELSZ` stay the import prefix). Every real
+      program links libc, so it takes this dynamic path; the loader applies the
+      slide. (The import-less `encode_static_elf` path is unreachable for real
+      builds — even a pure-arithmetic program links the libc runtime entry — so it
+      is left `ET_EXEC`; only the hand-built linker unit tests exercise it.)
+- [x] Folded in `PT_GNU_STACK` (NX stack, LNK-02). `PT_GNU_RELRO` (LNK-03) is
+      deferred to compose with bug-187's const/mutable data partition, which
+      page-isolates the GOT from the writable arena global (the const/reloc-type
+      scaffolding is already in place).
 
 ### Phase 3 — validation
-- [ ] Full acceptance + artifact gate green; run built binaries on Linux
-      aarch64/x86_64/riscv64 and confirm correct execution + a randomized base
-      across runs.
+- [x] Linker unit suite (55) + `tests/linux_pie_headers.rs` (3) green. Built and
+      **ran** on Linux aarch64 (glibc, box 2223), x86_64 (glibc box 2228 + musl
+      box 2227), and riscv64 (musl box 2229): simple, rich (imports/strings/math/
+      collections/globals), and pure-arithmetic programs all run correctly
+      (`readelf`: `Type: DYN`). ASLR proven — the main-image base is randomized
+      across runs (`/proc/self/maps`: `aaaacab1c000`, `aaaac4b87000`,
+      `aaaab3636000`) where the `ET_EXEC` build was a fixed `0x400000`.
 
 ## Validation Plan
 

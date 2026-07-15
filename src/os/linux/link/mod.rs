@@ -5,6 +5,28 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const IMAGE_BASE: u64 = 0x400000;
+/// Load base for the position-independent (`ET_DYN`) dynamic output (bug-186).
+/// A PIE's virtual addresses are file-relative (base 0); the dynamic loader adds
+/// a random slide at load time. All emitted-code references are PC-relative
+/// (`adrp`/`add`, `auipc`, `lea`/`pc32`), so only the loader-relocated metadata
+/// (GOT slots, `.rela` r_offsets, `DT_*` pointers, and the `DT_INIT_ARRAY`
+/// entries via `R_*_RELATIVE`) needs the base applied — the loader does that.
+/// The static (import-less) path keeps `IMAGE_BASE` / `ET_EXEC` for now.
+const DYN_IMAGE_BASE: u64 = 0;
+/// `PT_GNU_STACK`: its `p_flags` (R+W, no execute) set the non-executable-stack
+/// policy the kernel/loader would otherwise leave to a default (LNK-02 / bug-186).
+const PT_GNU_STACK: u32 = 0x6474_e551;
+/// `PT_GNU_RELRO`: the segment made read-only after the dynamic loader finishes
+/// relocations, covering the GOT so a post-relocation write cannot hijack it
+/// (LNK-03 / bug-186). Wired once the bug-187 const/mutable data partition
+/// page-isolates the GOT from the writable arena global.
+#[allow(dead_code)]
+const PT_GNU_RELRO: u32 = 0x6474_e552;
+/// `R_*_RELATIVE` dynamic relocation types: `*(base + r_offset) = base + addend`.
+/// Used to bias the absolute `DT_INIT_ARRAY` function pointers into a PIE.
+const R_AARCH64_RELATIVE: u32 = 1027;
+const R_X86_64_RELATIVE: u32 = 8;
+const R_RISCV_RELATIVE: u32 = 3;
 const TEXT_FILE_OFFSET: usize = 0x1000;
 const PAGE_SIZE: usize = 0x1000;
 const R_AARCH64_GLOB_DAT: u32 = 1025;
