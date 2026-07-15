@@ -627,6 +627,7 @@ DOC
   ARG db      The open connection (borrowed).
   ARG name    Name of the table to create.
   ARG columns Column definitions: a raw SQL string, or a name -> SQLite-type map.
+  ERROR 77050002 The `Map` overload was given an empty map (a table needs at least one column).
   ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
   EXAMPLE
     createTable(db, "users", "id INTEGER PRIMARY KEY, name TEXT")
@@ -660,6 +661,9 @@ EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS Map OF String T
     defs = defs & column.key & " " & column.value
     first = FALSE
   NEXT
+  ' An empty map would assemble `CREATE TABLE name ()`, which is a SQLite syntax
+  ' error. Reject it up front with a clear message rather than a native failure.
+  IF first THEN FAIL error(77050002, "sqlite3: createTable requires at least one column")
   createTable(db, name, defs)             ' delegate to the String overload (borrows db)
 END FUNC
 
@@ -848,6 +852,7 @@ DOC
   ARG sql    The SQL to prepare and run, with `?` or named placeholders.
   ARG params The values to bind, positional (list) or named (map), as text or `SqlValue`.
   RET The result rows, each a positional list of `SqlValue` cells.
+  ERROR 77050002 A named parameter (map key) matches no placeholder in the statement.
   ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
   EXAMPLE
     LET rows = query(db, "SELECT id, name FROM t WHERE a = ?", ["x"])
@@ -875,12 +880,16 @@ END FUNC
 '         Map OF String TO String { ":aValue" := "x", ":bValue" := "y" })
 ' Each map key is the full placeholder text INCLUDING its leading sigil (`:`, `@`,
 ' or `$`), matching what `sqlite3_bind_parameter_index` expects. A key that names
-' no placeholder resolves to index 0; binding there is a no-op in SQLite, so an
-' extra map entry is harmless rather than an error.
+' no placeholder resolves to index 0, which is rejected with ErrInvalidArgument
+' (77050002) naming the offending key — a typo'd placeholder is a caller error.
 EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO String) AS List OF List OF SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR EACH param IN params
     LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    ' idx = 0 means the statement has no such placeholder. Binding slot 0 is NOT a
+    ' no-op — sqlite3_bind_* rejects it with SQLITE_RANGE — so fail with a clear
+    ' message naming the offending key rather than a generic native-call failure.
+    IF idx = 0 THEN FAIL error(77050002, "sqlite3: unknown parameter name '" & param.key & "'")
     sqliteLink::bindText(stmt, idx, param.value)
   NEXT
   LET result = rows(stmt)
@@ -920,11 +929,15 @@ END FUNC
 ' Same naming rule as the `Map OF String TO String` overload — each key is the
 ' full placeholder text INCLUDING its leading sigil — but each value binds with
 ' its true SQLite type via `bindValue`. A key naming no placeholder resolves to
-' index 0; binding there is a harmless no-op in SQLite.
+' index 0, which is rejected with ErrInvalidArgument (77050002) naming the key.
 EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO SqlValue) AS List OF List OF SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR EACH param IN params
     LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    ' idx = 0 means the statement has no such placeholder. Binding slot 0 is NOT a
+    ' no-op — sqlite3_bind_* rejects it with SQLITE_RANGE — so fail with a clear
+    ' message naming the offending key rather than a generic native-call failure.
+    IF idx = 0 THEN FAIL error(77050002, "sqlite3: unknown parameter name '" & param.key & "'")
     bindValue(stmt, idx, param.value)
   NEXT
   LET result = rows(stmt)
@@ -964,6 +977,7 @@ DOC
   ARG sql    The SQL to prepare and run, with `?` or named placeholders.
   ARG params The values to bind, positional (list) or named (map), as text or `SqlValue`.
   RET The result rows, each a map of column name to `SqlValue`.
+  ERROR 77050002 A named parameter (map key) matches no placeholder in the statement.
   ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
   EXAMPLE
     LET rows = queryMaps(db, "SELECT id, name FROM t WHERE a = :a", Map OF String TO String { ":a" := "x" })
@@ -990,6 +1004,10 @@ EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS Map OF String TO St
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR EACH param IN params
     LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    ' idx = 0 means the statement has no such placeholder. Binding slot 0 is NOT a
+    ' no-op — sqlite3_bind_* rejects it with SQLITE_RANGE — so fail with a clear
+    ' message naming the offending key rather than a generic native-call failure.
+    IF idx = 0 THEN FAIL error(77050002, "sqlite3: unknown parameter name '" & param.key & "'")
     sqliteLink::bindText(stmt, idx, param.value)
   NEXT
   LET result = rowsAsMaps(stmt)
@@ -1024,6 +1042,10 @@ EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS Map OF String TO Sq
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR EACH param IN params
     LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    ' idx = 0 means the statement has no such placeholder. Binding slot 0 is NOT a
+    ' no-op — sqlite3_bind_* rejects it with SQLITE_RANGE — so fail with a clear
+    ' message naming the offending key rather than a generic native-call failure.
+    IF idx = 0 THEN FAIL error(77050002, "sqlite3: unknown parameter name '" & param.key & "'")
     bindValue(stmt, idx, param.value)
   NEXT
   LET result = rowsAsMaps(stmt)
