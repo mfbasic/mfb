@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/net_accept_timeout (to be added)
+Status: Fixed
+Regression Test: tests/rt-behavior/net/bug185_accept_timeout
 
 `net.accept(listener, timeoutMs)` accepts a timeout argument, stores it to a
 stack slot, and then never reads it — the accept is a bare, unconditionally
@@ -101,16 +101,23 @@ and does not compose with the existing poll helper.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add the idle-listener reproduction as a rt-behavior test asserting a
-      timeout return within a tolerance window; confirm it currently hangs.
+- [x] Added `tests/rt-behavior/net/bug185_accept_timeout`: idle-listener accept
+      with a 200ms deadline returns `ErrTimeout` instead of hanging.
 
 ### Phase 2 — the fix
-- [ ] Insert the `poll`-gated wait into `lower_net_accept_helper`, guarded by
-      `timeoutMs > 0`, reusing the `net.poll` pollfd/EINTR pattern.
+- [x] Inserted the `poll(POLLIN)`-gated wait into `lower_net_accept_helper`
+      (`src/target/shared/code/net/io.rs`), guarded by `timeoutMs > 0`, reusing
+      the `net.poll` pollfd/EINTR pattern; poll==0 → `ErrTimeout` (matching
+      `connectTcp`/`tls::accept`), poll>0 → the existing accept, `timeoutMs<=0` →
+      the unchanged blocking accept. Documented the new error in the `accept` man
+      page.
 
 ### Phase 3 — validation
-- [ ] Full acceptance suite green; verify the blocking (`timeoutMs <= 0`) path is
-      unchanged and the timed path returns on both Linux and macOS.
+- [x] Verified on macOS: the timed path returns `ErrTimeout` promptly; the
+      single-arg blocking accept + roundtrip still work. Uncovered and fixed a
+      pre-existing SIGSEGV in the scope-drop of a never-initialized `RES` binding
+      that `accept(listener, ms)`'s natural error form triggers — filed as
+      **bug-246** (a prerequisite for this fix to be usable).
 
 ## Validation Plan
 

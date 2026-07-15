@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-behavior/net/bug185_accept_timeout
+Wrote AST to tests/rt-behavior/net/bug185_accept_timeout/bug185_accept_timeout.ast
+Wrote IR to tests/rt-behavior/net/bug185_accept_timeout/bug185_accept_timeout.ir
+[exit 0]
+$ mfb build tests/rt-behavior/net/bug185_accept_timeout
+Wrote executable to tests/rt-behavior/net/bug185_accept_timeout/bug185_accept_timeout.out
+[exit 0]
+$ tests/rt-behavior/net/bug185_accept_timeout/bug185_accept_timeout.out
+acceptTimedOut=TRUE
+[exit 0]

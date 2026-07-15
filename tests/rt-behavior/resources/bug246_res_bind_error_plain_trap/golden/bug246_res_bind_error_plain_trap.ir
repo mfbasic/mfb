@@ -1,0 +1,71 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug246_res_bind_error_plain_trap",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "openMissing",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "/no/such/dir/mfb-bug190-missing.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 13,
+      "name": "e",
+      "body": [
+      { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "openMissingWithPrior",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": false, "name": "first", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "second", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "/no/such/dir/mfb-bug190-missing2.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 24,
+      "name": "e",
+      "body": [
+      { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 29,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "caught-plain=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "openMissing", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "caught-prior=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "openMissingWithPrior", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }] } },
+    { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

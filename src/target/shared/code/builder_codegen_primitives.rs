@@ -1388,6 +1388,13 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             stack_offset,
         ));
+        let done = self.label("resource_union_drop_done");
+        // Skip the whole dispatch when the slot is null: a `RES x = <fallible>`
+        // resource-union binding whose initializer trapped before storing (or a
+        // bind jumped past) leaves the slot at its entry-zeroed 0, and the tag
+        // load at `union_ptr+0` would SIGSEGV on null (bug-246).
+        self.emit(abi::compare_immediate(&union_ptr, "0"));
+        self.emit(abi::branch_eq(&done));
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
         self.emit(abi::store_u64(&union_ptr, abi::stack_pointer(), union_slot));
         let tag_register = self.allocate_register()?;
@@ -1398,7 +1405,6 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             tag_slot,
         ));
-        let done = self.label("resource_union_drop_done");
         let payload_slot = self.allocate_stack_object("resource_union_drop_payload", 8);
         for (tag, symbol) in cleanup.variants.clone() {
             let next = self.label("resource_union_drop_next");
@@ -1484,13 +1490,26 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &ResourceCleanup,
     ) -> Result<(), String> {
+        let done = self.label("resource_cleanup_done");
+        // Skip the close entirely when the slot is null: a `RES x = <fallible>`
+        // whose initializer trapped before storing a handle (or a bind the error
+        // path jumped past) leaves the slot at its entry-zeroed 0, and the close
+        // helper dereferences the closed-flag at `ptr+8` — a null read would
+        // SIGSEGV (bug-246). Prologue zero-init guarantees such a slot reads 0
+        // rather than stack garbage.
+        if let Some(local) = self.locals.get(&cleanup.name) {
+            let offset = local.stack_offset;
+            let ptr = self.allocate_register()?;
+            self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
+            self.emit(abi::compare_immediate(&ptr, "0"));
+            self.emit(abi::branch_eq(&done));
+        }
         let arg = NirValue::Local(cleanup.name.clone());
         self.emit_raw_call(
             &cleanup.symbol,
             std::slice::from_ref(&arg),
             "resource_drop_arg",
         )?;
-        let done = self.label("resource_cleanup_done");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&done));
         // A close on an already-closed resource returns `ERR_RESOURCE_CLOSED`

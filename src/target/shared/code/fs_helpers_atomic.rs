@@ -917,7 +917,9 @@ pub(super) fn lower_fs_write_text_path_helper(
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate(abi::ARG[1], "Integer", mode_flags),
-        abi::move_immediate(abi::ARG[2], "Integer", "438"),
+        // Owner-only create mode (0o600 = 384), not world-readable 0o666
+        // (audit-2 OS-01 / bug-184).
+        abi::move_immediate(abi::ARG[2], "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -1439,7 +1441,9 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate(abi::ARG[1], "Integer", mode_flags),
-        abi::move_immediate(abi::ARG[2], "Integer", "438"),
+        // Owner-only create mode (0o600 = 384), not world-readable 0o666
+        // (audit-2 OS-01 / bug-184).
+        abi::move_immediate(abi::ARG[2], "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,

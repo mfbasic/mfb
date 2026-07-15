@@ -1,0 +1,52 @@
+{
+  "project": "bug185_accept_timeout",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "errorCode", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "waitOnce",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "listener", "type": null, "value": { "kind": "call", "callee": "net.listenTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "listener" }, { "kind": "number", "value": "200" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 13,
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 14 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "callee": "waitOnce", "arguments": [] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "acceptTimedOut=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } }] } }] }, "line": 20 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

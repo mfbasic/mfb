@@ -34,9 +34,14 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     const FRAME_SIZE: usize = 64;
     const FD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
+    // pollfd { int fd; short events; short revents } — 8 bytes for the bounded-wait
+    // path (bug-185).
+    const POLLFD_OFFSET: usize = 24;
 
     let closed = format!("{symbol}_closed");
     let accept_retry = format!("{symbol}_accept_retry");
+    let accept_poll_retry = format!("{symbol}_accept_poll_retry");
+    let accept_timeout = format!("{symbol}_accept_timeout");
     let accept_fail = format!("{symbol}_accept_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -50,6 +55,55 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::branch_ne(&closed),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        // Bounded wait (bug-185): with a positive timeoutMs, poll(POLLIN) on the
+        // listener before accepting so a caller-supplied deadline is honored instead
+        // of blocking forever. `timeoutMs <= 0` (including the omitted-argument
+        // overload, which passes 0) keeps the plain blocking accept below.
+        abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_le(&accept_retry),
+        // poll(&pollfd { fd, POLLIN }, 1, timeoutMs); accept_poll_retry rebuilds the
+        // pollfd and re-issues on EINTR (bug-115).
+        abi::label(&accept_poll_retry),
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("%v10", "Integer", POLLIN),
+        abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        // C `int` return (poll) — sign-extend before the signed compares; a -1 read
+        // as large-positive would skip the timeout/error branches (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&accept_timeout),
+        abi::branch_gt(&accept_retry),
+    ]);
+    // A negative poll return is either EINTR (re-issue) or a genuine failure; poll
+    // goes through libc here, so read the real code from errno (bug-115).
+    platform.emit_errno(
+        symbol,
+        "%v9",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::branch_eq(&accept_poll_retry),
+        abi::branch(&accept_fail),
         // accept(fd, NULL, NULL); accept_retry reloads fd from the stack so an
         // EINTR retry re-issues the identical call (bug-115).
         abi::label(&accept_retry),
@@ -103,6 +157,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         symbol,
         ERR_NETWORK_FAILED_CODE,
         ERR_NETWORK_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    // No client arrived before the deadline (poll returned 0): report a timeout,
+    // matching net::connectTcp's bounded-wait error (bug-185).
+    instructions.push(abi::label(&accept_timeout));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,

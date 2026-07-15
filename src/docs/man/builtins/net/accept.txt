@@ -19,7 +19,9 @@ DESCRIPTION
   as they arrive.
 
   The optional timeoutMs bounds how long accept waits for a pending connection,
-  in milliseconds. When omitted, accept blocks until a client connects.
+  in milliseconds. When timeoutMs is positive and no client arrives before the
+  deadline, accept fails with ErrTimeout. When omitted, zero, or negative, accept
+  blocks until a client connects.
 
   The returned Socket is independent of the listener: it stays usable after the
   listener is closed, and closing it does not affect the listener. Socket
@@ -33,7 +35,8 @@ OVERLOADS
     Blocks until a client connects and returns the connected Socket.
 
   net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket
-    Waits at most timeoutMs for a pending connection before returning.
+    Waits at most timeoutMs for a pending connection, then fails with ErrTimeout
+    if none arrived (a non-positive timeoutMs blocks indefinitely instead).
 
 PARAMETERS
   listener AS Listener
@@ -43,8 +46,9 @@ PARAMETERS
 
   timeoutMs AS Integer
     Optional. The maximum time, in milliseconds, to wait for a pending
-    connection. When omitted, accept blocks indefinitely until a client
-    connects.
+    connection. A positive value that elapses with no connection fails with
+    ErrTimeout. When omitted, zero, or negative, accept blocks indefinitely
+    until a client connects.
 
 RETURN VALUE
   AS Socket
@@ -53,6 +57,11 @@ RETURN VALUE
     unless closed earlier with net::close.
 
 ERRORS
+  77050008 (ErrTimeout)
+  Raised when timeoutMs is positive and no connection arrives before the deadline
+  elapses. With timeoutMs omitted, zero, or negative, accept blocks indefinitely
+  and never raises this error.
+
   77070003 (ErrNetworkFailed)
   Raised when the underlying accept call fails and a connection could not be
   accepted from the listener's queue.

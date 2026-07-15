@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/fs_create_mode_0600 (to be added)
+Status: Fixed
+Regression Test: tests/fs_create_mode_0600.rs
 
 Every general file-creating path in the `fs` runtime helpers passes the literal
 mode `438` (octal `0o666`) to the `open`/`openat` syscall. The resulting file is
@@ -103,18 +103,18 @@ set the mode directly.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add a rt-behavior test that creates a file and asserts mode `0o600`
-      (masking out umask influence by checking `& 0o077 == 0`). Confirm it fails
-      today.
-- [ ] Grep every `open`/`openat`/`mkdir` create-mode literal; record each site's
-      verdict (fix / already-0600 / directory-out-of-scope).
+- [x] Added `tests/fs_create_mode_0600.rs`: builds+runs a program using
+      `fs::open`/`writeBytes`/`writeText` and stats each file for mode `0o600`.
+- [x] Grepped every create-mode literal: exactly three `"438"` sites
+      (`fs_helpers_io.rs:700` open, `fs_helpers_atomic.rs:920` writeText,
+      `:1442` writeBytes); `createTempFile`/atomicWrite already `"384"`.
 
 ### Phase 2 — the fix
-- [ ] Change the three `438` create-mode literals to `384`.
+- [x] Changed the three `438` create-mode literals to `384` (0o600).
 
 ### Phase 3 — validation
-- [ ] Full acceptance suite green; re-run the reproduction on Linux and macOS
-      and confirm `0o600`.
+- [x] Verified at runtime on macOS: `fs::open` create, `fs::writeText`, and
+      `fs::writeBytes` all produce `-rw-------` (0o600) files.
 
 ## Validation Plan
 

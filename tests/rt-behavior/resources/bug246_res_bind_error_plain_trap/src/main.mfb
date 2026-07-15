@@ -1,0 +1,33 @@
+IMPORT fs
+IMPORT io
+
+' bug-246: a `RES x = <fallible>` binding whose initializer FAILS, caught by a
+' function-level TRAP (NOT the inline `RES x = <fallible> TRAP` form). The
+' resource local `x` is never assigned, so its stack slot must be entry-zeroed
+' and the handler's scope-drop close must null-guard it — otherwise the drop
+' reads a garbage handle and SIGSEGVs. Before the fix this crashed; the inline
+' TRAP form (closed-default-drop-rt) was the only covered shape.
+FUNC openMissing() AS Integer
+  RES f = fs::open("/no/such/dir/mfb-bug190-missing.txt", "read")
+  RETURN 0
+  TRAP(e)
+    RETURN 1
+  END TRAP
+END FUNC
+
+' Same hazard with a prior live resource in scope: the handler scope-drops both
+' the successfully-opened `first` and the never-initialized `second`.
+FUNC openMissingWithPrior() AS Integer
+  RES first = fs::createTempFile()
+  RES second = fs::open("/no/such/dir/mfb-bug190-missing2.txt", "read")
+  RETURN 0
+  TRAP(e)
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("caught-plain=" & toString(openMissing() = 1))
+  io::print("caught-prior=" & toString(openMissingWithPrior() = 1))
+  RETURN 0
+END FUNC

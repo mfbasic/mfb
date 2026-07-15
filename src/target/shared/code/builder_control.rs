@@ -112,17 +112,43 @@ impl CodeBuilder<'_> {
                             && !runtime_managed
                             && !promote_vector
                             && self.is_freeable_flat_value(type_);
+                        // This binding will register a resource-close cleanup (a
+                        // plain resource or a resource union) rather than a flat-value
+                        // free. Its slot faces the same not-yet-initialized hazard as
+                        // an owned flat value: a fallible initializer that traps (or
+                        // an error jumping past the bind to the function `TRAP`
+                        // handler) leaves the slot unwritten, and closing a garbage
+                        // handle SIGSEGVs (bug-246). The conditions here mirror the
+                        // cleanup-registration branches below exactly.
+                        let floats_to_collection = matches!(
+                            self.resource_owners.get(name),
+                            Some(crate::escape::ResOwner::Float(_))
+                        );
+                        let owns_resource_slot = !Self::is_thread_type(type_)
+                            && !borrows_union_variant
+                            && !borrows_capture_slot
+                            && !floats_to_collection
+                            && (self.resource_cleanup_symbol(type_).is_some()
+                                || self.resource_union_cleanup(type_).is_some());
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
-                        // stays null and the scope-drop free skips it instead of
-                        // freeing an uninitialized pointer.
-                        if owns_freeable_value {
+                        // stays null and the scope-drop free/close skips it instead of
+                        // touching an uninitialized pointer.
+                        if owns_freeable_value || owns_resource_slot {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
                             self.emit(abi::store_u64(
                                 &zero_slot,
                                 abi::stack_pointer(),
                                 stack_offset,
                             ));
+                        }
+                        // Record the resource slot for prologue zero-init too: an
+                        // error can jump to the function `TRAP` handler past a bind
+                        // that never ran, and the handler's null-guarded close must
+                        // see 0 rather than stack garbage (bug-246). `owned_value_slots`
+                        // is consumed only as the entry-zeroing list.
+                        if owns_resource_slot {
+                            self.owned_value_slots.push(stack_offset);
                         }
                         if let Some(value) = value {
                             // A promoted small-vector binding keeps its lanes in

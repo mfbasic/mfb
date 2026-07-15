@@ -122,12 +122,16 @@ struct CodeBuilder<'a> {
     owner_collections: HashSet<String>,
     /// Live owned-lists: collection binding name -> head-pointer stack slot.
     owned_list_heads: HashMap<String, usize>,
-    /// Stack slots of owned freeable-flat locals, recorded as each is bound.
-    /// In a function with a trap handler, an error can jump to the handler past
-    /// a not-yet-run `LET`, so the handler's scope-drop would free a slot whose
-    /// initializer never executed. Zeroing these slots in the prologue makes the
-    /// handler's null-guarded frees skip such slots (the per-`LET` zero-init only
-    /// guards a binding's *own* trapping initializer, not an earlier jump past it).
+    /// Stack slots to zero at function entry: owned freeable-flat locals and
+    /// resource (`RES`) locals, recorded as each is bound. In a function with a
+    /// trap handler, an error can jump to the handler past a not-yet-run `LET`,
+    /// so the handler's scope-drop would free/close a slot whose initializer never
+    /// executed. Zeroing these slots in the prologue makes the handler's
+    /// null-guarded frees and resource closes skip such slots (the per-`LET`
+    /// zero-init only guards a binding's *own* trapping initializer, not an earlier
+    /// jump past it). Consumed solely as the entry-zeroing list — the actual frees
+    /// are driven by `active_cleanups`, so recording a resource slot here does not
+    /// turn it into an `arena_free` (bug-246).
     owned_value_slots: Vec<usize>,
     /// Fresh, freeable-flat heap temporaries produced mid-statement that no owner
     /// claimed (plan-25 temp-lifetime fix): a call/constructor result used only as

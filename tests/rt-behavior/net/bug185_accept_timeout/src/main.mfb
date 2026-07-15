@@ -1,0 +1,22 @@
+IMPORT net
+IMPORT io
+IMPORT errorCode
+
+' bug-185 (audit-2 OS-02): net::accept ignored its timeoutMs and blocked forever.
+' With a positive timeoutMs it now polls the listener and, when no client arrives
+' before the deadline, fails with ErrTimeout instead of hanging. No client ever
+' connects here, so a 200ms-bounded accept must return ErrTimeout promptly.
+FUNC waitOnce() AS Integer
+  RES listener = net::listenTcp("127.0.0.1", 0)
+  RES client = net::accept(listener, 200)
+  RETURN 0
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET code AS Integer = waitOnce()
+  io::print("acceptTimedOut=" & toString(code = errorCode::ErrTimeout))
+  RETURN 0
+END FUNC

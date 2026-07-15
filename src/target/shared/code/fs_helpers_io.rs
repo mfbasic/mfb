@@ -697,7 +697,9 @@ pub(super) fn lower_fs_open_helper(
         abi::label(&flags_done),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_register(abi::ARG[1], &flag_val),
-        abi::move_immediate(abi::ARG[2], "Integer", "438"),
+        // Create newly-opened files owner-only (0o600 = 384), not world-readable
+        // 0o666; matches createTempFile/atomicWrite (audit-2 OS-01 / bug-184).
+        abi::move_immediate(abi::ARG[2], "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,
