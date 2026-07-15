@@ -1010,11 +1010,11 @@ mod tests {
         ];
         // Completeness: exactly one contract row per `v128` op, and every row is
         // a v128 op with a `2xf64`/`2xi64`/`16xi8`/conversion/mem lane shape. The
-        // count must match the neutrality test's 48-op coverage, so a newly added
+        // count must match the neutrality test's 50-op coverage, so a newly added
         // v128 op cannot slip in without a pinned lane-semantics contract.
         assert_eq!(
             contract.len(),
-            48,
+            50,
             "every v128 op needs a lane-semantics contract row"
         );
         let valid_shapes = [
@@ -1022,6 +1022,7 @@ mod tests {
             "2xf64",
             "2xi64",
             "16xi8",
+            "8xi8",
             "f64->i64 x2",
             "i64->f64 x2",
             "i64->2xi64",
