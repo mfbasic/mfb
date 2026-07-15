@@ -31,6 +31,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("types", "mfb man types [topic]"),
     ("flow", "mfb man flow [topic]"),
     ("errors", "mfb man errors"),
+    ("link", "mfb man link"),
     ("general", "mfb man general [function]"),
     ("collections", "mfb man collections [function]"),
     ("filters", "mfb man filters [function]"),
