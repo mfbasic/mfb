@@ -5,8 +5,11 @@ Effort: small (<1h)
 Severity: HIGH
 Class: memory-safety / security
 
-Status: Open
-Regression Test: tests/ (package-path verify test asserting MemberAccess on Money/Scalar is rejected)
+Status: Fixed (2026-07-15) — `Money`/`Scalar` added to `PRIMITIVE_TYPES` and the
+`provably_data_type` match arm in `src/ir/verify/mod.rs`.
+Regression Test: `src/ir/verify/tests.rs::rejects_member_access_on_money_and_scalar`
+(asserts `TYPE_FIELD_ACCESS_REQUIRES_RECORD` on a Money/Scalar-typed MemberAccess,
+the same `check`/`collect_diagnostics` entry `merge_packages` uses).
 
 `ir::verify` is the sole rejecter of malformed IR on the untrusted package-merge
 path (`merge_packages`). `check_member_access` rejects a `MemberAccess` whose
