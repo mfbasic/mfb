@@ -50,8 +50,10 @@ pub(super) fn data_const_segment(
     data_const_size: usize,
     import_count: usize,
     init_count: usize,
+    rodata_offset: usize,
+    rodata_len: usize,
 ) {
-    let sections = data_const_section_count(import_count, init_count);
+    let sections = data_const_section_count(import_count, init_count, rodata_len > 0);
     put_u32(bytes, 0x19);
     put_u32(bytes, 72 + sections * 80);
     fixed_name(bytes, "__DATA_CONST");
@@ -92,6 +94,25 @@ pub(super) fn data_const_segment(
             0,
             0,
             3,
+        );
+    }
+    if rodata_len > 0 {
+        // __const: read-only program constants (string literals, error messages),
+        // placed past the GOT/init pointers so `__DATA_CONST`'s SG_READ_ONLY flag
+        // maps them read-only once dyld finishes fixups (bug-187). 16-byte aligned
+        // (align_power 4) to match the maximum data-object alignment.
+        let const_offset = file_offset + rodata_offset;
+        section_with_segment(
+            bytes,
+            "__const",
+            "__DATA_CONST",
+            VM_BASE + const_offset as u64,
+            rodata_len as u64,
+            const_offset,
+            0,
+            0,
+            0,
+            4,
         );
     }
 }
@@ -367,7 +388,8 @@ pub(super) fn linkedit_layout(
     linkedit_file_offset: usize,
 ) -> LinkeditLayout {
     let has_imports = !libraries.is_empty();
-    let needs_data_const = has_imports || !image.initializers.is_empty();
+    let needs_data_const =
+        has_imports || !image.initializers.is_empty() || rodata_len(image) > 0;
     // Rebase opcodes (for `__mod_init_func` pointers) lead the dyld_info payload,
     // followed by the bind opcodes. `rebase_offset` is 0 when there is nothing to
     // rebase, leaving the bind stream exactly where it was for imports-only images.

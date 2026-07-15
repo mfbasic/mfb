@@ -52,7 +52,7 @@ fn patches_external_data_relocations_to_got_entry() {
         append_import_stubs(&mut text, &image, text_vmaddr, 0x4000, 0).expect("import stubs");
 
     let data_vmaddr = text_vmaddr + text.len() as u64;
-    patch_relocations(&mut text, &image, text_vmaddr, data_vmaddr, &locations)
+    patch_relocations(&mut text, &image, text_vmaddr, data_vmaddr, data_vmaddr, 0, &locations)
         .expect("relocations");
 
     assert!(locations.got_entries.contains_key("_mach_task_self_"));
@@ -437,6 +437,8 @@ fn patches_internal_and_data_relocations() {
         &image,
         text_vmaddr,
         data_vmaddr,
+        data_vmaddr,
+        0,
         &ImportLocations::default(),
     )
     .expect("relocations");
@@ -471,6 +473,8 @@ fn patch_relocations_rejects_unsupported_kind() {
         &image,
         VM_BASE,
         VM_BASE,
+        VM_BASE,
+        0,
         &ImportLocations::default(),
     )
     .expect_err("unsupported reloc");
@@ -504,6 +508,8 @@ fn patch_relocations_rejects_unbound_external_symbols() {
             &image,
             VM_BASE,
             VM_BASE,
+            VM_BASE,
+            0,
             &ImportLocations::default(),
         )
         .expect_err("unbound external");
@@ -553,6 +559,8 @@ fn patches_external_got_page_relocations() {
         &image,
         VM_BASE + 0x4000,
         VM_BASE + 0x4000,
+        VM_BASE + 0x4000,
+        0,
         &locations,
     )
     .expect("external got relocations");
@@ -573,8 +581,41 @@ fn symbol_vmaddr_rejects_unknown_symbol() {
         initializers: Vec::new(),
         signing_metadata: None,
     };
-    let err = symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE).expect_err("unknown symbol");
+    let err =
+        symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE, VM_BASE, 0).expect_err("unknown symbol");
     assert!(err.contains("does not resolve"), "{err}");
+}
+
+// A data symbol below `rodata_size` resolves into the read-only constant region
+// (`rodata_vmaddr`); one at or above it into the writable `__DATA` (`data_vmaddr`),
+// indexed past the constant prefix (bug-187).
+#[test]
+fn symbol_vmaddr_splits_constants_from_writable_data() {
+    let image = EncodedImage {
+        text: Vec::new(),
+        data: vec![0; 0x2000],
+        rodata_size: 0x1000,
+        symbols: vec![data_symbol("_const", 0x40), data_symbol("_arena", 0x1000)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let text_vmaddr = VM_BASE;
+    let rodata_vmaddr = VM_BASE + 0x4000;
+    let data_vmaddr = VM_BASE + 0x8000;
+    // Constant: `rodata_vmaddr + offset`.
+    assert_eq!(
+        symbol_vmaddr(&image, "_const", text_vmaddr, rodata_vmaddr, data_vmaddr, 0x1000).unwrap(),
+        rodata_vmaddr + 0x40,
+    );
+    // Writable: `data_vmaddr + (offset - rodata_size)` — the first writable byte
+    // sits at the base of `__DATA`.
+    assert_eq!(
+        symbol_vmaddr(&image, "_arena", text_vmaddr, rodata_vmaddr, data_vmaddr, 0x1000).unwrap(),
+        data_vmaddr,
+    );
 }
 
 #[test]
@@ -627,10 +668,13 @@ fn data_const_helpers_size_by_slots() {
         signing_metadata: None,
     };
     assert_eq!(data_const_size(&none), 0);
-    assert_eq!(data_const_section_count(0, 0), 0);
-    assert_eq!(data_const_section_count(1, 0), 1);
-    assert_eq!(data_const_section_count(0, 1), 1);
-    assert_eq!(data_const_section_count(2, 3), 2);
+    assert_eq!(data_const_section_count(0, 0, false), 0);
+    assert_eq!(data_const_section_count(1, 0, false), 1);
+    assert_eq!(data_const_section_count(0, 1, false), 1);
+    assert_eq!(data_const_section_count(2, 3, false), 2);
+    // The read-only `__const` block adds a third section (bug-187).
+    assert_eq!(data_const_section_count(0, 0, true), 1);
+    assert_eq!(data_const_section_count(2, 3, true), 3);
     let some = EncodedImage {
         imports: vec![import("libSystem", "_exit")],
         initializers: vec!["_init".to_string()],
@@ -999,22 +1043,31 @@ fn code_offset_and_layout_helpers_vary_with_presence() {
     let no_libs: [(String, String); 0] = [];
     let libs = [("libSystem".to_string(), "/usr/lib/libSystem.B.dylib".to_string())];
     // A data-const/dylib image needs a larger header than a bare one.
-    let bare = super::macho::code_offset(&no_libs, false, false, false);
-    let with_libs = super::macho::code_offset(&libs, false, false, false);
-    let with_data = super::macho::code_offset(&no_libs, false, false, true);
-    let with_sign = super::macho::code_offset(&no_libs, true, false, false);
+    let bare = super::macho::code_offset(&no_libs, false, false, false, false);
+    let with_libs = super::macho::code_offset(&libs, false, false, false, false);
+    let with_data = super::macho::code_offset(&no_libs, false, false, true, false);
+    let with_sign = super::macho::code_offset(&no_libs, true, false, false, false);
+    let with_rodata = super::macho::code_offset(&no_libs, false, false, false, true);
     assert!(with_libs > bare, "dylib load commands grow the header");
     assert!(with_data > bare, "the __DATA segment grows the header");
     assert!(with_sign > bare, "the signing segment grows the header");
+    assert!(
+        with_rodata > bare,
+        "the read-only __DATA_CONST,__const block grows the header"
+    );
     // All are 4-byte aligned (the code offset rounds to 4).
-    for offset in [bare, with_libs, with_data, with_sign] {
+    for offset in [bare, with_libs, with_data, with_sign, with_rodata] {
         assert_eq!(offset % 4, 0);
     }
-    // macho_layout: with data the __DATA segment is page-aligned and non-zero.
-    let layout = super::macho::macho_layout(bare, 16, 32, 0, 0);
+    // macho_layout: with writable data the __DATA segment is page-aligned and
+    // non-zero.
+    let layout = super::macho::macho_layout(bare, 16, 32, 0, 0, 0);
     assert_eq!(layout.data_seg_size, PAGE_SIZE);
     assert!(layout.data_seg_file_offset % PAGE_SIZE == 0);
     // No data → no __DATA segment.
-    let empty = super::macho::macho_layout(bare, 16, 0, 0, 0);
+    let empty = super::macho::macho_layout(bare, 16, 0, 0, 0, 0);
     assert_eq!(empty.data_seg_size, 0);
+    // All-constant data → no writable __DATA segment (it rides in __DATA_CONST).
+    let all_rodata = super::macho::macho_layout(bare, 16, 32, 32, 0, 0);
+    assert_eq!(all_rodata.data_seg_size, 0);
 }

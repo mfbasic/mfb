@@ -91,12 +91,17 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
     let libraries = import_libraries(image)?;
     let has_imports = !libraries.is_empty();
     let has_signing_metadata = image.signing_metadata.is_some();
-    let has_data = !image.data.is_empty();
+    let rodata_size = rodata_len(image);
+    // `__DATA` (writable) exists only for the data past the read-only constant
+    // prefix — the arena global and other runtime globals (bug-187).
+    let has_writable = image.data.len() > rodata_size;
+    let has_rodata = rodata_size > 0;
     let code_offset = code_offset(
         &libraries,
         has_signing_metadata,
         !image.initializers.is_empty(),
-        has_data,
+        has_writable,
+        has_rodata,
     );
     let mut text = image.text.clone();
     let import_locations = if has_imports {
@@ -110,22 +115,28 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
     } else {
         ImportLocations::default()
     };
-    // The constant data now lives in the writable `__DATA` segment, so its runtime
-    // address is that segment's base rather than the end of `__TEXT`.
-    let data_vmaddr = VM_BASE
-        + macho_layout(
-            code_offset,
-            text.len(),
-            image.data.len(),
-            data_const_size(image),
-            0,
-        )
-        .data_seg_file_offset as u64;
+    let layout = macho_layout(
+        code_offset,
+        text.len(),
+        image.data.len(),
+        rodata_size,
+        data_const_size(image),
+        0,
+    );
+    // Read-only constants sit in `__DATA_CONST,__const` (past the GOT/init
+    // pointers); the writable arena global and runtime globals stay in `__DATA`
+    // (bug-187). Data-symbol addresses resolve into one region or the other by
+    // offset.
+    let rodata_vmaddr =
+        VM_BASE + layout.data_const_file_offset as u64 + rodata_offset_in_data_const(image) as u64;
+    let data_vmaddr = VM_BASE + layout.data_seg_file_offset as u64;
     patch_relocations(
         &mut text,
         image,
         VM_BASE + code_offset as u64,
+        rodata_vmaddr,
         data_vmaddr,
+        rodata_size,
         &import_locations,
     )?;
     let entry_offset = image
@@ -203,19 +214,35 @@ fn patch_relocations(
     text: &mut [u8],
     image: &EncodedImage,
     text_vmaddr: u64,
+    rodata_vmaddr: u64,
     data_vmaddr: u64,
+    rodata_size: usize,
     import_locations: &ImportLocations,
 ) -> Result<(), String> {
     for relocation in &image.relocations {
         match relocation.binding.as_str() {
             "internal" if relocation.kind == "branch26" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let target = symbol_vmaddr(
+                    image,
+                    &relocation.target,
+                    text_vmaddr,
+                    rodata_vmaddr,
+                    data_vmaddr,
+                    rodata_size,
+                )?;
                 let word = 0x9400_0000
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
                 write_u32(text, relocation.offset, word);
             }
             "data" if relocation.kind == "page21" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let target = symbol_vmaddr(
+                    image,
+                    &relocation.target,
+                    text_vmaddr,
+                    rodata_vmaddr,
+                    data_vmaddr,
+                    rodata_size,
+                )?;
                 let pc = text_vmaddr + relocation.offset as u64;
                 let (immlo, immhi) = adrp_page21(pc, target)?;
                 let rd = read_u32(text, relocation.offset) & 0x1f;
@@ -226,7 +253,14 @@ fn patch_relocations(
                 );
             }
             "data" if relocation.kind == "pageoff12" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let target = symbol_vmaddr(
+                    image,
+                    &relocation.target,
+                    text_vmaddr,
+                    rodata_vmaddr,
+                    data_vmaddr,
+                    rodata_size,
+                )?;
                 let imm12 = (target & 0xfff) as u32;
                 let word = read_u32(text, relocation.offset);
                 let rd = word & 0x1f;
@@ -365,22 +399,46 @@ fn initializer_addr(image: &EncodedImage, name: &str, code_offset: usize) -> u64
     VM_BASE + code_offset as u64 + offset as u64
 }
 
-/// File/VM size of the `__DATA_CONST` segment: the GOT (one slot per import) plus
-/// the `__mod_init_func` pointer array (one slot per initializer), rounded to a
-/// page. Zero when the image needs no data-const segment at all.
+/// Bytes of `image.data` that are read-only constants — the string literals and
+/// error messages the shared codegen layout places first (bug-187). Clamped to
+/// the data length so a stale `rodata_size` can never over-read.
+fn rodata_len(image: &EncodedImage) -> usize {
+    image.rodata_size.min(image.data.len())
+}
+
+/// Byte offset of the read-only constant block *within* `__DATA_CONST`: past the
+/// GOT (one slot per import) and the `__mod_init_func` pointer array (one slot per
+/// initializer), aligned to the 16-byte maximum data-object alignment so every
+/// constant keeps its alignment. Placing the constants after the GOT/init keeps
+/// `rebase_info`'s `__mod_init_func` offset (`imports * 8`) unchanged (bug-187).
+fn rodata_offset_in_data_const(image: &EncodedImage) -> usize {
+    align((image.imports.len() + image.initializers.len()) * 8, 16)
+}
+
+/// File/VM size of the `__DATA_CONST` segment: the GOT (one slot per import), the
+/// `__mod_init_func` pointer array (one slot per initializer), and the read-only
+/// constant block (`__const`, bug-187), rounded to a page. Zero when the image has
+/// no GOT, no initializers and no constants.
 fn data_const_size(image: &EncodedImage) -> usize {
     let slots = image.imports.len() + image.initializers.len();
-    if slots == 0 {
+    let rodata = rodata_len(image);
+    let total = if rodata > 0 {
+        rodata_offset_in_data_const(image) + rodata
+    } else {
+        slots * 8
+    };
+    if total == 0 {
         0
     } else {
-        align(slots * 8, PAGE_SIZE)
+        align(total, PAGE_SIZE)
     }
 }
 
 /// Number of sections in `__DATA_CONST`: `__got` when there are imports,
-/// `__mod_init_func` when there are initializers.
-fn data_const_section_count(import_count: usize, init_count: usize) -> u32 {
-    (import_count > 0) as u32 + (init_count > 0) as u32
+/// `__mod_init_func` when there are initializers, `__const` when there are
+/// read-only constants.
+fn data_const_section_count(import_count: usize, init_count: usize, has_rodata: bool) -> u32 {
+    (import_count > 0) as u32 + (init_count > 0) as u32 + has_rodata as u32
 }
 
 /// Rebase opcode stream for `LC_DYLD_INFO_ONLY`. The `__mod_init_func` pointers
@@ -432,6 +490,7 @@ fn append_import_stubs(
         code_offset,
         final_code_len,
         data_len,
+        rodata_len(image),
         data_const_size(image),
         0,
     );
@@ -463,11 +522,18 @@ fn emit_import_stub(
     Ok(())
 }
 
+/// Runtime VM address of a symbol. Text symbols sit in `__TEXT`. Data symbols are
+/// split (bug-187): a constant (`offset < rodata_size`) lives in the read-only
+/// `__DATA_CONST,__const` block at `rodata_vmaddr`; a writable datum (the arena
+/// global and other runtime globals) lives in `__DATA` at `data_vmaddr`, indexed
+/// past the read-only prefix.
 fn symbol_vmaddr(
     image: &EncodedImage,
     symbol_name: &str,
     text_vmaddr: u64,
+    rodata_vmaddr: u64,
     data_vmaddr: u64,
+    rodata_size: usize,
 ) -> Result<u64, String> {
     let symbol = image
         .symbols
@@ -476,7 +542,10 @@ fn symbol_vmaddr(
         .ok_or_else(|| format!("symbol '{symbol_name}' does not resolve"))?;
     Ok(match symbol.section {
         EncodedSection::Text => text_vmaddr + symbol.offset as u64,
-        EncodedSection::Data => data_vmaddr + symbol.offset as u64,
+        EncodedSection::Data if symbol.offset < rodata_size => {
+            rodata_vmaddr + symbol.offset as u64
+        }
+        EncodedSection::Data => data_vmaddr + (symbol.offset - rodata_size) as u64,
     })
 }
 

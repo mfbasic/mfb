@@ -39,10 +39,15 @@ fn encode_unsigned_mach_o(
 ) -> Vec<u8> {
     let has_imports = !libraries.is_empty();
     let has_init = !image.initializers.is_empty();
-    let has_data = !data.is_empty();
+    let rodata_size = rodata_len(image);
+    let has_rodata = rodata_size > 0;
+    // `__DATA` (writable) holds only the data past the read-only constant prefix —
+    // the arena global and other runtime globals (bug-187).
+    let has_writable = data.len() > rodata_size;
     // A `__DATA_CONST` segment (and the `LC_DYLD_INFO_ONLY` path) is needed when
-    // the image has a GOT (imports) and/or a `__mod_init_func` (initializers).
-    let needs_data_const = has_imports || has_init;
+    // the image has a GOT (imports), a `__mod_init_func` (initializers), and/or a
+    // read-only `__const` block (constants, bug-187).
+    let needs_data_const = has_imports || has_init || has_rodata;
     let dc_size = data_const_size(image);
     let signing_metadata = image.signing_metadata.as_deref();
     let signing_metadata_len = signing_metadata.map_or(0, |metadata| metadata.len());
@@ -50,14 +55,20 @@ fn encode_unsigned_mach_o(
         code_offset,
         code.len(),
         data.len(),
+        rodata_size,
         dc_size,
         signing_metadata_len,
     );
     let linkedit = linkedit_layout(image, libraries, layout.linkedit_file_offset);
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
-    let load_commands_size =
-        load_commands_size(libraries, signing_metadata.is_some(), has_init, has_data);
+    let load_commands_size = load_commands_size(
+        libraries,
+        signing_metadata.is_some(),
+        has_init,
+        has_writable,
+        has_rodata,
+    );
     let mut bytes = Vec::new();
 
     put_u32(&mut bytes, 0xfeed_facf);
@@ -66,7 +77,7 @@ fn encode_unsigned_mach_o(
     put_u32(&mut bytes, 2);
     put_u32(
         &mut bytes,
-        load_command_count(libraries, signing_metadata.is_some(), has_init, has_data),
+        load_command_count(libraries, signing_metadata.is_some(), has_init, has_writable),
     );
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
@@ -87,14 +98,16 @@ fn encode_unsigned_mach_o(
             dc_size,
             image.imports.len(),
             image.initializers.len(),
+            rodata_offset_in_data_const(image),
+            rodata_size,
         );
     }
-    if has_data {
+    if has_writable {
         data_segment(
             &mut bytes,
             layout.data_seg_file_offset,
             layout.data_seg_size,
-            data.len(),
+            data.len() - rodata_size,
         );
     }
     if let Some(metadata) = signing_metadata {
@@ -148,12 +161,22 @@ fn encode_unsigned_mach_o(
         for name in &image.initializers {
             put_u64(&mut bytes, initializer_addr(image, name, code_offset));
         }
+        if has_rodata {
+            // Read-only `__const`: the program's constant data (string literals,
+            // error messages), past the GOT/init pointers (bug-187).
+            bytes.resize(
+                layout.data_const_file_offset + rodata_offset_in_data_const(image),
+                0,
+            );
+            bytes.extend_from_slice(&data[..rodata_size]);
+        }
     }
-    if has_data {
-        // Writable `__DATA`: the program's constant data and the zero-initialized
-        // main-arena global. Padded to the page-aligned segment size.
+    if has_writable {
+        // Writable `__DATA`: the runtime globals past the read-only constant prefix
+        // (the zero-initialized main-arena global etc.). Padded to the page-aligned
+        // segment size.
         bytes.resize(layout.data_seg_file_offset, 0);
-        bytes.extend_from_slice(data);
+        bytes.extend_from_slice(&data[rodata_size..]);
         bytes.resize(layout.data_seg_file_offset + layout.data_seg_size, 0);
     }
     if let Some(metadata) = signing_metadata {
@@ -185,10 +208,11 @@ fn encode_unsigned_mach_o(
 pub(super) struct MachOLayout {
     pub(super) text_file_size: usize,
     pub(super) data_const_file_offset: usize,
-    /// Writable `__DATA` segment (the main-arena global plus the program's
-    /// constant data). Placed after `__DATA_CONST` so `__DATA_CONST` keeps
-    /// segment index 2, which `rebase_info` hardcodes. Zero `data_seg_size` means
-    /// the image has no data and no `__DATA` segment is emitted.
+    /// Writable `__DATA` segment (the main-arena global and other runtime globals,
+    /// i.e. `image.data` past its read-only constant prefix — bug-187). Placed
+    /// after `__DATA_CONST` so `__DATA_CONST` keeps segment index 2, which
+    /// `rebase_info` hardcodes. Zero `data_seg_size` means the image has no
+    /// writable data and no `__DATA` segment is emitted.
     pub(super) data_seg_file_offset: usize,
     pub(super) data_seg_size: usize,
     pub(super) mfb_sign_file_offset: usize,
@@ -199,22 +223,26 @@ pub(super) fn macho_layout(
     code_offset: usize,
     code_len: usize,
     data_len: usize,
+    rodata_size: usize,
     data_const_size: usize,
     signing_metadata_len: usize,
 ) -> MachOLayout {
-    let has_data = data_len > 0;
-    // `__TEXT` now holds only code (+ import stubs); the constant data moved to
-    // the writable `__DATA` segment so the main-arena global can be stored to.
+    // Only the writable suffix (`data_len - rodata_size`) lands in `__DATA`; the
+    // read-only constant prefix rides in `__DATA_CONST,__const` (bug-187).
+    let writable_len = data_len.saturating_sub(rodata_size);
+    let has_writable = writable_len > 0;
+    // `__TEXT` holds only code (+ import stubs); the writable data moved to the
+    // `__DATA` segment so the main-arena global can be stored to.
     let text_file_size = align(code_offset + code_len, PAGE_SIZE);
     let data_const_file_offset = text_file_size;
     let after_data_const = data_const_file_offset + data_const_size;
-    let data_seg_file_offset = if has_data {
+    let data_seg_file_offset = if has_writable {
         align(after_data_const, PAGE_SIZE)
     } else {
         after_data_const
     };
-    let data_seg_size = if has_data {
-        align(data_len, PAGE_SIZE)
+    let data_seg_size = if has_writable {
+        align(writable_len, PAGE_SIZE)
     } else {
         0
     };
@@ -243,10 +271,17 @@ pub(super) fn code_offset(
     libraries: &[(String, String)],
     has_signing_metadata: bool,
     has_init: bool,
-    has_data: bool,
+    has_writable: bool,
+    has_rodata: bool,
 ) -> usize {
     align(
-        32 + load_commands_size(libraries, has_signing_metadata, has_init, has_data),
+        32 + load_commands_size(
+            libraries,
+            has_signing_metadata,
+            has_init,
+            has_writable,
+            has_rodata,
+        ),
         4,
     )
 }
@@ -255,20 +290,23 @@ fn load_commands_size(
     libraries: &[(String, String)],
     has_signing_metadata: bool,
     has_init: bool,
-    has_data: bool,
+    has_writable: bool,
+    has_rodata: bool,
 ) -> usize {
     let base = 72 + 232 + 72 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16;
     let signing = if has_signing_metadata { 152 } else { 0 };
     // The writable `__DATA` segment adds its segment header plus one `__data`
     // section header.
-    let data = if has_data { 72 + 80 } else { 0 };
-    let needs_data_const = !libraries.is_empty() || has_init;
+    let data = if has_writable { 72 + 80 } else { 0 };
+    let needs_data_const = !libraries.is_empty() || has_init || has_rodata;
     (if !needs_data_const {
         base + 16 + 16
     } else {
-        // __DATA_CONST segment (72 + one section header per __got/__mod_init_func)
-        // + LC_DYLD_INFO_ONLY + one LC_LOAD_DYLIB per library.
-        let sections = data_const_section_count(libraries.len(), has_init as usize) as usize;
+        // __DATA_CONST segment (72 + one section header per
+        // __got/__mod_init_func/__const) + LC_DYLD_INFO_ONLY + one LC_LOAD_DYLIB
+        // per library.
+        let sections =
+            data_const_section_count(libraries.len(), has_init as usize, has_rodata) as usize;
         let dylibs: usize = libraries
             .iter()
             .map(|(_, path)| dylib_command_size(path))
@@ -282,14 +320,14 @@ fn load_command_count(
     libraries: &[(String, String)],
     has_signing_metadata: bool,
     has_init: bool,
-    has_data: bool,
+    has_writable: bool,
 ) -> u32 {
     let signing = if has_signing_metadata { 1 } else { 0 };
     // The chained-fixups path (no data-const segment) and the dyld_info path both
     // total 15 base commands; the data-const path swaps two LINKEDIT commands for a
-    // __DATA_CONST segment + LC_DYLD_INFO_ONLY. A non-empty __mod_init_func adds a
-    // section, not a command, so only extra dylibs grow the count. The writable
-    // `__DATA` segment adds one command when the image has any data.
+    // __DATA_CONST segment + LC_DYLD_INFO_ONLY. A __mod_init_func/__const block adds
+    // a section, not a command, so only extra dylibs grow the count. The writable
+    // `__DATA` segment adds one command when the image has writable data.
     let _ = has_init;
-    15 + libraries.len() as u32 + signing + has_data as u32
+    15 + libraries.len() as u32 + signing + has_writable as u32
 }

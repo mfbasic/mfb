@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Security
 
-Status: Fixed on Linux (all three arches); macOS half scoped as a follow-up
-Regression Test: tests/linux_rodata_readonly.rs
+Status: Fixed on Linux (all three arches) and macOS (aarch64)
+Regression Test: tests/linux_rodata_readonly.rs, tests/macos_rodata_readonly.rs
 
 All immutable program data an emitted binary carries — string literals, constant
 tables, dispatch/jump constants — is placed in a read+write segment on both
@@ -115,12 +115,21 @@ the region read-only at startup — leaves a writable window and a re-enable pat
       `PT_LOAD`, leaving the arena global + dynamic payload (GOT/.rela/.dynamic) in
       the writable one. `symbol_vmaddr` is unchanged — the two regions stay
       contiguous, one base.
-- [ ] **macOS half deferred.** macOS sections inherit their segment's protection,
-      so the constants need a *separate* read-only segment/section, which means a
-      two-base data-symbol addressing rework plus extending `__DATA_CONST`'s
-      section layout (with care for `rebase_info`'s hardcoded segment index).
-      macOS already maps `__DATA_CONST` (GOT/init pointers) read-only, so it is
-      materially ahead; routing the string constants there is a scoped follow-up.
+- [x] **macOS half done.** The read-only constant prefix (`data[..rodata_size]`)
+      now rides in a new `__const` section inside `__DATA_CONST`, placed *past* the
+      GOT and `__mod_init_func` pointers (at `align((imports+init)*8, 16)`) so
+      `rebase_info`'s hardcoded `__DATA_CONST` segment index and its `imports*8`
+      init offset are unchanged. `__DATA_CONST` already carries `SG_READ_ONLY`, so
+      dyld maps the constants read-only after applying fixups — no separate segment
+      needed. The writable suffix (arena global + runtime globals) stays in
+      `__DATA`. `symbol_vmaddr` became two-base (constant offset → `__DATA_CONST`
+      `__const`; writable offset → `__DATA`, indexed past the prefix). `__DATA` is
+      emitted only when the writable suffix is non-empty. All the affected macOS
+      linker functions (`data_const_size`, `data_const_segment`,
+      `data_const_section_count`, `macho_layout`, `code_offset`,
+      `load_commands_size`, `needs_data_const`) were threaded with the rodata/
+      writable split. Real programs always import `_exit`, so `__DATA_CONST` is
+      always present; `needs_data_const` also folds in `rodata > 0` for safety.
 
 ### Phase 3 — validation
 - [x] Linux: built and ran on aarch64 (box 2223), x86_64 (box 2228), riscv64
@@ -129,6 +138,14 @@ the region read-only at startup — leaves a writable window and a re-enable pat
       constant region faults by kernel page protection. Encoder reorder is
       golden-invisible (the `.ncode` dumps plan-order `dataObjects` without
       offsets), so full acceptance stays green.
+- [x] macOS (aarch64): built and ran locally. `otool -l` shows `__DATA_CONST`
+      (`SG_READ_ONLY`, flags `0x10`) with `__got` + `__const` sections; the string
+      constants live in `__const`, and writable `__DATA` shrank to just the 8-byte
+      arena global. Under lldb, at the program entry `memory region` reports the
+      `__DATA_CONST` page **`r--`** (read-only, after dyld's fixup remap), while
+      `__DATA` is `rw-` and `__TEXT` is `r-x`. A genuine in-process store proves it:
+      `memset` into `__DATA` (arena) succeeds; `memset` into a `__const` constant
+      faults with **EXC_BAD_ACCESS (code=2, write)**. Full acceptance stays green.
 
 ## Validation Plan
 
@@ -139,6 +156,10 @@ the region read-only at startup — leaves a writable window and a re-enable pat
 
 ## Summary
 
-The real work is the codegen-side constant/mutable partition; once data is tagged,
-the per-platform segment emission is mechanical. Best sequenced with the Linux
-PIE/RELRO rework (bug-186) since both touch the segment layout.
+The real work was the codegen-side constant/mutable partition; once data was
+tagged (shared `layout_data_objects` + `EncodedImage.rodata_size`), the
+per-platform segment emission was mechanical. **Done on all shipping targets:**
+Linux (aarch64/x86_64/riscv64) carves the constant prefix into its own R
+`PT_LOAD`; macOS (aarch64) routes it into a `__const` section inside the already
+`SG_READ_ONLY` `__DATA_CONST`. On both, a runtime write to a constant faults while
+the arena global stays writable.
