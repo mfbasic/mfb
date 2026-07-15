@@ -148,6 +148,7 @@ const VERIFY_MATCH: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH";
 /// whose target provably has one of these types is a type confusion.
 const PRIMITIVE_TYPES: &[&str] = &[
     "Integer", "Float", "String", "Boolean", "Byte", "Fixed", "Nothing",
+    "Money", "Scalar",
 ];
 
 /// Collect every semantic-verification diagnostic for a merged `IrProject`, in
@@ -2810,7 +2811,9 @@ impl TypeEnv {
                 | "Fixed"
                 | "Float"
                 | "Integer"
+                | "Money"
                 | "Nothing"
+                | "Scalar"
                 | "String"
         ) || base.starts_with("List OF ")
             || base.starts_with("Map OF ")

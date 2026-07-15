@@ -254,6 +254,30 @@ fn rejects_member_access_on_integer() {
 }
 
 #[test]
+fn rejects_member_access_on_money_and_scalar() {
+    // bug-190: PRIMITIVE_TYPES omitted Money (plan-29) and Scalar (plan-41), so
+    // a crafted `.mfp` could smuggle a MemberAccess on a Money/Scalar-typed
+    // local past merge_packages' verifier and reach codegen as an offset load on
+    // a scalar register value (PKG-02 type confusion / OOB read). Both must be
+    // rejected exactly as Integer is.
+    for ty in ["Money", "Scalar"] {
+        let body = vec![IrOp::Return {
+            value: Some(IrValue::MemberAccess {
+                target: Box::new(IrValue::Local("v".to_string())),
+                member: "x".to_string(),
+                type_: "Integer".to_string(),
+            }),
+            loc: IrSourceLoc::default(),
+        }];
+        let f = func("run", vec![param("v", ty, None)], body);
+        let err = check(&project(vec![f], vec![]))
+            .err()
+            .unwrap_or_else(|| panic!("member on {ty} must be rejected"));
+        assert!(err.contains("TYPE_FIELD_ACCESS_REQUIRES_RECORD"), "{ty}: {err}");
+    }
+}
+
+#[test]
 fn rejects_member_access_missing_field_on_record() {
     let body = vec![IrOp::Return {
         value: Some(IrValue::MemberAccess {
