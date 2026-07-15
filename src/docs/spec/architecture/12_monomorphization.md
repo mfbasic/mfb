@@ -70,6 +70,11 @@ distinct from the `$`-mangled emit symbol). The first use of a key triggers
 expansion; later uses reuse the already-emitted concrete declaration via
 `emitted_function_keys` / `emitted_type_keys`.
 
+Fresh template expansion is bounded to 256 active instantiation frames. A chain
+that recursively creates distinct concrete templates beyond that limit is
+rejected with `TYPE_INSTANTIATION_TOO_DEEP` instead of recursing until the host
+stack overflows.
+
 ### Functions — `instantiate_function`
 
 For a call to a template function: [[src/monomorph/lower.rs:instantiate_function]]
@@ -85,16 +90,19 @@ For a call to a template function: [[src/monomorph/lower.rs:instantiate_function
 4. Require every template parameter to be bound (the `collect::<Option<_>>` fails
    to `None` otherwise — a parameter not reachable from any argument cannot be
    inferred).
-5. Mangle the concrete name, lower the body under the substitution, cache it.
+5. Mangle the concrete name, reject expansion past the 256-frame instantiation
+   limit (`TYPE_INSTANTIATION_TOO_DEEP`), lower the body under the substitution,
+   cache it.
 
 ### Types — `instantiate_type`
 
 `instantiate_type(name, args)` mangles the concrete name, records the
 `concrete -> (base, args)` mapping in `type_instantiations` (used by
 `template_view_type` to invert mangling), and on first use lowers the template
-under the per-parameter substitution. [[src/monomorph/lower.rs:instantiate_type]] A
-constructor instantiates its type either from the expected (contextual) type, or
-by unifying field types against the constructor argument types.
+under the per-parameter substitution after the same 256-frame instantiation cap
+used for functions. [[src/monomorph/lower.rs:instantiate_type]] A constructor
+instantiates its type either from the expected (contextual) type, or by unifying
+field types against the constructor argument types.
 
 ## `unify_type`: structural matching with an `Unknown` wildcard
 

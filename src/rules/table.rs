@@ -626,6 +626,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "return-type overload cannot be resolved without an expected type",
     },
     Rule {
+        code: "2-203-0102",
+        name: "TYPE_INSTANTIATION_TOO_DEEP",
+        severity: Severity::Error,
+        message: "template instantiation is too deep",
+    },
+    Rule {
         code: "2-203-0058",
         name: "TYPE_DUPLICATE_ARGUMENT_NAME",
         severity: Severity::Error,

@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-error/monomorph_polymorphic_recursion_depth (to be added)
+Status: Fixed
+Regression Test: tests/rt-error/monomorph_polymorphic_recursion_depth
 
 A `.mfb` source file whose generic function instantiates itself at an
 ever-widening concrete type (`recurse OF T` calling `recurse` with `List OF T`)
@@ -104,18 +104,27 @@ non-portable.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add the reproduction above as a rt-error test asserting a graceful
+- [x] Add the reproduction above as a rt-error test asserting a graceful
       diagnostic (not a crash). Confirm it currently crashes.
-- [ ] Confirm both `instantiate_function` and `instantiate_type` are on the
+- [x] Confirm both `instantiate_function` and `instantiate_type` are on the
       recursion path for the type-widening and (separately) a return-type-widening
-      variant.
+      variant. Reproduced independently: the function-widening chain
+      (`recurse OF T` calling itself at `List OF T`) is caught in
+      `instantiate_function`; a self-widening generic `TYPE Nest OF T` with a
+      `child AS Nest OF List OF T` field is caught in `instantiate_type`. Both
+      emit `TYPE_INSTANTIATION_TOO_DEEP` and exit 1 with no stack overflow.
 
 ### Phase 2 — the fix
-- [ ] Add the depth/budget counter to the monomorph context; cap and report at
-      both instantiation entry points.
+- [x] Add the depth/budget counter to the monomorph context; cap and report at
+      both instantiation entry points. `template_instantiation_depth` is threaded
+      through `Monomorphizer`, incremented on entry to fresh
+      `instantiate_function` / `instantiate_type` expansion and decremented on
+      exit; at `MAX_TEMPLATE_INSTANTIATION_DEPTH = 256` (matching `MAX_EXPR_DEPTH`
+      / `ir::verify` `MAX_DEPTH`) it reports `TYPE_INSTANTIATION_TOO_DEEP` and
+      stops recursing.
 
 ### Phase 3 — validation
-- [ ] Full acceptance suite green; the new test passes; no legitimate generic
+- [x] Full acceptance suite green; the new test passes; no legitimate generic
       program regresses.
 
 ## Validation Plan

@@ -1,0 +1,8 @@
+FUNC recurse OF T(x AS T) AS Integer
+  LET y AS List OF T = [x]
+  RETURN recurse(y)
+END FUNC
+
+FUNC main() AS Integer
+  RETURN recurse(1)
+END FUNC

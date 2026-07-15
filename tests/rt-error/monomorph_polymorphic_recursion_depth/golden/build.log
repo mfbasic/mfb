@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/rt-error/monomorph_polymorphic_recursion_depth
+   1 | FUNC recurse OF T(x AS T) AS Integer
+   2 |   LET y AS List OF T = [x]
+   3 |   RETURN recurse(y)
+     | ^
+tests/rt-error/monomorph_polymorphic_recursion_depth/src/main.mfb:3 error[2-203-0102 TYPE_INSTANTIATION_TOO_DEEP]: template instantiation is too deep
+               Template instantiation of `recurse` exceeds the 256 level limit.
+[exit 1]

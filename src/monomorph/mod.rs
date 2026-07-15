@@ -53,6 +53,7 @@ struct Monomorphizer<'a> {
     /// diagnostics are attributed here. Saved/restored across nested
     /// instantiation so the attribution follows the frame being lowered.
     current_file: Option<String>,
+    template_instantiation_depth: usize,
     had_error: bool,
 }
 
@@ -99,3 +100,5 @@ mod helpers;
 mod lower;
 
 use helpers::*;
+
+const MAX_TEMPLATE_INSTANTIATION_DEPTH: usize = 256;

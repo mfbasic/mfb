@@ -95,9 +95,9 @@ densely fill it.
 
 `EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
 guaranteed dense or monotonic**: subsystem `2-203` allocates a high block at
-`0100`-`0101` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`) after
-`0056`/`0058` (`0057` is unallocated), plus later `0103`/`0104`
-(`0102` is unallocated), and `2-200`
+`0100`-`0102` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`,
+`TYPE_INSTANTIATION_TOO_DEEP`) after `0056`/`0058` (`0057` is unallocated), plus
+later `0103`/`0104`, and `2-200`
 mixes a low validation block (`0001`-`0011`) with a high orchestration block
 (`0100`/`0101`). Treat `EEEE` as an opaque ordinal, never as a count.
 [[src/rules/table.rs:RULES]]
@@ -186,7 +186,7 @@ caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_dia
 
 ## The Rule Registry
 
-The complete registry follows, grouped by subsystem. All 202 `RULES` entries are
+The complete registry follows, grouped by subsystem. All 203 `RULES` entries are
 listed; none are omitted, and the synthetic `0-000-0000` fallback (not a `RULES`
 member) is appended at the end. Each row is `code | NAME | severity | message`,
 transcribed verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted,
@@ -361,6 +361,7 @@ Scheme*).
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | ordinary collections cannot store resource or thread ownership |
 | `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | a borrowed collection element of resource type is not an owner |
 | `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | return-type overload cannot be resolved without an expected type |
+| `2-203-0102` | `TYPE_INSTANTIATION_TOO_DEEP` | error | template instantiation is too deep |
 | `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | call argument is supplied more than once |
 | `2-203-0059` | `TYPE_UNKNOWN_ARGUMENT_NAME` | error | call argument name does not match any parameter |
 | `2-203-0060` | `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` | error | uninitialized mutable binding requires a defaultable type |

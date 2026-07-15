@@ -127,6 +127,7 @@ impl<'a> Monomorphizer<'a> {
                 .collect(),
             function_files,
             current_file: None,
+            template_instantiation_depth: 0,
             had_error: false,
         }
     }
@@ -526,12 +527,18 @@ impl<'a> Monomorphizer<'a> {
         let concrete_name = mangle_name(name, &args);
         let key = format!("{name}<{}>", args.join(","));
         if self.emitted_function_keys.insert(key) {
+            if self.template_instantiation_depth >= MAX_TEMPLATE_INSTANTIATION_DEPTH {
+                self.report_instantiation_too_deep(&display, line);
+                return None;
+            }
+            self.template_instantiation_depth += 1;
             let mut full_substitutions = HashMap::new();
             for (param, arg) in template.template_params.iter().zip(args.iter()) {
                 full_substitutions.insert(param.clone(), arg.clone());
             }
             let lowered =
                 self.lower_function(template, &full_substitutions, Some(concrete_name.clone()));
+            self.template_instantiation_depth -= 1;
             self.concrete_functions
                 .insert(concrete_name.clone(), lowered);
         }
@@ -647,11 +654,17 @@ impl<'a> Monomorphizer<'a> {
         let Some(template) = self.type_templates.get(name).cloned() else {
             return concrete_name;
         };
+        if self.template_instantiation_depth >= MAX_TEMPLATE_INSTANTIATION_DEPTH {
+            self.report_instantiation_too_deep(name, 1);
+            return concrete_name;
+        }
+        self.template_instantiation_depth += 1;
         let mut substitutions = HashMap::new();
         for (param, arg) in template.template_params.iter().zip(args.iter()) {
             substitutions.insert(param.clone(), arg.clone());
         }
         let concrete = self.lower_type(template, &substitutions, Some(concrete_name.clone()));
+        self.template_instantiation_depth -= 1;
         self.concrete_types.insert(concrete_name.clone(), concrete);
         concrete_name
     }
@@ -1714,6 +1727,16 @@ impl<'a> Monomorphizer<'a> {
             .map(|rel| self.project_dir.join(rel))
             .unwrap_or_else(|| self.project_dir.join("src/main.mfb"));
         rules::show_diagnostic(rule, detail, &path, line, 1, 1);
+    }
+
+    fn report_instantiation_too_deep(&mut self, name: &str, line: usize) {
+        self.report(
+            "TYPE_INSTANTIATION_TOO_DEEP",
+            &format!(
+                "Template instantiation of `{name}` exceeds the {MAX_TEMPLATE_INSTANTIATION_DEPTH} level limit."
+            ),
+            line,
+        );
     }
 }
 
