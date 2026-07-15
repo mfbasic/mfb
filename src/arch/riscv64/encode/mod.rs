@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
+use crate::target::shared::code::{layout_data_objects, CodeInstruction, NativeCodePlan};
 
 // The neutral image/symbol/relocation/import containers are ISA-independent;
 // reuse them rather than redeclaring a parallel set.
@@ -31,7 +31,6 @@ pub(crate) use crate::arch::aarch64::encode::{
     EncodedImage, EncodedImport, EncodedRelocation, EncodedSection, EncodedSymbol, ImportKind,
 };
 
-mod data;
 mod emitter;
 mod operand;
 mod sizing;
@@ -39,15 +38,17 @@ mod sizing;
 #[cfg(test)]
 mod tests;
 
-use data::{align, encode_data};
 use emitter::Encoder;
 use operand::field;
 use sizing::instruction_size;
 
 pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
+    // Partitioned data layout (bug-187): read-only constants first, then the
+    // writable region; `rodata_size` marks the boundary.
+    let (data, rodata_size, data_symbols) = layout_data_objects(&plan.data_objects)?;
     let mut encoder = Encoder {
         text: Vec::new(),
-        data: encode_data(plan)?,
+        data,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: plan
@@ -59,15 +60,12 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
         patches: Vec::new(),
     };
 
-    let mut data_offset = 0;
-    for object in &plan.data_objects {
-        data_offset = align(data_offset, object.align);
+    for (name, offset) in data_symbols {
         encoder.symbols.push(EncodedSymbol {
-            name: object.symbol.clone(),
+            name,
             section: EncodedSection::Data,
-            offset: data_offset,
+            offset,
         });
-        data_offset += object.size;
     }
 
     let mut text_offset = 0;
@@ -127,6 +125,7 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
     Ok(EncodedImage {
         text: encoder.text,
         data: encoder.data,
+        rodata_size,
         symbols: encoder.symbols,
         relocations: encoder.relocations,
         imports,

@@ -9,6 +9,7 @@ fn versioned_exit_image() -> EncodedImage {
     EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -62,6 +63,7 @@ fn init_array_image() -> EncodedImage {
     EncodedImage {
         text,
         data: vec![0; 8],
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_init0".to_string(),
@@ -128,6 +130,7 @@ fn glob_dat_image(libc: &str) -> EncodedImage {
     EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -164,6 +167,7 @@ fn x86_static_image() -> EncodedImage {
     EncodedImage {
         text: vec![0xc3], // ret
         data: vec![1, 2, 3, 4],
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -342,6 +346,7 @@ fn x86_dynamic_image() -> EncodedImage {
     EncodedImage {
         text,
         data: b"hi\0".to_vec(),
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_main".to_string(),
@@ -482,6 +487,7 @@ fn write_executable_rejects_unbound_external_symbol() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -526,6 +532,7 @@ fn write_executable_rejects_unsupported_relocation() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -562,6 +569,7 @@ fn dynamic_build_rejects_missing_initializer_symbol() {
     let image = EncodedImage {
         text: vec![0x00, 0x00, 0x00, 0x00],
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -625,6 +633,7 @@ fn write_executable_aarch64_static_internal_relocs() {
     let image = EncodedImage {
         text,
         data: b"hi\0".to_vec(),
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_main".to_string(),
@@ -691,6 +700,7 @@ fn write_executable_x86_static_data_pc32() {
     let image = EncodedImage {
         text,
         data: b"xy\0".to_vec(),
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_main".to_string(),
@@ -737,6 +747,7 @@ fn expect_unbound(kind: &str, expect_fragment: &str) {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -841,6 +852,7 @@ fn write_executable_rejects_undefined_internal_symbol() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -901,6 +913,7 @@ fn writes_mfb_sign_section_to_static_elf() {
     let mut image = EncodedImage {
         text: vec![0xd6, 0x5f, 0x03, 0xc0],
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,

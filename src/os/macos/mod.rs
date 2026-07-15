@@ -86,6 +86,7 @@ mod tests {
         EncodedImage {
             text: vec![0xc0, 0x03, 0x5f, 0xd6],
             data: Vec::new(),
+            rodata_size: 0,
             symbols: vec![EncodedSymbol {
                 name: "_main".to_string(),
                 section: EncodedSection::Text,

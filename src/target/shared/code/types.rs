@@ -110,6 +110,97 @@ pub(crate) struct CodeDataObject {
     pub(crate) value: String,
 }
 
+/// Page size the read-only/writable data boundary aligns to (bug-187), matching
+/// the linker's `PAGE_SIZE` so the two partitions land on independent pages.
+const DATA_PAGE_SIZE: usize = 0x1000;
+
+/// Lay out a plan's data objects into the final data blob, partitioned so the
+/// read-only constants come first, then a page pad, then every writable object
+/// (bug-187). `kind == "constant"` (string literals, error messages) is provably
+/// never written at runtime and forms the read-only prefix; every other object
+/// (`raw`/`union` — the main-arena global, os args, the env-lock mutex, the stdin
+/// broadcast log, closure descriptors, the app-mode global plane, and the const
+/// `raw` blobs that stay writable for now) forms the writable region. Keying the
+/// split on `kind` cannot misclassify a mutable object as read-only, so a runtime
+/// write never faults spuriously.
+///
+/// Returns `(bytes, rodata_size, symbol_offsets)`: `rodata_size` is the
+/// page-aligned length of the read-only prefix (0 when nothing is read-only), and
+/// each object's `(symbol, byte_offset)` is emitted from the same ordered pass so
+/// the blob and the offsets can never drift. ISA-neutral — the data blob is
+/// identical across all backends.
+pub(crate) fn layout_data_objects(
+    objects: &[CodeDataObject],
+) -> Result<(Vec<u8>, usize, Vec<(String, usize)>), String> {
+    let mut ordered: Vec<&CodeDataObject> =
+        objects.iter().filter(|object| object.kind == "constant").collect();
+    let const_count = ordered.len();
+    ordered.extend(objects.iter().filter(|object| object.kind != "constant"));
+
+    let mut data = Vec::new();
+    let mut symbols = Vec::new();
+    let mut rodata_size = 0;
+    for (index, object) in ordered.iter().enumerate() {
+        // At the const→writable boundary, pad to a page so the writable region
+        // (arena global etc.) gets its own pages and the prefix can be read-only.
+        if index == const_count && const_count > 0 {
+            data.resize(data_align(data.len(), DATA_PAGE_SIZE), 0);
+            rodata_size = data.len();
+        }
+        data.resize(data_align(data.len(), object.align), 0);
+        symbols.push((object.symbol.clone(), data.len()));
+        if object.kind == "raw" {
+            data.extend_from_slice(&decode_data_hex(&object.value)?);
+        } else {
+            data.extend_from_slice(&(object.value.len() as u64).to_le_bytes());
+            data.extend_from_slice(object.value.as_bytes());
+            data.push(0);
+        }
+        data.resize(data_align(data.len(), object.align), 0);
+    }
+    // Every object is read-only (no writable data): the whole padded blob is the
+    // read-only region.
+    if const_count == ordered.len() && const_count > 0 {
+        rodata_size = data_align(data.len(), DATA_PAGE_SIZE);
+        data.resize(rodata_size, 0);
+    }
+    Ok((data, rodata_size, symbols))
+}
+
+fn data_align(value: usize, alignment: usize) -> usize {
+    if alignment <= 1 {
+        return value;
+    }
+    value.div_ceil(alignment) * alignment
+}
+
+fn decode_data_hex(value: &str) -> Result<Vec<u8>, String> {
+    let compact = value
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace() && *byte != b'_')
+        .collect::<Vec<_>>();
+    if compact.len() % 2 != 0 {
+        return Err("raw data object hex value must have an even digit count".to_string());
+    }
+    compact
+        .chunks_exact(2)
+        .map(|pair| {
+            let hi = data_hex_digit(pair[0])?;
+            let lo = data_hex_digit(pair[1])?;
+            Ok((hi << 4) | lo)
+        })
+        .collect()
+}
+
+fn data_hex_digit(value: u8) -> Result<u8, String> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err("raw data object contains non-hex digit".to_string()),
+    }
+}
+
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     fn arch(&self) -> &'static str;
@@ -577,4 +668,61 @@ pub(crate) struct CodeStackSlot {
     pub(crate) name: String,
     pub(crate) type_: String,
     pub(crate) offset: i32,
+}
+
+#[cfg(test)]
+mod data_layout_tests {
+    use super::*;
+
+    fn obj(symbol: &str, kind: &str, align: usize, value: &str) -> CodeDataObject {
+        CodeDataObject {
+            symbol: symbol.to_string(),
+            kind: kind.to_string(),
+            layout: String::new(),
+            align,
+            size: 0,
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn partitions_constants_before_writable_with_page_boundary() {
+        // A constant and a writable (raw) object: the constant lands in the
+        // read-only prefix, the raw object in the writable region on a fresh page.
+        let objects = vec![
+            obj("_arena", "raw", 8, "0000000000000000"),
+            obj("_str", "constant", 8, "hi"),
+        ];
+        let (bytes, rodata_size, symbols) = layout_data_objects(&objects).unwrap();
+        let str_off = symbols.iter().find(|(n, _)| n == "_str").unwrap().1;
+        let arena_off = symbols.iter().find(|(n, _)| n == "_arena").unwrap().1;
+        // The constant is first (offset 0); the writable object is past the
+        // page-aligned boundary.
+        assert_eq!(str_off, 0);
+        assert!(rodata_size > 0 && rodata_size % DATA_PAGE_SIZE == 0);
+        assert!(arena_off >= rodata_size, "arena must be in the writable region");
+        // The constant's bytes (u64 len prefix + "hi" + NUL) sit at offset 0.
+        assert_eq!(&bytes[0..8], &2u64.to_le_bytes());
+        assert_eq!(&bytes[8..10], b"hi");
+    }
+
+    #[test]
+    fn no_constants_means_no_rodata() {
+        let objects = vec![obj("_arena", "raw", 8, "0000000000000000")];
+        let (_, rodata_size, _) = layout_data_objects(&objects).unwrap();
+        assert_eq!(rodata_size, 0);
+    }
+
+    #[test]
+    fn align_zero_does_not_divide_by_zero() {
+        // bug-18: a malformed plan could carry align 0; treat 0/1 as "no align".
+        assert_eq!(data_align(1, 0), 1);
+        assert_eq!(data_align(0, 0), 0);
+        assert_eq!(data_align(7, 1), 7);
+        assert_eq!(data_align(1, 8), 8);
+        assert_eq!(data_align(17, 16), 32);
+        // And a data object with align 0 lays out without panicking.
+        let objects = vec![obj("_x", "raw", 0, "ff")];
+        assert!(layout_data_objects(&objects).is_ok());
+    }
 }

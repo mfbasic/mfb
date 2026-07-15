@@ -20,6 +20,7 @@ fn patches_external_data_relocations_to_got_entry() {
     let image = EncodedImage {
         text: text.clone(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -69,6 +70,7 @@ fn bind_info_uses_uleb_ordinal_past_fifteen() {
     let image = EncodedImage {
         text: Vec::new(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: vec![import("lib16", "_late")],
@@ -93,6 +95,7 @@ fn import_libraries_assigns_one_ordinal_per_distinct_library() {
     let image = EncodedImage {
         text: Vec::new(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: vec![
@@ -120,6 +123,7 @@ fn rejects_initializer_without_text_symbol() {
     let image = EncodedImage {
         text: vec![0xc0, 0x03, 0x5f, 0xd6],
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -160,6 +164,7 @@ fn runs_initializer_before_entry_without_imports() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_init0".to_string(),
@@ -212,6 +217,7 @@ fn runs_initializer_before_entry_with_imports() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_init0".to_string(),
@@ -265,6 +271,7 @@ fn writes_mfb_sign_section_to_mach_o() {
     let image = EncodedImage {
         text: vec![0xc0, 0x03, 0x5f, 0xd6],
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -315,6 +322,7 @@ fn links_and_runs_program_importing_from_two_dylibs() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -388,6 +396,7 @@ fn patches_internal_and_data_relocations() {
     let image = EncodedImage {
         text: text.clone(),
         data: vec![0; 8],
+        rodata_size: 0,
         symbols: vec![
             text_symbol("_main", 0),
             text_symbol("_target", 8),
@@ -443,6 +452,7 @@ fn patch_relocations_rejects_unsupported_kind() {
     let image = EncodedImage {
         text: text.clone(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![text_symbol("_main", 0)],
         relocations: vec![EncodedRelocation {
             offset: 0,
@@ -472,6 +482,7 @@ fn patch_relocations_rejects_unbound_external_symbols() {
     let make = |kind: &str| EncodedImage {
         text: vec![0; 4],
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![text_symbol("_main", 0)],
         relocations: vec![EncodedRelocation {
             offset: 0,
@@ -510,6 +521,7 @@ fn patches_external_got_page_relocations() {
     let image = EncodedImage {
         text: text.clone(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![text_symbol("_main", 0)],
         relocations: vec![
             EncodedRelocation {
@@ -553,6 +565,7 @@ fn symbol_vmaddr_rejects_unknown_symbol() {
     let image = EncodedImage {
         text: Vec::new(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: Vec::new(),
@@ -585,6 +598,7 @@ fn library_ordinal_rejects_absent_library() {
     let libraries = import_libraries(&EncodedImage {
         text: Vec::new(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: vec![import("libSystem", "_exit")],
@@ -604,6 +618,7 @@ fn data_const_helpers_size_by_slots() {
     let none = EncodedImage {
         text: Vec::new(),
         data: Vec::new(),
+        rodata_size: 0,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: Vec::new(),
@@ -639,6 +654,7 @@ fn rejects_entry_symbol_not_in_text() {
     let image = EncodedImage {
         text: vec![0xc0, 0x03, 0x5f, 0xd6],
         data: vec![0; 4],
+        rodata_size: 0,
         symbols: vec![data_symbol("_main", 0)],
         relocations: Vec::new(),
         imports: Vec::new(),
@@ -701,6 +717,7 @@ fn writes_and_launches_app_bundle() {
     let image = EncodedImage {
         text,
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![EncodedSymbol {
             name: "_main".to_string(),
             section: EncodedSection::Text,
@@ -779,6 +796,7 @@ fn links_and_launches_app_bundle_importing_libobjc() {
     let image = EncodedImage {
         text,
         data,
+        rodata_size: 0,
         symbols: vec![
             EncodedSymbol {
                 name: "_main".to_string(),
@@ -941,6 +959,7 @@ fn write_app_bundle_creates_layout_and_plist_host_neutral() {
     let image = EncodedImage {
         text: vec![0xc0, 0x03, 0x5f, 0xd6], // ret
         data: Vec::new(),
+        rodata_size: 0,
         symbols: vec![text_symbol("_main", 0)],
         relocations: Vec::new(),
         imports: Vec::new(),

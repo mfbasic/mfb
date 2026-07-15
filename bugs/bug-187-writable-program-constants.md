@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/rodata_readonly_segment (readelf/otool check, to be added)
+Status: Fixed on Linux (all three arches); macOS half scoped as a follow-up
+Regression Test: tests/linux_rodata_readonly.rs
 
 All immutable program data an emitted binary carries — string literals, constant
 tables, dispatch/jump constants — is placed in a read+write segment on both
@@ -94,17 +94,41 @@ the region read-only at startup — leaves a writable window and a re-enable pat
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add a build-and-inspect test asserting constant literal bytes land in an
-      R-only region; confirm it fails.
-- [ ] Audit `image.data` construction to classify each datum constant vs mutable.
+- [x] Added `tests/linux_rodata_readonly.rs` (build + inspect: a read-only data
+      `PT_LOAD` must hold the constants); confirmed it failed against the single
+      R+W data segment.
+- [x] Audit result: the data blob mixes provably-constant objects
+      (`kind == "constant"` — string literals, error messages) with the writable
+      arena global and other runtime globals (os args, env-lock, stdin log, closure
+      descriptors, app-mode plane), interleaved. `kind == "constant"` is a
+      never-mutated subset, so keying the split on it cannot misclassify a mutable
+      object as read-only (no spurious fault).
 
 ### Phase 2 — the fix
-- [ ] Partition `image.data`; emit the constant partition read-only on Linux and
-      macOS; keep the arena global R+W.
+- [x] Shared `layout_data_objects` (`src/target/shared/code/types.rs`) lays the
+      data blob out with the read-only constants first, a page pad, then the
+      writable objects, from one ordered pass (byte blob + symbol offsets can't
+      drift). `EncodedImage.rodata_size` records the page-aligned boundary; all
+      three arch encoders (aarch64/x86_64/riscv64) call it (their identical
+      `encode/data.rs` modules were removed).
+- [x] Linux `encode_dynamic_elf`: carve `data[..rodata_size]` into its own R
+      `PT_LOAD`, leaving the arena global + dynamic payload (GOT/.rela/.dynamic) in
+      the writable one. `symbol_vmaddr` is unchanged — the two regions stay
+      contiguous, one base.
+- [ ] **macOS half deferred.** macOS sections inherit their segment's protection,
+      so the constants need a *separate* read-only segment/section, which means a
+      two-base data-symbol addressing rework plus extending `__DATA_CONST`'s
+      section layout (with care for `rebase_info`'s hardcoded segment index).
+      macOS already maps `__DATA_CONST` (GOT/init pointers) read-only, so it is
+      materially ahead; routing the string constants there is a scoped follow-up.
 
 ### Phase 3 — validation
-- [ ] Full acceptance + artifact gate green; a runtime write to a constant faults
-      (proving the mapping); programs run unchanged otherwise.
+- [x] Linux: built and ran on aarch64 (box 2223), x86_64 (box 2228), riscv64
+      (box 2229) — programs run unchanged; `readelf -l` shows three loads: `R E`
+      text, **`R`** (read-only) constants, `RW` arena/dynamic. A write to the
+      constant region faults by kernel page protection. Encoder reorder is
+      golden-invisible (the `.ncode` dumps plan-order `dataObjects` without
+      offsets), so full acceptance stays green.
 
 ## Validation Plan
 

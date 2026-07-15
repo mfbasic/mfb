@@ -148,8 +148,13 @@ pub(super) fn encode_dynamic_elf(
     image: &EncodedImage,
 ) -> Result<Vec<u8>, String> {
     let dynamic = DynamicPayload::build(arch, flavor, image)?;
-    // PHDR, INTERP, LOAD(text), LOAD(data), DYNAMIC, GNU_STACK.
-    let ph_count = 6_u16;
+    // Read-only constant prefix of `data` (bug-187), page-aligned by the encoder.
+    // When present it is carved into its own R `PT_LOAD`, leaving the arena global
+    // and the dynamic payload in the writable one.
+    let rodata_size = image.rodata_size.min(data.len());
+    // PHDR, INTERP, LOAD(text), LOAD(data-rw), DYNAMIC, GNU_STACK — plus a leading
+    // R LOAD for the constant partition when there is one (bug-187).
+    let ph_count = if rodata_size > 0 { 7_u16 } else { 6_u16 };
     let interp = interpreter(arch, flavor).as_bytes();
     let interp_offset = 64 + ph_count as usize * 56;
     let text_offset = TEXT_FILE_OFFSET;
@@ -220,15 +225,37 @@ pub(super) fn encode_dynamic_elf(
         (text_offset + text.len()) as u64,
         PAGE_SIZE as u64,
     );
+    // Constant partition: a read-only (R) PT_LOAD over `data[..rodata_size]` — the
+    // string literals / error messages an attacker with an arbitrary write must
+    // not be able to corrupt (bug-187). Emitted before the writable load so the
+    // two occupy disjoint pages (the encoder page-aligned the boundary).
+    if rodata_size > 0 {
+        program_header(
+            &mut bytes,
+            1,
+            4,
+            data_offset as u64,
+            data_vmaddr,
+            data_vmaddr,
+            rodata_size as u64,
+            rodata_size as u64,
+            PAGE_SIZE as u64,
+        );
+    }
+    // Writable data: the mutable suffix of `data` (arena global + runtime globals)
+    // plus the dynamic payload (GOT/.rela/.dynamic), which must stay R+W.
+    let rw_offset = data_offset + rodata_size;
+    let rw_vmaddr = data_vmaddr + rodata_size as u64;
+    let rw_size = data_file_size - rodata_size;
     program_header(
         &mut bytes,
         1,
         6,
-        data_offset as u64,
-        data_vmaddr,
-        data_vmaddr,
-        data_file_size as u64,
-        data_file_size as u64,
+        rw_offset as u64,
+        rw_vmaddr,
+        rw_vmaddr,
+        rw_size as u64,
+        rw_size as u64,
         PAGE_SIZE as u64,
     );
     program_header(
