@@ -1065,6 +1065,20 @@ impl Store {
         Ok(exists.is_some())
     }
 
+    /// Total `package_versions` rows across every package this owner owns — the
+    /// quantity bounded by the per-owner publish quota (bug-188 / REPO-13).
+    pub fn owner_version_count(&self, owner_id: i64) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM package_versions v
+             JOIN packages p ON v.package_id = p.id
+             WHERE p.owner_id = ?1",
+            params![owner_id],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("failed to count owner versions: {err}"))
+    }
+
     pub fn publish_package_version(
         &self,
         owner_id: i64,
@@ -2790,5 +2804,32 @@ mod tests {
         // publish_log_entry finds the publish; a missing one is None.
         assert!(store.publish_log_entry("alice#toolbox", "1.0.0").unwrap().is_some());
         assert!(store.publish_log_entry("alice#toolbox", "9.9.9").unwrap().is_none());
+    }
+
+    #[test]
+    fn owner_version_count_totals_all_versions_across_packages() {
+        // bug-188 / REPO-13: the per-owner publish quota counts every
+        // package_versions row an owner owns, across all their packages.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        let alice = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let bob = store.owner_with_ident_key("bob").unwrap().unwrap().0.id;
+        assert_eq!(store.owner_version_count(alice).unwrap(), 0);
+        store
+            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}")
+            .unwrap();
+        store
+            .publish_package_version(alice, "alice#toolbox", "1.1.0", "h2", "p2", "{}")
+            .unwrap();
+        store
+            .publish_package_version(alice, "alice#widgets", "0.1.0", "h3", "p3", "{}")
+            .unwrap();
+        store
+            .publish_package_version(bob, "bob#thing", "1.0.0", "h4", "p4", "{}")
+            .unwrap();
+        // Three versions across two of alice's packages; bob's row is not counted.
+        assert_eq!(store.owner_version_count(alice).unwrap(), 3);
+        assert_eq!(store.owner_version_count(bob).unwrap(), 1);
     }
 }

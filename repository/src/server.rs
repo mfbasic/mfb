@@ -1,7 +1,7 @@
 use crate::blobstore::{BlobFetch, BlobStore};
 use crate::store::{now_unix, NewSession, Store};
 use crate::{crypto, package};
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -591,6 +591,25 @@ pub struct SessionClaims {
 /// by `/validate` and `/publish` so a single upload cannot exhaust memory.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// Per-client (peer-IP) rate caps on the anonymous auth endpoints, replacing the
+/// old global-string buckets that let one client lock the whole user base out of
+/// registration/login (audit-2 REPO-12 / bug-188). A generous global ceiling is
+/// kept as a secondary backstop so extreme aggregate abuse is still bounded, but
+/// it is high enough never to trip on one abuser's traffic.
+const REGISTER_PER_IP_MAX: usize = 20;
+const LOGIN_PER_IP_MAX: usize = 30;
+const AUTH_GLOBAL_CEILING: usize = 2000;
+/// Per-owner sliding-window caps on the authenticated package endpoints, whose
+/// only prior protection was the shared 64 MiB body cap — a registered (near
+/// anonymous) client could hammer `/validate` (5 Ed25519 verifies/call) for CPU
+/// or `/publish` for permanent disk (audit-2 REPO-13 / bug-188).
+const VALIDATE_PER_OWNER_MAX: usize = 60;
+const PUBLISH_PER_OWNER_MAX: usize = 30;
+/// Per-owner published-version quota: the total number of `package_versions`
+/// rows an owner may accumulate. Bounds permanent blob/DB growth from an
+/// authenticated flood without constraining any realistic publisher.
+const MAX_VERSIONS_PER_OWNER: i64 = 10_000;
+
 // coverage:off — serve() binds a real TCP listener, spawns the background
 // reaper task, and runs the axum accept loop; none of that is reachable under a
 // unit test. The individual route handlers it wires up are tested directly by
@@ -653,9 +672,15 @@ pub async fn serve(store: Store, blob_store: BlobStore, listen: SocketAddr) -> R
         .local_addr()
         .map_err(|err| format!("failed to read listening address: {err}"))?;
     println!("MFB_REPO_LISTEN={actual}");
-    axum::serve(listener, app)
-        .await
-        .map_err(|err| format!("repository server failed: {err}"))?;
+    // `into_make_service_with_connect_info` exposes each connection's peer
+    // `SocketAddr` to handlers via `ConnectInfo`, so register/login can throttle
+    // per client IP instead of one shared global bucket (bug-188 / REPO-12).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .map_err(|err| format!("repository server failed: {err}"))?;
     Ok(actual)
 }
 // coverage:on
@@ -676,9 +701,17 @@ async fn server_ident(
 
 async fn register(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(request): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if !state.rate_limiter.allow("register", 60, 60) {
+    // Per-client bucket keyed by peer IP (bug-188 / REPO-12): a single abuser can
+    // no longer lock every user out of registration by spending one shared global
+    // bucket. The global ceiling below is a much higher secondary backstop.
+    if !state
+        .rate_limiter
+        .allow(&format!("register:{}", peer.ip()), REGISTER_PER_IP_MAX, 60)
+        || !state.rate_limiter.allow("register", AUTH_GLOBAL_CEILING, 60)
+    {
         return Err(too_many_requests());
     }
     let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
@@ -1526,9 +1559,17 @@ async fn revoke_machine(
 
 async fn login(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if !state.rate_limiter.allow("login", 60, 60) {
+    // Per-client bucket keyed by peer IP (bug-188 / REPO-12): invalid attempts
+    // count (the check precedes signature decode), but they now only exhaust the
+    // attacker's own bucket, not a global one shared with every legitimate user.
+    if !state
+        .rate_limiter
+        .allow(&format!("login:{}", peer.ip()), LOGIN_PER_IP_MAX, 60)
+        || !state.rate_limiter.allow("login", AUTH_GLOBAL_CEILING, 60)
+    {
         return Err(too_many_requests());
     }
     let signature = crypto::decode_bytes(&request.signature, "signature").map_err(bad_request)?;
@@ -1713,7 +1754,8 @@ async fn validate_package(
     State(state): State<AppState>,
     Json(request): Json<PackageArtifactRequest>,
 ) -> Result<Json<ValidatePackageResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let report = validate_package_request(&state, &request).await?;
+    let report =
+        validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await?;
     Ok(Json(report))
 }
 
@@ -1721,12 +1763,39 @@ async fn publish_package(
     State(state): State<AppState>,
     Json(request): Json<PackageArtifactRequest>,
 ) -> Result<Json<PublishPackageResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let report = validate_package_request(&state, &request).await?;
+    let report =
+        validate_package_request(&state, &request, "publish", PUBLISH_PER_OWNER_MAX).await?;
     if !report.valid {
         return Err(bad_request(format!(
             "package validation failed: {}",
             report.diagnostics.join("; ")
         )));
+    }
+    // Per-owner version quota (bug-188 / REPO-13): bound the permanent blob/DB
+    // growth an authenticated flood can inflict. Checked before staging the blob
+    // so a rejected publish leaves nothing behind. A re-publish of an existing
+    // (ident, version) row updates in place and is not newly counted below.
+    let quota_owner_id = verify_session_token(&state.store, &request.session_token)
+        .map_err(bad_request)?
+        .owner_id;
+    let version_count = state
+        .store
+        .owner_version_count(quota_owner_id)
+        .map_err(internal)?;
+    if version_count >= MAX_VERSIONS_PER_OWNER
+        && !state
+            .store
+            .package_version_exists(&request.ident, &request.version)
+            .map_err(internal)?
+    {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ErrorResponse {
+                error: format!(
+                    "per-owner version quota of {MAX_VERSIONS_PER_OWNER} reached"
+                ),
+            }),
+        ));
     }
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let hash = report.content_hash;
@@ -1804,8 +1873,21 @@ async fn publish_package(
 async fn validate_package_request(
     state: &AppState,
     request: &PackageArtifactRequest,
+    route: &str,
+    per_owner_max: usize,
 ) -> Result<ValidatePackageResponse, (StatusCode, Json<ErrorResponse>)> {
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
+    // Per-owner sliding-window throttle on the expensive authenticated routes
+    // (bug-188 / REPO-13). Registration is open, so "authenticated" is near
+    // anonymous; without this a single owner could hammer /validate's Ed25519
+    // verifies or /publish's permanent blob writes. Keyed per route so a publish
+    // flood does not exhaust the validate budget and vice-versa.
+    if !state
+        .rate_limiter
+        .allow(&format!("{route}:{}", claims.sub), per_owner_max, 60)
+    {
+        return Err(too_many_requests());
+    }
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let package = match package::parse_mfp_package(&artifact) {
         Ok(package) => package,
@@ -2347,7 +2429,7 @@ mod tests {
             signing_fingerprint: parsed.signing_fingerprint().unwrap(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &valid_request).await.unwrap();
+        let report = validate_package_request(&state, &valid_request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(
             report.valid,
             "fully chained package must validate: {:?}",
@@ -2383,7 +2465,7 @@ mod tests {
             },
             &token,
         );
-        let report = validate_package_request(&state, &forged).await.unwrap();
+        let report = validate_package_request(&state, &forged, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2416,7 +2498,7 @@ mod tests {
             },
             &token,
         );
-        let report = validate_package_request(&state, &forged).await.unwrap();
+        let report = validate_package_request(&state, &forged, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2441,7 +2523,7 @@ mod tests {
             },
             &token,
         );
-        let report = validate_package_request(&state, &reused).await.unwrap();
+        let report = validate_package_request(&state, &reused, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2464,7 +2546,7 @@ mod tests {
             signing_fingerprint: valid_request.signing_fingerprint.clone(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &request).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2679,6 +2761,57 @@ mod tests {
 
     fn register_dummy() -> Vec<u8> {
         crypto::generate_keypair().0
+    }
+
+    #[tokio::test]
+    async fn register_rate_limit_is_per_client_ip() {
+        // REPO-12 / bug-188: register/login buckets are keyed by peer IP, so one
+        // abusive client can no longer lock every user out of registration.
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let state = AppState {
+            store: opened.store,
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
+            rate_limiter: RateLimiter::new(),
+        };
+        // Malformed body: the rate gate runs *before* validation, so each attempt
+        // still counts, then fails with 400 until the bucket is exhausted.
+        let dummy = || RegisterRequest {
+            owner: "alice".to_string(),
+            auth_key: String::new(),
+            ident_key: String::new(),
+            proofs: RegisterProofs {
+                auth: String::new(),
+                ident: String::new(),
+            },
+        };
+        let ip_a: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        let ip_b: SocketAddr = "127.0.0.2:6000".parse().unwrap();
+        let mut last = StatusCode::OK;
+        for _ in 0..(REGISTER_PER_IP_MAX + 1) {
+            last = register(State(state.clone()), ConnectInfo(ip_a), Json(dummy()))
+                .await
+                .map(|_| StatusCode::OK)
+                .unwrap_or_else(|(status, _)| status);
+        }
+        assert_eq!(
+            last,
+            StatusCode::TOO_MANY_REQUESTS,
+            "IP A must be throttled once past its per-client cap",
+        );
+        // A different client IP still gets in (its own empty bucket): no global
+        // lockout. It fails with 400 on the malformed body, never 429.
+        let other = register(State(state.clone()), ConnectInfo(ip_b), Json(dummy()))
+            .await
+            .map(|_| StatusCode::OK)
+            .unwrap_or_else(|(status, _)| status);
+        assert_ne!(
+            other,
+            StatusCode::TOO_MANY_REQUESTS,
+            "a different client IP must not be locked out by IP A's abuse",
+        );
     }
 
     #[tokio::test]
@@ -3064,7 +3197,7 @@ mod tests {
             signing_fingerprint: parsed.signing_fingerprint().unwrap(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &request).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(report.valid, "{:?}", report.diagnostics);
 
         // Rotate the ident through the handler.
@@ -3096,7 +3229,7 @@ mod tests {
 
         // §3.4 step 5 is now reachable: the same pre-rotation package (its
         // attestation names the PAST ident) is refused as stale.
-        let report = validate_package_request(&state, &request).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(!report.valid);
         assert!(
             report.diagnostics.iter().any(|diagnostic| diagnostic
@@ -3146,7 +3279,7 @@ mod tests {
             signing_fingerprint: reparsed.signing_fingerprint().unwrap(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &request).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
         assert!(report.valid, "{:?}", report.diagnostics);
 
         // The chain endpoint serves the verifiable link, and a client can

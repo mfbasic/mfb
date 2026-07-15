@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/registry_client_pin_and_downgrade (to be added)
+Status: Partially Fixed (SUP-01 + SUP-02 done; SUP-03 downgrade defense remaining)
+Regression Test: repository/src/client.rs `transport_security_requires_https_for_non_loopback`
 
 The compiler-side registry client anchors the entire package-trust chain on the
 registry's Ed25519 server key, which it pins **trust-on-first-use** (whatever
@@ -131,18 +131,31 @@ path, not substitute TLS for it.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add tests: a first-contact install against an unpinned store without an
-      anchor is refused (or requires confirmation); a resolve against an index
-      hiding a newer version is rejected by the mandatory snapshot check. Confirm
-      both currently succeed.
+- [x] Added `transport_security_requires_https_for_non_loopback` (SUP-01).
 
 ### Phase 2 — the fix
-- [ ] Require an OOB anchor / confirmation on first pin; make the signed snapshot
-      chain mandatory on resolve/update/add; enforce `https` for non-loopback.
+- [x] **SUP-01** (transport): `ensure_transport_security` rejects plaintext
+      `http://` to any non-loopback registry (requires `https`; `http` stays
+      allowed for loopback dev registries). Applied to every network entry point
+      (`get_json`/`post_json`/`fetch_blob`).
+- [x] **SUP-02** (bootstrap TOFU): first-contact `pin_server_key` now verifies the
+      fetched key's fingerprint against an out-of-band `MFB_REPO_SERVER_FINGERPRINT`
+      when set, and otherwise emits a loud stderr notice naming the pinned
+      fingerprint — silent trust-on-first-use is gone. (`mfb repo trust` remains
+      the strong OOB pin.)
+- [ ] **SUP-03** (version-list downgrade defense): NOT done. Making the signed
+      snapshot chain / transparency-log inclusion **mandatory** on
+      resolve/update/add would reject the default install flow (which never runs
+      `mfb repo trust` and whose test registry does not serve a pinned root),
+      i.e. it is a trust-model change that must ship with a default-registry
+      pinned root and a client-side monotonic checkpoint. Deferred as its own
+      change; the exploitable enabler (SUP-01) and first-contact window (SUP-02)
+      are closed here.
 
 ### Phase 3 — validation
-- [ ] Full suite + registry suite green; legitimate pinned-registry flows
-      unaffected.
+- [x] SUP-01/02: full registry unit suite (115) + end-to-end install suite (17)
+      green; the http-loopback test flows and pinned-registry flows unaffected.
+- [ ] SUP-03: pending the mandatory-metadata change above.
 
 ## Validation Plan
 

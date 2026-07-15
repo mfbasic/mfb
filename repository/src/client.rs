@@ -20,6 +20,44 @@ pub fn repo_url_from_env() -> String {
     std::env::var("MFB_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string())
 }
 
+/// Reject plaintext `http://` to a non-loopback registry (audit-2 SUP-01 /
+/// bug-189). Package signatures remain the authenticity anchor, but cleartext
+/// transport leaks which packages a build pulls and — critically — lets an
+/// on-path attacker MITM the first-contact server-key pin (SUP-02). `http` stays
+/// allowed for loopback so a local dev registry needs no TLS; `https` is required
+/// for anything else. Called by every network entry point.
+fn ensure_transport_security(repo_url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(repo_url)
+        .map_err(|err| format!("invalid registry URL '{repo_url}': {err}"))?;
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let host = parsed.host_str().unwrap_or("");
+            // `host_str` returns an IPv6 literal in brackets (`[::1]`); strip them
+            // so it parses as an `IpAddr`.
+            let bare = host.trim_start_matches('[').trim_end_matches(']');
+            let is_loopback = host == "localhost"
+                || bare
+                    .parse::<std::net::IpAddr>()
+                    .map(|ip| ip.is_loopback())
+                    .unwrap_or(false);
+            if is_loopback {
+                Ok(())
+            } else {
+                Err(format!(
+                    "refusing plaintext http:// to non-loopback registry '{host}': use \
+                     https:// (set MFB_REPO_URL). Signatures still gate package \
+                     authenticity, but http exposes your dependency set and lets an \
+                     on-path attacker tamper with the trust bootstrap."
+                ))
+            }
+        }
+        other => Err(format!(
+            "unsupported registry URL scheme '{other}://' in '{repo_url}'"
+        )),
+    }
+}
+
 /// Fetch the registry public key from `GET /ident` and pin it as
 /// `server.pub` on first contact; a later mismatch is refused (plan-23 index
 /// §10.3). Every online flow calls this before touching other routes.
@@ -918,6 +956,7 @@ pub fn fetch_index(
 /// `GET /blob/<hash>` (plan-10-A): download a content-addressed `.mfp` blob and
 /// verify its bytes hash to the requested hash before returning them.
 pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
+    ensure_transport_security(repo_url)?;
     let url = format!("{}/blob/{}", repo_url.trim_end_matches('/'), hash);
     let response = Client::new()
         .get(&url)
@@ -1001,6 +1040,7 @@ fn post_json<T: DeserializeOwned>(
     path: &str,
     body: &impl serde::Serialize,
 ) -> Result<T, String> {
+    ensure_transport_security(repo_url)?;
     let url = format!("{}{}", repo_url.trim_end_matches('/'), path);
     let response = Client::new()
         .post(&url)
@@ -1011,6 +1051,7 @@ fn post_json<T: DeserializeOwned>(
 }
 
 fn get_json<T: DeserializeOwned>(repo_url: &str, path: &str) -> Result<T, String> {
+    ensure_transport_security(repo_url)?;
     let url = format!("{}{}", repo_url.trim_end_matches('/'), path);
     let response = Client::new()
         .get(&url)
@@ -1627,5 +1668,20 @@ mod tests {
         assert!(trust_registry(DEAD_URL, &paths, "reg-1", "deadbeef")
             .unwrap_err()
             .contains("failed to connect"));
+    }
+
+    #[test]
+    fn transport_security_requires_https_for_non_loopback() {
+        // SUP-01 / bug-189: http is allowed only for loopback; anything else must
+        // use https.
+        assert!(ensure_transport_security("http://127.0.0.1:7777").is_ok());
+        assert!(ensure_transport_security("http://localhost:7777").is_ok());
+        assert!(ensure_transport_security("http://[::1]:7777").is_ok());
+        assert!(ensure_transport_security("https://packages.example.com").is_ok());
+        // Plaintext to a non-loopback host is rejected, naming https.
+        let err = ensure_transport_security("http://packages.example.com").unwrap_err();
+        assert!(err.contains("https"), "error should steer to https: {err}");
+        // An unsupported scheme is rejected too.
+        assert!(ensure_transport_security("ftp://packages.example.com").is_err());
     }
 }

@@ -249,6 +249,30 @@ pub fn pin_server_key(paths: &LocalPaths, server_key: &[u8]) -> Result<(), Strin
         }
         return Ok(());
     }
+    // First contact (audit-2 SUP-02 / bug-189): nothing has vouched for this key
+    // yet, and it is the root of the plan-23 §3.5 signature chain. If the operator
+    // supplied an out-of-band fingerprint via MFB_REPO_SERVER_FINGERPRINT, require
+    // it to match before trusting — turning silent trust-on-first-use into
+    // verified pinning. Otherwise pin TOFU but make it *visible* (never silent) so
+    // the printed fingerprint can be checked out-of-band or with `mfb repo trust`.
+    let fingerprint = crypto::fingerprint(server_key);
+    match std::env::var("MFB_REPO_SERVER_FINGERPRINT") {
+        Ok(expected) if !expected.trim().is_empty() => {
+            if !expected.trim().eq_ignore_ascii_case(&fingerprint) {
+                return Err(format!(
+                    "registry server key fingerprint {fingerprint} does not match the expected \
+                     MFB_REPO_SERVER_FINGERPRINT {}; refusing to pin",
+                    expected.trim()
+                ));
+            }
+        }
+        _ => {
+            eprintln!(
+                "warning: trusting registry server key on first use (fingerprint {fingerprint}); \
+                 verify it out-of-band, or pin it via MFB_REPO_SERVER_FINGERPRINT or `mfb repo trust`."
+            );
+        }
+    }
     create_private_dir(&paths.home)?;
     write_private_file(&path, &crypto::encode_bytes(server_key))
 }

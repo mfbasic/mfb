@@ -5,8 +5,9 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: repository/tests/rate_limit_publish (to be added)
+Status: Fixed
+Regression Test: repository/src/server.rs `register_rate_limit_is_per_client_ip`;
+repository/src/store.rs `owner_version_count_totals_all_versions_across_packages`
 
 Registration on the `mfb-repo` registry is open, so "authenticated" is a
 near-anonymous bar (register once, obtain a session). The two most expensive
@@ -98,16 +99,28 @@ defenseless when exposed directly.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add a test that a burst of `/validate` (and `/publish`) past the cap
-      returns 429 / quota errors; confirm it currently succeeds unbounded.
+- [x] Added `register_rate_limit_is_per_client_ip` (proves the per-IP bucket and
+      no cross-client lockout) and `owner_version_count_totals_all_versions_across_packages`
+      (proves the quota data source).
 
 ### Phase 2 — the fix
-- [ ] Per-owner `allow(...)` gates on both routes; per-owner storage/version
-      quota at publish; smaller `/validate` body cap.
+- [x] REPO-13: per-owner sliding-window `allow("validate:{owner}"|"publish:{owner}", …)`
+      threaded into `validate_package_request` (route-keyed so publish ≠ validate
+      budget); per-owner version quota (`owner_version_count` vs
+      `MAX_VERSIONS_PER_OWNER`, checked before staging, skipping re-publishes).
+- [x] REPO-12: `register`/`login` now key their bucket by peer IP via
+      `ConnectInfo<SocketAddr>` (`serve` uses `into_make_service_with_connect_info`),
+      with a high global ceiling as a secondary backstop — no more one-client
+      lockout of the whole user base.
 
 ### Phase 3 — validation
-- [ ] Registry test suite green; legitimate within-quota publish/validate
-      unaffected.
+- [x] Full registry unit suite (115) + end-to-end install suite (17) green;
+      legitimate within-quota publish/validate unaffected.
+
+Deferred (documented, not a regression): a *smaller* `/validate` body cap was
+intentionally not added — validate and publish share the same `PackageArtifactRequest`,
+so a tighter validate cap would reject large-but-valid packages that publish would
+accept. The per-owner rate limit + quota are the substantive REPO-13 mitigation.
 
 ## Validation Plan
 
