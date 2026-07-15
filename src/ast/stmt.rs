@@ -1,5 +1,13 @@
 use super::*;
 
+/// Maximum statement-block-nesting depth. Each nested block turns into a
+/// `parse_statement_block → parse_statement → parse_*_statement` native-frame
+/// chain (and an equally deep AST re-walked by every later pass), so unbounded
+/// nesting would overflow the stack with a SIGABRT before any diagnostic
+/// (audit-2 FE-03 / bug-183). Matches `MAX_EXPR_DEPTH` and `ir::verify`'s
+/// `MAX_DEPTH`; no real source nests control flow this deep.
+const MAX_STMT_DEPTH: usize = 256;
+
 impl<'a> FileParser<'a> {
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
         if self.check_keyword(Keyword::If) {
@@ -711,6 +719,16 @@ impl<'a> FileParser<'a> {
         &mut self,
         terminators: &[BlockTerminator],
     ) -> Vec<Statement> {
+        // Every nested control-flow body (IF/FOR/WHILE/DO/MATCH) re-enters here
+        // through `parse_statement`, so bounding this single funnel bounds the whole
+        // native-frame chain — and the equally-recursive AST re-walks in resolver /
+        // syntaxcheck / monomorph / ir::lower that run before `ir::verify`'s own
+        // `MAX_DEPTH` backstop (audit-2 FE-03 / bug-183). Past the cap we stop
+        // recursing and let the block unwind with a reported error rather than
+        // overflowing the stack with no diagnostic.
+        if !self.enter_stmt() {
+            return Vec::new();
+        }
         let mut body = Vec::new();
         while !self.is_at_end() && !self.check_block_terminator(terminators) {
             if let Some(statement) = self.parse_statement() {
@@ -720,7 +738,37 @@ impl<'a> FileParser<'a> {
             }
             self.skip_separators();
         }
+        self.leave_stmt();
         body
+    }
+
+    /// Enter one statement-block-nesting level, reporting and returning `false` when
+    /// the maximum depth is exceeded. On the `false` path the counter is already
+    /// rewound (the caller must simply bail); otherwise the caller must pair a
+    /// successful `enter_stmt` with exactly one `leave_stmt`.
+    fn enter_stmt(&mut self) -> bool {
+        self.stmt_depth += 1;
+        if self.stmt_depth > MAX_STMT_DEPTH {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_BLOCK_TOO_DEEP",
+                "Statement block nesting is too deep.",
+                &token,
+            );
+            // Latch after the one diagnostic prints, then collapse the cursor to
+            // `Eof`: the ~256 enclosing blocks unwind without recursing further or
+            // emitting the trailing "missing END" cascade (bug-183).
+            self.depth_exceeded = true;
+            self.seek_to_end();
+            self.stmt_depth -= 1;
+            false
+        } else {
+            true
+        }
+    }
+
+    fn leave_stmt(&mut self) {
+        self.stmt_depth -= 1;
     }
 
     pub(super) fn check_block_terminator(&self, terminators: &[BlockTerminator]) -> bool {

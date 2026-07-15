@@ -24,6 +24,17 @@ pub(super) struct FileParser<'a> {
     /// rejected with a diagnostic instead of overflowing the native stack
     /// (bug-171 finding A).
     pub(super) expr_depth: usize,
+    /// Current statement-block-nesting depth, bumped at each recursive re-entry of
+    /// `parse_statement_block` (every IF/FOR/WHILE/DO/MATCH body) so pathologically
+    /// nested control flow is rejected with a diagnostic instead of overflowing the
+    /// native stack here or in any downstream pass that re-walks the AST (audit-2
+    /// FE-03 / bug-183). `expr_depth` guards only the expression grammar.
+    pub(super) stmt_depth: usize,
+    /// Latched once statement nesting hits the cap (bug-183). It fast-forwards the
+    /// cursor to `Eof` and suppresses every subsequent diagnostic, so the deeply
+    /// nested block unwinds through its ~256 enclosing `consume_end_block` calls
+    /// emitting exactly one `MFB_PARSE_BLOCK_TOO_DEEP` instead of a cascade.
+    pub(super) depth_exceeded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -55,6 +66,8 @@ impl<'a> FileParser<'a> {
             current: 0,
             had_error: false,
             expr_depth: 0,
+            stmt_depth: 0,
+            depth_exceeded: false,
         }
     }
 
@@ -302,11 +315,27 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn report(&mut self, rule: &str, detail: &str, token: &Token) {
         self.had_error = true;
+        // After the statement-depth cap latches, the deeply nested block unwinds
+        // through ~256 `consume_end_block` calls that each see `Eof`; swallow their
+        // diagnostics so only the single `MFB_PARSE_BLOCK_TOO_DEEP` is shown.
+        if self.depth_exceeded {
+            return;
+        }
         rules::show_diagnostic(rule, detail, self.path, token.line, token.start, token.end);
     }
 
     pub(super) fn report_at(&mut self, rule: &str, detail: &str, line: usize) {
         self.had_error = true;
+        if self.depth_exceeded {
+            return;
+        }
         rules::show_diagnostic(rule, detail, self.path, line, 1, 1);
+    }
+
+    /// Jump the cursor to the terminating `Eof` token so every enclosing parse loop
+    /// unwinds immediately without consuming more input (used by the statement-depth
+    /// guard, bug-183).
+    pub(super) fn seek_to_end(&mut self) {
+        self.current = self.tokens.len().saturating_sub(1);
     }
 }

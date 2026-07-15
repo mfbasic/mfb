@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/rt-error/parser_statement_block_depth
+ 257 |   IF 1 = 1 THEN
+ 258 |   IF 1 = 1 THEN
+ 259 |   IF 1 = 1 THEN
+     |   ^^
+tests/rt-error/parser_statement_block_depth/src/main.mfb:259 error[1-102-0010 MFB_PARSE_BLOCK_TOO_DEEP]: statement block nesting is too deep
+               Statement block nesting is too deep.
+[exit 1]

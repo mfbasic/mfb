@@ -176,6 +176,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a native LINK function must declare its ABI signature",
     },
     Rule {
+        code: "1-102-0010",
+        name: "MFB_PARSE_BLOCK_TOO_DEEP",
+        severity: Severity::Error,
+        message: "statement block nesting is too deep",
+    },
+    Rule {
         code: "2-201-0001",
         name: "IMPORT_PACKAGE_INVALID",
         severity: Severity::Error,

@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-error/stmt_block_nesting_depth (to be added)
+Status: Fixed
+Regression Test: tests/rt-error/parser_statement_block_depth
 
 A `.mfb` source file with deeply nested block statements (`IF … THEN`, `WHILE`,
 `FOR`, `DO`, `MATCH/CASE`) drives the parser and every downstream recursive pass
@@ -100,14 +100,19 @@ pass because it stops the deep AST at the source.
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add the N=2000 reproduction as a rt-error test asserting a graceful
-      diagnostic; confirm it currently crashes.
+- [x] Added `tests/rt-error/parser_statement_block_depth` (300 nested `IF`s);
+      confirmed it crashed (`fatal runtime error: stack overflow`) before the fix.
 
 ### Phase 2 — the fix
-- [ ] Add the statement-depth counter + cap to the parser's block routines.
+- [x] Added `stmt_depth`/`MAX_STMT_DEPTH = 256` guard on `parse_statement_block`
+      (`src/ast/stmt.rs`), the single funnel every nested block re-enters through,
+      plus a `depth_exceeded` latch that fast-forwards to `Eof` and suppresses the
+      unwinding cascade so exactly one `MFB_PARSE_BLOCK_TOO_DEEP` (`1-102-0010`) is
+      reported. New rule in `src/rules/table.rs`.
 
 ### Phase 3 — validation
-- [ ] Full acceptance suite green; deeply-but-legally nested programs unaffected.
+- [x] Repro emits the graceful diagnostic and exits 1 (no crash); deeply-but-legally
+      nested programs unaffected (cap = 256, matching `MAX_EXPR_DEPTH`).
 
 ## Validation Plan
 
