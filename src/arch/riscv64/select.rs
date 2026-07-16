@@ -532,8 +532,10 @@ fn map_fp_register(n: usize) -> String {
         8..=15 => format!("fs{}", n - 8),
         // The math/SIMD kernels use FP virtual registers, so a physical d16+ is
         // unexpected in the selected stream. Map to the caller-saved ft bank
-        // (skipping the reserved ft0/ft1) if one ever appears.
-        16..=25 => format!("ft{}", n - 16 + 2),
+        // (skipping ft0/ft1/ft2, which the regmodel reserves for float-compare
+        // staging and scalarized-v128 FMA lanes) if one ever appears — d16..d24 →
+        // ft3..ft11 (bug-218).
+        16..=24 => format!("ft{}", n - 16 + 3),
         other => panic!("rv64: unexpected physical FP register d{other}"),
     }
 }
