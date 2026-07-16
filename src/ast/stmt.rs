@@ -746,7 +746,7 @@ impl<'a> FileParser<'a> {
     /// the maximum depth is exceeded. On the `false` path the counter is already
     /// rewound (the caller must simply bail); otherwise the caller must pair a
     /// successful `enter_stmt` with exactly one `leave_stmt`.
-    fn enter_stmt(&mut self) -> bool {
+    pub(super) fn enter_stmt(&mut self) -> bool {
         self.stmt_depth += 1;
         if self.stmt_depth > MAX_STMT_DEPTH {
             let token = self.peek().clone();
@@ -767,7 +767,7 @@ impl<'a> FileParser<'a> {
         }
     }
 
-    fn leave_stmt(&mut self) {
+    pub(super) fn leave_stmt(&mut self) {
         self.stmt_depth -= 1;
     }
 

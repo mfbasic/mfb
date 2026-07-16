@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/rt-error/parser_tgroup_depth
+ 259 |   TGROUP "g"
+ 260 |   TGROUP "g"
+ 261 |   TGROUP "g"
+     |   ^^^^^^
+tests/rt-error/parser_tgroup_depth/src/main.mfb:261 error[1-102-0010 MFB_PARSE_BLOCK_TOO_DEEP]: statement block nesting is too deep
+               Statement block nesting is too deep.
+[exit 1]

@@ -34,6 +34,19 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_test_group(&mut self) -> Option<TestGroup> {
+        // Nested TGROUPs recurse here, so bound the depth with the same
+        // statement-block-nesting guard control flow uses (bug-193): past the cap
+        // one bounded diagnostic prints and the cursor collapses to `Eof` instead
+        // of overflowing the native stack with no diagnostic.
+        if !self.enter_stmt() {
+            return None;
+        }
+        let result = self.parse_test_group_inner();
+        self.leave_stmt();
+        result
+    }
+
+    fn parse_test_group_inner(&mut self) -> Option<TestGroup> {
         let line = self.peek().line;
         self.match_identifier_ci("TGROUP");
         let description =

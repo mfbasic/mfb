@@ -5,8 +5,13 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: memory-safety (compile-time DoS)
 
-Status: Open
-Regression Test: tests/syntax/ (deeply nested TGROUP → bounded diagnostic, not abort)
+Status: Fixed (2026-07-15) — `parse_test_group` is now a guarded wrapper around
+`parse_test_group_inner` that enters the shared statement-block depth guard
+(`enter_stmt`/`leave_stmt`, made `pub(super)`), so nested TGROUPs are bounded by the
+same `MAX_STMT_DEPTH` cap as control flow: past the cap one bounded diagnostic
+prints and the cursor collapses to `Eof` instead of overflowing the stack.
+Regression Test: `tests/rt-error/parser_tgroup_depth` (300-deep TGROUP → single
+`MFB_PARSE_BLOCK_TOO_DEEP`, exit 1).
 
 `parse_test_group` self-recurses once per nested `TGROUP` with no depth bound, so
 a deeply nested `TESTING` block overflows the native stack (same crash signature
