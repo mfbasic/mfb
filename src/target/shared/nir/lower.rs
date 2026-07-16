@@ -27,6 +27,7 @@ pub(crate) fn lower_module(
         runtime_helpers,
         functions: lower_functions(ir),
         link_functions: ir.link_functions.clone(),
+        native_libraries: ir.native_libraries.clone(),
     })
 }
 

@@ -5,8 +5,7 @@ Wrote IR to tests/rt-behavior/resources/native-resource-import-valid/native_reso
 [exit 0]
 $ mfb build tests/rt-behavior/resources/native-resource-import-valid
 uses native_resource_link_valid - [Unsigned]
-Wrote executable to tests/rt-behavior/resources/native-resource-import-valid/native_resource_import_valid/native_resource_import_valid.out
-[exit 0]
-$ tests/rt-behavior/resources/native-resource-import-valid/native_resource_import_valid/native_resource_import_valid.out
-importer ok
-[exit 0]
+error[2-203-0118 NATIVE_LIBRARY_NO_MATCH]: no native library locator matches the target being built
+               the binding declaring `LINK "sqlite3"` carries no native library locators, so there is no way to know which shared object to load. Rebuild that binding with a `libraries` section in its project.json.
+error: cannot resolve native library `sqlite3` for macos/aarch64
+[exit 1]

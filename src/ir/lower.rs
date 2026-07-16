@@ -280,6 +280,9 @@ pub fn lower_project_with_external_functions(
         link_functions: link_functions(ast),
         link_aliases: link_aliases(ast),
         docs: collect_project_docs(ast),
+        // Assembled from the manifest by the build path (plan-46-B §4.3), which
+        // is where project.json is read; the AST carries no manifest data.
+        native_libraries: crate::binary_repr::NativeLibraryTable::default(),
     }
 }
 

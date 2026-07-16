@@ -165,6 +165,7 @@ END LINK
 Rules:
 
 - `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded. The backend emits a load-time initializer `_mfb_linker_init` that `dlopen`s each distinct library with `RTLD_NOW` and `dlsym`s every declared symbol (and every `FREE` deallocator) into a per-function global pointer slot. [[src/target/shared/code/link_thunk.rs:_mfb_linker_init]]
+- **The filename `dlopen` is given is the one the binding author declared** for the build's exact `(os, arch, libc)`, resolved from that binding's `libraries` section (`./mfb spec tooling project-manifest`). The compiler does not synthesize a soname: the old `lib<logical>.so.0`/`lib<logical>.dylib` guess is gone, because it missed every unversioned `.so`, `.so.3`, non-`lib`-prefixed, and per-arch/libc variant. See *Locator resolution* below. [[src/target/shared/code/link_locator.rs:resolve]]
 - If a required native library or symbol cannot be loaded before `main`, the initializer returns an error `Result` carrying `ErrNativeBindingUnavailable` (`77030007`, `ERR_NATIVE_LINK_LOAD_CODE`). The program entry handles this exactly like a failed global initializer and aborts before running `main`. (Note: this differs from the build-time linker diagnostic `5-500-0001`/`LINK_FAILED`, not the runtime load-failure code.)
 - Linked names occupy a package-like namespace. A package-qualified name such as `sqlite::open` follows the same two-part rule as package access.
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
@@ -176,7 +177,7 @@ Rules:
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
 - `OUT` native pointer values are temporary call-frame values (there is no `REF` modifier). Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
 - Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings use codes `1-102-0008`…`0009` and `2-203-0089`…`0098` (see `./mfb man errors`).
-- Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable binary representation.
+- Native libraries are platform-specific dependencies. A binding package declares which concrete shared object to load per platform in its project.json `libraries` section; the compiler encodes those locators into the `.mfp` (`./mfb spec package native-bindings`), together with a sha256 for any library the author vendors. The native library itself is never portable binary representation and is not carried inside the `.mfp` — only its name, or its hash.
 - Two **built-in** packages also load platform libraries at run time, through the same `dlopen`/`dlsym` mechanism but internal to their runtime helpers rather than via a `LINK` block: `tls` (Network.framework/Security.framework on macOS, `libssl`/`libcrypto` on Linux) and `crypto` (Security.framework SecKey on macOS, `libcrypto.so.3` falling back to `libcrypto.so.1.1` on Linux, for the NIST-EC public-key operations only — every other `crypto` primitive is a portable software core). These built-ins resolve their symbols lazily inside each helper call, not in `_mfb_linker_init`, and surface load failures as ordinary package errors (`ErrTlsFailed` / `ErrUnknown`), not `ErrNativeBindingUnavailable`. See `./mfb spec stdlib crypto` for the crypto backend split.
 
 **Example:**
@@ -306,8 +307,113 @@ LINK "sqlite3" AS sqliteLink
 END LINK
 ```
 
+## Locator resolution
+
+`LINK "sqlite3"` names a **logical** library. Which concrete shared object that
+becomes is declared by the binding author's project.json `libraries` section (see
+`./mfb spec tooling project-manifest` for the schema) and carried in the `.mfp` as
+the `NATIVE_LIBRARY_TABLE`. At **executable** build time the compiler resolves,
+for the exact `(os, arch, libc)` being emitted, the **most-specific** matching
+locator.
+
+A locator matches when its `os` equals the target's, and its `arch` and `libc` are
+each either absent (a wildcard meaning *any*) or equal to the target's. Among
+matches, **specificity** is the number of axes pinned — `(arch specified? 1:0) +
+(libc specified? 1:0)` — and the highest wins:
+
+| locator | building `linux/riscv64/musl` | specificity |
+| --- | --- | --- |
+| `{os: linux, type: system, source: libsqlite3.so.0}` | matches (both wildcards) | 0 |
+| `{os: linux, arch: riscv64, libc: musl, source: libsqlite3-riscv64-musl.so}` | matches | 2 |
+
+The vendored build wins here; every other Linux slot falls to the system soname.
+"Vendor on one slot, the system library everywhere else" therefore needs no
+special rule — and because a Linux `vendor` locator must pin both axes, it always
+outranks a wildcarding `system` entry for its exact slot.
+
+- No matching locator → `NATIVE_LIBRARY_NO_MATCH` (**build error**, not a runtime
+  `ErrNativeBindingUnavailable`). A build error beats emitting a soname that
+  cannot load.
+- Two equally-specific matches → `NATIVE_LIBRARY_AMBIGUOUS` (build error). Only
+  reachable via genuinely duplicate entries.
+
+A Linux `mfb build` emits both libc flavors from one invocation, each its own
+codegen pass with its own data image, so a locator that differs per libc lands in
+the correct binary automatically.
+
+### What gets `dlopen`ed
+
+The emitted string is always a bare **filename**, never a path — the loader finds
+it, via the system search path for a `system` locator or the executable's RPATH
+for a `vendor` one:
+
+- a **`system`** locator emits its `source` verbatim: the exact soname;
+- a **`vendor`** locator emits `<declaring-unit>-<source>`, the disambiguated name
+  the build copies the file under. Vendor filenames are unique only *within* one
+  manifest, and the output flattens every vendor file into one directory, so two
+  packages each shipping a `libfoo.so` would otherwise silently load one another's
+  library.
+
+### Vendor verification
+
+A `vendor` locator names a file the **consumer** author places by hand at
+`<consumer project root>/vendor/<source>` — the `.mfp` carries the library's
+sha256, never its bytes, and nothing is fetched automatically. At build time the
+compiler hashes that file and compares it to the recorded digest:
+
+- missing/unreadable → `NATIVE_LIBRARY_FILE_MISSING` (build error, naming the full
+  expected path);
+- digest differs → `NATIVE_LIBRARY_HASH_MISMATCH` (build error — the wrong version
+  of the library).
+
+### How a vendored library is found at run time
+
+The verified file is copied into the build's output directory and the executable
+carries an **RPATH** pointing at it, so `dlopen` of the bare filename resolves —
+from any working directory, and after the whole output directory is moved:
+
+| build | rpath | vendor files |
+| --- | --- | --- |
+| linux console / `--app` | `$ORIGIN/vendor` (`DT_RUNPATH`) | `build/vendor/` |
+| macos console | `@loader_path/vendor` (`LC_RPATH`) | `build/vendor/` |
+| macos `--app` | `@executable_path/../Frameworks` (`LC_RPATH`) | `build/<name>.app/Contents/Frameworks/` |
+
+A build with no `vendor` locators emits **no** RPATH and no vendor directory, and
+its bytes are identical to a build predating the feature. `DT_RUNPATH` (tag 29) is
+used rather than the deprecated `DT_RPATH`, so `LD_LIBRARY_PATH` can still
+override it. RPATH is what keeps `dlopen` a bare-filename call with no runtime
+code: the loader resolves it, and the executable's own `DT_RUNPATH`/`LC_RPATH` is
+consulted for a `dlopen` issued from the executable itself, which is where
+`_mfb_linker_init` lives.
+
+Only *resolved* locators are copied — a project vendoring blobs for six targets
+ships one per build. Both Linux libc flavors share the one `build/vendor/`, which
+is sound because vendor filenames are unique project-wide.
+
+Each copied file is named `<declaring-unit>-<source>` — the package (or project)
+that declared the locator, then the filename — because the output directory is
+flat and the filename *is* the library's identity to `dlopen`. Two packages each
+vendoring a `libfoo.so` would otherwise silently load one another's library.
+
+**Known limitation.** That prefix disambiguates the *output*, not the *input*: a
+consumer supplies each vendored file at `<project root>/vendor/<source>`, keyed by
+the bare filename. If two imported packages vendor libraries that share a
+filename, the consumer cannot supply both, and the build fails closed with
+`NATIVE_LIBRARY_HASH_MISMATCH` naming the package and both digests. It never loads
+the wrong library — but the two packages cannot currently be combined.
+
+The build performs **no signature check** on a vendored dylib, and adds no
+diagnostic for it. Worth knowing rather than discovering: Apple Silicon requires
+loadable code to carry at least an ad-hoc signature, so an unsigned vendored
+`.dylib` may be refused by `dyld` regardless of where it sits. Satisfying that is
+the vendoring author's responsibility; most distributed dylibs already are signed.
+
+Automated acquisition remains out of scope: nothing fetches a vendored library
+from a registry or embeds it in the `.mfp`.
+
 ## See Also
 
+* ./mfb spec tooling project-manifest — the `libraries` locator schema
 * ./mfb spec package native-bindings — how `LINK` metadata is carried in `.mfp`
 * ./mfb spec linker import-selection — native import resolution at link time
 * ./mfb spec language resource-management — the resource model `LINK` handles join

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/arithmetic/arithmetic-float-nan-rt/arithmetic_float_
 Wrote IR to tests/rt-error/arithmetic/arithmetic-float-nan-rt/arithmetic_float_nan_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/arithmetic/arithmetic-float-nan-rt
-Wrote executable to tests/rt-error/arithmetic/arithmetic-float-nan-rt/arithmetic_float_nan_rt/arithmetic_float_nan_rt.out
+Wrote executable to tests/rt-error/arithmetic/arithmetic-float-nan-rt/build/arithmetic_float_nan_rt.out
 [exit 0]
-$ tests/rt-error/arithmetic/arithmetic-float-nan-rt/arithmetic_float_nan_rt/arithmetic_float_nan_rt.out
+$ tests/rt-error/arithmetic/arithmetic-float-nan-rt/build/arithmetic_float_nan_rt.out
 Error: 7-705-0013
 Floating-point operation produced a NaN result.
 [exit 255]

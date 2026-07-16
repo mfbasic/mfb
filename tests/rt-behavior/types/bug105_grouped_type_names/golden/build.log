@@ -3,8 +3,8 @@ Wrote AST to tests/rt-behavior/types/bug105_grouped_type_names/bug105_grouped_ty
 Wrote IR to tests/rt-behavior/types/bug105_grouped_type_names/bug105_grouped_type_names.ir
 [exit 0]
 $ mfb build tests/rt-behavior/types/bug105_grouped_type_names
-Wrote executable to tests/rt-behavior/types/bug105_grouped_type_names/bug105_grouped_type_names/bug105_grouped_type_names.out
+Wrote executable to tests/rt-behavior/types/bug105_grouped_type_names/build/bug105_grouped_type_names.out
 [exit 0]
-$ tests/rt-behavior/types/bug105_grouped_type_names/bug105_grouped_type_names/bug105_grouped_type_names.out
+$ tests/rt-behavior/types/bug105_grouped_type_names/build/bug105_grouped_type_names.out
 7
 [exit 0]

@@ -147,5 +147,9 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
             .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
         initializers: Vec::new(),
         signing_metadata: None,
+        // Both are stamped by the build path after encoding: signing
+        // metadata from `--sign`, and the vendor RPATH(s) from the
+        // resolved native-library locators (plan-46-D §4.2/§4.3).
+        rpaths: Vec::new(),
     })
 }

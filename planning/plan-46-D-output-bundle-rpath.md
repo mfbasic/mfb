@@ -3,6 +3,7 @@
 Last updated: 2026-07-16
 Effort: large (4h–1d)
 Depends on: **Phase 1 depends on nothing** and lands first, ahead of plan-46-A.
+
 Phases 2-3 depend on plan-46-C (which depends on plan-46-B → plan-46-A).
 
 Landing order for the whole feature: **D-Phase-1 → A → B → C → D-Phase-2 →
@@ -10,10 +11,54 @@ D-Phase-3.** Phase 1 is the output-directory change; it is independent of the
 vendor feature entirely, and its ~439-golden churn is kept out of the vendor
 commits by landing it alone and early (Open Decisions).
 
+## STATUS: IMPLEMENTED
+
+All three phases landed. The output directory is **`build/`**, not `<name>/` —
+changed on the user's call during implementation (see Open Decisions).
+
+Runtime-verified on real hardware for all three RPATH forms, each with a negative
+control (remove the vendor directory → load fails; restore → works), which is what
+proves RPATH is the mechanism rather than luck:
+
+- **Linux `$ORIGIN/vendor`** (Ubuntu x86_64/glibc): loads the prefixed vendored
+  `.so`, runs from a foreign CWD, survives moving `build/`.
+- **macOS console `@loader_path/vendor`**: same, exit code carries the vendored
+  library's own result.
+- **macOS `.app` `@executable_path/../Frameworks`**: dylib in the standard
+  `Contents/Frameworks/`, launches headlessly (`MFB_MACAPP_HEADLESS=1`) from a
+  foreign CWD and after being moved. `Contents/MacOS/` holds no vendor files; a
+  non-vendor bundle has no `Contents/Frameworks/` at all.
+
+Two-package regression (§4.5): two packages vendoring **different** filenames both
+build, land as two distinct prefixed files, and each binding loads **its own**
+library — verified by a real run whose exit code encodes both results (73, not 77).
+
+### The §2.2 hazard was real — and it had a fourth site
+
+The plan called out Mach-O's emission / `load_commands_size` / `load_command_count`
+triple. That was handled with one shared `rpath_command_size`.
+
+**ELF had the same hazard and the plan did not name it.** `DT_RUNPATH` grows
+`.dynstr`, and *two* independent computations derive from `.dynstr`'s length:
+`DynamicPayload::build` (which emits it) and **`dynamic_prefix_size`** (which
+derives the GOT offset baked into every import stub). Adding the runpath to only
+the first under-counted `.dynstr`, every stub jumped through the wrong GOT slot,
+and the program **segfaulted on its first imported call** — before ever reaching
+the `dlopen` the runpath exists for.
+
+Nothing caught it but the runtime proof: unit tests passed, `readelf -d` printed
+`RUNPATH [$ORIGIN/vendor]` correctly, and the header decoded cleanly. It only
+surfaced when a real binary ran on a real box. `runpath_string`/
+`runpath_dynstr_len` are now the single owner, with a regression test pinning
+that a runpath moves the dynamic prefix by exactly its `.dynstr` bytes.
+
+(A third ELF site — `dynamic_count`, feeding a `dynamic_size` self-check — was
+caught by the linker's own assertion at link time.)
+
 Makes a `vendor` library actually **loadable**. Three changes that only make
 sense together:
 
-1. every executable build emits into a **directory** — `<name>/<name>.out`
+1. every executable build emits into a **directory** — `build/<name>.out`
    instead of a bare `<name>.out`;
 2. the ELF and Mach-O writers emit an **RPATH** pointing at `vendor/` beside the
    executable — `$ORIGIN/vendor` / `@loader_path/vendor`, or
@@ -21,7 +66,7 @@ sense together:
    dylibs in the platform-standard `Contents/Frameworks/` (§4.4) — so `dlopen` of
    a bare filename finds it;
 3. the build **copies** each resolved `vendor` locator's file from
-   `<consumer root>/vendor/<source>` into `<outdir>/<name>/vendor/<source>`.
+   `<consumer root>/vendor/<source>` into `<outdir>/build/vendor/<source>`.
 
 The single behavioral outcome: an executable importing a binding with a `vendor`
 locator builds into a self-contained, relocatable directory and `dlopen`s the
@@ -46,18 +91,18 @@ References (read first):
 
 ## 1. Goal
 
-- `./mfb build` on any console project writes `<outdir>/<name>/<name>.out`
-  (Linux: `<outdir>/<name>/<name>-glibc.out` and `<name>-musl.out`, both in the
+- `./mfb build` on any console project writes `<outdir>/build/<name>.out`
+  (Linux: `<outdir>/build/<name>-glibc.out` and `<name>-musl.out`, both in the
   one directory).
 - An executable whose build resolved any `vendor` locator carries an RPATH
   pointing at the directory holding exactly the resolved vendor files, per the
-  §4.4 table: `$ORIGIN/vendor` → `<name>/vendor/` (ELF), `@loader_path/vendor` →
-  `<name>/vendor/` (macOS console), `@executable_path/../Frameworks` →
-  `<name>.app/Contents/Frameworks/` (macOS `-app`, the platform-standard
+  §4.4 table: `$ORIGIN/vendor` → `build/vendor/` (ELF), `@loader_path/vendor` →
+  `build/vendor/` (macOS console), `@executable_path/../Frameworks` →
+  `build/<name>.app/Contents/Frameworks/` (macOS `-app`, the platform-standard
   location).
 - That executable runs and `dlopen`s its vendored library **from any working
-  directory**, and continues to work after the whole `<name>/` directory (or
-  `<name>.app` bundle) is moved elsewhere.
+  directory**, and continues to work after the whole `build/` directory (or the
+  `.app` bundle) is moved elsewhere.
 - A build with no vendor locators emits no vendor directory and no RPATH —
   byte-identical code to plan-46-C output, just relocated on disk.
 
@@ -171,12 +216,12 @@ exists. `write_app_bundle` (`src/os/macos/link/mod.rs:44-76`) already does
 
 Three phases, each independently landable and independently valuable:
 
-1. **Layout** — `<name>/<name>.out`. Touches 2 real lines of logic (+2
+1. **Layout** — `build/<name>.out`. Touches 2 real lines of logic (+2
    `create_dir_all`) and a long tail of tests/docs/goldens. No behavior change.
 2. **RPATH** — `DT_RUNPATH` / `LC_RPATH` pointing at `vendor/`. Inert on its own
    (a runpath to a non-existent directory is silently ignored by every loader),
    which makes it safe to land before the copy exists.
-3. **Vendor copy** — copy resolved vendor files into `<outdir>/<name>/vendor/`.
+3. **Vendor copy** — copy resolved vendor files into `<outdir>/build/vendor/`.
    Completes the feature.
 
 Risk is concentrated in the Mach-O header triple-maintenance (§2.2) and in the
@@ -190,7 +235,7 @@ and `dlopen` stays a bare-filename call in every case.
 
 ### 3.1 Why the layout is unconditional
 
-Rejected alternative: keep `<name>.out` and only switch to `<name>/<name>.out`
+Rejected alternative: keep `<name>.out` and only switch to `build/<name>.out`
 when the build has vendor libraries. Rejected — it makes the output *shape* a
 function of the dependency graph. A transitive binding three levels down that
 vendors a library would silently relocate the user's output, and every wrapper
@@ -230,10 +275,10 @@ more component:
 
 | build | today | after |
 | --- | --- | --- |
-| macos console | `<name>.out` | `<name>/<name>.out` |
-| linux console | `<name>-glibc.out`, `<name>-musl.out` | `<name>/<name>-glibc.out`, `<name>/<name>-musl.out` |
-| linux `-app` | `<name>.out` | `<name>/<name>.out` |
-| macos `-app` | `<name>.app/…` | unchanged, plus `Contents/Frameworks/` when vendoring (§4.4) |
+| macos console | `<name>.out` | `build/<name>.out` |
+| linux console | `<name>-glibc.out`, `<name>-musl.out` | `build/<name>-glibc.out`, `build/<name>-musl.out` |
+| linux `-app` | `<name>.out` | `build/<name>.out` |
+| macos `-app` | `<name>.app/…` | `build/<name>.app/…`, plus `Contents/Frameworks/` when vendoring (§4.4) |
 
 Both Linux flavor executables land in **one** directory and share **one**
 `vendor/` — which is sound only because plan-46-A §4.3 forces vendor `source`
@@ -242,24 +287,25 @@ collide (plan-46-C §4.3).
 
 **Harness cleanup (`scripts/test-accept.sh`).** All 5 sites that remove
 `"$test_dir/$package_name.out"` must instead remove the directory
-`"$test_dir/$package_name"`. Two traps:
+`"$test_dir/build"`. One trap:
 
-1. **Lines 192 and 360 are compound `rm -f`s** — the `.out` element is the tail
-   of a long list of dump/sidecar paths (`$ast_path`, `$ir_path`, …
-   `coverage.html`). Do **not** flip those whole commands to `rm -rf`. Split the
-   `.out` element out into its own separate, guarded directory removal and leave
-   the file list on `rm -f`. (Line 360's `rm -f` begins on line 359 — a plain
-   `grep 'rm -f.*\.out'` misses it. The five sites are 161, 192, 265, 345, 360.)
-2. **Guard the `rm -rf`.** `$package_name` comes from `project_name()`
-   (`:79-81`), a `sed` over `project.json`. Today a bad parse makes `rm -f` a
-   harmless no-op; after the change the same bad parse makes `rm -rf` delete a
-   **source directory**, and an empty `$package_name` expands to
-   `rm -rf "$test_dir/"` — which would delete the fixture itself. Assert
-   `$package_name` is non-empty and that the target is a directory containing the
-   built executable before removing anything.
+- **Two of the five are compound `rm -f`s** — the `.out` element is the tail of a
+  long list of dump/sidecar paths (`$ast_path`, `$ir_path`, … `coverage.html`).
+  Do **not** flip those whole commands to `rm -rf`. Split the `.out` element out
+  into its own separate directory removal and leave the file list on `rm -f`.
+  (The last one's `rm -f` begins on the preceding line — a plain
+  `grep 'rm -f.*\.out'` misses it. Enumerate them fresh.)
 
-Add `*.out` (or the output dirs) to `.gitignore` while here — it has no such
-entry today, which is why a missed cleanup shows up as worktree pollution.
+The `rm -rf` guard an earlier draft called for is **mostly obviated by the fixed
+`build/` name**: because the directory is a literal and never interpolated from
+`project_name()` (a `sed` over `project.json`), a bad manifest parse can no longer
+redirect the removal at a fixture's source directory — which was the whole hazard.
+Still check `$test_dir` is non-empty, since `rm -rf "/build"` is its own kind of
+bad day.
+
+Add `build/` to `.gitignore` while here — unanchored, so it covers every project
+at any depth, including the `vendor/` copies. Add `*.out` too, for stale
+pre-change artifacts already sitting in working trees.
 
 ### 4.2 ELF: `DT_RUNPATH`
 
@@ -315,7 +361,7 @@ at exec.
 
 ### 4.4 macOS `.app` bundles — `Contents/Frameworks/`
 
-Vendor dylibs go in the **standard** location: `<name>.app/Contents/Frameworks/`,
+Vendor dylibs go in the **standard** location: `build/<name>.app/Contents/Frameworks/`,
 which is where Apple specifies private shared libraries and frameworks live, and
 where every tool that inspects a bundle expects them. The RPATH is
 `@executable_path/../Frameworks` — the string Xcode emits for app targets.
@@ -327,9 +373,9 @@ So the rpath passed to `encode_mach_o` (§4.3) is:
 
 | build | vendor rpath | vendor files |
 | --- | --- | --- |
-| macos console | `@loader_path/vendor` | `<name>/vendor/` |
-| macos `-app` | `@executable_path/../Frameworks` | `<name>.app/Contents/Frameworks/` |
-| linux console / `-app` | `$ORIGIN/vendor` | `<name>/vendor/` |
+| macos console | `@loader_path/vendor` | `build/vendor/` |
+| macos `-app` | `@executable_path/../Frameworks` | `build/<name>.app/Contents/Frameworks/` |
+| linux console / `-app` | `$ORIGIN/vendor` | `build/vendor/` |
 
 `write_app_bundle` (`src/os/macos/link/mod.rs:44-76`) already creates
 `Contents/MacOS` and `Contents/Resources` with `create_dir_all` (lines 55, 64);
@@ -413,7 +459,7 @@ The file is **not** copied under its bare `source`. It is copied as
 hyphen, then the filename:
 
 ```text
-<name>/vendor/
+build/vendor/
   sqlite3-libfoo.so        # from imported package `sqlite3`
   imaging-libfoo.so        # from imported package `imaging`
   myapp-libbar.so          # from the project's own `libraries` section
@@ -467,6 +513,46 @@ the emission call.
   reverse-mapping a hash. Revisit if the residual check below ever fires in
   practice.
 
+#### 4.5.1 The prefix disambiguates the OUTPUT, not the INPUT (found in implementation)
+
+This section's premise — that prefixing makes two packages each vendoring a
+`libfoo.so` combinable — turns out to be **only half true**, and the half it
+misses is upstream of anything this plan does.
+
+The *output* is disambiguated: `<outdir>/build/vendor/pkga-libfoo.so` and
+`pkgb-libfoo.so` coexist, and each binding `dlopen`s its own. That part works and
+is verified.
+
+But the **input** is not. plan-46-C §4.4 reads the consumer's file from
+`<consumer project root>/vendor/<source>` — the *bare* `source`, in one flat
+directory. Two packages that both vendor `libfoo.so` therefore both demand
+`<consumer root>/vendor/libfoo.so`, with different bytes. The consumer's
+filesystem can hold exactly one such file, so **one of the two hash checks must
+fail** and the build stops with `NATIVE_LIBRARY_HASH_MISMATCH`. Verified in
+implementation:
+
+```
+NATIVE_LIBRARY_HASH_MISMATCH: /tmp/app/vendor/libfoo.dylib does not match the
+sha256 `pkgb` recorded for "libfoo.dylib" — this is the wrong version.
+```
+
+So the case the prefix exists to solve is unreachable: the build fails **closed**,
+with a clear error naming the unit and both digests, rather than silently loading
+the wrong library. That is a defensible outcome and strictly better than the
+silent overwrite this section feared — but it is not "combinable," and this plan
+should not claim it is.
+
+Rejecting "error on collision" (below) as *hostile* was therefore arguing against
+an outcome the design produces anyway, one layer earlier and for a different
+reason.
+
+Making them genuinely combinable requires disambiguating the **consumer's vendor
+input** too — e.g. `<consumer root>/vendor/<declaring-unit>/<source>` or
+`<unit>-<source>`. That is a real change to plan-46-C §4.4's contract and to what
+a consumer author is told to do, so it is **deferred to a follow-up**, not
+smuggled in here. The prefix stays: it is correct, it costs one `if`, and it
+protects the output directory regardless.
+
 #### 4.5.2 The residual check
 
 The prefix makes collisions essentially unrepresentable, but not *provably* so:
@@ -501,24 +587,24 @@ the prefix be trusted, not the mechanism.
 **Lands first, ahead of plan-46-A** — this phase depends on nothing in plan-46
 and nothing in plan-46 depends on it. No behavior change; pure relocation.
 
-- [ ] Add `create_dir_all` + the extra path component to the two writer sites
+- [x] Add `create_dir_all` + the extra path component to the two writer sites
       (`src/os/linux/link/mod.rs:106-112`, `src/os/macos/link/mod.rs:26`),
       following `write_app_bundle`'s precedent.
-- [ ] Fix the 5 cleanup sites in `scripts/test-accept.sh` (161, 192, 265, 345,
+- [x] Fix the 5 cleanup sites in `scripts/test-accept.sh` (161, 192, 265, 345,
       360) per §4.1 — guarded directory removal, with the `.out` element split
       out of the compound `rm -f`s at 192 and 360. Assert non-empty
       `$package_name` before any `rm -rf`.
-- [ ] Add **both** `*.out` and the new output directories to `.gitignore` — it
+- [x] Add **both** `*.out` and the new output directories to `.gitignore` — it
       has no `out` entry of any kind today (verified), and `*.out` still matters
       for stale pre-change artifacts already sitting in working trees.
-- [ ] Update the 6 test files + 4 unit assertions that hardcode the filename
+- [x] Update the 6 test files + 4 unit assertions that hardcode the filename
       (§2.3). Enumerate them fresh with a grep — do not work from this list.
-- [ ] Update the 12 spec docs that state `<name>.out` (§2.3).
-- [ ] Regenerate the ~439 goldens (`scripts/sync-goldens.sh`) **after** the
+- [x] Update the 12 spec docs that state `<name>.out` (§2.3).
+- [x] Regenerate the ~439 goldens (`scripts/sync-goldens.sh`) **after** the
       cleanup fix, not before — otherwise every synced fixture leaves an
       un-ignored output directory in `tests/`.
 
-Acceptance: `./mfb build` writes `<name>/<name>.out` (Linux: both flavors in one
+Acceptance: `./mfb build` writes `build/<name>.out` (Linux: both flavors in one
 directory); `scripts/test-accept.sh` green with no leftover directories and a
 clean `git status`; `scripts/artifact-gate.sh` clean (the binary's *bytes* must
 not change — only its path).
@@ -529,20 +615,20 @@ Commit: —
 Inert until Phase 3 (a runpath to a missing directory is ignored by every
 loader), so it is safe to land alone.
 
-- [ ] ELF: append `$ORIGIN/vendor` to `dynstr` and emit `DT_RUNPATH` (tag 29)
+- [x] ELF: append `$ORIGIN/vendor` to `dynstr` and emit `DT_RUNPATH` (tag 29)
       per §4.2, gated on the build having vendor libraries.
-- [ ] Mach-O: take an `rpaths: &[&str]` parameter through `encode_mach_o` per
+- [x] Mach-O: take an `rpaths: &[&str]` parameter through `encode_mach_o` per
       §4.3, emit one `LC_RPATH` per entry, and feed the **same**
       `rpath_command_size` helper into `load_commands_size` and
       `load_command_count`. Callers pass `@loader_path/vendor` (console),
       `@executable_path/../Frameworks` (`-app`), or `[]` (no vendor libs).
-- [ ] Amend the byte-identity claim to its qualified form in **all three** places
+- [x] Amend the byte-identity claim to its qualified form in **all three** places
       it is asserted (§4.4): the doc comment at `src/os/macos/link/mod.rs:41-43`,
       and the published spec at `src/docs/spec/linker/06_macos-aarch64.md:109`
       and `:151`. Add a test pinning the narrowed invariant: console vs bundled
       binaries are byte-identical with no vendor libs, and differ by exactly the
       one `LC_RPATH` with them.
-- [ ] Tests: a vendor-bearing build's ELF has exactly one `DT_RUNPATH` whose
+- [x] Tests: a vendor-bearing build's ELF has exactly one `DT_RUNPATH` whose
       string is `$ORIGIN/vendor` (assert by decoding the dynamic section, in the
       style of `tests/linux_pie_headers.rs`); a non-vendor build has **none**.
       Same for `LC_RPATH` on Mach-O, with the console and `-app` strings each
@@ -559,32 +645,32 @@ Commit: —
 
 ### Phase 3 — vendor copy
 
-- [ ] Copy each resolved vendor file into
-      `<outdir>/<name>/vendor/<declaring-unit>-<source>` per §4.5, preserving the
+- [x] Copy each resolved vendor file into
+      `<outdir>/build/vendor/<declaring-unit>-<source>` per §4.5, preserving the
       executable bit; only resolved locators. Build the name with the **same**
       `dlopen_name` helper plan-46-C §4.2 emits from — not a second copy of the
       format string.
-- [ ] Add the `2-203-0122` `NATIVE_LIBRARY_VENDOR_COLLISION` residual check
+- [x] Add the `2-203-0122` `NATIVE_LIBRARY_VENDOR_COLLISION` residual check
       (§4.5.2) and its rule row.
-- [ ] Tests: two packages each vendoring a **different** `libfoo.so` both build,
+- [x] Tests: two packages each vendoring a **different** `libfoo.so` both build,
       land as two distinct files, and each binding loads **its own** library —
       the collision regression, and it needs a real run, not a build assertion.
       Assert the emitted cstring equals the copied filename byte-for-byte.
-- [ ] macOS `-app`: `create_dir_all` and copy into
-      `<name>.app/Contents/Frameworks/` (§4.4), only when the build vendors
+- [x] macOS `-app`: `create_dir_all` and copy into
+      `build/<name>.app/Contents/Frameworks/` (§4.4), only when the build vendors
       something — no empty `Frameworks/` in ordinary bundles.
-- [ ] Tests: golden + runtime — a project importing a `vendor`-locator binding
-      builds into `<name>/` with `<name>/vendor/<declaring-unit>-<source>`
+- [x] Tests: golden + runtime — a project importing a `vendor`-locator binding
+      builds into `build/` with `build/vendor/<declaring-unit>-<source>`
       present, and the executable **runs and loads the library from a different
-      working directory** (`cd /tmp && /path/to/<name>/<name>.out`), and **still
-      runs after the whole `<name>/` directory is moved**. Both are the actual
+      working directory** (`cd /tmp && /path/to/build/<name>.out`), and **still
+      runs after the whole `build/` directory is moved**. Both are the actual
       proof that RPATH resolution works; a build-time assertion is not.
-- [ ] Tests: the same runtime proof for a macOS `-app` build — the dylib sits in
-      `<name>.app/Contents/Frameworks/`, the bundle launches from a foreign CWD,
+- [x] Tests: the same runtime proof for a macOS `-app` build — the dylib sits in
+      `build/<name>.app/Contents/Frameworks/`, the bundle launches from a foreign CWD,
       and it survives being moved (e.g. to `/Applications`, the case the bundle
       layout exists for). Assert `Contents/MacOS/` holds no vendor files and an
       ordinary non-vendor bundle has no `Contents/Frameworks/` at all.
-- [ ] Doc: update `src/docs/spec/architecture/08_artifacts.md` (the output
+- [x] Doc: update `src/docs/spec/architecture/08_artifacts.md` (the output
       layout is now a directory; vendor bundle + RPATH; the `.app` bundle's
       `Contents/Frameworks/`), the 4 linker spec pages,
       `tooling/07_cli-reference.md`, and
@@ -629,9 +715,18 @@ None outstanding. Settled:
   **not** strictly last in the sequence: **D-Phase-1 → A → B → C → D-Phase-2 →
   D-Phase-3**. Nothing in D-Phase-1 depends on A/B/C, and the `Depends on` header
   above applies only to Phases 2-3.
-- **`.gitignore` gets both** `*.out` and the output directories — `*.out` covers
-  stale pre-change artifacts already sitting in working trees, the directory
-  entries cover what the new layout produces.
+- **The output directory is the fixed name `build/`, not `<name>/`.** An earlier
+  draft used the project name (`<name>/<name>.out`); it was changed during
+  implementation on the user's call, because a fixed name means one unanchored
+  `.gitignore` line (`build/`) covers every project at any depth, whereas a
+  project-named directory cannot be expressed as a pattern at all and would have
+  had to be ignored via `*.out` plus an un-ignorable `vendor/` copy. The macOS
+  `-app` bundle moves to `build/<name>.app` for the same reason. This also
+  simplifies the harness cleanup: the directory name is a literal, so a bad
+  project.json parse can never redirect the `rm -rf` (§4.1).
+- **`.gitignore` gets both** `build/` (unanchored, covering every project's output
+  including the `vendor/` copies) and `*.out` (which covers stale pre-change
+  artifacts already sitting in working trees).
 
 ## Summary
 

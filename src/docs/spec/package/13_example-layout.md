@@ -60,7 +60,7 @@ packageBinaryRepr
     "MFBR" + version 4 + IrProject { name, entry?, bindings, types, functions:[ add: Return(Binary{ Add, Ident a, Ident b }) ] }
 ```
 
-The `IR` payload is self-contained (inline strings); the `TYPE_TABLE`/`EXPORT_TABLE`/`ABI_INDEX`/etc. above are the parallel derived metadata. This package has no `LINK` blocks, so the `MFBR` payload ends after `functions` with no native trailer, and there is no `NATIVE_LINK_TABLE` or `RESOURCE_TABLE` section.
+The `IR` payload is self-contained (inline strings); the `TYPE_TABLE`/`EXPORT_TABLE`/`ABI_INDEX`/etc. above are the parallel derived metadata. This package has no `LINK` blocks, so the `MFBR` payload ends after `functions` with no native trailer, there is no `NATIVE_LIBRARY_TABLE` (id 10) or `RESOURCE_TABLE` section, and container flag bit 0 stays clear.
 
 The function body is the structured Binary Representation node for `add`, which decodes back to:
 

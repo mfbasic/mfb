@@ -59,7 +59,7 @@ Sections may appear in any order. The current reader (`read_binary_repr_package`
 6  = EXPORT_TABLE
 7  = GLOBAL_TABLE
 8  = FUNCTION_TABLE
-10 = NATIVE_LINK_TABLE   (reserved id; not emitted or read — see below)
+10 = NATIVE_LIBRARY_TABLE (optional; emitted only for a LINK-bearing package)
 11 = RESOURCE_TABLE
 12 = DEBUG_INFO          (reserved id; not emitted or read)
 13 = SOURCE_MAP          (reserved id; not emitted or read)
@@ -71,7 +71,9 @@ Sections may appear in any order. The current reader (`read_binary_repr_package`
 
 Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions (the `FUNCTION_TABLE` entry format, however, still carries the legacy register/cleanup fields — see `functions`).
 
-Ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no `SECTION_NATIVE_LINK_TABLE` (or debug/source-map/audit) constant defined in the binary-representation section table. [[src/binary_repr/mod.rs]] In particular, native `LINK` metadata is **not** carried in a `NATIVE_LINK_TABLE` section; it rides as an optional trailer inside the `IR` payload (see `native-bindings`).
+Ids `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no debug/source-map/audit constant defined in the binary-representation section table. [[src/binary_repr/mod.rs]]
+
+Id `10` (`NATIVE_LIBRARY_TABLE`) **is** emitted, but only for a binding package that declares a `LINK` block; its presence also sets container flag bit 0. It carries the per-library *locators* (which shared object to load per `os`/`arch`/`libc`). The per-function native `LINK` *interface* is separate and still rides as an optional trailer inside the `IR` payload. See `native-bindings` for both.
 
 Sections the current compiler actually emits, via `BinaryReprProject::encode`: [[src/binary_repr/writer.rs:encode]]
 
@@ -88,6 +90,7 @@ IR                (id 16, always)
 ABI_INDEX         (id 15, always)
 RESOURCE_TABLE    (id 11, only when the package has resource types)
 DOC               (id 17, only when the package has documentation)
+NATIVE_LIBRARY_TABLE (id 10, only when the package declares a LINK block)
 ```
 
 Sections the current reader (`read_binary_repr_package`) **requires** — rejecting the package if absent:

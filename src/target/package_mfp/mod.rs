@@ -11,6 +11,10 @@ const BINARY_REPR_MAJOR: u16 = 1;
 const BINARY_REPR_MINOR: u16 = 0;
 const SIGNATURE_UNSIGNED: u16 = 0;
 const SIGNATURE_ED25519: u16 = 1;
+/// "Package contains native LINK metadata" (plan-46-B §4.4): set when the package
+/// carries a `NATIVE_LIBRARY_TABLE` (section id 10). Optional — section 10 is the
+/// source of truth, so a reader that ignores this bit must not reject the package.
+const FLAG_NATIVE_LINK_METADATA: u32 = 1 << 0;
 const FLAG_PRE_RELEASE: u32 = 1 << 3;
 
 const NAME_LIMIT: usize = 255;
@@ -239,11 +243,18 @@ fn validate_string(field: &str, value: &str, limit: usize, required: bool) -> Re
 }
 
 fn container_flags(metadata: &BinaryReprMetadata) -> u32 {
+    let mut flags = 0;
     if metadata.version.contains('-') {
-        FLAG_PRE_RELEASE
-    } else {
-        0
+        flags |= FLAG_PRE_RELEASE;
     }
+    // plan-46-B §4.4: a binding package carrying a section-10 locator table sets
+    // the "contains native LINK metadata" bit the format reserved for it. It stays
+    // an *optional* flag — section 10 is the source of truth, and a reader that
+    // ignores the bit must not reject the package.
+    if !metadata.native_libraries.is_empty() {
+        flags |= FLAG_NATIVE_LINK_METADATA;
+    }
+    flags
 }
 
 fn put_bytes(dst: &mut Vec<u8>, bytes: &[u8]) {
@@ -266,6 +277,7 @@ fn put_u64(dst: &mut Vec<u8>, value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::binary_repr::NativeLibraryTable;
     use mfb_repository::crypto;
 
     fn test_metadata() -> BinaryReprMetadata {
@@ -279,6 +291,7 @@ mod tests {
             author: "Ada".to_string(),
             url: "https://example.invalid/shape".to_string(),
             dependencies: Vec::new(),
+            native_libraries: NativeLibraryTable::default(),
         }
     }
 
@@ -426,6 +439,7 @@ mod tests {
             link_functions: Vec::new(),
             link_aliases: Vec::new(),
             docs: crate::ir::ProjectDocs::default(),
+            native_libraries: Default::default(),
         }
     }
 

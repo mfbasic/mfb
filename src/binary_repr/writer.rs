@@ -244,6 +244,9 @@ pub(super) fn lower_project_with_external_functions(
         functions,
         binary_repr: crate::ir::encode_binary_repr(ir),
         docs: docs_from_ir(&ir.docs),
+        // Assembled by the build path from the manifest's `libraries` section and
+        // the IR's `LINK` names (plan-46-B §4.3); empty for a non-binding package.
+        native_libraries: metadata.native_libraries.clone(),
     })
 }
 
@@ -934,9 +937,24 @@ impl BinaryReprProject {
         // every per-function code region is zero-length.
         let code_offsets: Vec<(u64, u64)> = self.functions.iter().map(|_| (0, 0)).collect();
 
+        // The native library table (plan-46-B §4.1) is encoded first because
+        // interning its strings grows the pool, and the pool section below must be
+        // encoded from the final pool. It is emitted only for a binding package
+        // that declares a `LINK` block, so every non-binding package's `.mfp` —
+        // and its string pool — stays byte-identical to a pre-plan-46 build.
+        let mut strings = self.strings.clone();
+        let native_libraries = if self.native_libraries.is_empty() {
+            None
+        } else {
+            Some(encode_native_library_table(
+                &mut strings,
+                &self.native_libraries,
+            ))
+        };
+
         let mut sections = vec![
             Section::new(SECTION_MANIFEST, self.encode_manifest()),
-            Section::new(SECTION_STRING_POOL, self.strings.encode()),
+            Section::new(SECTION_STRING_POOL, strings.encode()),
             Section::new(SECTION_TYPE_TABLE, self.types.encode()),
             Section::new(SECTION_CONST_POOL, self.constants.encode()),
             Section::new(SECTION_IMPORT_TABLE, self.imports.encode()),
@@ -959,6 +977,9 @@ impl BinaryReprProject {
                 SECTION_DOC_TABLE,
                 encode_doc_table(&self.docs),
             ));
+        }
+        if let Some(table) = native_libraries {
+            sections.push(Section::new(SECTION_NATIVE_LIBRARY_TABLE, table));
         }
 
         encode_sections(&sections)

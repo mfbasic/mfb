@@ -1,0 +1,14 @@
+{
+  "name": "native_library_vendor_hash_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "demolib": [
+      { "os": "macos", "type": "system", "source": "libdemolib.dylib" },
+      { "os": "linux", "type": "system", "source": "libdemolib.so.1" },
+      { "os": "linux", "arch": "riscv64", "libc": "musl", "type": "vendor", "source": "libfixture.so" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

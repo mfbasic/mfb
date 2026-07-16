@@ -1,0 +1,18 @@
+{
+  "name": "native_library_vendor_rpath_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "demolib": [
+      { "os": "macos", "type": "vendor", "source": "libfixture.dylib" },
+      { "os": "linux", "arch": "aarch64", "libc": "glibc", "type": "vendor", "source": "libfixture-aarch64-glibc.so" },
+      { "os": "linux", "arch": "aarch64", "libc": "musl", "type": "vendor", "source": "libfixture-aarch64-musl.so" },
+      { "os": "linux", "arch": "x86_64", "libc": "glibc", "type": "vendor", "source": "libfixture-x86_64-glibc.so" },
+      { "os": "linux", "arch": "x86_64", "libc": "musl", "type": "vendor", "source": "libfixture-x86_64-musl.so" },
+      { "os": "linux", "arch": "riscv64", "libc": "glibc", "type": "vendor", "source": "libfixture-riscv64-glibc.so" },
+      { "os": "linux", "arch": "riscv64", "libc": "musl", "type": "vendor", "source": "libfixture-riscv64-musl.so" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

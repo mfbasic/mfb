@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/trap/inline-trap-callback-member-rt/inline_trap_c
 Wrote IR to tests/rt-behavior/trap/inline-trap-callback-member-rt/inline_trap_callback_member_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/trap/inline-trap-callback-member-rt
-Wrote executable to tests/rt-behavior/trap/inline-trap-callback-member-rt/inline_trap_callback_member_rt/inline_trap_callback_member_rt.out
+Wrote executable to tests/rt-behavior/trap/inline-trap-callback-member-rt/build/inline_trap_callback_member_rt.out
 [exit 0]
-$ tests/rt-behavior/trap/inline-trap-callback-member-rt/inline_trap_callback_member_rt/inline_trap_callback_member_rt.out
+$ tests/rt-behavior/trap/inline-trap-callback-member-rt/build/inline_trap_callback_member_rt.out
 transform caught: double hit 20
 t-len=0
 filter caught: filter hit 20

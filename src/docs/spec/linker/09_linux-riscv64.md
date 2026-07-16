@@ -8,11 +8,11 @@ versus `"aarch64"`/`"x86_64"`). Only the target front-end and the per-ISA (RV64G
 encoder are separate. [[src/os/linux/link/]] [[src/target/linux_riscv64/]] [[src/arch/riscv64/]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]] [[src/target/linux_riscv64/plan.rs:target]]
 
 A console build emits two flavors, one per dynamic loader / library naming, both
-inside a per-project output directory:
+inside the project's `build/` directory:
 
 ```text
-<project>/<project>-glibc.out
-<project>/<project>-musl.out
+build/<project>-glibc.out
+build/<project>-musl.out
 ```
 
 Both worlds share every kernel struct layout the codegen bakes in (stat/dirent/

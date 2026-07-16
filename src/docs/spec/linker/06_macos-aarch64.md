@@ -1,11 +1,11 @@
 # macOS aarch64
 
 The macOS backend writes a Mach-O executable directly, with no host linker.
-Console builds emit one file, inside a per-project output directory:
+Console builds emit one file, inside the project's `build/` directory:
 [[src/os/macos/link.rs]]
 
 ```text
-<project>/<project>.out
+build/<project>.out
 ```
 
 App-mode builds (`mfb build --app`) emit a `.app` bundle (see below). The Mach-O
@@ -107,12 +107,22 @@ carries MFBASIC's own executable signing metadata when the build supplies it.
 `mfb build --app` produces:
 
 ```text
-<project>.app/
+build/<project>.app/
   Contents/
     Info.plist
-    MacOS/<project>            (the Mach-O executable, byte-identical to <project>/<project>.out)
+    MacOS/<project>            (the Mach-O executable)
     Resources/AppIcon.icns     (multi-resolution app icon)
+    Frameworks/<name>...       (vendored native libraries; only when the build vendors any)
 ```
+
+The bundle lands in the project's `build/` directory alongside every other build
+artifact.
+
+`Contents/Frameworks/` is the platform-standard location for a bundle's private
+shared libraries, and is created **only** when the build resolves a `vendor`
+native-library locator — an empty `Frameworks/` in every bundle would be noise.
+The bundled executable then carries `LC_RPATH @executable_path/../Frameworks`; see
+`./mfb spec language native-libraries`.
 
 `Info.plist` sets `CFBundleName`, `CFBundleExecutable`, `CFBundleIdentifier`
 (`dev.mfbasic.<project>`), `CFBundlePackageType` `APPL`,
@@ -148,14 +158,25 @@ canvas. `image`/`icns` are compiler build-time dependencies only.
 
 ### Bundle generation contract
 
-The bundle writer recreates the directory tree under the project directory:
-`<project>.app/Contents/MacOS` is created with one `create_dir_all` (so the
-intermediate `Contents` directory is materialized too). The Mach-O is encoded by
-the same `encode_executable_bytes` helper the console `<project>/<project>.out`
+The bundle writer recreates the directory tree under the project's `build/`
+directory: `build/<project>.app/Contents/MacOS` is created with one
+`create_dir_all` (so the intermediate `build` and `Contents` directories are
+materialized too). The Mach-O is encoded by
+the same `encode_executable_bytes` helper the console `build/<project>.out`
 path uses,
 so the executable written to `Contents/MacOS/<project>` is byte-identical to the
 console output for the same image — only the on-disk layout, the `Info.plist`,
-and the `Resources/AppIcon.icns` sidecar differ. The executable file is then
+and the `Resources/AppIcon.icns` sidecar differ.
+
+That invariant is **qualified for a build that vendors native libraries**: the two
+shapes load their dylibs from genuinely different places
+(`build/vendor/` vs `Contents/Frameworks/`), so they carry different `LC_RPATH`
+strings and differ by exactly that one load command. Identical bytes would mean
+one of them is wrong. For every build that vendors nothing — which is every
+project that does not use a `vendor` locator — the unqualified invariant holds:
+no `LC_RPATH` is emitted at all and the two are byte-identical.
+
+The executable file is then
 chmod'd to `0o755` (the `Info.plist` and `AppIcon.icns` are written with default
 permissions, not marked executable).
 [[src/os/macos/link/mod.rs:write_app_bundle]] [[src/os/macos/link/mod.rs:write_executable_file]]

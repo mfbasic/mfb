@@ -16,6 +16,7 @@ fn project(functions: Vec<IrFunction>, types: Vec<IrType>) -> IrProject {
         link_functions: vec![],
         link_aliases: vec![],
         docs: ProjectDocs::default(),
+        native_libraries: Default::default(),
     }
 }
 

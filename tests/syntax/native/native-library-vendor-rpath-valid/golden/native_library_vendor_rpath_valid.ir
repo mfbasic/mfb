@@ -1,0 +1,23 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_library_vendor_rpath_valid",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "ping",
+    "line": 12,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 12, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "demoLink.ping", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  }
+  ]
+}

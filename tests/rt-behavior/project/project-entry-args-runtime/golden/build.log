@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/project/project-entry-args-runtime/project_entry_
 Wrote IR to tests/rt-behavior/project/project-entry-args-runtime/project_entry_args_runtime.ir
 [exit 0]
 $ mfb build tests/rt-behavior/project/project-entry-args-runtime
-Wrote executable to tests/rt-behavior/project/project-entry-args-runtime/project_entry_args_runtime/project_entry_args_runtime.out
+Wrote executable to tests/rt-behavior/project/project-entry-args-runtime/build/project_entry_args_runtime.out
 [exit 0]
-$ tests/rt-behavior/project/project-entry-args-runtime/project_entry_args_runtime/project_entry_args_runtime.out
+$ tests/rt-behavior/project/project-entry-args-runtime/build/project_entry_args_runtime.out
 1
-tests/rt-behavior/project/project-entry-args-runtime/project_entry_args_runtime/project_entry_args_runtime.out
+tests/rt-behavior/project/project-entry-args-runtime/build/project_entry_args_runtime.out
 [exit 0]

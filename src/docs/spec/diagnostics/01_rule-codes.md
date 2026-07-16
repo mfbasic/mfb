@@ -264,6 +264,8 @@ registry's only `info`, and `2-200-0009` one of exactly six `warn` rules
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | project entry point is invalid |
 | `2-200-0012` | `PROJECT_JSON_UNKNOWN_MODE` | warn | project.json mode is not recognized |
 | `2-200-0013` | `PROJECT_JSON_ICON_MISSING` | error | project.json icon path does not resolve to a readable file |
+| `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a project.json `libraries` locator is malformed, carries an unknown os/arch/libc/type token, or names a `source` that is not a bare filename |
+| `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two project.json `libraries` vendor locators declare the same `source` filename |
 | `2-200-0100` | `BUILD_FAILED` | error | build failed for an unclassified orchestration reason |
 | `2-200-0101` | `FMT_CHECK_FAILED` | error | one or more source files are not formatted (mfb fmt --check) |
 
@@ -382,6 +384,14 @@ Scheme*).
 | `2-203-0111` | `TYPE_SCALAR_LITERAL_TOO_MANY` | error | a backtick scalar literal must contain exactly one Unicode scalar |
 | `2-203-0112` | `TYPE_SCALAR_LITERAL_INVALID` | error | a scalar literal must name a valid Unicode scalar value |
 | `2-203-0113` | `TYPE_ISOLATED_NOT_VISIBLE` | error | ISOLATED function must be a project-visible FUNC declaration |
+| `2-203-0114` | `NATIVE_LIBRARY_MISSING` | error | a LINK block names a library with no matching project.json `libraries` entry |
+| `2-203-0115` | `NATIVE_LIBRARY_TARGET_UNCOVERED` | warn | a supported build target has no `libraries` locator for a linked native library |
+| `2-203-0116` | `NATIVE_LIBRARY_SOURCE_UNREADABLE` | error | a `vendor` locator's file under the project's `vendor/` directory is missing or cannot be read to hash it |
+| `2-203-0117` | `NATIVE_LIBRARY_UNUSED` | warn | a project.json `libraries` entry has no matching LINK block in code |
+| `2-203-0118` | `NATIVE_LIBRARY_NO_MATCH` | error | no native library locator matches the target being built |
+| `2-203-0119` | `NATIVE_LIBRARY_AMBIGUOUS` | error | two equally-specific native library locators match the target being built |
+| `2-203-0120` | `NATIVE_LIBRARY_FILE_MISSING` | error | a resolved `vendor` native library is missing from the consumer project's `vendor/` directory |
+| `2-203-0121` | `NATIVE_LIBRARY_HASH_MISMATCH` | error | a resolved `vendor` native library does not match the sha256 the binding recorded for it |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |

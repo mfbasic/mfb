@@ -1,0 +1,12 @@
+' A minimal native binding package used to exercise the project.json `libraries`
+' section and the .mfp NATIVE_LIBRARY_TABLE (plan-46-B). The library is never
+' loaded — these fixtures only build the package.
+LINK "demolib" AS demoLink
+  FUNC ping(value AS Integer) AS Integer
+    SYMBOL "demo_ping"
+    ABI (value CInt32, return OUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC ping AS demoLink::ping

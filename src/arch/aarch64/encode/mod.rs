@@ -31,6 +31,20 @@ pub(crate) struct EncodedImage {
     /// `DT_INIT_ARRAY` / Mach-O `S_MOD_INIT_FUNC_POINTERS`.
     pub(crate) initializers: Vec<String>,
     pub(crate) signing_metadata: Option<Vec<u8>>,
+    /// Loader search paths for `dlopen`ing vendored native libraries
+    /// (plan-46-D §4.2/§4.3), materialized as ELF `DT_RUNPATH` / Mach-O
+    /// `LC_RPATH`.
+    ///
+    /// **Empty for every build that vendors nothing** — which is every build with
+    /// only `system` locators — so no tag or load command is emitted and the
+    /// binary stays byte-identical to a pre-plan-46 one.
+    ///
+    /// The strings are loader-relative and per output shape: `$ORIGIN/vendor`
+    /// (ELF), `@loader_path/vendor` (macOS console), or
+    /// `@executable_path/../Frameworks` (macOS `.app`). Chosen by the caller, not
+    /// the encoder — which is what keeps the vendor directory's *location* out of
+    /// the codegen and the `dlopen` call a bare-filename one.
+    pub(crate) rpaths: Vec<String>,
 }
 
 /// Whether an imported symbol names a function (called through a stub) or a data
@@ -170,5 +184,9 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
             .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
         initializers: Vec::new(),
         signing_metadata: None,
+        // Both are stamped by the build path after encoding: signing
+        // metadata from `--sign`, and the vendor RPATH(s) from the
+        // resolved native-library locators (plan-46-D §4.2/§4.3).
+        rpaths: Vec::new(),
     })
 }

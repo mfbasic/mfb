@@ -115,6 +115,7 @@ mod tests {
             entry: "_main".to_string(),
             initializers: Vec::new(),
             signing_metadata: None,
+            rpaths: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         let path = write_linked_executable(
@@ -126,8 +127,8 @@ mod tests {
             &image,
         )
         .expect("write executable");
-        // plan-46-D §4.1: the build emits into its own `<name>/` directory.
-        assert_eq!(path, dir.path().join("prog").join("prog-glibc.out"));
+        // plan-46-D §4.1: the build emits into the project's `build/` directory.
+        assert_eq!(path, dir.path().join("build").join("prog-glibc.out"));
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(&bytes[0..4], b"\x7fELF");
     }

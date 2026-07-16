@@ -405,8 +405,11 @@ pub(crate) fn lower_module_for_platform(
     // Imported packages are now decoded and merged into the project IR upstream
     // (see `lower::lower_project`) and lowered as ordinary functions through this
     // same codegen. The legacy flat binary_repr -> native package bridge is no
-    // longer used: there are no separate package exports to lower here.
-    let _ = packages;
+    // longer used: there are no separate package exports to lower here — the one
+    // thing still read straight off the `.mfp` is each binding's native library
+    // locator table (plan-46-C), which is per-target and so cannot be resolved
+    // upstream of this per-flavor pass.
+    let link_libraries = resolve_link_libraries(module, packages, platform)?;
     let mut function_symbols = module
         .functions
         .iter()
@@ -1189,6 +1192,7 @@ pub(crate) fn lower_module_for_platform(
             globals_base,
             &platform_imports,
             platform,
+            &link_libraries,
         )?;
         code_functions.extend(support.functions);
         data_objects.extend(support.data_objects);
@@ -3060,6 +3064,10 @@ mod builder_vector_inline;
 mod crypto;
 mod crypto_ec;
 mod datetime;
+/// Consumer-side native-library locator resolution (plan-46-C). Shared with
+/// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
+/// copied filename cannot diverge.
+pub(crate) mod link_locator;
 mod link_thunk;
 mod net;
 mod os;
@@ -3082,6 +3090,50 @@ pub(crate) mod mir;
 mod peephole;
 pub(crate) mod regalloc;
 pub(crate) use mir::MirPlan;
+
+/// Resolve every logical `LINK` library this module names to the concrete
+/// `source` the declaring binding declared for this build's `(os, arch, libc)`
+/// (plan-46-C §4.2).
+///
+/// Locators come from two places: an imported binding's `.mfp` section 10 (read
+/// here, since resolution is per-target and so cannot happen upstream of this
+/// per-flavor pass), and the project's own `libraries` section for a project
+/// declaring its own `LINK` block. A no-match or ambiguity is a hard build error.
+fn resolve_link_libraries(
+    module: &nir::NirModule,
+    packages: &[PathBuf],
+    platform: &dyn CodegenPlatform,
+) -> Result<link_locator::LinkLibraries, String> {
+    if module.link_functions.is_empty() {
+        return Ok(link_locator::LinkLibraries::default());
+    }
+
+    let tables = link_locator::LibraryTables::collect(
+        packages,
+        &module.project,
+        module.native_libraries.clone(),
+    )?;
+
+    // `platform.target()` is `<os>-<arch>`; the libc comes from the platform,
+    // which on Linux is one per flavor (§4.3).
+    let target = platform.target();
+    let (os, arch) = target.split_once('-').ok_or_else(|| {
+        format!("codegen platform target '{target}' is not in `<os>-<arch>` form")
+    })?;
+    let target = link_locator::LinkTarget {
+        os: os.to_string(),
+        arch: arch.to_string(),
+        libc: platform.libc(),
+    };
+
+    let mut linked: Vec<String> = Vec::new();
+    for function in &module.link_functions {
+        if !linked.contains(&function.library) {
+            linked.push(function.library.clone());
+        }
+    }
+    link_locator::LinkLibraries::resolve_all(&tables, &linked, &target)
+}
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
     &[

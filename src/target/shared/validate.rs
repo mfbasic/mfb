@@ -1607,6 +1607,7 @@ mod tests {
                 resource_owners: std::collections::HashMap::new(),
             }],
             link_functions: Vec::new(),
+            native_libraries: Default::default(),
         }
     }
 
@@ -1673,6 +1674,7 @@ mod tests {
                 resource_owners: std::collections::HashMap::new(),
             }],
             link_functions: Vec::new(),
+            native_libraries: Default::default(),
         }
     }
 

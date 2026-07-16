@@ -403,6 +403,12 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
         Some(section) => read_doc_table(section)?,
         None => PackageDocs::default(),
     };
+    // Section 10 is present only for a binding package (plan-46-B); its absence is
+    // the normal case and decodes to an empty table.
+    let native_libraries = match sections.get(&SECTION_NATIVE_LIBRARY_TABLE).copied() {
+        Some(section) => read_native_library_table(section, &strings.values)?,
+        None => NativeLibraryTable::default(),
+    };
     let manifest = read_manifest(
         sections
             .get(&SECTION_MANIFEST)
@@ -446,6 +452,7 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
             functions,
             binary_repr,
             docs,
+            native_libraries,
         },
         exports,
     })

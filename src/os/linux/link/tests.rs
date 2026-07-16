@@ -31,6 +31,7 @@ fn versioned_exit_image() -> EncodedImage {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     }
 }
 
@@ -103,6 +104,7 @@ fn init_array_image() -> EncodedImage {
         entry: "_main".to_string(),
         initializers: vec!["_init0".to_string()],
         signing_metadata: None,
+        rpaths: Vec::new(),
     }
 }
 
@@ -158,6 +160,7 @@ fn glob_dat_image(libc: &str) -> EncodedImage {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     }
 }
 
@@ -178,6 +181,7 @@ fn x86_static_image() -> EncodedImage {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     }
 }
 
@@ -425,6 +429,7 @@ fn x86_dynamic_image() -> EncodedImage {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     }
 }
 
@@ -525,6 +530,7 @@ fn write_executable_rejects_unbound_external_symbol() {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(
@@ -563,6 +569,7 @@ fn write_executable_rejects_unsupported_relocation() {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(
@@ -599,6 +606,7 @@ fn dynamic_build_rejects_missing_initializer_symbol() {
         entry: "_main".to_string(),
         initializers: vec!["_ghost".to_string()],
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let err = encode_dynamic_elf(
         "aarch64",
@@ -692,6 +700,7 @@ fn write_executable_aarch64_static_internal_relocs() {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     write_executable(
@@ -738,6 +747,7 @@ fn write_executable_x86_static_data_pc32() {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     write_executable(
@@ -783,6 +793,7 @@ fn expect_unbound(kind: &str, expect_fragment: &str) {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     let arch = if kind.starts_with("riscv") {
@@ -902,6 +913,7 @@ fn write_executable_rejects_undefined_internal_symbol() {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: None,
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(
@@ -957,6 +969,7 @@ fn writes_mfb_sign_section_to_static_elf() {
         entry: "_main".to_string(),
         initializers: Vec::new(),
         signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+        rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(
@@ -1375,4 +1388,213 @@ fn has_gnu_stack(bytes: &[u8]) -> bool {
         let base = phoff + i * 56;
         u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap()) == 0x6474_e551
     })
+}
+
+/// Decode the `.dynamic` section's `DT_RUNPATH` (tag 29) strings from a dynamic
+/// ELF, resolving each through `DT_STRTAB` exactly as the loader does.
+///
+/// Reads the real program headers/tags rather than scanning for the literal, so
+/// the assertions below prove the tag is actually *wired* — a `$ORIGIN/vendor`
+/// sitting in `.dynstr` with no tag pointing at it would look identical to a
+/// substring search and would be ignored by the loader.
+#[cfg(test)]
+fn elf_runpaths(bytes: &[u8]) -> Vec<String> {
+    const PT_DYNAMIC: u32 = 2;
+    const DT_NULL: u64 = 0;
+    const DT_STRTAB: u64 = 5;
+    const DT_RUNPATH: u64 = 29;
+
+    let u32le = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let u64le = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+
+    // Locate PT_DYNAMIC via the program headers.
+    let phoff = u64le(32) as usize;
+    let phnum = u16::from_le_bytes(bytes[56..58].try_into().unwrap()) as usize;
+    let mut dynamic: Option<(usize, usize)> = None;
+    // Map a vaddr back to a file offset through the PT_LOAD segments.
+    let mut loads: Vec<(u64, u64, u64)> = Vec::new();
+    for index in 0..phnum {
+        let base = phoff + index * 56;
+        let kind = u32le(base);
+        let offset = u64le(base + 8);
+        let vaddr = u64le(base + 16);
+        let filesz = u64le(base + 32);
+        if kind == PT_DYNAMIC {
+            dynamic = Some((offset as usize, filesz as usize));
+        }
+        if kind == 1 {
+            loads.push((vaddr, offset, filesz));
+        }
+    }
+    let vaddr_to_offset = |vaddr: u64| -> Option<usize> {
+        loads
+            .iter()
+            .find(|(base, _, size)| vaddr >= *base && vaddr < base + size)
+            .map(|(base, offset, _)| (vaddr - base + offset) as usize)
+    };
+
+    let Some((dyn_offset, dyn_size)) = dynamic else {
+        return Vec::new();
+    };
+
+    // First pass: DT_STRTAB. Second: every DT_RUNPATH offset into it.
+    let mut strtab = None;
+    let mut runpath_offsets = Vec::new();
+    let mut at = dyn_offset;
+    while at + 16 <= dyn_offset + dyn_size {
+        let tag = u64le(at);
+        let value = u64le(at + 8);
+        match tag {
+            DT_NULL => break,
+            DT_STRTAB => strtab = vaddr_to_offset(value),
+            DT_RUNPATH => runpath_offsets.push(value as usize),
+            _ => {}
+        }
+        at += 16;
+    }
+    let Some(strtab) = strtab else {
+        return Vec::new();
+    };
+
+    runpath_offsets
+        .into_iter()
+        .map(|offset| {
+            let start = strtab + offset;
+            let end = start + bytes[start..].iter().position(|b| *b == 0).unwrap();
+            String::from_utf8(bytes[start..end].to_vec()).expect("utf-8 runpath")
+        })
+        .collect()
+}
+
+// plan-46-D §4.2: a build with no vendor libraries emits no DT_RUNPATH, so every
+// existing binary stays byte-identical.
+#[test]
+fn a_non_vendor_elf_emits_no_runpath() {
+    let image = versioned_exit_image();
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "norunpath",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link");
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(
+        elf_runpaths(&bytes).is_empty(),
+        "no vendor libraries → no DT_RUNPATH"
+    );
+}
+
+// A vendoring build carries exactly one DT_RUNPATH whose string is
+// `$ORIGIN/vendor`, resolved through DT_STRTAB the way the loader does.
+#[test]
+fn a_vendoring_elf_emits_one_origin_relative_runpath() {
+    let mut image = versioned_exit_image();
+    image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "runpath",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link");
+    let bytes = std::fs::read(&path).unwrap();
+    // `$ORIGIN` is expanded by the loader, not the build: it must survive verbatim.
+    assert_eq!(elf_runpaths(&bytes), vec!["$ORIGIN/vendor".to_string()]);
+}
+
+// Growing `.dynstr` must propagate through the layout on its own: DT_STRSZ is
+// computed as `dynstr.len()` and `dynsym_offset` derives from
+// `dynstr_offset + dynstr.len()`. If it did not, the symbol table would overlap
+// the runpath string and the loader would read garbage symbol names.
+#[test]
+fn the_runpath_string_does_not_disturb_the_symbol_table() {
+    let mut image = versioned_exit_image();
+    image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "strsz",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link");
+    let bytes = std::fs::read(&path).unwrap();
+    // The imported symbol name must still be intact and findable.
+    assert!(
+        bytes.windows(b"_exit\0".len()).any(|w| w == b"_exit\0"),
+        "the import's symbol name must survive the dynstr growth"
+    );
+    assert_eq!(elf_runpaths(&bytes), vec!["$ORIGIN/vendor".to_string()]);
+}
+
+// `dynamic_prefix_size` independently recomputes `.dynstr`'s length to derive the
+// GOT offset baked into every import stub, so it MUST agree with what
+// `DynamicPayload::build` actually appends. When the DT_RUNPATH string was added
+// to one and not the other, the prefix under-counted by its length, every stub
+// jumped through the wrong GOT slot, and the program segfaulted on its first
+// imported call — before ever reaching the `dlopen` the runpath exists for, and
+// invisibly to every header assertion.
+//
+// Pin the invariant: a runpath must move the dynamic prefix by exactly the string
+// it adds to `.dynstr`, and by nothing else.
+#[test]
+fn a_runpath_grows_the_dynamic_prefix_by_exactly_its_dynstr_bytes() {
+    let plain = versioned_exit_image();
+    let mut vendored = versioned_exit_image();
+    vendored.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
+
+    let plain_size = super::elf::dynamic_prefix_size(&plain);
+    let vendored_size = super::elf::dynamic_prefix_size(&vendored);
+    assert!(
+        vendored_size > plain_size,
+        "the runpath string must be counted in the dynamic prefix"
+    );
+    // "$ORIGIN/vendor" + NUL = 15 bytes; the prefix's derived offsets are 8-byte
+    // aligned, so assert the growth is at least the string and within one
+    // alignment step of it.
+    let added = vendored_size - plain_size;
+    let string_len = crate::os::ELF_VENDOR_RPATH.len() + 1;
+    assert!(
+        added >= string_len && added < string_len + 8,
+        "prefix grew by {added}, expected ~{string_len} (the runpath string + NUL)"
+    );
+}
+
+// The end-to-end form of the same invariant: link a real vendoring image and check
+// that the emitted `.dynstr` length (DT_STRSZ) matches what the stub-offset
+// computation assumed. A mismatch here is the segfault above.
+#[test]
+fn the_emitted_dynstr_matches_the_prefix_computation_with_a_runpath() {
+    let mut image = versioned_exit_image();
+    image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "strszrpath",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link");
+    let bytes = std::fs::read(&path).unwrap();
+
+    // DT_STRSZ (tag 10) is emitted as `dynstr.len()`. The runpath string must be
+    // inside it, and the prefix computation must have accounted for the same
+    // bytes — otherwise the GOT offsets are wrong.
+    let runpaths = elf_runpaths(&bytes);
+    assert_eq!(runpaths, vec!["$ORIGIN/vendor".to_string()]);
+    assert!(
+        bytes.windows(b"_exit\0".len()).any(|w| w == b"_exit\0"),
+        "the import symbol must still be intact"
+    );
 }

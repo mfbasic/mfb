@@ -200,6 +200,7 @@ impl NativeBackend for Backend {
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
+        vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
@@ -211,6 +212,7 @@ impl NativeBackend for Backend {
             build_mode,
             app_icon,
             app_version,
+            vendors_native_libraries,
             stdin_log_cap,
         )
     }
@@ -276,6 +278,7 @@ fn write_executable(
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
+    vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
@@ -290,6 +293,22 @@ fn write_executable(
     native_code.validate()?;
     let mut image = arch::aarch64::encode::encode(&native_code)?;
     image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+    // plan-46-D §4.4: point the loader at wherever this output shape puts its
+    // vendored dylibs — `build/vendor/` beside a console `.out`, or the
+    // platform-standard `Contents/Frameworks/` inside a `.app`. This one string is
+    // the *entire* difference between the two shapes; `dlopen` stays a
+    // bare-filename call in both.
+    //
+    // It is also the one thing that makes the bundled Mach-O differ from the
+    // console `.out` — and only for a vendoring build, which is why the
+    // byte-identity invariant is qualified rather than abandoned (see
+    // `write_app_bundle`).
+    if vendors_native_libraries {
+        image.rpaths = vec![match build_mode {
+            NativeBuildMode::MacApp => os::MACHO_APP_VENDOR_RPATH.to_string(),
+            _ => os::MACHO_CONSOLE_VENDOR_RPATH.to_string(),
+        }];
+    }
     match build_mode {
         // App mode (plan-04-macos-app.md §5.2) emits a `.app` bundle whose AppKit
         // `_main` bootstrap targets a window; console mode emits a plain `.out`.

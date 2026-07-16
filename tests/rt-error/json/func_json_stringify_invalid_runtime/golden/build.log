@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/json/func_json_stringify_invalid_runtime/func_json_s
 Wrote IR to tests/rt-error/json/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.ir
 [exit 0]
 $ mfb build tests/rt-error/json/func_json_stringify_invalid_runtime
-Wrote executable to tests/rt-error/json/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.out
+Wrote executable to tests/rt-error/json/func_json_stringify_invalid_runtime/build/func_json_stringify_invalid_runtime.out
 [exit 0]
-$ tests/rt-error/json/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.out
+$ tests/rt-error/json/func_json_stringify_invalid_runtime/build/func_json_stringify_invalid_runtime.out
 Error: 7-705-0003
 Text parse or non-finite numeric representation conversion failed.
 [exit 255]

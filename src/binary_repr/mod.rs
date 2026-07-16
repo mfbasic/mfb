@@ -1,5 +1,9 @@
 use crate::builtins;
 use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
+// plan-46-B: the `.mfp` locator table reuses the manifest's `Libc`/`LibType`
+// vocabulary end to end, so manifest → table → wire → resolver share one set of
+// types with no conversion layer between them to get wrong.
+use crate::manifest::libraries::{LibType, Libc};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -15,6 +19,7 @@ mod writer;
 
 use builder::*;
 use reader::*;
+use sections::*;
 use util::*;
 use writer::*;
 
@@ -26,6 +31,11 @@ const SECTION_IMPORT_TABLE: u16 = 5;
 const SECTION_EXPORT_TABLE: u16 = 6;
 const SECTION_GLOBAL_TABLE: u16 = 7;
 const SECTION_FUNCTION_TABLE: u16 = 8;
+/// Optional native-library locator table (plan-46-B §4.1). Emitted only for a
+/// binding package that declares a `LINK` block; the container's optional flag
+/// bit 0 ("contains native LINK metadata") is set alongside it. This lights up
+/// the id the format reserved for exactly this purpose.
+const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
 const SECTION_RESOURCE_TABLE: u16 = 11;
 /// Optional documentation section (plan-09-doc.md §5). Self-describing and
 /// length-prefixed; a consumer that does not understand it skips it entirely.
@@ -124,6 +134,10 @@ pub struct BinaryReprMetadata {
     pub author: String,
     pub url: String,
     pub dependencies: Vec<BinaryReprDependency>,
+    /// Native `LINK` library locators (plan-46-B). Empty for every non-binding
+    /// package, in which case section 10 is not emitted and container flag bit 0
+    /// stays clear.
+    pub native_libraries: NativeLibraryTable,
 }
 
 impl BinaryReprMetadata {
@@ -138,6 +152,7 @@ impl BinaryReprMetadata {
             author: String::new(),
             url: String::new(),
             dependencies: Vec::new(),
+            native_libraries: NativeLibraryTable::default(),
         }
     }
 }
@@ -266,6 +281,75 @@ pub struct BinaryReprPackageInfoUsedSymbol {
     pub sig_hash: String,
 }
 
+/// The decoded `NATIVE_LIBRARY_TABLE` (section id 10) of a compiled package
+/// (plan-46-B §4.1): where to find each logical `LINK` library per platform.
+///
+/// Empty for every package with no `LINK` block, in which case the section is not
+/// emitted at all and the `.mfp` is byte-identical to a pre-plan-46 build.
+///
+/// The locator reuses [`crate::manifest::libraries`]'s `Libc`/`LibType` vocabulary
+/// deliberately: the same types flow manifest → table → `.mfp` → resolver, so
+/// there is no conversion layer between representations to get wrong.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NativeLibraryTable {
+    /// Sorted by `logical`, so the encoding is deterministic — the repo holds a
+    /// byte-identical self-diff gate.
+    pub entries: Vec<NativeLibraryEntry>,
+}
+
+impl NativeLibraryTable {
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The locators declared for `logical`, or `None` when the table does not
+    /// carry that library.
+    pub fn locators(&self, logical: &str) -> Option<&[NativeLibraryLocator]> {
+        self.entries
+            .iter()
+            .find(|entry| entry.logical == logical)
+            .map(|entry| entry.locators.as_slice())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeLibraryEntry {
+    /// The logical name from `LINK "<name>"`.
+    pub logical: String,
+    pub locators: Vec<NativeLibraryLocator>,
+}
+
+/// One platform locator, as carried in the `.mfp`.
+///
+/// Mirrors [`crate::manifest::libraries::LibraryLocator`] plus the build-time
+/// `hash`, which is present **iff** `lib_type` is `Vendor`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeLibraryLocator {
+    pub os: String,
+    /// `None` = any arch.
+    pub arch: Option<String>,
+    /// `None` = any libc.
+    pub libc: Option<crate::manifest::libraries::Libc>,
+    pub lib_type: crate::manifest::libraries::LibType,
+    /// A bare filename — the `vendor/` prefix is never encoded. It is a fixed,
+    /// known location both sides derive; storing it would be redundant data that
+    /// could disagree with the rule.
+    pub source: String,
+    /// sha256 of `<project root>/vendor/<source>`, present iff `lib_type` is
+    /// `Vendor`.
+    pub hash: Option<[u8; 32]>,
+}
+
+/// Wire encoding of the `libc` axis (plan-46-B §4.1).
+const WIRE_LIBC_UNSPECIFIED: u8 = 0;
+const WIRE_LIBC_GLIBC: u8 = 1;
+const WIRE_LIBC_MUSL: u8 = 2;
+/// Wire encoding of the `type` axis.
+const WIRE_LIB_TYPE_SYSTEM: u8 = 0;
+const WIRE_LIB_TYPE_VENDOR: u8 = 1;
+/// Byte length of a locator's sha256.
+const NATIVE_LIBRARY_HASH_LEN: usize = 32;
+
 /// The decoded `doc` section of a compiled package (plan-09-doc.md §5). Empty
 /// when the package was built without any exported `DOC` blocks.
 #[derive(Clone, Default)]
@@ -318,6 +402,27 @@ const DOC_KIND_ENUM: u16 = 4;
 pub fn read_package_docs(path: &Path) -> Result<PackageDocs, String> {
     let package = read_package_binary_repr(path)?;
     Ok(package.project.docs)
+}
+
+/// Read the optional `NATIVE_LIBRARY_TABLE` (section id 10) from a compiled
+/// `.mfp` package, alongside the package's own name (plan-46-C).
+///
+/// The name is the locator's **declaring unit** — the prefix a `vendor` locator's
+/// file is copied and `dlopen`ed under (plan-46-D §4.5) — so it must come from
+/// the package itself, not from the filename on disk.
+///
+/// Returns an empty table for a package with no `LINK` block, which is every
+/// non-binding package.
+pub fn read_package_native_libraries(path: &Path) -> Result<(String, NativeLibraryTable), String> {
+    let package = read_package_binary_repr(path)?;
+    let name = package
+        .project
+        .strings
+        .values
+        .get(package.project.manifest.package_name as usize)
+        .cloned()
+        .unwrap_or_default();
+    Ok((name, package.project.native_libraries))
 }
 
 const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
@@ -452,6 +557,9 @@ struct BinaryReprProject {
     /// Optional documentation surface emitted as the `doc` section
     /// (plan-09-doc.md §5). Empty for projects without exported `DOC` blocks.
     docs: PackageDocs,
+    /// Optional native `LINK` locator table emitted as section 10 (plan-46-B).
+    /// Empty for every package without a `LINK` block.
+    native_libraries: NativeLibraryTable,
 }
 
 struct GlobalEntry {
@@ -476,6 +584,7 @@ struct BinaryReprManifest {
     url: u32,
 }
 
+#[derive(Clone)]
 struct StringPool {
     values: Vec<String>,
 }

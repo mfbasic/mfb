@@ -28,8 +28,8 @@ acceptable substitute for thread functionality.
 The Linux backend is cross-compiled and does not invoke an external system
 linker. The compiler emits dynamic ELF executables directly.
 
-It emits both a glibc (`<project>/<project>-glibc.out`) and a musl
-(`<project>/<project>-musl.out`) flavor into the project's output directory. Each carries the ELF interpreter path and `DT_NEEDED` list its libc
+It emits both a glibc (`build/<project>-glibc.out`) and a musl
+(`build/<project>-musl.out`) flavor into the project's output directory. Each carries the ELF interpreter path and `DT_NEEDED` list its libc
 requires; the glibc flavor names libpthread separately, while musl exposes pthread
 entry points from libc, so no separate musl pthread dependency is needed. The
 exact interpreter paths and soname list are owned by

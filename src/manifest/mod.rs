@@ -1,4 +1,5 @@
 pub mod entry;
+pub mod libraries;
 pub mod package;
 
 use std::collections::HashMap;
@@ -104,6 +105,10 @@ pub(crate) fn validate_project_manifest(
     }
 
     if !validate_mode(manifest, project_path, &contents) {
+        valid = false;
+    }
+
+    if !validate_libraries(manifest, project_path, &contents) {
         valid = false;
     }
 
@@ -381,6 +386,364 @@ fn validate_mode(
     }
 
     true
+}
+/// One `libraries` schema violation: the rule to raise and the message naming
+/// the specific cause.
+///
+/// `validate_libraries` renders these; [`check_libraries`] produces them. The
+/// split exists so the rules can be unit-tested by **message** — one rule code
+/// (`PROJECT_JSON_LIBRARY_INVALID`) covers a dozen distinct mistakes, so the
+/// message is what makes a diagnostic actionable, and asserting only on the code
+/// would let every message regress unnoticed.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LibraryFinding {
+    pub rule: &'static str,
+    pub message: String,
+}
+
+impl LibraryFinding {
+    fn invalid(message: String) -> Self {
+        Self {
+            rule: "PROJECT_JSON_LIBRARY_INVALID",
+            message,
+        }
+    }
+
+    fn wrong_type(message: String) -> Self {
+        Self {
+            rule: "PROJECT_JSON_FIELD_TYPE",
+            message,
+        }
+    }
+}
+
+/// Validate the optional `libraries` section (plan-46-A §4.4) and emit a
+/// diagnostic per finding.
+///
+/// The section maps each `LINK` logical library name to per-platform locators.
+/// Absent → valid (the section is optional). Present → a strict schema walk;
+/// [`libraries::project_libraries`] then parses leniently on the assumption this
+/// ran.
+///
+/// Diagnostic positions anchor on the `libraries` field itself; entry-level
+/// precision is a nice-to-have, and each message names the offending library and
+/// locator index instead.
+fn validate_libraries(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let findings = check_libraries(manifest);
+    if findings.is_empty() {
+        return true;
+    }
+
+    let (line, column) = field_position(contents, "libraries");
+    let span_end = column + "\"libraries\"".len();
+    let mut valid = true;
+    for finding in &findings {
+        rules::show_diagnostic(
+            finding.rule,
+            &finding.message,
+            project_path,
+            line,
+            column,
+            span_end,
+        );
+        if rules::is_error(finding.rule) {
+            valid = false;
+        }
+    }
+    valid
+}
+
+/// The pure `libraries` schema walk (plan-46-A §4.4). Returns one finding per
+/// violation, in deterministic order; an empty vector means the section is valid
+/// (or absent — it is optional).
+pub(crate) fn check_libraries(manifest: &HashMap<String, JsonValue>) -> Vec<LibraryFinding> {
+    let mut findings = Vec::new();
+
+    let Some(value) = manifest.get("libraries") else {
+        return findings;
+    };
+
+    let Some(section) = value.get::<HashMap<String, JsonValue>>() else {
+        findings.push(LibraryFinding::wrong_type(
+            "Field `libraries` must be an object mapping each logical library name to an array \
+             of locators."
+                .to_string(),
+        ));
+        return findings;
+    };
+
+    // The canonical target axes, from the backend registry — plan-46-B's coverage
+    // check and plan-46-C's resolver must match against this same vocabulary.
+    let known_oses = crate::target::registered_target_oses();
+    let known_arches = crate::target::registered_target_arches();
+
+    // Vendor `source` filenames are unique project-wide (§4.3): `vendor/` is flat,
+    // so one filename means one file. Scoped to vendor locators only — system
+    // sonames legitimately repeat across arches, and a blanket check would
+    // false-positive on the most common manifest anyone will write.
+    let mut vendor_sources: HashMap<String, String> = HashMap::new();
+
+    // Deterministic finding order regardless of HashMap iteration order.
+    let mut logical_names: Vec<&String> = section.keys().collect();
+    logical_names.sort();
+
+    for logical in logical_names {
+        let Some(entries) = section[logical].get::<Vec<JsonValue>>() else {
+            findings.push(LibraryFinding::wrong_type(format!(
+                "Library `{logical}` must map to an array of locator objects."
+            )));
+            continue;
+        };
+
+        if entries.is_empty() {
+            findings.push(LibraryFinding {
+                rule: "PROJECT_JSON_EMPTY_FIELD",
+                message: format!(
+                    "Library `{logical}` has no locators. Add at least one, for example \
+                     `{{ \"os\": \"linux\", \"type\": \"system\", \"source\": \"lib{logical}.so.0\" }}`."
+                ),
+            });
+            continue;
+        }
+
+        for (index, entry) in entries.iter().enumerate() {
+            let Some(entry) = entry.get::<HashMap<String, JsonValue>>() else {
+                findings.push(LibraryFinding::wrong_type(format!(
+                    "Library `{logical}` locator #{index} must be an object."
+                )));
+                continue;
+            };
+            check_locator(
+                logical,
+                index,
+                entry,
+                &known_oses,
+                &known_arches,
+                &mut vendor_sources,
+                &mut findings,
+            );
+        }
+    }
+
+    findings
+}
+
+/// Validate one locator object, appending a finding per violation.
+fn check_locator(
+    logical: &str,
+    index: usize,
+    entry: &HashMap<String, JsonValue>,
+    known_oses: &[String],
+    known_arches: &[String],
+    vendor_sources: &mut HashMap<String, String>,
+    findings: &mut Vec<LibraryFinding>,
+) {
+    let at = format!("Library `{logical}` locator #{index}");
+
+    // `os`: required, non-blank, and a canonical target token. An unknown token is
+    // a hard error rather than a warning like `kind`/`mode`, because it yields a
+    // dead entry — whereas an unknown `kind` still leaves a runnable default.
+    let os = match entry.get("os") {
+        None => {
+            findings.push(LibraryFinding::invalid(format!(
+                "{at} is missing the required `os` field. Expected one of: {}.",
+                token_list(known_oses)
+            )));
+            return;
+        }
+        Some(value) => match value.get::<String>() {
+            None => {
+                findings.push(LibraryFinding::invalid(format!(
+                    "{at} field `os` must be a string."
+                )));
+                return;
+            }
+            Some(os) if os.trim().is_empty() => {
+                findings.push(LibraryFinding::invalid(format!(
+                    "{at} field `os` must not be blank."
+                )));
+                return;
+            }
+            Some(os) => os.trim().to_string(),
+        },
+    };
+
+    if !known_oses.iter().any(|known| known == &os) {
+        findings.push(LibraryFinding::invalid(format!(
+            "{at} has unknown `os` \"{os}\". Expected one of: {}.",
+            token_list(known_oses)
+        )));
+        return;
+    }
+
+    // `arch`: optional; None = any arch (symmetric with `libc`).
+    let mut axes_valid = true;
+    let arch = match entry.get("arch") {
+        None => None,
+        Some(value) => match value.get::<String>() {
+            None => {
+                findings.push(LibraryFinding::invalid(format!(
+                    "{at} field `arch` must be a string when present."
+                )));
+                axes_valid = false;
+                None
+            }
+            Some(arch) => {
+                let arch = arch.trim().to_string();
+                if known_arches.iter().any(|known| known == &arch) {
+                    Some(arch)
+                } else {
+                    findings.push(LibraryFinding::invalid(format!(
+                        "{at} has unknown `arch` \"{arch}\". Expected one of: {}. Omit `arch` to \
+                         match any architecture.",
+                        token_list(known_arches)
+                    )));
+                    axes_valid = false;
+                    None
+                }
+            }
+        },
+    };
+
+    // `libc`: optional; None = any libc. Meaningless on macOS, which has no libc
+    // axis at all — rejecting it there is consistent with every other
+    // unknown-token case.
+    let libc = match entry.get("libc") {
+        None => None,
+        Some(value) => match value.get::<String>() {
+            None => {
+                findings.push(LibraryFinding::invalid(format!(
+                    "{at} field `libc` must be a string when present."
+                )));
+                axes_valid = false;
+                None
+            }
+            Some(libc) => {
+                let libc = libc.trim().to_string();
+                if os == "macos" {
+                    findings.push(LibraryFinding::invalid(format!(
+                        "{at} sets `libc` on `os: \"macos\"` — macOS has no libc axis, so the \
+                         field is meaningless there; remove it."
+                    )));
+                    axes_valid = false;
+                    None
+                } else if libraries::Libc::from_token(&libc).is_some() {
+                    Some(libc)
+                } else {
+                    findings.push(LibraryFinding::invalid(format!(
+                        "{at} has unknown `libc` \"{libc}\". Expected `glibc` or `musl`. Omit \
+                         `libc` to match either flavor."
+                    )));
+                    axes_valid = false;
+                    None
+                }
+            }
+        },
+    };
+
+    // `type`: optional, defaulting to `vendor` so a mistake fails closed (§3.1).
+    let lib_type = match entry.get("type") {
+        None => libraries::LibType::default(),
+        Some(value) => match value.get::<String>() {
+            None => {
+                findings.push(LibraryFinding::invalid(format!(
+                    "{at} field `type` must be a string when present."
+                )));
+                return;
+            }
+            Some(token) => match libraries::LibType::from_token(token.trim()) {
+                Some(lib_type) => lib_type,
+                None => {
+                    // Hard error: an unknown token would otherwise silently take the
+                    // `vendor` default and surface as a confusing missing-file error
+                    // two build phases later.
+                    findings.push(LibraryFinding::invalid(format!(
+                        "{at} has unknown `type` \"{}\". Expected `system` (found by the dynamic \
+                         loader) or `vendor` (a file shipped in `vendor/`). Omitting `type` \
+                         defaults to `vendor`.",
+                        token.trim()
+                    )));
+                    return;
+                }
+            },
+        },
+    };
+
+    // A Linux `vendor` locator must name its exact target (§3.2): the file is one
+    // concrete build and there is no fat ELF, so a wildcard there is a claim that
+    // cannot be true. macOS is exempt from the `arch` half — fat Mach-O binaries
+    // are real, so a universal `.dylib` with `arch` omitted is legitimate.
+    //
+    // Suppressed when an axis was itself malformed: the omission finding would be
+    // a confusing second complaint about the same field.
+    if lib_type == libraries::LibType::Vendor && os == "linux" && axes_valid {
+        if arch.is_none() {
+            findings.push(LibraryFinding::invalid(format!(
+                "{at} is a `vendor` locator on `os: \"linux\"` but omits `arch`. A vendored file \
+                 is one concrete build — there is no fat ELF — so it must name the exact `arch` \
+                 it was compiled for."
+            )));
+        }
+        if libc.is_none() {
+            findings.push(LibraryFinding::invalid(format!(
+                "{at} is a `vendor` locator on `os: \"linux\"` but omits `libc`. A shared object \
+                 built against glibc will not load on musl, so it must name the exact `libc` it \
+                 was compiled against."
+            )));
+        }
+    }
+
+    // `source`: required, and a bare filename (§4.2).
+    let source = match entry.get("source") {
+        None => {
+            findings.push(LibraryFinding::invalid(format!(
+                "{at} is missing the required `source` field."
+            )));
+            return;
+        }
+        Some(value) => match value.get::<String>() {
+            None => {
+                findings.push(LibraryFinding::invalid(format!(
+                    "{at} field `source` must be a string."
+                )));
+                return;
+            }
+            Some(source) => source.trim().to_string(),
+        },
+    };
+
+    if let Err(reason) = libraries::source_is_bare(&source) {
+        findings.push(LibraryFinding::invalid(format!(
+            "{at} field `source` {reason}"
+        )));
+        return;
+    }
+
+    if lib_type == libraries::LibType::Vendor {
+        if let Some(previous) = vendor_sources.insert(source.clone(), logical.to_string()) {
+            findings.push(LibraryFinding {
+                rule: "PROJECT_JSON_LIBRARY_SOURCE_CONFLICT",
+                message: format!(
+                    "{at} declares `source` \"{source}\", already declared by a `vendor` locator \
+                     for library `{previous}`. `vendor/` is flat, so one filename means one file \
+                     — give each vendored build its own filename."
+                ),
+            });
+        }
+    }
+}
+
+/// Render a token set for a diagnostic message: ``​`macos`, `linux`​``.
+fn token_list(tokens: &[String]) -> String {
+    tokens
+        .iter()
+        .map(|token| format!("`{token}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Whether the manifest requests app mode via `"mode": "app"` (plan-22-A §4.1).
@@ -712,5 +1075,399 @@ mod tests {
         assert_eq!(field_position(contents, "name"), (2, 3));
         assert_eq!(field_position(contents, "absent"), (3, 1));
         assert_eq!(fallback_field_position(""), (1, 1));
+    }
+
+    // ---- `libraries` section (plan-46-A §4.4) ----
+    //
+    // Asserted by *message*, not just rule code: `PROJECT_JSON_LIBRARY_INVALID`
+    // covers a dozen distinct causes, so the message is the actionable part and a
+    // code-only assertion would let every message regress unnoticed.
+
+    /// Build a manifest object carrying just a `libraries` section.
+    fn libraries_manifest(section: &str) -> HashMap<String, JsonValue> {
+        let json = format!("{{ \"libraries\": {section} }}");
+        let value: JsonValue = json.parse().expect("test manifest parses");
+        value
+            .get::<HashMap<String, JsonValue>>()
+            .cloned()
+            .expect("test manifest is an object")
+    }
+
+    /// The single finding for a section expected to have exactly one violation.
+    fn only_finding(section: &str) -> LibraryFinding {
+        let mut findings = check_libraries(&libraries_manifest(section));
+        assert_eq!(
+            findings.len(),
+            1,
+            "expected exactly one finding, got: {findings:#?}"
+        );
+        findings.remove(0)
+    }
+
+    fn assert_valid(section: &str) {
+        let findings = check_libraries(&libraries_manifest(section));
+        assert!(
+            findings.is_empty(),
+            "expected a valid section, got: {findings:#?}"
+        );
+    }
+
+    #[test]
+    fn absent_libraries_section_is_valid() {
+        let manifest = libraries_manifest("{}");
+        assert!(check_libraries(&manifest).is_empty());
+        // And a manifest with no `libraries` key at all validates as it did before
+        // the section existed.
+        let (_dir, path) = write_manifest(VALID);
+        assert!(validate_project_manifest(&path).is_ok());
+    }
+
+    #[test]
+    fn non_object_libraries_is_field_type_error() {
+        let finding = only_finding("[1, 2]");
+        assert_eq!(finding.rule, "PROJECT_JSON_FIELD_TYPE");
+        assert!(
+            finding.message.contains("must be an object"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn non_array_library_value_is_field_type_error() {
+        let finding = only_finding(r#"{ "sqlite3": "libsqlite3.so.0" }"#);
+        assert_eq!(finding.rule, "PROJECT_JSON_FIELD_TYPE");
+        assert!(
+            finding.message.contains("must map to an array"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn empty_locator_array_is_empty_field_error() {
+        let finding = only_finding(r#"{ "sqlite3": [] }"#);
+        assert_eq!(finding.rule, "PROJECT_JSON_EMPTY_FIELD");
+        assert!(
+            finding.message.contains("has no locators"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn non_object_locator_is_field_type_error() {
+        let finding = only_finding(r#"{ "sqlite3": ["libsqlite3.so.0"] }"#);
+        assert_eq!(finding.rule, "PROJECT_JSON_FIELD_TYPE");
+        assert!(
+            finding.message.contains("locator #0 must be an object"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn missing_os_names_the_field_and_accepted_set() {
+        let finding = only_finding(r#"{ "sqlite3": [ { "source": "libsqlite3.so.0" } ] }"#);
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("missing the required `os` field")
+                && finding.message.contains("`linux`")
+                && finding.message.contains("`macos`"),
+            "message must name the field and the accepted set: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn unknown_os_token_names_the_token_and_accepted_set() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "solaris", "type": "system", "source": "libsqlite3.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("unknown `os` \"solaris\"")
+                && finding.message.contains("`linux`"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn unknown_arch_token_names_the_token_and_the_wildcard_option() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "arch": "sparc", "type": "system", "source": "libsqlite3.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("unknown `arch` \"sparc\"")
+                && finding.message.contains("Omit `arch`"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn unknown_libc_token_names_the_token_and_the_wildcard_option() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "libc": "uclibc", "type": "system", "source": "libsqlite3.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("unknown `libc` \"uclibc\"")
+                && finding.message.contains("`glibc`")
+                && finding.message.contains("`musl`"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn unknown_type_token_explains_the_vendor_default() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "shared", "source": "libsqlite3.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("unknown `type` \"shared\"")
+                && finding.message.contains("`system`")
+                && finding.message.contains("defaults to `vendor`"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn macos_locator_carrying_libc_is_rejected_with_the_reason() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "macos", "libc": "glibc", "type": "system", "source": "libsqlite3.dylib" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("macOS has no libc axis"),
+            "message must say why, not just that it is invalid: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn blank_source_is_rejected() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": "  " } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("must not be blank"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn missing_source_is_rejected() {
+        let finding = only_finding(r#"{ "sqlite3": [ { "os": "linux", "type": "system" } ] }"#);
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding
+                .message
+                .contains("missing the required `source` field"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn source_with_a_path_separator_names_the_offending_character() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": "usr/lib/libsqlite3.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("path separator (`/`)"),
+            "message must name the offending character: {}",
+            finding.message
+        );
+
+        // Backslashes too — plan-47 must not inherit a hole.
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": "lib\\sqlite3.so" } ] }"#,
+        );
+        assert!(
+            finding.message.contains("path separator (`\\`)"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn source_of_dot_dot_is_rejected() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": ".." } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("directory reference"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn source_with_an_interior_nul_is_rejected() {
+        // `source` is emitted verbatim as a C string, so an interior NUL would
+        // silently truncate the dlopen argument.
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": "libsqlite3.so\u0000evil" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("NUL byte"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn source_with_a_windows_drive_prefix_is_rejected() {
+        let finding = only_finding(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": "C:sqlite3.dll" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("drive prefix"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn linux_vendor_locator_missing_arch_is_rejected_with_the_reason() {
+        let finding = only_finding(
+            r#"{ "foo": [ { "os": "linux", "libc": "musl", "type": "vendor", "source": "libfoo.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("omits `arch`") && finding.message.contains("no fat ELF"),
+            "message must say why a wildcard cannot be true: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn linux_vendor_locator_missing_libc_is_rejected_with_the_reason() {
+        let finding = only_finding(
+            r#"{ "foo": [ { "os": "linux", "arch": "x86_64", "type": "vendor", "source": "libfoo.so" } ] }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_INVALID");
+        assert!(
+            finding.message.contains("omits `libc`")
+                && finding.message.contains("will not load on musl"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    #[test]
+    fn linux_vendor_locator_missing_both_axes_reports_both() {
+        let findings = check_libraries(&libraries_manifest(
+            r#"{ "foo": [ { "os": "linux", "type": "vendor", "source": "libfoo.so" } ] }"#,
+        ));
+        assert_eq!(findings.len(), 2, "both axes are missing: {findings:#?}");
+        assert!(findings.iter().any(|f| f.message.contains("omits `arch`")));
+        assert!(findings.iter().any(|f| f.message.contains("omits `libc`")));
+    }
+
+    #[test]
+    fn two_vendor_locators_sharing_a_source_conflict() {
+        // The real bug this catches: an author copied an entry for a new platform
+        // and forgot to rename the blob. Across *all* logical names, since
+        // `vendor/` is flat.
+        let finding = only_finding(
+            r#"{
+                "foo": [
+                    { "os": "linux", "arch": "x86_64", "libc": "glibc", "type": "vendor", "source": "libshared.so" }
+                ],
+                "bar": [
+                    { "os": "linux", "arch": "aarch64", "libc": "glibc", "type": "vendor", "source": "libshared.so" }
+                ]
+            }"#,
+        );
+        assert_eq!(finding.rule, "PROJECT_JSON_LIBRARY_SOURCE_CONFLICT");
+        assert!(
+            finding.message.contains("libshared.so")
+                && finding.message.contains("one filename means one file"),
+            "message: {}",
+            finding.message
+        );
+    }
+
+    // ---- positive cases that must pass (§4.3, §3.2) ----
+
+    #[test]
+    fn two_system_locators_may_share_a_soname() {
+        // The most common manifest anyone will write: the same soname on two
+        // arches. A blanket uniqueness check would false-positive here.
+        assert_valid(
+            r#"{
+                "sqlite3": [
+                    { "os": "linux", "arch": "x86_64", "type": "system", "source": "libsqlite3.so.0" },
+                    { "os": "linux", "arch": "aarch64", "type": "system", "source": "libsqlite3.so.0" }
+                ]
+            }"#,
+        );
+    }
+
+    #[test]
+    fn linux_system_locator_may_omit_both_axes() {
+        // One line covering all six Linux slots — `arch` and `libc` are symmetric
+        // wildcards for a `system` locator.
+        assert_valid(
+            r#"{ "sqlite3": [ { "os": "linux", "type": "system", "source": "libsqlite3.so.0" } ] }"#,
+        );
+    }
+
+    #[test]
+    fn macos_vendor_locator_may_omit_arch() {
+        // Mach-O fat binaries are real, so a universal `.dylib` is a legitimate
+        // vendor locator with no `arch`.
+        assert_valid(
+            r#"{ "imaging": [ { "os": "macos", "type": "vendor", "source": "libimaging.dylib" } ] }"#,
+        );
+    }
+
+    #[test]
+    fn the_representative_manifest_validates() {
+        // The plan-46-A §1 worked example.
+        assert_valid(
+            r#"{
+                "sqlite3": [
+                    { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
+                    { "os": "linux", "type": "system", "source": "libsqlite3.so.0" },
+                    { "os": "linux", "arch": "riscv64", "libc": "musl", "source": "libsqlite3-riscv64-musl.so" }
+                ]
+            }"#,
+        );
+    }
+
+    #[test]
+    fn a_well_formed_section_passes_full_manifest_validation() {
+        let contents = VALID.trim_end().trim_end_matches('}').to_string()
+            + ",\n  \"libraries\": { \"sqlite3\": [ { \"os\": \"linux\", \"type\": \"system\", \"source\": \"libsqlite3.so.0\" } ] }\n}\n";
+        let (_dir, path) = write_manifest(&contents);
+        assert!(
+            validate_project_manifest(&path).is_ok(),
+            "a well-formed libraries section must validate"
+        );
+    }
+
+    #[test]
+    fn a_malformed_section_fails_full_manifest_validation() {
+        let contents = VALID.trim_end().trim_end_matches('}').to_string()
+            + ",\n  \"libraries\": { \"sqlite3\": [ { \"os\": \"solaris\", \"source\": \"x.so\" } ] }\n}\n";
+        let (_dir, path) = write_manifest(&contents);
+        assert!(
+            validate_project_manifest(&path).is_err(),
+            "an unknown os token must fail the build"
+        );
     }
 }

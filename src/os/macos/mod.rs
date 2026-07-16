@@ -100,6 +100,7 @@ mod tests {
             entry: "_main".to_string(),
             initializers: Vec::new(),
             signing_metadata: None,
+            rpaths: Vec::new(),
         }
     }
 
@@ -132,8 +133,8 @@ mod tests {
     fn writes_linked_executable_mach_o() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_linked_executable(dir.path(), "prog", &image()).expect("write exe");
-        // plan-46-D §4.1: the build emits into its own `<name>/` directory.
-        assert_eq!(path, dir.path().join("prog").join("prog.out"));
+        // plan-46-D §4.1: the build emits into the project's `build/` directory.
+        assert_eq!(path, dir.path().join("build").join("prog.out"));
         let bytes = std::fs::read(&path).unwrap();
         // Mach-O 64 magic (little-endian 0xfeedfacf).
         assert_eq!(&bytes[0..4], &[0xcf, 0xfa, 0xed, 0xfe]);
@@ -144,7 +145,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bundle = write_linked_app_bundle(dir.path(), "windowed", &image(), None, "0.1.0")
             .expect("bundle");
-        assert_eq!(bundle, dir.path().join("windowed.app"));
+        // plan-46-D §4.1: the bundle lands in the project's `build/` directory.
+        assert_eq!(bundle, dir.path().join("build").join("windowed.app"));
         assert!(bundle.join("Contents/MacOS/windowed").is_file());
         assert!(bundle.join("Contents/Info.plist").is_file());
         assert!(bundle.join("Contents/Resources/AppIcon.icns").is_file());

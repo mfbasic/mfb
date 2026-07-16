@@ -1,0 +1,10 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_library_unused_valid",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  ]
+}

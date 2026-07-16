@@ -221,6 +221,17 @@ pub(crate) trait CodegenPlatform {
     fn entry_args_in_registers(&self) -> bool {
         true
     }
+    /// The libc flavor this codegen pass is emitting for (plan-46-C §4.3), used
+    /// to resolve native `LINK` library locators that differ per flavor.
+    ///
+    /// `None` on a platform with no libc axis (macOS). A single Linux `mfb build`
+    /// runs this lowering once per flavor with its own data image — the two worlds
+    /// already emit different import library names (`libc.so.6` vs
+    /// `libc.musl-*.so.1`) — so a per-flavor `dlopen` soname lands in the correct
+    /// binary for free.
+    fn libc(&self) -> Option<crate::manifest::libraries::Libc> {
+        None
+    }
     fn termios_size(&self) -> usize;
     fn termios_lflag_offset(&self) -> usize;
     fn termios_lflag_width(&self) -> usize;

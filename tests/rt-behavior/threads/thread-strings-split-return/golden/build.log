@@ -5,9 +5,9 @@ Wrote IR to tests/rt-behavior/threads/thread-strings-split-return/thread_strings
 [exit 0]
 $ mfb build tests/rt-behavior/threads/thread-strings-split-return
 uses thread_runtime_workers - [Unsigned]
-Wrote executable to tests/rt-behavior/threads/thread-strings-split-return/thread_strings_split_return/thread_strings_split_return.out
+Wrote executable to tests/rt-behavior/threads/thread-strings-split-return/build/thread_strings_split_return.out
 [exit 0]
-$ tests/rt-behavior/threads/thread-strings-split-return/thread_strings_split_return/thread_strings_split_return.out
+$ tests/rt-behavior/threads/thread-strings-split-return/build/thread_strings_split_return.out
 apple
 banana
 cherry

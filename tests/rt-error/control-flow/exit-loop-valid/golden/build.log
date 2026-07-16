@@ -3,7 +3,7 @@ Wrote AST to tests/rt-error/control-flow/exit-loop-valid/exit_loop_valid.ast
 Wrote IR to tests/rt-error/control-flow/exit-loop-valid/exit_loop_valid.ir
 [exit 0]
 $ mfb build tests/rt-error/control-flow/exit-loop-valid
-Wrote executable to tests/rt-error/control-flow/exit-loop-valid/exit_loop_valid/exit_loop_valid.out
+Wrote executable to tests/rt-error/control-flow/exit-loop-valid/build/exit_loop_valid.out
 [exit 0]
-$ tests/rt-error/control-flow/exit-loop-valid/exit_loop_valid/exit_loop_valid.out
+$ tests/rt-error/control-flow/exit-loop-valid/build/exit_loop_valid.out
 [exit 39]

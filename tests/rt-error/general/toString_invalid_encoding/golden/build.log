@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/general/toString_invalid_encoding/func_general_toStr
 Wrote IR to tests/rt-error/general/toString_invalid_encoding/func_general_toString_invalid_encoding.ir
 [exit 0]
 $ mfb build tests/rt-error/general/toString_invalid_encoding
-Wrote executable to tests/rt-error/general/toString_invalid_encoding/func_general_toString_invalid_encoding/func_general_toString_invalid_encoding.out
+Wrote executable to tests/rt-error/general/toString_invalid_encoding/build/func_general_toString_invalid_encoding.out
 [exit 0]
-$ tests/rt-error/general/toString_invalid_encoding/func_general_toString_invalid_encoding/func_general_toString_invalid_encoding.out
+$ tests/rt-error/general/toString_invalid_encoding/build/func_general_toString_invalid_encoding.out
 Error: 7-702-0004
 Text encoding or decoding failed.
 [exit 255]

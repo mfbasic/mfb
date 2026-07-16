@@ -554,6 +554,23 @@ impl DynamicPayload {
             }
         }
 
+        // DT_RUNPATH (plan-46-D §4.2): the loader search path for `dlopen`ing a
+        // vendored native library. Appended last so its offset is stable, and only
+        // when the build actually vendors something — a build with no vendor
+        // libraries grows `dynstr` by nothing and emits no tag, staying
+        // byte-identical.
+        //
+        // `DT_STRSZ` is computed as `dynstr.len()` and `dynsym_offset` derives from
+        // `dynstr_offset + dynstr.len()`, so growing `dynstr` propagates through
+        // the layout with no manual fixups.
+        // `$ORIGIN` is written verbatim — the loader expands it, not the build.
+        let runpath_offset = runpath_string(image).map(|path| {
+            let offset = dynstr.len();
+            dynstr.extend_from_slice(path.as_bytes());
+            dynstr.push(0);
+            offset
+        });
+
         let dynstr_offset = data_base_offset;
         let dynsym_offset = align(dynstr_offset + dynstr.len(), 8);
         let dynsym_size = (image.imports.len() + 1) * 24;
@@ -603,7 +620,11 @@ impl DynamicPayload {
         let dynamic_count = libraries.len()
             + 14
             + if versioned { 3 } else { 0 }
-            + if image.initializers.is_empty() { 0 } else { 2 };
+            + if image.initializers.is_empty() { 0 } else { 2 }
+            // plan-46-D §4.2: one DT_RUNPATH tag for a vendoring build. Counted
+            // here as well as emitted below — the `expected_dynamic_size` check
+            // after the tag block is what keeps the two in lockstep.
+            + usize::from(runpath_offset.is_some());
         let dynamic_size = dynamic_count * 16;
         let data_offset = align(
             TEXT_FILE_OFFSET + image.text.len() + image.imports.len() * 12,
@@ -765,6 +786,12 @@ impl DynamicPayload {
         for offset in library_offsets {
             put_dynamic(&mut bytes, 1, offset as u64);
         }
+        // DT_RUNPATH is tag 29, not DT_RPATH (15): RPATH is deprecated and,
+        // unlike RUNPATH, cannot be overridden by LD_LIBRARY_PATH. Emitted only
+        // for a build that vendors something (plan-46-D §4.2).
+        if let Some(offset) = runpath_offset {
+            put_dynamic(&mut bytes, 29, offset as u64);
+        }
         put_dynamic(&mut bytes, 4, data_vmaddr + hash_offset as u64);
         put_dynamic(&mut bytes, 5, data_vmaddr + dynstr_offset as u64);
         put_dynamic(&mut bytes, 6, data_vmaddr + dynsym_offset as u64);
@@ -809,6 +836,29 @@ impl DynamicPayload {
     }
 }
 
+/// The `DT_RUNPATH` string this image contributes to `.dynstr`, or `None` when
+/// the build vendors nothing (plan-46-D §4.2).
+///
+/// **The single owner of this string.** `.dynstr`'s contents and
+/// [`dynamic_prefix_size`] are two independent computations of the same layout —
+/// the latter derives the GOT offset baked into every import stub, so if it
+/// under-counts `.dynstr` by even one byte, every stub jumps through the wrong
+/// GOT slot and the program segfaults on its first imported call. Both call this.
+///
+/// Multiple entries are one colon-separated string, per the ELF convention.
+fn runpath_string(image: &EncodedImage) -> Option<String> {
+    if image.rpaths.is_empty() {
+        None
+    } else {
+        Some(image.rpaths.join(":"))
+    }
+}
+
+/// The `.dynstr` bytes a `DT_RUNPATH` occupies: the string plus its NUL.
+fn runpath_dynstr_len(image: &EncodedImage) -> usize {
+    runpath_string(image).map_or(0, |path| path.len() + 1)
+}
+
 pub(super) fn dynamic_prefix_size(image: &EncodedImage) -> usize {
     let mut libraries = Vec::<&str>::new();
     for import in &image.imports {
@@ -840,7 +890,13 @@ pub(super) fn dynamic_prefix_size(image: &EncodedImage) -> usize {
         + version_strings
             .iter()
             .map(|version| version.len() + 1)
-            .sum::<usize>();
+            .sum::<usize>()
+        // The DT_RUNPATH string is in `.dynstr` too (plan-46-D §4.2). Omitting it
+        // here under-counts `.dynstr`, which shifts every offset derived from it
+        // — including the GOT offset baked into each import stub — and the program
+        // segfaults on its first imported call, long before it reaches the
+        // `dlopen` the runpath exists for.
+        + runpath_dynstr_len(image);
     let dynstr_offset = align(image.data.len(), 8);
     let dynsym_offset = align(dynstr_offset + dynstr_len, 8);
     let dynsym_size = (image.imports.len() + 1) * 24;

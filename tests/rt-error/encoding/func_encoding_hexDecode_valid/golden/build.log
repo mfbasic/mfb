@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding
 Wrote IR to tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.ir
 [exit 0]
 $ mfb build tests/rt-error/encoding/func_encoding_hexDecode_valid
-Wrote executable to tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.out
+Wrote executable to tests/rt-error/encoding/func_encoding_hexDecode_valid/build/func_encoding_hexDecode_valid.out
 [exit 0]
-$ tests/rt-error/encoding/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid/func_encoding_hexDecode_valid.out
+$ tests/rt-error/encoding/func_encoding_hexDecode_valid/build/func_encoding_hexDecode_valid.out
 Error: 7-702-0004
 Text encoding or decoding failed.
 [exit 255]

@@ -112,6 +112,13 @@ pub(crate) trait NativeBackend: Sync {
         // `CFBundleShortVersionString`/`CFBundleVersion`. Required in app mode;
         // ignored by console builds and by backends without a bundle format.
         app_version: Option<&str>,
+        // plan-46-D §4.2/§4.3: whether this build resolved any `vendor` native
+        // library, so the backend emits an RPATH pointing at the vendor directory
+        // beside the executable. The *string* is the backend's choice, because it
+        // is per output shape (`$ORIGIN/vendor`, `@loader_path/vendor`, or
+        // `@executable_path/../Frameworks` for a macOS `.app`); the caller only
+        // knows whether there is anything to point at.
+        vendors_native_libraries: bool,
         // plan-15 D3: stdin broadcast-log backpressure cap from the manifest
         // `"config"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
         stdin_log_cap: Option<u64>,
@@ -169,6 +176,49 @@ static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[
     &linux_riscv64::BACKEND,
 ];
 
+/// The `os` token of every registered native backend, deduplicated, in registry
+/// order.
+///
+/// This is the canonical `os` vocabulary for native-library locators (plan-46-A
+/// §4.1). It is derived from [`NATIVE_BACKENDS`] rather than hardcoded so that
+/// registering a backend widens the accepted set — and the plan-46-B coverage
+/// matrix — for free.
+pub fn registered_target_oses() -> Vec<String> {
+    let mut oses: Vec<String> = Vec::new();
+    for backend in NATIVE_BACKENDS {
+        let os = backend.target().os;
+        if !oses.contains(&os) {
+            oses.push(os);
+        }
+    }
+    oses
+}
+
+/// The `arch` token of every registered native backend, deduplicated, in registry
+/// order. The canonical `arch` vocabulary for native-library locators
+/// (plan-46-A §4.1).
+pub fn registered_target_arches() -> Vec<String> {
+    let mut arches: Vec<String> = Vec::new();
+    for backend in NATIVE_BACKENDS {
+        let arch = backend.target().arch;
+        if !arches.contains(&arch) {
+            arches.push(arch);
+        }
+    }
+    arches
+}
+
+/// The `(os, arch)` pair of every registered native backend, in registry order.
+///
+/// Crossed with the libc axis (linux only) this yields the plan-46-B §4.2
+/// supported-target coverage matrix.
+pub fn registered_targets() -> Vec<BuildTarget> {
+    NATIVE_BACKENDS
+        .iter()
+        .map(|backend| backend.target())
+        .collect()
+}
+
 fn backend_for(target: &BuildTarget) -> Result<&'static dyn NativeBackend, String> {
     NATIVE_BACKENDS
         .iter()
@@ -195,6 +245,7 @@ pub fn write_executable(
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
+    vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
@@ -213,6 +264,7 @@ pub fn write_executable(
         build_mode,
         app_icon,
         app_version,
+        vendors_native_libraries,
         stdin_log_cap,
     )
 }

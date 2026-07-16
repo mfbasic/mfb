@@ -3,6 +3,5 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
-  "native": [ { "library": "demo", "platforms": ["linux", "macos", "windows"] } ],
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

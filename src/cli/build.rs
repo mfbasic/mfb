@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ use crate::binary_repr;
 use crate::ir;
 use crate::json_string;
 use crate::manifest::entry::validate_entry_point;
+use crate::manifest::libraries::Libc;
 use crate::manifest::package::{
     external_package_function_types, external_package_function_types_from_files,
     installed_package_files, package_metadata,
@@ -21,6 +23,7 @@ use crate::resolver;
 use crate::rules;
 use crate::syntaxcheck;
 use crate::target;
+use crate::target::shared::code::link_locator;
 
 /// How much human-facing progress `mfb build` prints (plan-36). Never reaches
 /// codegen — only the CLI's own `println!`/`eprintln!` lines are gated on it, so
@@ -449,12 +452,19 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let ir = ir::lower_project_with_external_functions(
+            let mut ir = ir::lower_project_with_external_functions(
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,
                 &external_params,
             );
+            // plan-46-B §4.3: an executable that declares its *own* `LINK` block
+            // needs its own locators too — an imported binding's come from that
+            // binding's `.mfp` section 10 instead. Runs the same missing-entry /
+            // vendor-hash / coverage checks as a package build.
+            if !assemble_native_libraries_for_ir(&mut ir, &manifest, &options.location) {
+                return Err(());
+            }
             // A host `mfb test` links the driver into a unique temporary
             // directory (removed after the run) so nothing is ever left in the
             // project directory. A cross `-target` test build has no host binary
@@ -466,6 +476,20 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 None
             };
             let output_dir = test_output_dir.as_deref().unwrap_or(&options.location);
+            // plan-46-C §4.4: hash-verify every `vendor` library this build resolves
+            // to, against the sha256 the declaring binding recorded. Runs before
+            // codegen so a wrong-version or missing blob fails the build rather
+            // than producing a binary that dies at `dlopen`.
+            let vendored = match resolved_vendor_libraries(&ir, &packages, &target, build_mode) {
+                Ok(vendored) => vendored,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
+            };
+            if !verify_vendor_libraries(&vendored, &options.location) {
+                return Err(());
+            }
             let codegen_start = std::time::Instant::now();
             let executable_paths = target::write_executable(
                 output_dir,
@@ -481,12 +505,27 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 // as CFBundleShortVersionString/CFBundleVersion; App Store upload
                 // validation rejects a bundle missing either key.
                 crate::manifest::project_version(&manifest),
+                // plan-46-D §4.2/§4.3: emit an RPATH only when this build actually
+                // resolved a `vendor` locator; the backend picks the string for its
+                // output shape.
+                !vendored.is_empty(),
                 // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
                 crate::manifest::stdin_log_cap(&manifest),
             )
             .map_err(|err| {
                 eprintln!("error: {err}");
             })?;
+            // plan-46-D §4.5: copy the resolved vendor libraries into the directory
+            // the executable's RPATH points at, so `dlopen` of the bare filename
+            // resolves from any working directory and survives moving `build/`.
+            if let Err(err) = copy_vendor_libraries(
+                &vendored,
+                &options.location,
+                &vendor_output_dirs(output_dir, &ir.name, build_mode),
+            ) {
+                eprintln!("error: {err}");
+                return Err(());
+            }
             reporter.phase("codegen+link", codegen_start.elapsed());
             // `mfb test` compiles the driver, then runs it and adopts its exit
             // status (non-zero iff any case failed).
@@ -537,6 +576,13 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // declarations still get a `.mfp` doc entry (plan-09-doc.md §5).
             ir.docs = ir::collect_project_docs(&ast);
             let mut metadata = package_metadata(&manifest);
+            // plan-46-B §4.3: assemble the native library table from the manifest's
+            // `libraries` section and the IR's distinct `LINK` names. Aborts the
+            // build on a `LINK` with no entry, or a `vendor` file that cannot be
+            // hashed; warns per uncovered target and per unused entry.
+            if !assemble_native_libraries(&mut metadata, &manifest, &ir, &options.location) {
+                return Err(());
+            }
             if let Some(signing) = &signing {
                 apply_signing_metadata(&mut metadata, signing);
             }
@@ -1251,6 +1297,328 @@ fn decode_trust_anchor(value: &str) -> Result<Vec<u8>, String> {
     mfb_repository::package::decode_metadata_key(value, "identKey")
 }
 
+/// Assemble the package's `NATIVE_LIBRARY_TABLE` into `metadata` and render every
+/// finding (plan-46-B §4.3). Returns whether the build may continue — false when
+/// any finding is `Error` severity (a `LINK` with no `libraries` entry, or an
+/// unreadable `vendor` file).
+///
+/// A package with no `LINK` block produces an empty table, emits no section 10,
+/// and leaves container flag bit 0 clear — its `.mfp` stays byte-identical.
+fn assemble_native_library_table(
+    manifest: &HashMap<String, JsonValue>,
+    ir: &ir::IrProject,
+    project_root: &Path,
+) -> Option<binary_repr::NativeLibraryTable> {
+    let linked = ir.link_library_names();
+    let manifest_path = project_root.join("project.json");
+    let (table, findings) =
+        crate::manifest::libraries::build_native_library_table(manifest, &linked, project_root);
+
+    let mut ok = true;
+    for finding in &findings {
+        rules::show_diagnostic(finding.rule, &finding.message, &manifest_path, 1, 1, 1);
+        if rules::is_error(finding.rule) {
+            ok = false;
+        }
+    }
+    ok.then_some(table)
+}
+
+/// Every `(os, arch, libc)` this build will actually emit a binary for.
+///
+/// A Linux **console** `mfb build` emits both libc flavors from one invocation,
+/// each its own codegen pass, so a locator that differs by libc must be resolved
+/// (and its vendor file verified) once per flavor.
+///
+/// A Linux **app-mode** build emits a single glibc binary (plan-05-linux-app.md
+/// §5.2), so it must be checked for glibc only: demanding a musl locator — and a
+/// musl blob in `vendor/` — for a flavor the build never emits would fail a
+/// correct project. macOS has no libc axis and yields one target either way.
+///
+/// This must stay in lockstep with what the backends actually emit; it is the
+/// caller-side mirror of their per-flavor loop.
+fn emitted_link_targets(
+    target: &target::BuildTarget,
+    build_mode: target::NativeBuildMode,
+) -> Vec<link_locator::LinkTarget> {
+    if target.os == "linux" {
+        let flavors: &[Libc] = if build_mode.is_app() {
+            &[Libc::Glibc]
+        } else {
+            &[Libc::Glibc, Libc::Musl]
+        };
+        flavors
+            .iter()
+            .map(|libc| link_locator::LinkTarget {
+                os: target.os.clone(),
+                arch: target.arch.clone(),
+                libc: Some(*libc),
+            })
+            .collect()
+    } else {
+        vec![link_locator::LinkTarget {
+            os: target.os.clone(),
+            arch: target.arch.clone(),
+            libc: None,
+        }]
+    }
+}
+
+/// Resolve every `vendor` library this build emits, in a deterministic order.
+///
+/// Shared by the hash verify (plan-46-C §4.4) and the output copy (plan-46-D
+/// §4.5) so both act on exactly the same resolved set. Deduplicated by the
+/// emitted `dlopen_name`, since both Linux flavors commonly resolve to the same
+/// `system` locator and may share a `vendor` one.
+fn resolved_vendor_libraries(
+    ir: &ir::IrProject,
+    packages: &[PathBuf],
+    target: &target::BuildTarget,
+    build_mode: target::NativeBuildMode,
+) -> Result<Vec<link_locator::ResolvedLibrary>, String> {
+    let tables =
+        link_locator::LibraryTables::collect(packages, &ir.name, ir.native_libraries.clone())?;
+    // Derived from the tables, not `ir.link_library_names()`: `ir` here is the
+    // project's own IR, not yet merged with its imported packages, so its
+    // `link_functions` would miss every library an imported binding links — which
+    // is the whole case this verify exists for.
+    let linked = tables.logical_names();
+    if linked.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut vendored: Vec<link_locator::ResolvedLibrary> = Vec::new();
+    for link_target in emitted_link_targets(target, build_mode) {
+        let resolved = link_locator::LinkLibraries::resolve_all(&tables, &linked, &link_target)?;
+        for library in resolved.vendored() {
+            if !vendored
+                .iter()
+                .any(|existing| existing.dlopen_name == library.dlopen_name)
+            {
+                vendored.push(library.clone());
+            }
+        }
+    }
+    vendored.sort_by(|a, b| a.dlopen_name.cmp(&b.dlopen_name));
+    Ok(vendored)
+}
+
+/// Hash-verify each resolved `vendor` library against the sha256 the declaring
+/// binding recorded in its section-10 table (plan-46-C §4.4).
+///
+/// The file is the one the **consumer** author placed at
+/// `<consumer project root>/vendor/<source>` by hand — the `.mfp` carries the
+/// hash, never the blob.
+fn verify_vendor_libraries(
+    vendored: &[link_locator::ResolvedLibrary],
+    project_root: &Path,
+) -> bool {
+    let mut ok = true;
+    for library in vendored {
+        let path = crate::manifest::libraries::vendor_path(project_root, &library.locator.source);
+        let actual = match crate::manifest::libraries::sha256_file(&path) {
+            Ok(hash) => hash,
+            Err(reason) => {
+                rules::show_general_diagnostic(
+                    "NATIVE_LIBRARY_FILE_MISSING",
+                    &format!(
+                        "`{}` vendors native library \"{}\", but {} could not be read: {reason}. \
+                         Place that file there — the package carries its hash, not its bytes.",
+                        library.declaring_unit,
+                        library.locator.source,
+                        path.display()
+                    ),
+                );
+                ok = false;
+                continue;
+            }
+        };
+        // A vendor locator always carries a hash (the encoder enforces
+        // `hash` present iff vendor, and decode re-checks it).
+        let Some(expected) = library.locator.hash else {
+            rules::show_general_diagnostic(
+                "NATIVE_LIBRARY_HASH_MISMATCH",
+                &format!(
+                    "`{}` vendors native library \"{}\" but records no hash for it; the package \
+                     is malformed and must be rebuilt.",
+                    library.declaring_unit, library.locator.source
+                ),
+            );
+            ok = false;
+            continue;
+        };
+        if actual != expected {
+            rules::show_general_diagnostic(
+                "NATIVE_LIBRARY_HASH_MISMATCH",
+                &format!(
+                    "{} does not match the sha256 `{}` recorded for \"{}\" — this is the wrong \
+                     version of the library.\n               expected {}\n               actual   {}",
+                    path.display(),
+                    library.declaring_unit,
+                    library.locator.source,
+                    hex(&expected),
+                    hex(&actual),
+                ),
+            );
+            ok = false;
+        }
+    }
+    ok
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Where this build's output shape wants its vendored native libraries — the
+/// directory (or directories) the emitted RPATH resolves to (plan-46-D §4.4).
+///
+/// Must stay in lockstep with the RPATH each backend emits: the loader looks
+/// exactly here and nowhere else.
+///
+/// | build | rpath | vendor files |
+/// | --- | --- | --- |
+/// | linux console / `-app` | `$ORIGIN/vendor` | `build/vendor/` |
+/// | macos console | `@loader_path/vendor` | `build/vendor/` |
+/// | macos `-app` | `@executable_path/../Frameworks` | `build/<name>.app/Contents/Frameworks/` |
+fn vendor_output_dirs(
+    output_dir: &Path,
+    project_name: &str,
+    build_mode: target::NativeBuildMode,
+) -> Vec<PathBuf> {
+    let build_dir = output_dir.join(crate::os::BUILD_DIR);
+    match build_mode {
+        // The `.app` bundle puts its dylibs in the platform-standard
+        // `Contents/Frameworks/`, where Apple specifies private shared libraries
+        // live and where bundle-inspecting tools expect them. Created only when the
+        // build vendors something — an empty `Frameworks/` in every bundle would be
+        // noise.
+        target::NativeBuildMode::MacApp => vec![build_dir
+            .join(format!("{project_name}.app"))
+            .join("Contents")
+            .join(crate::os::MACOS_APP_FRAMEWORKS_DIR)],
+        // Both Linux libc flavors live in the one `build/` directory and share the
+        // one `vendor/`. That is sound only because vendor `source` filenames are
+        // unique project-wide (plan-46-A §4.3), so a glibc blob and a musl blob
+        // never collide.
+        _ => vec![build_dir.join(crate::os::VENDOR_DIR)],
+    }
+}
+
+/// Copy each resolved `vendor` library into the output directory the executable's
+/// RPATH points at (plan-46-D §4.5), preserving the executable bit.
+///
+/// Runs **after** the hash verify on the same files, so the bytes landing in the
+/// output are the bytes that were verified — and they are not re-hashed.
+///
+/// Only *resolved* locators are copied, never the whole `vendor/` directory: a
+/// project vendoring blobs for six targets ships one per build.
+///
+/// The destination filename is `dlopen_name` — the same helper plan-46-C emits the
+/// `dlopen` cstring from, never a second copy of the format string. If the file
+/// written here and the string emitted there ever disagreed, the `dlopen` would
+/// miss at runtime and nothing at build time would notice.
+fn copy_vendor_libraries(
+    vendored: &[link_locator::ResolvedLibrary],
+    project_root: &Path,
+    output_dirs: &[PathBuf],
+) -> Result<(), String> {
+    if vendored.is_empty() {
+        return Ok(());
+    }
+
+    // §4.5.2 residual check: the `<declaring-unit>-` prefix makes a collision
+    // essentially unrepresentable, but not provably so — a project named `sqlite3`
+    // that also imports a package named `sqlite3` could reach the same output name.
+    // Absurd, but the cost is a silent wrong-library load, so assert it. Identical
+    // hashes are fine: the same bytes, legitimately shared, and the copy is
+    // idempotent. This check should never fire; it is the guard rail that lets the
+    // prefix be trusted, not the mechanism.
+    for (index, library) in vendored.iter().enumerate() {
+        for other in &vendored[index + 1..] {
+            if library.dlopen_name == other.dlopen_name
+                && library.locator.hash != other.locator.hash
+            {
+                rules::show_general_diagnostic(
+                    "NATIVE_LIBRARY_VENDOR_COLLISION",
+                    &format!(
+                        "`{}` and `{}` both vendor a native library that copies to \"{}\", with \
+                         different contents. One would silently overwrite the other and both \
+                         bindings would load whichever won. Rename one of the vendored files.",
+                        library.declaring_unit, other.declaring_unit, library.dlopen_name
+                    ),
+                );
+                return Err(format!(
+                    "vendored native library name collision on \"{}\"",
+                    library.dlopen_name
+                ));
+            }
+        }
+    }
+
+    for output_dir in output_dirs {
+        std::fs::create_dir_all(output_dir)
+            .map_err(|err| format!("failed to create '{}': {err}", output_dir.display()))?;
+        for library in vendored {
+            let from =
+                crate::manifest::libraries::vendor_path(project_root, &library.locator.source);
+            let to = output_dir.join(&library.dlopen_name);
+            std::fs::copy(&from, &to).map_err(|err| {
+                format!(
+                    "failed to copy vendored library '{}' to '{}': {err}",
+                    from.display(),
+                    to.display()
+                )
+            })?;
+            // Preserve the executable bit: a shared object is loadable without it
+            // on Linux, but macOS `dlopen` of a non-executable dylib can be
+            // refused, and `fs::copy` already carries the source mode on Unix.
+            // Set it explicitly so a source blob checked out without +x still works.
+            let mut permissions = std::fs::metadata(&to)
+                .map_err(|err| format!("failed to read '{}': {err}", to.display()))?
+                .permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&to, permissions)
+                .map_err(|err| format!("failed to mark '{}' executable: {err}", to.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Package build: the table becomes `.mfp` section 10 and sets container flag
+/// bit 0, so it rides on the metadata the package writer encodes.
+fn assemble_native_libraries(
+    metadata: &mut binary_repr::BinaryReprMetadata,
+    manifest: &HashMap<String, JsonValue>,
+    ir: &ir::IrProject,
+    project_root: &Path,
+) -> bool {
+    match assemble_native_library_table(manifest, ir, project_root) {
+        Some(table) => {
+            metadata.native_libraries = table;
+            true
+        }
+        None => false,
+    }
+}
+
+/// Executable build: nothing is encoded, but a project declaring its own `LINK`
+/// block must still resolve against its own locators at codegen, so the table
+/// rides on the IR into the NIR module (plan-46-C).
+fn assemble_native_libraries_for_ir(
+    ir: &mut ir::IrProject,
+    manifest: &HashMap<String, JsonValue>,
+    project_root: &Path,
+) -> bool {
+    match assemble_native_library_table(manifest, ir, project_root) {
+        Some(table) => {
+            ir.native_libraries = table;
+            true
+        }
+        None => false,
+    }
+}
+
 pub(crate) fn apply_signing_metadata(
     metadata: &mut binary_repr::BinaryReprMetadata,
     signing: &BuildSigningInfo,
@@ -1898,5 +2266,179 @@ mod tests {
         let options =
             parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
         assert!(build_project(&options).is_err());
+    }
+
+    // ---- vendored native library copy (plan-46-D §4.5) ----
+
+    use crate::binary_repr::NativeLibraryLocator;
+    use crate::manifest::libraries::{LibType, Libc};
+
+    fn vendor_locator(source: &str) -> NativeLibraryLocator {
+        NativeLibraryLocator {
+            os: "linux".to_string(),
+            arch: Some("x86_64".to_string()),
+            libc: Some(Libc::Glibc),
+            lib_type: LibType::Vendor,
+            source: source.to_string(),
+            hash: Some([1u8; 32]),
+        }
+    }
+
+    fn resolved(unit: &str, source: &str) -> link_locator::ResolvedLibrary {
+        let locator = vendor_locator(source);
+        link_locator::ResolvedLibrary {
+            dlopen_name: link_locator::dlopen_name(&locator, unit),
+            declaring_unit: unit.to_string(),
+            locator,
+        }
+    }
+
+    /// The file written and the string emitted must be the SAME string: a
+    /// divergence is a `dlopen` miss at runtime and invisible at build time. Both
+    /// sides build it through `dlopen_name`, so pin that they agree.
+    #[test]
+    fn the_copied_filename_is_the_emitted_dlopen_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
+
+        let library = resolved("sqlite3", "libfoo.so");
+        let out = root.join("out");
+        copy_vendor_libraries(std::slice::from_ref(&library), root, &[out.clone()])
+            .expect("copy succeeds");
+
+        // The file on disk is named exactly what plan-46-C emits into the binary.
+        assert!(out.join(&library.dlopen_name).is_file());
+        assert_eq!(library.dlopen_name, "sqlite3-libfoo.so");
+    }
+
+    /// The collision this prefix exists to prevent: two packages each vendoring a
+    /// `libfoo.so`. Both must land as distinct files — without the prefix one
+    /// would silently overwrite the other and both bindings would `dlopen`
+    /// whichever won.
+    #[test]
+    fn two_packages_vendoring_the_same_filename_land_as_two_distinct_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
+
+        let a = resolved("sqlite3", "libfoo.so");
+        let b = resolved("imaging", "libfoo.so");
+        assert_ne!(a.dlopen_name, b.dlopen_name);
+
+        let out = root.join("out");
+        copy_vendor_libraries(&[a.clone(), b.clone()], root, &[out.clone()]).expect("copy");
+        assert!(out.join("sqlite3-libfoo.so").is_file());
+        assert!(out.join("imaging-libfoo.so").is_file());
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 2);
+    }
+
+    /// §4.5.2 residual check: two declaring units mapping to the same output name
+    /// with *different* bytes. This should never fire — it is the guard rail that
+    /// lets the prefix be trusted, not the mechanism.
+    #[test]
+    fn colliding_output_names_with_differing_hashes_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
+
+        let mut a = resolved("same", "libfoo.so");
+        let mut b = resolved("same", "libfoo.so");
+        a.locator.hash = Some([1u8; 32]);
+        b.locator.hash = Some([2u8; 32]);
+        let error = copy_vendor_libraries(&[a, b], root, &[root.join("out")])
+            .expect_err("differing hashes on one output name must be rejected");
+        assert!(error.contains("collision"), "error: {error}");
+    }
+
+    /// Identical hashes are fine: the same bytes, legitimately shared, and the
+    /// copy is idempotent.
+    #[test]
+    fn colliding_output_names_with_identical_hashes_are_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
+
+        let a = resolved("same", "libfoo.so");
+        let b = resolved("same", "libfoo.so");
+        copy_vendor_libraries(&[a, b], root, &[root.join("out")])
+            .expect("identical bytes may share an output name");
+    }
+
+    /// A build with no vendor locators writes no vendor directory at all.
+    #[test]
+    fn no_vendor_locators_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out");
+        copy_vendor_libraries(&[], dir.path(), &[out.clone()]).expect("no-op");
+        assert!(
+            !out.exists(),
+            "an empty vendor set must not create the directory"
+        );
+    }
+
+    /// The RPATH each backend emits and the directory the copy targets must agree
+    /// — the loader looks exactly there and nowhere else.
+    #[test]
+    fn vendor_output_dirs_match_the_emitted_rpath_per_shape() {
+        let root = Path::new("/proj");
+        assert_eq!(
+            vendor_output_dirs(root, "app", target::NativeBuildMode::Console),
+            vec![PathBuf::from("/proj/build/vendor")],
+            "console: $ORIGIN/vendor | @loader_path/vendor -> build/vendor"
+        );
+        assert_eq!(
+            vendor_output_dirs(root, "app", target::NativeBuildMode::LinuxApp),
+            vec![PathBuf::from("/proj/build/vendor")],
+            "linux -app: $ORIGIN/vendor -> build/vendor"
+        );
+        assert_eq!(
+            vendor_output_dirs(root, "app", target::NativeBuildMode::MacApp),
+            vec![PathBuf::from("/proj/build/app.app/Contents/Frameworks")],
+            "macos -app: @executable_path/../Frameworks -> the bundle's Frameworks"
+        );
+    }
+
+    /// A Linux **console** build emits both libc flavors, so both must be checked;
+    /// a Linux **app** build emits a single glibc binary, so demanding a musl
+    /// locator (and a musl blob in `vendor/`) for a flavor it never emits would
+    /// fail a correct project.
+    #[test]
+    fn emitted_link_targets_track_what_each_build_mode_actually_emits() {
+        let linux = target::BuildTarget {
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+        };
+        let console: Vec<String> = emitted_link_targets(&linux, target::NativeBuildMode::Console)
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        assert_eq!(console, vec!["linux/x86_64/glibc", "linux/x86_64/musl"]);
+
+        // plan-05-linux-app.md §5.2: app mode is glibc-only.
+        let app: Vec<String> = emitted_link_targets(&linux, target::NativeBuildMode::LinuxApp)
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        assert_eq!(app, vec!["linux/x86_64/glibc"]);
+
+        // macOS has no libc axis in either mode.
+        let macos = target::BuildTarget {
+            os: "macos".to_string(),
+            arch: "aarch64".to_string(),
+        };
+        for mode in [
+            target::NativeBuildMode::Console,
+            target::NativeBuildMode::MacApp,
+        ] {
+            let slots = emitted_link_targets(&macos, mode);
+            assert_eq!(slots.len(), 1);
+            assert_eq!(slots[0].libc, None);
+            assert_eq!(slots[0].to_string(), "macos/aarch64");
+        }
     }
 }

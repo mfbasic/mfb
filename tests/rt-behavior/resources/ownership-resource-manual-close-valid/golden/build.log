@@ -3,8 +3,8 @@ Wrote AST to tests/rt-behavior/resources/ownership-resource-manual-close-valid/o
 Wrote IR to tests/rt-behavior/resources/ownership-resource-manual-close-valid/ownership_resource_manual_close_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/resources/ownership-resource-manual-close-valid
-Wrote executable to tests/rt-behavior/resources/ownership-resource-manual-close-valid/ownership_resource_manual_close_valid/ownership_resource_manual_close_valid.out
+Wrote executable to tests/rt-behavior/resources/ownership-resource-manual-close-valid/build/ownership_resource_manual_close_valid.out
 [exit 0]
-$ tests/rt-behavior/resources/ownership-resource-manual-close-valid/ownership_resource_manual_close_valid/ownership_resource_manual_close_valid.out
+$ tests/rt-behavior/resources/ownership-resource-manual-close-valid/build/ownership_resource_manual_close_valid.out
 closed
 [exit 0]

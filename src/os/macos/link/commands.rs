@@ -350,6 +350,33 @@ pub(super) fn dylib_command_size(name: &str) -> usize {
     align(24 + name.len() + 1, 8)
 }
 
+/// `LC_RPATH` (plan-46-D §4.3): a loader search path for `dlopen`ing a vendored
+/// native library. `{ u32 cmd, u32 cmdsize, u32 path_offset }` followed by the
+/// NUL-terminated path, padded to an 8-byte multiple — the same shape
+/// [`load_dylib`] builds for `LC_LOAD_DYLIB`.
+///
+/// `0x8000_001c` is `LC_RPATH | LC_REQ_DYLD`.
+pub(super) fn load_rpath(bytes: &mut Vec<u8>, path: &str) {
+    let size = rpath_command_size(path);
+    put_u32(bytes, 0x8000_001c);
+    put_u32(bytes, size as u32);
+    put_u32(bytes, 12); // path_offset: the string follows the 12-byte header
+    bytes.extend_from_slice(path.as_bytes());
+    bytes.push(0);
+    bytes.resize(align(bytes.len(), 8), 0);
+}
+
+/// The encoded size of one [`load_rpath`] command.
+///
+/// **This is the only place the arithmetic lives.** `load_commands_size` calls it
+/// too, rather than open-coding the same sum: emission, `load_commands_size`, and
+/// `load_command_count` are three independent computations feeding `sizeofcmds`
+/// and `ncmds`, and if they disagree `dyld` rejects the binary at launch — a
+/// failure invisible to a round-trip unit test and fatal at exec (plan-46-D §2.2).
+pub(super) fn rpath_command_size(path: &str) -> usize {
+    align(12 + path.len() + 1, 8)
+}
+
 pub(super) fn dyld_info(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0x8000_0022);
     put_u32(bytes, 48);

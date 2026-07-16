@@ -3,8 +3,8 @@ Wrote AST to tests/rt-behavior/fs/func_fs_close_valid/func_fs_close_valid.ast
 Wrote IR to tests/rt-behavior/fs/func_fs_close_valid/func_fs_close_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/fs/func_fs_close_valid
-Wrote executable to tests/rt-behavior/fs/func_fs_close_valid/func_fs_close_valid/func_fs_close_valid.out
+Wrote executable to tests/rt-behavior/fs/func_fs_close_valid/build/func_fs_close_valid.out
 [exit 0]
-$ tests/rt-behavior/fs/func_fs_close_valid/func_fs_close_valid/func_fs_close_valid.out
+$ tests/rt-behavior/fs/func_fs_close_valid/build/func_fs_close_valid.out
 closed
 [exit 0]

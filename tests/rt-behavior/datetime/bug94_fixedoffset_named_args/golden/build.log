@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/datetime/bug94_fixedoffset_named_args/bug94_fixed
 Wrote IR to tests/rt-behavior/datetime/bug94_fixedoffset_named_args/bug94_fixedoffset_named_args.ir
 [exit 0]
 $ mfb build tests/rt-behavior/datetime/bug94_fixedoffset_named_args
-Wrote executable to tests/rt-behavior/datetime/bug94_fixedoffset_named_args/bug94_fixedoffset_named_args/bug94_fixedoffset_named_args.out
+Wrote executable to tests/rt-behavior/datetime/bug94_fixedoffset_named_args/build/bug94_fixedoffset_named_args.out
 [exit 0]
-$ tests/rt-behavior/datetime/bug94_fixedoffset_named_args/bug94_fixedoffset_named_args/bug94_fixedoffset_named_args.out
+$ tests/rt-behavior/datetime/bug94_fixedoffset_named_args/build/bug94_fixedoffset_named_args.out
 18000
 5
 5

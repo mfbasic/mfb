@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostrin
 Wrote IR to tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled.ir
 [exit 0]
 $ mfb build tests/rt-behavior/money/money_tostring_mode_decoupled
-Wrote executable to tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled/money_tostring_mode_decoupled.out
+Wrote executable to tests/rt-behavior/money/money_tostring_mode_decoupled/build/money_tostring_mode_decoupled.out
 [exit 0]
-$ tests/rt-behavior/money/money_tostring_mode_decoupled/money_tostring_mode_decoupled/money_tostring_mode_decoupled.out
+$ tests/rt-behavior/money/money_tostring_mode_decoupled/build/money_tostring_mode_decoupled.out
 0.13
 0.13
 0.13

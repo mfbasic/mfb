@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use super::link_locator::LinkLibraries;
 use super::*;
 use crate::ir::{IrLinkExpr, IrLinkFunction};
 use crate::target::shared::abi;
@@ -27,18 +28,6 @@ use crate::target::shared::nir::{self, link_thunk_symbol};
 pub(super) struct LinkSupport {
     pub(super) functions: Vec<CodeFunction>,
     pub(super) data_objects: Vec<CodeDataObject>,
-}
-
-/// Map a logical library name (e.g. `sqlite3`) to its platform shared-object
-/// filename for `dlopen` (plan-linker.md §12.1).
-fn library_filename(target: &str, logical: &str) -> String {
-    if target.contains("macos") {
-        format!("lib{logical}.dylib")
-    } else {
-        // glibc soname convention; the §12.1 example resolves `sqlite3` to
-        // `libsqlite3.so.0`.
-        format!("lib{logical}.so.0")
-    }
 }
 
 /// A read-only NUL-terminated C string constant.
@@ -138,6 +127,7 @@ pub(super) fn emit_link_support(
     globals_base: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    libraries: &LinkLibraries,
 ) -> Result<LinkSupport, String> {
     let mut data_objects = Vec::new();
 
@@ -148,11 +138,15 @@ pub(super) fn emit_link_support(
             library_index.push(function.library.clone());
         }
     }
+    // plan-46-C: the `dlopen` filename is the binding author's declared `source`
+    // for this build's exact (os, arch, libc) — resolved from the imported
+    // binding's section-10 table, never synthesized. The old `library_filename`
+    // guess (`lib{logical}.so.0` / `lib{logical}.dylib`) is gone: it never
+    // consulted the manifest and missed every unversioned `.so`, `.so.3`,
+    // non-`lib`-prefixed, or per-arch/libc variant.
     for (index, library) in library_index.iter().enumerate() {
-        data_objects.push(cstring_object(
-            &lib_symbol(index),
-            &library_filename(platform.target(), library),
-        ));
+        let resolved = libraries.get(library)?;
+        data_objects.push(cstring_object(&lib_symbol(index), &resolved.dlopen_name));
     }
     // One symbol-name constant per function (indexed by position).
     for (index, function) in link_functions.iter().enumerate() {

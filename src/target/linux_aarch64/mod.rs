@@ -200,6 +200,7 @@ impl NativeBackend for Backend {
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
+        vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
         // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
@@ -213,6 +214,7 @@ impl NativeBackend for Backend {
             packages,
             signing_metadata,
             build_mode,
+            vendors_native_libraries,
             stdin_log_cap,
         )
     }
@@ -276,6 +278,7 @@ fn write_executable(
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
+    vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
@@ -297,6 +300,14 @@ fn write_executable(
         native_code.validate()?;
         let mut image = arch::aarch64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+        // plan-46-D §4.2: point the loader at the `vendor/` directory beside the
+        // executable, so a bare-filename `dlopen` of a vendored library resolves
+        // and keeps resolving after the whole `build/` directory is moved. Emitted
+        // only when the build vendors something, so every other binary stays
+        // byte-identical.
+        if vendors_native_libraries {
+            image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
+        }
         paths.push(os::linux::write_linked_executable(
             project_dir,
             &ir.name,

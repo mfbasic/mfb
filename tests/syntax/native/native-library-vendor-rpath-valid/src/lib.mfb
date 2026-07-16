@@ -1,0 +1,14 @@
+' A binding package that VENDORS its native library on every supported target
+' (plan-46-D). Covers all 7 slots, so the build emits no coverage warning and the
+' .mfp records a sha256 per vendored file.
+LINK "demolib" AS demoLink
+  FUNC ping(value AS Integer) AS Integer
+    SYMBOL "demo_ping"
+    ABI (value CInt32, return OUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC ping(value AS Integer) AS Integer
+  RETURN demoLink::ping(value)
+END FUNC

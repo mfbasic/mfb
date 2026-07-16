@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/functions/bug78_function_ref_static_descriptor/bu
 Wrote IR to tests/rt-behavior/functions/bug78_function_ref_static_descriptor/bug78_function_ref_static_descriptor.ir
 [exit 0]
 $ mfb build tests/rt-behavior/functions/bug78_function_ref_static_descriptor
-Wrote executable to tests/rt-behavior/functions/bug78_function_ref_static_descriptor/bug78_function_ref_static_descriptor/bug78_function_ref_static_descriptor.out
+Wrote executable to tests/rt-behavior/functions/bug78_function_ref_static_descriptor/build/bug78_function_ref_static_descriptor.out
 [exit 0]
-$ tests/rt-behavior/functions/bug78_function_ref_static_descriptor/bug78_function_ref_static_descriptor/bug78_function_ref_static_descriptor.out
+$ tests/rt-behavior/functions/bug78_function_ref_static_descriptor/build/bug78_function_ref_static_descriptor.out
 42
 11,20
 10000

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/vector/slerp_zero_rt/func_vector_slerp_zero_rt.ast
 Wrote IR to tests/rt-error/vector/slerp_zero_rt/func_vector_slerp_zero_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/vector/slerp_zero_rt
-Wrote executable to tests/rt-error/vector/slerp_zero_rt/func_vector_slerp_zero_rt/func_vector_slerp_zero_rt.out
+Wrote executable to tests/rt-error/vector/slerp_zero_rt/build/func_vector_slerp_zero_rt.out
 [exit 0]
-$ tests/rt-error/vector/slerp_zero_rt/func_vector_slerp_zero_rt/func_vector_slerp_zero_rt.out
+$ tests/rt-error/vector/slerp_zero_rt/build/func_vector_slerp_zero_rt.out
 Error: 7-705-0002
 vector::angle with a zero-length vector
 [exit 255]

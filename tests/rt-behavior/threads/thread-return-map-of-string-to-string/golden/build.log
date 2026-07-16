@@ -5,9 +5,9 @@ Wrote IR to tests/rt-behavior/threads/thread-return-map-of-string-to-string/thre
 [exit 0]
 $ mfb build tests/rt-behavior/threads/thread-return-map-of-string-to-string
 uses thread_runtime_workers - [Unsigned]
-Wrote executable to tests/rt-behavior/threads/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string/thread_return_map_of_string_to_string.out
+Wrote executable to tests/rt-behavior/threads/thread-return-map-of-string-to-string/build/thread_return_map_of_string_to_string.out
 [exit 0]
-$ tests/rt-behavior/threads/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string/thread_return_map_of_string_to_string.out
+$ tests/rt-behavior/threads/thread-return-map-of-string-to-string/build/thread_return_map_of_string_to_string.out
 send-map-value
 send-map-value
 [exit 0]

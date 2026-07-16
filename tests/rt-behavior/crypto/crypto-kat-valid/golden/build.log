@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/crypto/crypto-kat-valid/crypto-kat-valid.ast
 Wrote IR to tests/rt-behavior/crypto/crypto-kat-valid/crypto-kat-valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/crypto/crypto-kat-valid
-Wrote executable to tests/rt-behavior/crypto/crypto-kat-valid/crypto-kat-valid/crypto-kat-valid.out
+Wrote executable to tests/rt-behavior/crypto/crypto-kat-valid/build/crypto-kat-valid.out
 [exit 0]
-$ tests/rt-behavior/crypto/crypto-kat-valid/crypto-kat-valid/crypto-kat-valid.out
+$ tests/rt-behavior/crypto/crypto-kat-valid/build/crypto-kat-valid.out
 ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7
 ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f

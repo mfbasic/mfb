@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/syntax/native/native-library-unused-valid
+Wrote AST to tests/syntax/native/native-library-unused-valid/native_library_unused_valid.ast
+Wrote IR to tests/syntax/native/native-library-unused-valid/native_library_unused_valid.ir
+[exit 0]
+$ mfb build tests/syntax/native/native-library-unused-valid
+   1 | {
+     | ^
+tests/syntax/native/native-library-unused-valid/project.json:1 warn[2-203-0117 NATIVE_LIBRARY_UNUSED]: a project.json `libraries` entry has no matching LINK block in code
+               `libraries.ghostlib` has no matching `LINK "ghostlib"` in this package's code, so it is ignored. Remove it, or correct the name to match the LINK block.
+Wrote package to tests/syntax/native/native-library-unused-valid/native_library_unused_valid.mfp
+[exit 0]

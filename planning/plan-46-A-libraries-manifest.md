@@ -5,6 +5,28 @@ Overall Effort: x-large (1d–3d) — the whole plan-46 feature (A + B + C + D)
 Effort: medium (1h–2h)
 Depends on: nothing
 
+## STATUS: IMPLEMENTED
+
+All three phases landed. `libraries` parses/validates; `native` retired from all
+12 tracked `project.json` files (the plan's suggested grep `'"native"'` was too
+loose — it also matches `"targets": ["native"]`; use `'"native"[[:space:]]*:'`).
+The sqlite3 binding's sonames were verified on real boxes, not guessed:
+`libsqlite3.so.0` on Kali aarch64/glibc, Ubuntu x86_64/glibc, and Alpine
+x86_64+riscv64/musl; `libsqlite3.dylib` dlopens on macOS (it lives in the dyld
+shared cache, so there is no file on disk to `ls`).
+
+Deviations from the plan, both deliberate:
+
+- `validate_libraries` is a thin emitter over a **pure** `check_libraries`
+  returning `Vec<LibraryFinding>`. The plan required asserting on diagnostic
+  *messages*, but `rules::show_diagnostic` writes straight to stderr with no
+  capture hook, so message assertions were only possible by making the check
+  pure. Better design anyway; the same split was then reused for plan-46-B.
+- The bare-filename rule lives in `manifest::libraries::source_is_bare` as the
+  **single owner**, called by both the validator and plan-46-B's `.mfp` decoder.
+  Two copies would drift, and the decoder must re-check untrusted input.
+
+
 Adds a new optional top-level `"libraries"` section to `project.json` that maps
 each `LINK` **logical library name** (e.g. `sqlite3`) to a list of per-platform
 **locators** — which concrete native shared object to load for a given `os` /
@@ -366,13 +388,13 @@ previously undefined and unread.
 Parse-only, no diagnostics; independently valuable (later phases/plans consume
 the accessor).
 
-- [ ] Add `src/manifest/libraries.rs` with `Libc`, `LibType` (defaulting to
+- [x] Add `src/manifest/libraries.rs` with `Libc`, `LibType` (defaulting to
       `Vendor`), `LibraryLocator`, and
       `project_libraries(&HashMap<String,JsonValue>) -> BTreeMap<String,
       Vec<LibraryLocator>>`, following `package_dependencies`
       (`src/manifest/package.rs:457`): lenient, skips malformed-but-non-fatal.
-- [ ] Register the module in `src/manifest/mod.rs`.
-- [ ] Tests: unit tests in `src/manifest/libraries.rs` `#[cfg(test)]` — a
+- [x] Register the module in `src/manifest/mod.rs`.
+- [x] Tests: unit tests in `src/manifest/libraries.rs` `#[cfg(test)]` — a
       multi-entry `libraries` object parses to the expected `Vec`s in key order;
       absent key → empty map; `libc` omitted → `None`; `arch` omitted → `None`;
       **`type` omitted → `LibType::Vendor`**.
@@ -384,12 +406,12 @@ Commit: —
 
 ### Phase 2 — validation wired into `validate_project_manifest`
 
-- [ ] Add `validate_libraries(manifest, contents, path) -> bool` to
+- [x] Add `validate_libraries(manifest, contents, path) -> bool` to
       `src/manifest/mod.rs` per §4.4; call it from `validate_project_manifest`
       into the accumulating `valid` flag.
-- [ ] Add the `2-200-0014` `PROJECT_JSON_LIBRARY_INVALID` and `2-200-0015`
+- [x] Add the `2-200-0014` `PROJECT_JSON_LIBRARY_INVALID` and `2-200-0015`
       `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` rows to `src/rules/table.rs`.
-- [ ] Tests: negative fixtures/cases — non-object `libraries`, non-array value,
+- [x] Tests: negative fixtures/cases — non-object `libraries`, non-array value,
       non-object entry, missing `os`, unknown `os`/`arch`/`libc`/`type` token,
       blank `source`, **`source` with a `/`**, **`source` of `..`**, **`source`
       with an interior NUL**, **two vendor locators sharing a `source`**,
@@ -401,7 +423,7 @@ Commit: —
       code — one code covers a dozen causes (§4.4). Use the existing
       manifest-validation test harness (mirror how `PROJECT_JSON_*` cases are
       currently tested).
-- [ ] Doc: extend `src/docs/spec/tooling/01_project-manifest.md` — add
+- [x] Doc: extend `src/docs/spec/tooling/01_project-manifest.md` — add
       `libraries` to the top-level field table (lines 29-42), add a *Library
       Locator Entries* section documenting `os`/`arch`/`libc`/`type`/`source`,
       the `vendor` default and its fail-closed rationale, the bare-filename rule,
@@ -419,24 +441,24 @@ Small but load-bearing: it makes the tree's one real binding the fixture for
 plan-46-B. Pure manifest edits — no `src/**` change, since nothing reads `native`
 (§2.1).
 
-- [ ] Delete the `native` key from all **12** tracked `project.json` files:
+- [x] Delete the `native` key from all **12** tracked `project.json` files:
       `bindings/sqlite3/project.json` plus the 11 fixtures under
       `tests/syntax/native/**` and `tests/syntax/resources/**`. Enumerate them
       first with `grep -rln '"native"' --include=project.json .` — do not work
       from this list from memory.
-- [ ] Add the equivalent `libraries` section to `bindings/sqlite3/project.json`,
+- [x] Add the equivalent `libraries` section to `bindings/sqlite3/project.json`,
       declaring the real sonames per platform (`libsqlite3.dylib` on macos; the
       actual `libsqlite3.so.N` on linux — **check the real soname on a target
       box, do not guess**; `library_filename`'s current `libsqlite3.so.0` guess
       is not evidence). All entries are `type: "system"`; the binding vendors
       nothing.
-- [ ] Decide per fixture whether the 11 `tests/syntax/**` fixtures need a
+- [x] Decide per fixture whether the 11 `tests/syntax/**` fixtures need a
       `libraries` section at all. They are syntax fixtures that never link, so
       most likely just drop `native` and add nothing — but any fixture that
       plan-46-B would later fail with `NATIVE_LIBRARY_MISSING` (i.e. one whose
       source has a `LINK` block **and** gets built) needs a real section. Check
       each rather than assuming.
-- [ ] Re-sync any goldens the fixture edits churn (`scripts/sync-goldens.sh`).
+- [x] Re-sync any goldens the fixture edits churn (`scripts/sync-goldens.sh`).
 
 Acceptance: `grep -rn '"native"' --include=project.json .` returns nothing;
 `./mfb build` on `bindings/sqlite3` validates clean with the new section; the

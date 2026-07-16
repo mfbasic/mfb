@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/syntax/native/native-library-missing-invalid
+Wrote AST to tests/syntax/native/native-library-missing-invalid/native_library_missing_invalid.ast
+Wrote IR to tests/syntax/native/native-library-missing-invalid/native_library_missing_invalid.ir
+[exit 0]
+$ mfb build tests/syntax/native/native-library-missing-invalid
+   1 | {
+     | ^
+tests/syntax/native/native-library-missing-invalid/project.json:1 error[2-203-0114 NATIVE_LIBRARY_MISSING]: a LINK block names a library with no matching project.json `libraries` entry
+               `LINK "demolib"` has no `libraries` entry in project.json. Add one naming the library to load per platform, for example: "libraries": { "demolib": [ { "os": "linux", "type": "system", "source": "libdemolib.so.0" } ] }.
+[exit 1]

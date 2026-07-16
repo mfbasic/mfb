@@ -51,9 +51,9 @@ tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/src/main.mfb:29 warn
      | ^
 tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/src/main.mfb:35 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
                Inline TRAP handler is unreachable — `collections.contains` cannot fail, so the handler is dead code.
-Wrote executable to tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/inline_trap_infallible_builtin_valid/inline_trap_infallible_builtin_valid.out
+Wrote executable to tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/build/inline_trap_infallible_builtin_valid.out
 [exit 0]
-$ tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/inline_trap_infallible_builtin_valid/inline_trap_infallible_builtin_valid.out
+$ tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/build/inline_trap_infallible_builtin_valid.out
 len=3
 s=42
 b=16

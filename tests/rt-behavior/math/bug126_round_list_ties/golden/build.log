@@ -3,8 +3,8 @@ Wrote AST to tests/rt-behavior/math/bug126_round_list_ties/bug126_round_list_tie
 Wrote IR to tests/rt-behavior/math/bug126_round_list_ties/bug126_round_list_ties.ir
 [exit 0]
 $ mfb build tests/rt-behavior/math/bug126_round_list_ties
-Wrote executable to tests/rt-behavior/math/bug126_round_list_ties/bug126_round_list_ties/bug126_round_list_ties.out
+Wrote executable to tests/rt-behavior/math/bug126_round_list_ties/build/bug126_round_list_ties.out
 [exit 0]
-$ tests/rt-behavior/math/bug126_round_list_ties/bug126_round_list_ties/bug126_round_list_ties.out
+$ tests/rt-behavior/math/bug126_round_list_ties/build/bug126_round_list_ties.out
 3 4 -3 -4 1 -1 
 [exit 0]

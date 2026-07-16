@@ -40,6 +40,7 @@ fn empty_project(name: &str) -> IrProject {
         link_functions: vec![],
         link_aliases: vec![],
         docs: ProjectDocs::default(),
+        native_libraries: Default::default(),
     }
 }
 
@@ -484,6 +485,7 @@ fn full_project() -> IrProject {
         link_functions: vec![link_function()],
         link_aliases: vec![("openAlias".to_string(), "sqliteLink.open".to_string())],
         docs: ProjectDocs::default(),
+        native_libraries: Default::default(),
     }
 }
 

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/control-flow/bug118_match_guard_helper/bug118_mat
 Wrote IR to tests/rt-behavior/control-flow/bug118_match_guard_helper/bug118_match_guard_helper.ir
 [exit 0]
 $ mfb build tests/rt-behavior/control-flow/bug118_match_guard_helper
-Wrote executable to tests/rt-behavior/control-flow/bug118_match_guard_helper/bug118_match_guard_helper/bug118_match_guard_helper.out
+Wrote executable to tests/rt-behavior/control-flow/bug118_match_guard_helper/build/bug118_match_guard_helper.out
 [exit 0]
-$ tests/rt-behavior/control-flow/bug118_match_guard_helper/bug118_match_guard_helper/bug118_match_guard_helper.out
+$ tests/rt-behavior/control-flow/bug118_match_guard_helper/build/bug118_match_guard_helper.out
 one-and-root-exists
 other
 [exit 0]

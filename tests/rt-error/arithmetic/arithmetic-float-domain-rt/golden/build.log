@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/arithmetic/arithmetic-float-domain-rt/arithmetic_flo
 Wrote IR to tests/rt-error/arithmetic/arithmetic-float-domain-rt/arithmetic_float_domain_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/arithmetic/arithmetic-float-domain-rt
-Wrote executable to tests/rt-error/arithmetic/arithmetic-float-domain-rt/arithmetic_float_domain_rt/arithmetic_float_domain_rt.out
+Wrote executable to tests/rt-error/arithmetic/arithmetic-float-domain-rt/build/arithmetic_float_domain_rt.out
 [exit 0]
-$ tests/rt-error/arithmetic/arithmetic-float-domain-rt/arithmetic_float_domain_rt/arithmetic_float_domain_rt.out
+$ tests/rt-error/arithmetic/arithmetic-float-domain-rt/build/arithmetic_float_domain_rt.out
 Error: 7-705-0015
 Floating-point arithmetic overflowed to infinity.
 [exit 255]

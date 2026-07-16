@@ -64,6 +64,7 @@ fn encode_unsigned_mach_o(
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
     let load_commands_size = load_commands_size(
         libraries,
+        &image.rpaths,
         signing_metadata.is_some(),
         has_init,
         has_writable,
@@ -79,6 +80,7 @@ fn encode_unsigned_mach_o(
         &mut bytes,
         load_command_count(
             libraries,
+            &image.rpaths,
             signing_metadata.is_some(),
             has_init,
             has_writable,
@@ -145,6 +147,12 @@ fn encode_unsigned_mach_o(
     load_dylinker(&mut bytes);
     for (_, path) in libraries {
         load_dylib(&mut bytes, path);
+    }
+    // plan-46-D §4.3: the vendor search path(s), so a bare-filename `dlopen` of a
+    // vendored library resolves from the output bundle. Empty for every build that
+    // vendors nothing, which keeps those binaries byte-identical.
+    for path in &image.rpaths {
+        load_rpath(&mut bytes, path);
     }
     uuid_command(&mut bytes);
     build_version(&mut bytes);
@@ -295,6 +303,7 @@ pub(super) fn macho_layout(
 
 pub(super) fn code_offset(
     libraries: &[(String, String)],
+    rpaths: &[String],
     has_signing_metadata: bool,
     has_init: bool,
     has_writable: bool,
@@ -303,6 +312,7 @@ pub(super) fn code_offset(
     align(
         32 + load_commands_size(
             libraries,
+            rpaths,
             has_signing_metadata,
             has_init,
             has_writable,
@@ -314,6 +324,7 @@ pub(super) fn code_offset(
 
 fn load_commands_size(
     libraries: &[(String, String)],
+    rpaths: &[String],
     has_signing_metadata: bool,
     has_init: bool,
     has_writable: bool,
@@ -355,10 +366,18 @@ fn load_commands_size(
         base + (72 + sections * 80) + 48 + dylibs
     }) + data
         + signing
+        // plan-46-D §4.3: one LC_RPATH per vendor search path. Sized through the
+        // same `rpath_command_size` the emitter uses — never open-coded twice, or
+        // `sizeofcmds` and the actual bytes drift and dyld rejects the image.
+        + rpaths
+            .iter()
+            .map(|path| rpath_command_size(path))
+            .sum::<usize>()
 }
 
 fn load_command_count(
     libraries: &[(String, String)],
+    rpaths: &[String],
     has_signing_metadata: bool,
     has_init: bool,
     has_writable: bool,
@@ -371,5 +390,6 @@ fn load_command_count(
     // a section, not a command, so only extra dylibs grow the count. The writable
     // `__DATA` segment adds one command when the image has writable data.
     let _ = has_init;
-    16 + libraries.len() as u32 + signing + has_writable as u32
+    // plan-46-D §4.3: one LC_RPATH command per vendor search path.
+    16 + libraries.len() as u32 + rpaths.len() as u32 + signing + has_writable as u32
 }

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_t
 Wrote IR to tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.ir
 [exit 0]
 $ mfb build tests/rt-error/general/toInt_radix_overflow_pow2_neg
-Wrote executable to tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.out
+Wrote executable to tests/rt-error/general/toInt_radix_overflow_pow2_neg/build/func_general_toInt_radix_overflow_pow2_neg.out
 [exit 0]
-$ tests/rt-error/general/toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg/func_general_toInt_radix_overflow_pow2_neg.out
+$ tests/rt-error/general/toInt_radix_overflow_pow2_neg/build/func_general_toInt_radix_overflow_pow2_neg.out
 Error: 7-705-0010
 Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

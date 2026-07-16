@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/math/func_math_sqrt_fixedarray_rt/func_math_sqrt_fix
 Wrote IR to tests/rt-error/math/func_math_sqrt_fixedarray_rt/func_math_sqrt_fixedarray_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/math/func_math_sqrt_fixedarray_rt
-Wrote executable to tests/rt-error/math/func_math_sqrt_fixedarray_rt/func_math_sqrt_fixedarray_rt/func_math_sqrt_fixedarray_rt.out
+Wrote executable to tests/rt-error/math/func_math_sqrt_fixedarray_rt/build/func_math_sqrt_fixedarray_rt.out
 [exit 0]
-$ tests/rt-error/math/func_math_sqrt_fixedarray_rt/func_math_sqrt_fixedarray_rt/func_math_sqrt_fixedarray_rt.out
+$ tests/rt-error/math/func_math_sqrt_fixedarray_rt/build/func_math_sqrt_fixedarray_rt.out
 Error: 7-705-0002
 Argument value is not valid for the requested operation.
 [exit 255]

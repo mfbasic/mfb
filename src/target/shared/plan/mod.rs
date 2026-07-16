@@ -500,6 +500,7 @@ mod tests {
                 resource_owners: std::collections::HashMap::new(),
             }],
             link_functions: Vec::new(),
+            native_libraries: Default::default(),
         };
 
         let plan = lower_module_for_platform(&module, &TestPlatform).expect("native plan");

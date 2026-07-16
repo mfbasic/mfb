@@ -203,6 +203,14 @@ wrap native handles in `RESOURCE` types instead. [[src/syntaxcheck/helpers.rs:is
 | `2-203-0095` | `NATIVE_ABI_UNBOUND_PARAM` | a wrapper parameter has no matching ABI slot |
 | `2-203-0096` | `NATIVE_ABI_NO_RESULT` | a value-returning native wrapper exposes no result |
 | `2-205-0002` | `NATIVE_MANIFEST_INVALID` | imported native binding metadata is malformed or inconsistent |
+| `2-203-0114` | `NATIVE_LIBRARY_MISSING` | a `LINK "name"` has no `libraries` entry in project.json |
+| `2-203-0115` | `NATIVE_LIBRARY_TARGET_UNCOVERED` | a supported target has no locator (warn; one per uncovered slot) |
+| `2-203-0116` | `NATIVE_LIBRARY_SOURCE_UNREADABLE` | a `vendor` locator's file under `vendor/` is missing or unreadable |
+| `2-203-0117` | `NATIVE_LIBRARY_UNUSED` | a `libraries` entry has no matching `LINK` block (warn) |
+| `2-203-0118` | `NATIVE_LIBRARY_NO_MATCH` | no locator matches the target being built |
+| `2-203-0119` | `NATIVE_LIBRARY_AMBIGUOUS` | two equally-specific locators match the target |
+| `2-203-0120` | `NATIVE_LIBRARY_FILE_MISSING` | a resolved `vendor` library is absent from the consumer's `vendor/` |
+| `2-203-0121` | `NATIVE_LIBRARY_HASH_MISMATCH` | a resolved `vendor` library is the wrong version (sha256 differs) |
 
 ## Errors
 

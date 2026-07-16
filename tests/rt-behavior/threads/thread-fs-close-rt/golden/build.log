@@ -5,8 +5,8 @@ Wrote IR to tests/rt-behavior/threads/thread-fs-close-rt/thread_fs_close_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/threads/thread-fs-close-rt
 uses fs_thread_workers - [Unsigned]
-Wrote executable to tests/rt-behavior/threads/thread-fs-close-rt/thread_fs_close_rt/thread_fs_close_rt.out
+Wrote executable to tests/rt-behavior/threads/thread-fs-close-rt/build/thread_fs_close_rt.out
 [exit 0]
-$ tests/rt-behavior/threads/thread-fs-close-rt/thread_fs_close_rt/thread_fs_close_rt.out
+$ tests/rt-behavior/threads/thread-fs-close-rt/build/thread_fs_close_rt.out
 7
 [exit 0]

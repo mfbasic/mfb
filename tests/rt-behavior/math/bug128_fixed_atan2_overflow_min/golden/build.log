@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/math/bug128_fixed_atan2_overflow_min/bug128_fixed
 Wrote IR to tests/rt-behavior/math/bug128_fixed_atan2_overflow_min/bug128_fixed_atan2_overflow_min.ir
 [exit 0]
 $ mfb build tests/rt-behavior/math/bug128_fixed_atan2_overflow_min
-Wrote executable to tests/rt-behavior/math/bug128_fixed_atan2_overflow_min/bug128_fixed_atan2_overflow_min/bug128_fixed_atan2_overflow_min.out
+Wrote executable to tests/rt-behavior/math/bug128_fixed_atan2_overflow_min/build/bug128_fixed_atan2_overflow_min.out
 [exit 0]
-$ tests/rt-behavior/math/bug128_fixed_atan2_overflow_min/bug128_fixed_atan2_overflow_min/bug128_fixed_atan2_overflow_min.out
+$ tests/rt-behavior/math/bug128_fixed_atan2_overflow_min/build/bug128_fixed_atan2_overflow_min.out
 0.78
 3.14
 0.78

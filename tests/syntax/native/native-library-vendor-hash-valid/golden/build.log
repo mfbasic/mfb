@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/native/native-library-vendor-hash-valid
+Wrote AST to tests/syntax/native/native-library-vendor-hash-valid/native_library_vendor_hash_valid.ast
+Wrote IR to tests/syntax/native/native-library-vendor-hash-valid/native_library_vendor_hash_valid.ir
+[exit 0]
+$ mfb build tests/syntax/native/native-library-vendor-hash-valid
+Wrote package to tests/syntax/native/native-library-vendor-hash-valid/native_library_vendor_hash_valid.mfp
+[exit 0]

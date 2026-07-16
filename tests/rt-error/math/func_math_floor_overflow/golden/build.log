@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/math/func_math_floor_overflow/func_math_floor_overfl
 Wrote IR to tests/rt-error/math/func_math_floor_overflow/func_math_floor_overflow.ir
 [exit 0]
 $ mfb build tests/rt-error/math/func_math_floor_overflow
-Wrote executable to tests/rt-error/math/func_math_floor_overflow/func_math_floor_overflow/func_math_floor_overflow.out
+Wrote executable to tests/rt-error/math/func_math_floor_overflow/build/func_math_floor_overflow.out
 [exit 0]
-$ tests/rt-error/math/func_math_floor_overflow/func_math_floor_overflow/func_math_floor_overflow.out
+$ tests/rt-error/math/func_math_floor_overflow/build/func_math_floor_overflow.out
 Error: 7-705-0010
 Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

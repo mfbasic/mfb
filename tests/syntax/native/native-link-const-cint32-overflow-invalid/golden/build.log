@@ -3,5 +3,8 @@ Wrote AST to tests/syntax/native/native-link-const-cint32-overflow-invalid/nativ
 Wrote IR to tests/syntax/native/native-link-const-cint32-overflow-invalid/native_link_const_cint32_overflow_invalid.ir
 [exit 0]
 $ mfb build tests/syntax/native/native-link-const-cint32-overflow-invalid
-error: LINK function 'sql.ping' CONST pin 'ms = 5000000000' does not fit the signed 32-bit range of its CInt32 ABI slot
+   1 | {
+     | ^
+tests/syntax/native/native-link-const-cint32-overflow-invalid/project.json:1 error[2-203-0114 NATIVE_LIBRARY_MISSING]: a LINK block names a library with no matching project.json `libraries` entry
+               `LINK "sqlite3"` has no `libraries` entry in project.json. Add one naming the library to load per platform, for example: "libraries": { "sqlite3": [ { "os": "linux", "type": "system", "source": "libsqlite3.so.0" } ] }.
 [exit 1]

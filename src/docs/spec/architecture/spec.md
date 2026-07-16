@@ -48,7 +48,7 @@ Executable build:
     -> native code plan
     -> encoded aarch64 image
     -> OS executable container/link step
-    -> <project>/<project>.out
+    -> build/<project>.out
 
 Package build:
   IR

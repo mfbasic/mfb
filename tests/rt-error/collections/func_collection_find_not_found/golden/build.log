@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/collections/func_collection_find_not_found/func_coll
 Wrote IR to tests/rt-error/collections/func_collection_find_not_found/func_collection_find_not_found.ir
 [exit 0]
 $ mfb build tests/rt-error/collections/func_collection_find_not_found
-Wrote executable to tests/rt-error/collections/func_collection_find_not_found/func_collection_find_not_found/func_collection_find_not_found.out
+Wrote executable to tests/rt-error/collections/func_collection_find_not_found/build/func_collection_find_not_found.out
 [exit 0]
-$ tests/rt-error/collections/func_collection_find_not_found/func_collection_find_not_found/func_collection_find_not_found.out
+$ tests/rt-error/collections/func_collection_find_not_found/build/func_collection_find_not_found.out
 Error: 7-705-0004
 Requested item, key, file, or resource was not found.
 [exit 255]

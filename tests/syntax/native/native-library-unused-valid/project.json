@@ -1,0 +1,17 @@
+{
+  "name": "native_library_unused_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "demolib": [
+      { "os": "macos", "type": "system", "source": "libdemolib.dylib" },
+      { "os": "linux", "type": "system", "source": "libdemolib.so.1" }
+    ],
+    "ghostlib": [
+      { "os": "macos", "type": "system", "source": "libghost.dylib" },
+      { "os": "linux", "type": "system", "source": "libghost.so.1" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

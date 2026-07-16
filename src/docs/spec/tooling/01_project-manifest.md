@@ -38,6 +38,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `url` | string | no | package homepage/source URL |
 | `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
+| `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
 | `targets` | array | no | build targets; emitted by `mfb init` as `["native"]` |
 | `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
@@ -131,6 +132,94 @@ The registry/add workflow that writes these entries is
 `./mfb spec package-manager`; the on-disk `.mfp` header they resolve
 against is `./mfb spec package container-format`.
 
+## Library Locator Entries
+
+`libraries` maps each native `LINK` **logical library name** (the string in
+`LINK "sqlite3"`) to an ordered array of **locators**, each naming the concrete
+shared object to load for one slice of the target matrix:
+
+```json
+"libraries": {
+  "sqlite3": [
+    { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
+    { "os": "linux", "type": "system", "source": "libsqlite3.so.0" },
+    { "os": "linux", "arch": "riscv64", "libc": "musl", "source": "libsqlite3-riscv64-musl.so" }
+  ]
+}
+```
+
+Read as: use the system `libsqlite3.dylib` on macOS; use the system
+`libsqlite3.so.0` everywhere on Linux — any arch, either libc — **except** on
+riscv64/musl, where the third entry wins on specificity and loads a vendored file
+from `<project root>/vendor/`.
+
+| field | type | default | meaning |
+| --- | --- | --- | --- |
+| `os` | string | — (required) | `macos` or `linux`; the canonical `BuildTarget.os` token of a registered backend |
+| `arch` | string | *any arch* | `aarch64`, `x86_64`, or `riscv64`; omitted = wildcard |
+| `libc` | string | *any libc* | `glibc` or `musl`; omitted = wildcard. Linux only — macOS has no libc axis |
+| `type` | string | `vendor` | `system` (found by the dynamic loader) or `vendor` (a file shipped in `vendor/`) |
+| `source` | string | — (required) | a **bare filename**, never a path |
+
+The value set for `os`/`arch` is read from the native backend registry, so
+registering a backend widens the accepted vocabulary automatically.
+[[src/target.rs:registered_target_oses]] [[src/target.rs:registered_target_arches]]
+[[src/manifest/libraries.rs:project_libraries]]
+
+### `type` defaults to `vendor`, deliberately
+
+An absent `type` means `vendor` because that **fails closed**. A missing or
+typo'd `type` under a `vendor` default resolves to `<root>/vendor/<source>` and
+hard-errors at build time when the file is absent. Under a `system` default, the
+same mistake would silently hand `source` to the dynamic loader, which would
+search the system library path and load whatever it found under that name — a
+wrong-library load that only surfaces at runtime, and a supply-chain footgun. A
+build error beats a silent mis-resolution.
+
+### `system` may wildcard; `vendor` must name its exact target
+
+- **`system`** means *"ask the loader for this name"* — the platform supplies the
+  build that fits, so `arch` and `libc` are legitimately omittable. One
+  `{ "os": "linux", "type": "system", "source": "libsqlite3.so.0" }` covers all
+  six Linux slots.
+- **`vendor`** means *"load this exact file I shipped"* — one concrete artifact
+  compiled for exactly one `(os, arch, libc)` triple. A `.so` built against glibc
+  will not load on musl; an x86_64 `.so` will not load on aarch64. **There is no
+  fat ELF.**
+
+So a `vendor` locator on `os: "linux"` **must** specify both `arch` and `libc`;
+omitting either is `PROJECT_JSON_LIBRARY_INVALID`. macOS is exempt from the
+`arch` half — Mach-O fat binaries are real, so a universal `.dylib` with `arch`
+omitted is a legitimate locator.
+
+Because a `vendor` locator always carries concrete axes, it always outranks a
+wildcarding `system` locator on specificity — *"use my vendored build on musl,
+the system library everywhere else"* needs no special rule.
+
+### `source` is a bare filename
+
+`source` names a file, never a location. It is rejected when it is blank,
+contains a path separator (`/` or `\`), is `.` or `..`, carries a Windows drive
+prefix (`C:`), or contains a NUL byte (it is emitted verbatim as a C string into
+the binary, so an interior NUL would silently truncate the library name).
+
+For a `system` locator, `source` is the exact soname handed to the dynamic
+loader. For a `vendor` locator, the file must live at
+**`<project root>/vendor/<source>`** — flat, no subdirectories. The resolved path
+is never spelled in the manifest; it is always `vendor/` + `source`.
+
+Because `vendor/` is flat, **one filename means one file**: two `vendor` locators
+sharing a `source` anywhere in the section — across *all* logical names — is
+`PROJECT_JSON_LIBRARY_SOURCE_CONFLICT`. It is almost always the real bug of an
+author copying an entry for a new platform and forgetting to rename the blob. The
+check is scoped to `vendor` locators only: `system` sonames legitimately repeat,
+and `linux/x86_64` and `linux/aarch64` both asking for `libsqlite3.so.0` is the
+normal case. [[src/manifest/mod.rs:validate_libraries]]
+
+The section is validated for *shape* only — it is not checked against the
+filesystem here. Whether a vendored file exists and what it hashes to is resolved
+when the package is built; see `./mfb spec language native-libraries`.
+
 ## Entry Point Validation
 
 For `kind = "package"` no entry point is required and validation is skipped.
@@ -188,6 +277,12 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | `kind` is a string other than `executable`/`package` (non-fatal) [[src/manifest/mod.rs:validate_kind]] |
 | `2-200-0010` | `PROJECT_JSON_VALID` | info | manifest passed validation |
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | executable entry-point resolution failed [[src/manifest/entry.rs:validate_entry_point]] |
+| `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a `libraries` locator is malformed, carries an unknown `os`/`arch`/`libc`/`type` token, sets `libc` on macOS, omits `arch`/`libc` on a Linux `vendor` entry, or names a `source` that is not a bare filename [[src/manifest/mod.rs:validate_libraries]] |
+| `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |
+
+`PROJECT_JSON_LIBRARY_INVALID` covers a dozen distinct mistakes, so its
+**message** — not just its code — names the specific cause: which field, which
+token, and the accepted set.
 
 `PROJECT_JSON_REQUIRED_FIELD` is reused for a missing source `root` (recursing
 through `validate_required_string` on the source object), and

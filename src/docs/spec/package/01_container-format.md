@@ -195,7 +195,7 @@ are enforced by every reader. [[repository/src/package.rs:parse_mfp_package]]
 ## Container flags
 
 ```text
-bit 0 = package contains native LINK metadata   (reserved; not currently emitted)
+bit 0 = package contains native LINK metadata   (set when the package carries a NATIVE_LIBRARY_TABLE)
 bit 1 = package contains debug metadata          (reserved; not currently emitted)
 bit 2 = package contains source-map metadata     (reserved; not currently emitted)
 bit 3 = package is pre-release
@@ -203,7 +203,9 @@ bits 4-15 = reserved optional flags
 bits 16-31 = reserved required flags
 ```
 
-Current compiler behaviour: the only flag the compiler ever sets is **bit 3 (pre-release)**, and it sets it exactly when the package `version` string contains a `-` (a semantic-version pre-release tag). [[src/target/package_mfp/mod.rs:container_flags]] Bits 0-2 are defined by the format but are **not currently emitted** — native LINK metadata is carried inside the binary representation payload rather than signalled by a container flag (see `native-bindings`), and debug/source-map metadata are not produced. The current reader does not act on the flags field.
+Current compiler behaviour: the compiler sets **bit 3 (pre-release)** exactly when the package `version` string contains a `-` (a semantic-version pre-release tag), and **bit 0 (native LINK metadata)** exactly when the package carries a `NATIVE_LIBRARY_TABLE` (section id 10) — i.e. for a binding package that declares a `LINK` block (see `native-bindings`). [[src/target/package_mfp/mod.rs:container_flags]] Bits 1-2 are defined by the format but are **not currently emitted**: debug and source-map metadata are not produced. The current reader does not act on the flags field.
+
+Bit 0 is an **optional** flag: section 10 is the source of truth, so a reader that ignores the bit must not reject the package.
 
 The reserved-required-flag rule remains normative for forward compatibility: if an implementation sees an unknown required flag (bits 16-31), it must reject the package before import or merge.
 

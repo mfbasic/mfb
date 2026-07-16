@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/types/types-map-key-comparable-valid/types_map_key_c
 Wrote IR to tests/rt-error/types/types-map-key-comparable-valid/types_map_key_comparable_valid.ir
 [exit 0]
 $ mfb build tests/rt-error/types/types-map-key-comparable-valid
-Wrote executable to tests/rt-error/types/types-map-key-comparable-valid/types_map_key_comparable_valid/types_map_key_comparable_valid.out
+Wrote executable to tests/rt-error/types/types-map-key-comparable-valid/build/types_map_key_comparable_valid.out
 [exit 0]
-$ tests/rt-error/types/types-map-key-comparable-valid/types_map_key_comparable_valid/types_map_key_comparable_valid.out
+$ tests/rt-error/types/types-map-key-comparable-valid/build/types_map_key_comparable_valid.out
 2
 b
 [exit 2]

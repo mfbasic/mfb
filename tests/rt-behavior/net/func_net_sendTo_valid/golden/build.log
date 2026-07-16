@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/net/func_net_sendTo_valid/func_net_sendTo_valid.a
 Wrote IR to tests/rt-behavior/net/func_net_sendTo_valid/func_net_sendTo_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/net/func_net_sendTo_valid
-Wrote executable to tests/rt-behavior/net/func_net_sendTo_valid/func_net_sendTo_valid/func_net_sendTo_valid.out
+Wrote executable to tests/rt-behavior/net/func_net_sendTo_valid/build/func_net_sendTo_valid.out
 [exit 0]
-$ tests/rt-behavior/net/func_net_sendTo_valid/func_net_sendTo_valid/func_net_sendTo_valid.out
+$ tests/rt-behavior/net/func_net_sendTo_valid/build/func_net_sendTo_valid.out
 3
 65
 67

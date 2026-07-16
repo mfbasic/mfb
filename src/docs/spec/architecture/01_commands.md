@@ -47,8 +47,8 @@ canonical. See `./mfb spec tooling cli-reference`.[[src/cli/build.rs:from_flag]]
 The output flags are mutually exclusive. If no output flag is supplied,
 `mfb build` emits:
 
-- `<name>/<name>.out` for `kind = "executable"` — every executable build emits
-  into its own `<name>/` output directory beside the project.
+- `build/<name>.out` for `kind = "executable"` — every executable build emits
+  into the project's `build/` directory.
 - `<name>.mfp` for `kind = "package"`.
 
 Native intermediate outputs are rejected for package projects. Package projects

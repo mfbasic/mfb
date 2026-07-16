@@ -1,4 +1,3 @@
-/build/
 /target/
 /cmake-build-*/
 /tmp/
@@ -8,12 +7,17 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
-# Build output. Every build emits `<project dir>/<name>/<name>.out` (plan-46-D
-# §4.1); `*.out` matches at any depth, so it covers both the new output
-# directories and stale pre-change artifacts sitting at the project root. The
-# output directory's `vendor/` copies are removed by the test harness — they are
-# not ignored by pattern, because a binding author's *source* `vendor/` blobs are
-# tracked.
+# Build output. Every build emits into its project's `build/` directory
+# (plan-46-D §4.1): `build/<name>.out`, `build/<name>.app`, and the `vendor/`
+# copies an RPATH-bearing build points at. Unanchored, so it covers every
+# project at any depth — that fixed directory name is the whole reason the
+# output layout is `build/<name>.out` rather than `<name>/<name>.out`.
+#
+# A binding author's *source* `vendor/` blobs live at `<project>/vendor/`, not
+# under `build/`, so they stay tracked.
+build/
+
+# Stale pre-plan-46-D artifacts sitting at project roots in existing worktrees.
 *.out
 
 # Local editor and OS files

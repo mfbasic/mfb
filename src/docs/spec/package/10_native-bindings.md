@@ -4,9 +4,59 @@ A package containing `LINK` declarations is still a normal `.mfp` package. The a
 
 The native interface separates MFBASIC-facing wrapper signatures from C-facing ABI signatures, with `CString`/`CPtr`/`OUT`/`SUCCESS_ON`/`ERROR_ON`-style rules. The `.mfp` stores those rules so importers do not repeat the `LINK`.
 
-## There is no `NATIVE_LINK_TABLE` section
+## Two structures, two jobs
 
-Section id `10` (`NATIVE_LINK_TABLE`) is **reserved but unused**. The current compiler does not emit a separate native-link section, and there is no `NativeLibrary`/`NativeSymbol`/`NativeAbi` table in the format. Instead, native `LINK` metadata rides as an **optional append-only trailer inside the `IR` (`MFBR`) payload**, after the `functions` vector (see `binary-representation` §IR payload structure). The trailer is present only when the project has `LINK` functions or re-export aliases, so `LINK`-free packages stay byte-identical to the pre-feature encoding.
+Native binding metadata is carried in **two separate places**, and the split is deliberate:
+
+- The **interface** — what each wrapper's signature and C ABI are — rides as an optional append-only trailer inside the `IR` (`MFBR`) payload (below). It is valid for any physical file, on any platform.
+- The **locators** — *which* concrete shared object to load for a given `os`/`arch`/`libc` — live in the `NATIVE_LIBRARY_TABLE`, section id `10` (see below). These are per *library*, not per *function*, so putting them in the trailer would duplicate the same locator across every symbol.
+
+## `NATIVE_LIBRARY_TABLE` (section id 10)
+
+Emitted **only** for a binding package that declares a `LINK` block; the container's optional flag **bit 0** ("contains native LINK metadata") is set alongside it (see `container-format`). A package with no `LINK` block emits no section 10, leaves bit 0 clear, and is byte-identical to a pre-feature build.
+
+The table is built from the project.json `libraries` section (see `./mfb spec tooling project-manifest`) crossed with the distinct `LINK "<name>"` logical names in the project's IR. It carries **only** linked names: a `libraries` entry with no matching `LINK` warns (`NATIVE_LIBRARY_UNUSED`) and is not encoded, so the section never carries a locator nothing can reach.
+
+```text
+NATIVE_LIBRARY_TABLE (section id 10):
+  u32 libraryCount
+  repeat libraryCount (sorted by logicalName):
+    stringId logicalName            // "sqlite3"
+    u32      locatorCount
+    repeat locatorCount (manifest order):
+      stringId os                   // "macos" | "linux"
+      stringId arch                 // "" = any arch, else "aarch64"|"x86_64"|"riscv64"
+      u8       libc                 // 0 = unspecified (any), 1 = glibc, 2 = musl
+      u8       type                 // 0 = system, 1 = vendor
+      stringId source               // bare filename: "libsqlite3.dylib"
+      // present iff type == vendor (1):
+      [32 bytes] hash               // sha256 of <project root>/vendor/<source>
+```
+
+Strings are `stringId` into the package's `STRING_POOL`. Entries are sorted by logical name and locators keep manifest order, so the encoding is deterministic.
+
+`source` is a **bare filename** on the wire exactly as in the manifest — the `vendor/` prefix is never encoded. It is a fixed, known location both sides derive; storing it would be redundant data that could disagree with the rule.
+
+A `vendor` locator carries a sha256 of its file, computed at build time by streaming `<project root>/vendor/<source>`; a file that is missing or unreadable is a hard error (`NATIVE_LIBRARY_SOURCE_UNREADABLE`). A `system` locator names a file the producer never sees, so it carries no hash.
+
+### Decode re-validates everything
+
+A `.mfp` is an **untrusted input** on the consumer side, and a locator's `source` feeds both a `dlopen` C string and a `vendor/` path join. The decoder therefore re-checks every invariant the producer was supposed to uphold rather than trusting it: `libc`/`type` in range, `hash` present **iff** `type == vendor`, string ids within the pool, and `source` still a bare filename (no path separator, no `.`/`..`, no drive prefix, no interior NUL). Any violation is a structural decode error. [[src/binary_repr/sections.rs:read_native_library_table]] [[src/manifest/libraries.rs:source_is_bare]]
+
+### Diagnostics
+
+| code | name | severity | trigger |
+| --- | --- | --- | --- |
+| `2-203-0114` | `NATIVE_LIBRARY_MISSING` | error | a `LINK "name"` has no `libraries` entry |
+| `2-203-0115` | `NATIVE_LIBRARY_TARGET_UNCOVERED` | warn | a supported target has no locator (one per uncovered slot) |
+| `2-203-0116` | `NATIVE_LIBRARY_SOURCE_UNREADABLE` | error | a `vendor` locator's file is missing or unreadable |
+| `2-203-0117` | `NATIVE_LIBRARY_UNUSED` | warn | a `libraries` entry has no matching `LINK` |
+
+The coverage check tests each library's locators against every `(os, arch, libc)` the compiler supports — the backend registry crossed with the libc axis (Linux only), currently **7 slots**. It is derived from the registry, not hardcoded, so registering a backend widens the matrix automatically. Because `arch: None` and `libc: None` are symmetric wildcards, one `{ "os": "linux", "type": "system", "source": "…" }` entry covers all six Linux slots. [[src/manifest/libraries.rs:supported_target_slots]] [[src/manifest/libraries.rs:build_native_library_table]]
+
+## The interface trailer
+
+Native `LINK` interface metadata rides as an **optional append-only trailer inside the `IR` (`MFBR`) payload**, after the `functions` vector (see `binary-representation` §IR payload structure). The trailer is present only when the project has `LINK` functions or re-export aliases, so `LINK`-free packages stay byte-identical to the pre-feature encoding.
 
 The trailer is two vectors:
 

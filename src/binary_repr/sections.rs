@@ -663,3 +663,157 @@ impl AbiIndex {
         bytes
     }
 }
+
+/// Encode the `NATIVE_LIBRARY_TABLE` (section id 10, plan-46-B §4.1).
+///
+/// Strings are interned into the shared string pool rather than written inline —
+/// `os`, `arch`, and the common sonames repeat across a table's locators, so
+/// interning genuinely dedups them. (The `doc` table writes its strings inline
+/// instead; it is prose, where interning would buy nothing.)
+///
+/// Entries are already sorted by logical name and the locators keep manifest
+/// order, so the bytes are deterministic — the repo holds a byte-identical
+/// self-diff gate.
+pub(super) fn encode_native_library_table(
+    strings: &mut StringPool,
+    table: &NativeLibraryTable,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    put_u32(&mut bytes, table.entries.len() as u32);
+    for entry in &table.entries {
+        let logical = strings.intern(&entry.logical);
+        put_u32(&mut bytes, logical);
+        put_u32(&mut bytes, entry.locators.len() as u32);
+        for locator in &entry.locators {
+            let os = strings.intern(&locator.os);
+            // `""` is the any-arch wildcard on the wire; `arch` is never a
+            // legitimate empty string (validation rejects a blank token).
+            let arch = strings.intern(locator.arch.as_deref().unwrap_or(""));
+            let source = strings.intern(&locator.source);
+            put_u32(&mut bytes, os);
+            put_u32(&mut bytes, arch);
+            bytes.push(match locator.libc {
+                None => WIRE_LIBC_UNSPECIFIED,
+                Some(Libc::Glibc) => WIRE_LIBC_GLIBC,
+                Some(Libc::Musl) => WIRE_LIBC_MUSL,
+            });
+            bytes.push(match locator.lib_type {
+                LibType::System => WIRE_LIB_TYPE_SYSTEM,
+                LibType::Vendor => WIRE_LIB_TYPE_VENDOR,
+            });
+            put_u32(&mut bytes, source);
+            // The hash is present iff the locator is `vendor` — a system locator
+            // names a file we never see, so there is nothing to hash.
+            if let Some(hash) = &locator.hash {
+                bytes.extend_from_slice(hash);
+            }
+        }
+    }
+    bytes
+}
+
+/// Decode the `NATIVE_LIBRARY_TABLE` (section id 10).
+///
+/// The `.mfp` is an **untrusted input** on the consumer side, and plan-46-C feeds
+/// `source` straight into a C string and a filesystem path — so every invariant
+/// the producer was supposed to uphold is re-checked here rather than assumed:
+/// `libc`/`type` in range, `hash` present iff `vendor`, and `source` still a bare
+/// filename.
+pub(super) fn read_native_library_table(
+    bytes: &[u8],
+    strings: &[String],
+) -> Result<NativeLibraryTable, String> {
+    let mut offset = 0;
+    let count = cursor_u32(bytes, &mut offset)? as usize;
+    // A locator occupies 14 wire bytes at minimum (4+4+1+1+4); an entry adds its
+    // name + count. Bound the pre-allocation against the bytes actually present.
+    let mut entries = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 22));
+    for _ in 0..count {
+        let logical = table_string(strings, cursor_u32(bytes, &mut offset)?)?;
+        let locator_count = cursor_u32(bytes, &mut offset)? as usize;
+        let mut locators =
+            Vec::with_capacity(bounded_capacity(locator_count, bytes.len() - offset, 14));
+        for _ in 0..locator_count {
+            locators.push(read_native_library_locator(bytes, &mut offset, strings)?);
+        }
+        entries.push(NativeLibraryEntry { logical, locators });
+    }
+    Ok(NativeLibraryTable { entries })
+}
+
+fn read_native_library_locator(
+    bytes: &[u8],
+    offset: &mut usize,
+    strings: &[String],
+) -> Result<NativeLibraryLocator, String> {
+    let os = table_string(strings, cursor_u32(bytes, offset)?)?;
+    let arch = table_string(strings, cursor_u32(bytes, offset)?)?;
+    let libc = cursor_u8(bytes, offset)?;
+    let lib_type = cursor_u8(bytes, offset)?;
+    let source = table_string(strings, cursor_u32(bytes, offset)?)?;
+
+    let libc = match libc {
+        WIRE_LIBC_UNSPECIFIED => None,
+        WIRE_LIBC_GLIBC => Some(Libc::Glibc),
+        WIRE_LIBC_MUSL => Some(Libc::Musl),
+        other => {
+            return Err(format!(
+                "native library table locator has out-of-range libc {other}"
+            ))
+        }
+    };
+    let lib_type = match lib_type {
+        WIRE_LIB_TYPE_SYSTEM => LibType::System,
+        WIRE_LIB_TYPE_VENDOR => LibType::Vendor,
+        other => {
+            return Err(format!(
+                "native library table locator has out-of-range type {other}"
+            ))
+        }
+    };
+
+    // `source` feeds a `dlopen` C string and a `vendor/` path join downstream. A
+    // hostile `.mfp` naming `../../etc/foo` or embedding a NUL must not reach
+    // either, so re-validate the producer's rule here.
+    if let Err(reason) = crate::manifest::libraries::source_is_bare(&source) {
+        return Err(format!(
+            "native library table locator source {source:?} is not a bare filename: {reason}"
+        ));
+    }
+
+    // The hash is present iff the locator is `vendor`.
+    let hash = match lib_type {
+        LibType::Vendor => {
+            let end = offset
+                .checked_add(NATIVE_LIBRARY_HASH_LEN)
+                .ok_or_else(|| "native library table locator hash overflows".to_string())?;
+            let raw = bytes
+                .get(*offset..end)
+                .ok_or_else(|| "truncated native library table locator hash".to_string())?;
+            let mut hash = [0u8; NATIVE_LIBRARY_HASH_LEN];
+            hash.copy_from_slice(raw);
+            *offset = end;
+            Some(hash)
+        }
+        LibType::System => None,
+    };
+
+    Ok(NativeLibraryLocator {
+        os,
+        // `""` is the any-arch wildcard on the wire.
+        arch: if arch.is_empty() { None } else { Some(arch) },
+        libc,
+        lib_type,
+        source,
+        hash,
+    })
+}
+
+/// Resolve a string id against the pool, rejecting an out-of-range id rather than
+/// panicking on a hostile `.mfp`.
+fn table_string(strings: &[String], id: u32) -> Result<String, String> {
+    strings
+        .get(id as usize)
+        .cloned()
+        .ok_or_else(|| format!("native library table references unknown string id {id}"))
+}

@@ -4,6 +4,21 @@ Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: plan-46-A
 
+## STATUS: IMPLEMENTED
+
+Both phases landed and verified end-to-end: `bindings/sqlite3` builds with
+section 10 present, container flag bit 0 set, and a real sha256 of a vendored
+file embedded in the `.mfp`. All four diagnostics fire with actionable messages
+(a macOS-only manifest emits exactly 6 uncovered warnings; an unused entry warns
+and is genuinely absent from the encoding — asserted against the golden `.mfp`).
+
+Correction to the plan: §4.1 says the wire format uses `stringId` "as `DocTable`
+does". **`DocTable` does not** — it writes strings inline via `put_bytes`. The
+specified `stringId` format was kept (the `os`/`arch`/soname tokens genuinely
+repeat across locators, so interning dedups), but the citation was wrong and the
+code notes the deviation.
+
+
 Lights up the reserved-but-unused `.mfp` section **id 10** as
 `NATIVE_LIBRARY_TABLE`: a per-logical-library table of platform locators
 (`{os, arch?, libc?, type, source, hash?}`) built from plan-46-A's parsed
@@ -282,16 +297,16 @@ package; section 10 is the source of truth.
 
 Codec in isolation, hand-built table; no manifest wiring. Safe to land alone.
 
-- [ ] Add `const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;` to
+- [x] Add `const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;` to
       `src/binary_repr/mod.rs`.
-- [ ] Add `NativeLibraryTable` + `encode`/`decode` to
+- [x] Add `NativeLibraryTable` + `encode`/`decode` to
       `src/binary_repr/sections.rs` per §4.1, mirroring `DocTable`.
-- [ ] Wire the optional push in `BinaryReprProject::encode`
+- [x] Wire the optional push in `BinaryReprProject::encode`
       (`src/binary_repr/writer.rs`, guarded by non-empty) and the optional
       decode-or-default in `read_binary_repr_package`
       (`src/binary_repr/reader.rs`); add the field to the project/package
       structs.
-- [ ] Tests: round-trip unit tests in `src/binary_repr/` — empty table absent
+- [x] Tests: round-trip unit tests in `src/binary_repr/` — empty table absent
       from output; a populated table (system + vendor, wildcard arch, both
       libc values) encodes and decodes to an equal structure; duplicate section
       id rejected; `hash`⇔`vendor` invariant enforced on decode; **a `source`
@@ -305,20 +320,20 @@ Commit: —
 
 ### Phase 2 — assembly, checks, hash, flag
 
-- [ ] Add the table builder to `src/manifest/libraries.rs`: `project_libraries` +
+- [x] Add the table builder to `src/manifest/libraries.rs`: `project_libraries` +
       IR link names → `NativeLibraryTable`, with streamed sha256 over
       `<project root>/vendor/<source>` per §4.3.
-- [ ] Wire it into the `kind:"package"` build in `src/cli/build.rs` near the
+- [x] Wire it into the `kind:"package"` build in `src/cli/build.rs` near the
       `package_metadata` call; run the missing-entry error, coverage warnings,
       unused-entry warning, and unreadable-source error (§4.3).
-- [ ] Set container flag bit 0 in `container_flags`
+- [x] Set container flag bit 0 in `container_flags`
       (`src/target/package_mfp/mod.rs`) when the table is non-empty.
-- [ ] Add the four `NATIVE_LIBRARY_*` rows (`2-203-0114`..`0117`) to
+- [x] Add the four `NATIVE_LIBRARY_*` rows (`2-203-0114`..`0117`) to
       `src/rules/table.rs`.
-- [ ] Commit the fixture blob: a tiny file at
+- [x] Commit the fixture blob: a tiny file at
       `<fixture>/vendor/libfixture.so` (see Open Decisions — bytes need only hash
       stably, not be a valid ELF), so the vendor-hash goldens are hermetic.
-- [ ] Tests: golden acceptance fixtures under the binding-package test area — a
+- [x] Tests: golden acceptance fixtures under the binding-package test area — a
       `LINK`+`libraries` package builds and its `.mfp` carries section 10
       (assert via a decode check or an `mfb`-side dump if one exists); a package
       with `LINK "x"` and no `libraries["x"]` fails with `NATIVE_LIBRARY_MISSING`
@@ -328,11 +343,11 @@ Commit: —
       encoded section**; a `vendor` locator with no file in `vendor/` fails with
       `NATIVE_LIBRARY_SOURCE_UNREADABLE`; a `vendor` locator with the committed
       fixture file produces the expected hash.
-- [ ] Verify the coverage math against a wildcard case: one
+- [x] Verify the coverage math against a wildcard case: one
       `{ "os": "linux", "type": "system" }` entry must cover all six Linux slots
       and emit **zero** uncovered warnings (§4.2) — the regression that the old
       "libc defaults to glibc" semantics would have caused.
-- [ ] Doc: update `src/docs/spec/package/10_native-bindings.md` (section 10
+- [x] Doc: update `src/docs/spec/package/10_native-bindings.md` (section 10
       format), `01_container-format.md` (bit 0 now emitted, id 10 now used),
       `14_compact-summary.md` (drop id 10 from the "reserved, not emitted"
       list), and `src/docs/man/link/package.md` diagnostics table.

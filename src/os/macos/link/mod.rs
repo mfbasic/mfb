@@ -1,5 +1,6 @@
 use crate::arch::aarch64::encode::{EncodedImage, EncodedSection};
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_DESCRIPTOR_SIZE, MFB_NOTE_OWNER};
+use crate::os::BUILD_DIR;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
@@ -28,9 +29,10 @@ pub(crate) fn write_executable(
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
     let bytes = encode_executable_bytes(project_name, image)?;
-    // Every build emits into its own `<name>/` directory (plan-46-D §4.1) so the
-    // executable and the `vendor/` its RPATH points at move as one unit.
-    let out_dir = project_dir.join(project_name);
+    // Every build emits into the project's `build/` directory (plan-46-D §4.1) so
+    // the executable and the `vendor/` its RPATH points at move as one unit, and
+    // one `.gitignore` line covers every artifact.
+    let out_dir = project_dir.join(BUILD_DIR);
     fs::create_dir_all(&out_dir)
         .map_err(|err| format!("failed to create '{}': {err}", out_dir.display()))?;
     let path = out_dir.join(format!("{project_name}.out"));
@@ -38,10 +40,11 @@ pub(crate) fn write_executable(
     Ok(path)
 }
 
-/// Write an app-mode `.app` bundle (plan-04-macos-app.md §5.2):
+/// Write an app-mode `.app` bundle (plan-04-macos-app.md §5.2) into the
+/// project's `build/` directory (plan-46-D §4.1):
 ///
 /// ```text
-/// <name>.app/
+/// build/<name>.app/
 ///   Contents/
 ///     Info.plist
 ///     MacOS/
@@ -50,7 +53,17 @@ pub(crate) fn write_executable(
 ///
 /// The inner Mach-O is byte-identical to the `<name>.out` the console path
 /// produces from the same image; only the on-disk layout and the accompanying
-/// `Info.plist` differ. Returns the path to the `<name>.app` bundle directory.
+/// `Info.plist` differ.
+///
+/// **Unless the build vendors native libraries** (plan-46-D §4.4): the two shapes
+/// then load their dylibs from different places — `build/vendor/` beside a console
+/// `.out`, `Contents/Frameworks/` inside a bundle — so each carries its own
+/// `LC_RPATH` and they differ by exactly that one load command. Identical bytes
+/// would mean one of them is wrong. A non-vendoring image emits no `LC_RPATH` at
+/// all, so the unqualified invariant still holds for every existing project; both
+/// halves are pinned by tests.
+///
+/// Returns the path to the `build/<name>.app` bundle directory.
 pub(crate) fn write_app_bundle(
     project_dir: &Path,
     project_name: &str,
@@ -59,7 +72,9 @@ pub(crate) fn write_app_bundle(
     app_version: &str,
 ) -> Result<PathBuf, String> {
     let bytes = encode_executable_bytes(project_name, image)?;
-    let bundle_path = project_dir.join(format!("{project_name}.app"));
+    let bundle_path = project_dir
+        .join(BUILD_DIR)
+        .join(format!("{project_name}.app"));
     let contents_dir = bundle_path.join("Contents");
     let macos_dir = contents_dir.join("MacOS");
     fs::create_dir_all(&macos_dir)
@@ -109,6 +124,7 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
     let has_rodata = rodata_size > 0;
     let code_offset = code_offset(
         &libraries,
+        &image.rpaths,
         has_signing_metadata,
         !image.initializers.is_empty(),
         has_writable,

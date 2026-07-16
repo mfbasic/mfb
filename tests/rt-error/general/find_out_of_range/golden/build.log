@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/general/find_out_of_range/func_general_find_out_of_r
 Wrote IR to tests/rt-error/general/find_out_of_range/func_general_find_out_of_range.ir
 [exit 0]
 $ mfb build tests/rt-error/general/find_out_of_range
-Wrote executable to tests/rt-error/general/find_out_of_range/func_general_find_out_of_range/func_general_find_out_of_range.out
+Wrote executable to tests/rt-error/general/find_out_of_range/build/func_general_find_out_of_range.out
 [exit 0]
-$ tests/rt-error/general/find_out_of_range/func_general_find_out_of_range/func_general_find_out_of_range.out
+$ tests/rt-error/general/find_out_of_range/build/func_general_find_out_of_range.out
 Error: 7-705-0001
 List or string index/range is outside valid bounds.
 [exit 255]

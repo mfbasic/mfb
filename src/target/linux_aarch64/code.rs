@@ -52,6 +52,15 @@ impl code::CodegenPlatform for Platform {
         "linux-aarch64"
     }
 
+    /// plan-46-C §4.3: this codegen pass emits for exactly one libc world, so a
+    /// native `LINK` locator that differs per flavor resolves to the right one.
+    fn libc(&self) -> Option<crate::manifest::libraries::Libc> {
+        Some(match self.flavor {
+            LinuxFlavor::Glibc => crate::manifest::libraries::Libc::Glibc,
+            LinuxFlavor::Musl => crate::manifest::libraries::Libc::Musl,
+        })
+    }
+
     fn arch(&self) -> &'static str {
         "aarch64"
     }

@@ -1,0 +1,45 @@
+{
+  "project": "native_library_vendor_missing_invalid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "link",
+      "library": "demolib",
+      "alias": "demoLink",
+      "line": 4,
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "ping",
+        "symbol": "demo_ping",
+        "returnResource": false,
+        "returnType": "Integer",
+        "line": 5,
+        "params": [
+        { "name": "value", "type": "Integer", "default": null, "line": 5 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "value", "ctype": "CInt32", "out": false, "line": 7 },
+          { "name": "return", "ctype": "CInt32", "out": true, "line": 7 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    { "kind": "funcAlias", "visibility": "export", "name": "ping", "target": "demoLink.ping", "line": 12 }
+    ]
+  }
+  ]
+}

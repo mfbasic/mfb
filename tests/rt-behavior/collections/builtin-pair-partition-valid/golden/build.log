@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_
 Wrote IR to tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/collections/builtin-pair-partition-valid
-Wrote executable to tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid/builtin_pair_partition_valid.out
+Wrote executable to tests/rt-behavior/collections/builtin-pair-partition-valid/build/builtin_pair_partition_valid.out
 [exit 0]
-$ tests/rt-behavior/collections/builtin-pair-partition-valid/builtin_pair_partition_valid/builtin_pair_partition_valid.out
+$ tests/rt-behavior/collections/builtin-pair-partition-valid/build/builtin_pair_partition_valid.out
 7
 seven
 9-nine

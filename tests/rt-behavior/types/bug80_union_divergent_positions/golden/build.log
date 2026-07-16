@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/types/bug80_union_divergent_positions/bug80_union
 Wrote IR to tests/rt-behavior/types/bug80_union_divergent_positions/bug80_union_divergent_positions.ir
 [exit 0]
 $ mfb build tests/rt-behavior/types/bug80_union_divergent_positions
-Wrote executable to tests/rt-behavior/types/bug80_union_divergent_positions/bug80_union_divergent_positions/bug80_union_divergent_positions.out
+Wrote executable to tests/rt-behavior/types/bug80_union_divergent_positions/build/bug80_union_divergent_positions.out
 [exit 0]
-$ tests/rt-behavior/types/bug80_union_divergent_positions/bug80_union_divergent_positions/bug80_union_divergent_positions.out
+$ tests/rt-behavior/types/bug80_union_divergent_positions/build/bug80_union_divergent_positions.out
 scoreA=7
 scoreB=109
 [exit 0]

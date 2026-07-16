@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/project/project-entry-exit-range-runtime/project_ent
 Wrote IR to tests/rt-error/project/project-entry-exit-range-runtime/project_entry_exit_range_runtime.ir
 [exit 0]
 $ mfb build tests/rt-error/project/project-entry-exit-range-runtime
-Wrote executable to tests/rt-error/project/project-entry-exit-range-runtime/project_entry_exit_range_runtime/project_entry_exit_range_runtime.out
+Wrote executable to tests/rt-error/project/project-entry-exit-range-runtime/build/project_entry_exit_range_runtime.out
 [exit 0]
-$ tests/rt-error/project/project-entry-exit-range-runtime/project_entry_exit_range_runtime/project_entry_exit_range_runtime.out
+$ tests/rt-error/project/project-entry-exit-range-runtime/build/project_entry_exit_range_runtime.out
 Error: 7-705-0010
 Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

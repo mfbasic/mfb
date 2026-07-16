@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/math/func_math_ceil_overflow_negative/func_math_ceil
 Wrote IR to tests/rt-error/math/func_math_ceil_overflow_negative/func_math_ceil_overflow_negative.ir
 [exit 0]
 $ mfb build tests/rt-error/math/func_math_ceil_overflow_negative
-Wrote executable to tests/rt-error/math/func_math_ceil_overflow_negative/func_math_ceil_overflow_negative/func_math_ceil_overflow_negative.out
+Wrote executable to tests/rt-error/math/func_math_ceil_overflow_negative/build/func_math_ceil_overflow_negative.out
 [exit 0]
-$ tests/rt-error/math/func_math_ceil_overflow_negative/func_math_ceil_overflow_negative/func_math_ceil_overflow_negative.out
+$ tests/rt-error/math/func_math_ceil_overflow_negative/build/func_math_ceil_overflow_negative.out
 Error: 7-705-0010
 Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

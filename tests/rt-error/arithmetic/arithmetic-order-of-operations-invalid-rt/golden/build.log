@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt
 Wrote IR to tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt/arithmetic_order_of_operations_invalid_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt
-Wrote executable to tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt/arithmetic_order_of_operations_invalid_rt/arithmetic_order_of_operations_invalid_rt.out
+Wrote executable to tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt/build/arithmetic_order_of_operations_invalid_rt.out
 [exit 0]
-$ tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt/arithmetic_order_of_operations_invalid_rt/arithmetic_order_of_operations_invalid_rt.out
+$ tests/rt-error/arithmetic/arithmetic-order-of-operations-invalid-rt/build/arithmetic_order_of_operations_invalid_rt.out
 Error: 7-705-0002
 Argument value is not valid for the requested operation.
 [exit 255]

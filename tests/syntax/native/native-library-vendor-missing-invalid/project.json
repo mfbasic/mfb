@@ -1,0 +1,14 @@
+{
+  "name": "native_library_vendor_missing_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "demolib": [
+      { "os": "macos", "type": "system", "source": "libdemolib.dylib" },
+      { "os": "linux", "type": "system", "source": "libdemolib.so.1" },
+      { "os": "linux", "arch": "x86_64", "libc": "glibc", "type": "vendor", "source": "libabsent.so" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

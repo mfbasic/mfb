@@ -1,0 +1,12 @@
+{
+  "name": "native_library_uncovered_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "demolib": [
+      { "os": "macos", "type": "system", "source": "libdemolib.dylib" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

@@ -1,6 +1,7 @@
 use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER, MFB_NOTE_TYPE};
+use crate::os::BUILD_DIR;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -108,12 +109,13 @@ pub(crate) fn write_executable(
     } else {
         encode_dynamic_elf(arch, flavor, entry_offset, &text, &image.data, image)?
     };
-    // Every build emits into its own `<name>/` directory (plan-46-D §4.1) so the
-    // executable and the `vendor/` its RPATH points at move as one unit. App mode
+    // Every build emits into the project's `build/` directory (plan-46-D §4.1) so
+    // the executable and the `vendor/` its RPATH points at move as one unit, and
+    // one `.gitignore` line covers every artifact. App mode
     // (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the console
     // build emits one flavored `<name>-{glibc,musl}.out` per libc world — both
     // flavors share the one directory.
-    let out_dir = project_dir.join(project_name);
+    let out_dir = project_dir.join(BUILD_DIR);
     fs::create_dir_all(&out_dir)
         .map_err(|err| format!("failed to create '{}': {err}", out_dir.display()))?;
     let path = if app_mode {

@@ -4,6 +4,36 @@ Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: plan-46-B (which depends on plan-46-A)
 
+## STATUS: IMPLEMENTED
+
+Both phases landed. `library_filename` is deleted; the `dlopen` string is now the
+binding author's declared `source` for the build's exact `(os, arch, libc)`.
+
+Runtime-verified (`.ai/compiler.md` gate), not just golden-verified:
+
+- macOS console: the sqlite3 fixture emits `libsqlite3.dylib` (the declared
+  source), **not** the old `libsqlite3.so.0` guess, and runs. Changing the
+  manifest `source` to a bogus name makes the binary fail at startup — proof the
+  manifest genuinely drives the `dlopen`.
+- Linux x86_64/glibc (Ubuntu box): an executable importing the sqlite3 binding
+  resolves the system soname from the binding's section 10 and runs.
+- `NATIVE_LIBRARY_NO_MATCH` aborts the build and emits **no binary**.
+- Vendor verify: missing → `FILE_MISSING`, tampered → `HASH_MISMATCH` (printing
+  both digests), correct → builds.
+
+Deviation: the vendor verify runs in `src/cli/build.rs`, not inside codegen. The
+plan put it on the link-support path, but codegen has no consumer project root
+(`write_executable`'s `project_dir` is the *output* dir, a temp dir under `mfb
+test`), and threading a machine-specific path into `NirModule` would poison the
+`-nir` goldens. `resolve` is pure, so build.rs verifies and codegen emits, both
+through the same function.
+
+Also: the verify derives its library set from the **tables**, not from
+`ir.link_library_names()`. At that point the project IR is not yet merged with its
+imported packages, so its `link_functions` carry only the project's own `LINK`
+blocks — which is precisely not the case this verify exists for.
+
+
 Consumes the `NATIVE_LIBRARY_TABLE` (section id 10) at **executable** build
 time: for the target being emitted `(os, arch, libc)`, resolve the
 most-specific locator per logical library, and replace `link_thunk.rs`'s
@@ -307,26 +337,26 @@ New diagnostics in `src/rules/table.rs`. **Next free native code is `2-203-0118`
 
 Full end-to-end for `system` locators; the common, lower-risk case.
 
-- [ ] Add `src/target/shared/code/link_locator.rs` with the pure `resolve`
+- [x] Add `src/target/shared/code/link_locator.rs` with the pure `resolve`
       function and `ResolveErr` per §4.1; unit tests covering wildcard-arch,
       wildcard-libc, **both wildcards (the one-line all-of-Linux system entry)**,
       **a concrete vendor entry outranking a wildcard system entry for its slot**
       (the §4.1 worked example), no-match, ambiguous, macos-libc-ignored.
-- [ ] Rewrite `emit_link_support` (`src/target/shared/code/link_thunk.rs`) to
+- [x] Rewrite `emit_link_support` (`src/target/shared/code/link_thunk.rs`) to
       call `resolve` and emit `dlopen_name(&locator, declaring_unit)` (§4.2 — the
       bare soname for `system`, the `<declaring-unit>-<source>` prefixed name for
       `vendor`); delete `library_filename`; surface
       `NATIVE_LIBRARY_NO_MATCH`/`AMBIGUOUS` as build diagnostics.
-- [ ] Put `dlopen_name` where plan-46-D §4.5's copy step can call the **same**
+- [x] Put `dlopen_name` where plan-46-D §4.5's copy step can call the **same**
       helper (§3.1); a test must assert the emitted cstring equals the copied
       file's name, since a divergence is a `dlopen` miss at runtime and invisible
       at build time.
-- [ ] Thread the flavor's libc from the per-flavor `lower_module` call into
+- [x] Thread the flavor's libc from the per-flavor `lower_module` call into
       `emit_link_support` (via `lower_module_for_platform`,
       `src/target/shared/code/mod.rs:1162`) so `resolve` sees the correct libc
       (§4.3); pass `None` for macos.
-- [ ] Add `2-203-0118`/`0119` to `src/rules/table.rs`.
-- [ ] Tests: golden acceptance — an executable importing a `system`-locator
+- [x] Add `2-203-0118`/`0119` to `src/rules/table.rs`.
+- [x] Tests: golden acceptance — an executable importing a `system`-locator
       binding links and its `_mfb_linker_init` cstring holds the declared
       `source` (assert via the linked binary / a codegen dump); a target with no
       locator fails with `NATIVE_LIBRARY_NO_MATCH`. Run the **artifact/byte-diff
@@ -345,14 +375,14 @@ Commit: —
 Build-time hash verification of a locally-placed vendor library. Read §1.1: this
 phase does **not** make a vendor library loadable — plan-46-D does.
 
-- [ ] Implement §4.4 verify in the link-support path (read
+- [x] Implement §4.4 verify in the link-support path (read
       `<consumer root>/vendor/<source>`, streamed sha256, compare to table hash).
-- [ ] Add `2-203-0120`/`0121` to `src/rules/table.rs`.
-- [ ] Tests: golden — a `vendor` binding + a correctly-placed fixture file in
+- [x] Add `2-203-0120`/`0121` to `src/rules/table.rs`.
+- [x] Tests: golden — a `vendor` binding + a correctly-placed fixture file in
       `vendor/` builds and verifies; a tampered file fails with
       `NATIVE_LIBRARY_HASH_MISMATCH`; an absent file fails with
       `NATIVE_LIBRARY_FILE_MISSING`.
-- [ ] Doc: update `src/docs/spec/language/17_native-libraries.md` (line ~179
+- [x] Doc: update `src/docs/spec/language/17_native-libraries.md` (line ~179
       platform-dependency note + the loading section: locators replace the
       synthesized soname; vendor verify semantics; loadability deferred to
       plan-46-D), and `src/docs/man/link/package.md` (Loading + diagnostics).

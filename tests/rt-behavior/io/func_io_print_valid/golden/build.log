@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/io/func_io_print_valid/func_io_print_valid.ast
 Wrote IR to tests/rt-behavior/io/func_io_print_valid/func_io_print_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/io/func_io_print_valid
-Wrote executable to tests/rt-behavior/io/func_io_print_valid/func_io_print_valid/func_io_print_valid.out
+Wrote executable to tests/rt-behavior/io/func_io_print_valid/build/func_io_print_valid.out
 [exit 0]
-$ tests/rt-behavior/io/func_io_print_valid/func_io_print_valid/func_io_print_valid.out
+$ tests/rt-behavior/io/func_io_print_valid/build/func_io_print_valid.out
 
 Hello
 é日😀

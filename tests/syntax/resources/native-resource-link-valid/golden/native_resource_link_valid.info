@@ -13,12 +13,12 @@ Container:
   format: MFP
   version: 1.0
   binary representation version: 1.0
-  flags: 0x00000000
+  flags: 0x00000001
   signature type: unsigned
   signature length: 0
-  package binary hash: a6c42627c6436855f73e8d59e568e28effb258ea26c86c203b1c70d95ce8f51d
-  content hash: be26c8ba2ac70293fc586531745526fb2989d7aa26198c90bd2a9dd4ae92a232
-  binary representation length: 1307
+  package binary hash: f30d19ea6689275203759c5f8292601b64b4c2054b0283dc213c351d2822840b
+  content hash: c2b12c4a4919cdeb2b145f75908c4cf08217705593a43d2c93e86e68cc242eab
+  binary representation length: 1439
 
 Manifest:
   name: native_resource_link_valid

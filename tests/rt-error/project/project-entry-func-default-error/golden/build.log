@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/project/project-entry-func-default-error/project_ent
 Wrote IR to tests/rt-error/project/project-entry-func-default-error/project_entry_func_default_error.ir
 [exit 0]
 $ mfb build tests/rt-error/project/project-entry-func-default-error
-Wrote executable to tests/rt-error/project/project-entry-func-default-error/project_entry_func_default_error/project_entry_func_default_error.out
+Wrote executable to tests/rt-error/project/project-entry-func-default-error/build/project_entry_func_default_error.out
 [exit 0]
-$ tests/rt-error/project/project-entry-func-default-error/project_entry_func_default_error/project_entry_func_default_error.out
+$ tests/rt-error/project/project-entry-func-default-error/build/project_entry_func_default_error.out
 Error: 100
 This is a message
 [exit 255]

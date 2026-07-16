@@ -375,6 +375,10 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         link_aliases,
         // Docs live in a separate optional package section, not in the decoded IR.
         docs: ProjectDocs::default(),
+        // Likewise the native library locators: they are `.mfp` section 10, read
+        // by the consumer's codegen straight off the package (plan-46-C), not
+        // carried in the decoded IR.
+        native_libraries: crate::binary_repr::NativeLibraryTable::default(),
     })
 }
 

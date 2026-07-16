@@ -34,6 +34,30 @@ pub struct IrProject {
     /// declarations (plan-09-doc.md §5). Carried so the package writer can emit
     /// the optional `doc` section; ignored when building an executable.
     pub(crate) docs: ProjectDocs,
+    /// The project's **own** native library locators, assembled from its
+    /// project.json `libraries` section (plan-46-B §4.3).
+    ///
+    /// A package build encodes this as `.mfp` section 10. An executable build
+    /// keeps it here so a project declaring its *own* `LINK` block resolves
+    /// against it — an imported binding's locators come from that binding's
+    /// section 10 instead, read straight off the `.mfp` at codegen (plan-46-C).
+    pub(crate) native_libraries: crate::binary_repr::NativeLibraryTable,
+}
+
+impl IrProject {
+    /// The distinct native library logical names this project's `LINK` blocks
+    /// name, in declaration order (plan-46-B §4.3). These are the names the
+    /// manifest's `libraries` section must cover, and the only ones the
+    /// `NATIVE_LIBRARY_TABLE` carries.
+    pub(crate) fn link_library_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for function in &self.link_functions {
+            if !names.contains(&function.library) {
+                names.push(function.library.clone());
+            }
+        }
+        names
+    }
 }
 
 /// The documentation surface of a project: an optional package-level entry plus

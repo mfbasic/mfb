@@ -5,9 +5,9 @@ Wrote IR to tests/rt-behavior/threads/thread-receive-print/thread_receive_print.
 [exit 0]
 $ mfb build tests/rt-behavior/threads/thread-receive-print
 uses thread_runtime_workers - [Unsigned]
-Wrote executable to tests/rt-behavior/threads/thread-receive-print/thread_receive_print/thread_receive_print.out
+Wrote executable to tests/rt-behavior/threads/thread-receive-print/build/thread_receive_print.out
 [exit 0]
-$ tests/rt-behavior/threads/thread-receive-print/thread_receive_print/thread_receive_print.out
+$ tests/rt-behavior/threads/thread-receive-print/build/thread_receive_print.out
 alpha
 beta
 gamma

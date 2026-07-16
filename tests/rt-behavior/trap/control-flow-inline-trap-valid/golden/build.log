@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/trap/control-flow-inline-trap-valid/control_flow_
 Wrote IR to tests/rt-behavior/trap/control-flow-inline-trap-valid/control_flow_inline_trap_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/trap/control-flow-inline-trap-valid
-Wrote executable to tests/rt-behavior/trap/control-flow-inline-trap-valid/control_flow_inline_trap_valid/control_flow_inline_trap_valid.out
+Wrote executable to tests/rt-behavior/trap/control-flow-inline-trap-valid/build/control_flow_inline_trap_valid.out
 [exit 0]
-$ tests/rt-behavior/trap/control-flow-inline-trap-valid/control_flow_inline_trap_valid/control_flow_inline_trap_valid.out
+$ tests/rt-behavior/trap/control-flow-inline-trap-valid/build/control_flow_inline_trap_valid.out
 10
 7
 9
