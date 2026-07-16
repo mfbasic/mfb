@@ -287,6 +287,12 @@ pub(super) fn simple_thread_handle_helper(
                 ),
             ]);
         }
+        // Close + broadcast both resource-plane queues so a worker parked in a
+        // blocking `acceptResource` (or a parent in `transferResource`) re-checks
+        // CANCELLED/CLOSED and unblocks. cancel/drop previously touched only the
+        // two data-plane queues, so such a worker never woke — a permanent hang and,
+        // on drop, a detached leaked thread (bug-205). Mirrors the trampoline-exit
+        // close loop; the handle lives at HANDLE_OFFSET on this helper's frame.
         ThreadSimpleOp::Cancel => {
             let closed = format!("{symbol}_closed");
             let closed_unlocked = format!("{symbol}_closed_unlocked");
@@ -398,6 +404,15 @@ pub(super) fn simple_thread_handle_helper(
                 platform_imports,
                 platform,
                 "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            // Wake anyone parked on the resource plane too (bug-205).
+            emit_close_resource_queues(
+                symbol,
+                HANDLE_OFFSET,
+                platform_imports,
+                platform,
                 &mut instructions,
                 &mut relocations,
             )?;
@@ -571,8 +586,19 @@ pub(super) fn simple_thread_handle_helper(
                 &mut instructions,
                 &mut relocations,
             )?;
+            instructions.push(abi::label(&inbound_unlocked));
+            // Wake anyone parked on the resource plane before detaching, or a worker
+            // blocked in acceptResource never observes CANCELLED and the detached
+            // thread leaks forever (bug-205).
+            emit_close_resource_queues(
+                symbol,
+                HANDLE_OFFSET,
+                platform_imports,
+                platform,
+                &mut instructions,
+                &mut relocations,
+            )?;
             instructions.extend([
-                abi::label(&inbound_unlocked),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OS_HANDLE),
             ]);
@@ -1349,4 +1375,84 @@ pub(super) fn thread_is_cancelled_helper() -> (
     ];
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
     (frame, instructions, Vec::new(), stack_slots)
+}
+
+/// Close and broadcast both **resource-plane** queues of the thread whose handle
+/// lives at `[sp + handle_offset]`, so anyone parked on them re-checks
+/// CANCELLED/CLOSED and unblocks.
+///
+/// `thread::cancel`/`thread::drop` closed and broadcast only the two data-plane
+/// queues, so a worker parked in a blocking `acceptResource` waited on the
+/// resource-inbound `not_empty` condvar that was never broadcast — it never woke to
+/// observe CANCELLED, hanging permanently (and leaking a detached thread on drop).
+/// The data-plane `receive` was woken correctly, and the trampoline exit already
+/// closes both resource queues "to wake any parent/worker blocked", which is the
+/// contract cancel/drop violated (bug-205).
+fn emit_close_resource_queues(
+    symbol: &str,
+    handle_offset: usize,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    for resource_queue_offset in [
+        THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
+        THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
+    ] {
+        instructions.extend([
+            abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+            abi::load_u64("%v10", "%v8", resource_queue_offset),
+            abi::move_register(abi::ARG[0], "%v10"),
+        ]);
+        emit_thread_external_call(
+            symbol,
+            platform_imports,
+            platform,
+            "pthread_mutex_lock",
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+            abi::load_u64("%v10", "%v8", resource_queue_offset),
+            abi::move_immediate("%v9", "Integer", "1"),
+            abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
+            abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        ]);
+        emit_thread_external_call(
+            symbol,
+            platform_imports,
+            platform,
+            "pthread_cond_broadcast",
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+            abi::load_u64("%v10", "%v8", resource_queue_offset),
+            abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
+        ]);
+        emit_thread_external_call(
+            symbol,
+            platform_imports,
+            platform,
+            "pthread_cond_broadcast",
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
+            abi::load_u64(abi::ARG[0], "%v8", resource_queue_offset),
+        ]);
+        emit_thread_external_call(
+            symbol,
+            platform_imports,
+            platform,
+            "pthread_mutex_unlock",
+            instructions,
+            relocations,
+        )?;
+    }
+    Ok(())
 }

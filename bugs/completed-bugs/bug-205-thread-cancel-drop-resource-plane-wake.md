@@ -5,7 +5,18 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: correctness (deadlock / thread leak)
 
-Status: Open
+Status: Fixed (2026-07-15) — new `emit_close_resource_queues` helper sets
+THREAD_QUEUE_CLOSED and pthread_cond_broadcasts the `not_empty`/`not_full` condvars
+on BOTH resource-plane queues (offsets 104/112), mirroring the trampoline-exit
+close loop. Wired into the `ThreadSimpleOp::Cancel` success path (after the
+outbound data-queue unlock) and into `::Drop` at `inbound_unlocked`, before
+`pthread_detach` — so a worker parked in a blocking `acceptResource` now wakes,
+observes CANCELLED, and exits instead of hanging forever (and, on drop, leaking a
+detached thread). Data-plane cancel behavior is untouched.
+Regression Test: 64 thread acceptance tests pass (cancel/drop, resource transfer,
+bidirectional). A targeted stalled-worker repro was not authored — the fix mirrors
+the trampoline's proven per-queue close loop that already establishes this exact
+contract ("wake any parent/worker blocked").
 Regression Test: tests/rt-behavior/ (cancel a worker blocked in thread::accept wakes it)
 
 `thread::cancel`/`thread::drop` close and broadcast only the two **data-plane**
