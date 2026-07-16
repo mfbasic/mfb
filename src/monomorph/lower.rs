@@ -473,6 +473,53 @@ impl<'a> Monomorphizer<'a> {
         function
     }
 
+    /// Reorder `arg_types` (built in source/call order) into the callee template's
+    /// declared-parameter order when the call uses named arguments, so generic
+    /// instantiation binds each type-param against the type of the argument that
+    /// actually fills its parameter slot (bug-196). Returns `None` for a positional
+    /// call or an unknown callee (both already in order).
+    fn arg_types_in_param_order(
+        &self,
+        callee: &str,
+        arguments: &[CallArg],
+        arg_types: &[String],
+    ) -> Option<Vec<String>> {
+        if !arguments
+            .iter()
+            .any(|argument| matches!(argument, CallArg::Named { .. }))
+        {
+            return None;
+        }
+        let params = &self.function_templates.get(callee)?.params;
+        let mut ordered: Vec<Option<String>> = vec![None; params.len()];
+        let mut next_positional = 0usize;
+        for (index, argument) in arguments.iter().enumerate() {
+            let arg_type = arg_types.get(index)?.clone();
+            match argument {
+                CallArg::Positional(_) => {
+                    while next_positional < ordered.len() && ordered[next_positional].is_some() {
+                        next_positional += 1;
+                    }
+                    if next_positional < ordered.len() {
+                        ordered[next_positional] = Some(arg_type);
+                        next_positional += 1;
+                    }
+                }
+                CallArg::Named { name, .. } => {
+                    if let Some(slot) = params.iter().position(|param| param.name == *name) {
+                        ordered[slot] = Some(arg_type);
+                    }
+                }
+            }
+        }
+        // Only reorder when every parameter slot is filled: an omitted defaulted
+        // slot would have no actual type here, and padding it would feed a bogus
+        // actual to `unify_type`. In that case fall back to the source-order types
+        // (unchanged prior behavior); the named-arg reorder this fixes is the
+        // fully-provided call (bug-196).
+        ordered.into_iter().collect()
+    }
+
     fn instantiate_function(
         &mut self,
         name: &str,
@@ -1107,8 +1154,18 @@ impl<'a> Monomorphizer<'a> {
                 let callee = &self
                     .collections_internal_callee(callee)
                     .unwrap_or_else(|| callee.clone());
+                // Named arguments can reorder the call's values relative to the
+                // template's declared parameters. `arg_types` is built in source
+                // order, so bind template type-params against types reordered into
+                // declared-parameter order (mirroring the value reorder IR lowering
+                // performs) — otherwise a type-param binds to the wrong argument
+                // type and instantiation emits a wrong concrete symbol (bug-196).
+                let ordered_arg_types =
+                    self.arg_types_in_param_order(callee, arguments, &arg_types);
+                let instantiate_arg_types =
+                    ordered_arg_types.as_deref().unwrap_or(&arg_types);
                 let target = if let Some(target) =
-                    self.instantiate_function(callee, &arg_types, line)
+                    self.instantiate_function(callee, instantiate_arg_types, line)
                 {
                     target
                 } else if let Some(target) =

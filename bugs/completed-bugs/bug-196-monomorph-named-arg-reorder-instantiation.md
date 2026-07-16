@@ -5,8 +5,15 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: correctness
 
-Status: Open
-Regression Test: tests/ (generic call with out-of-order named args builds & runs)
+Status: Fixed (2026-07-15) — before feeding `arg_types` to `instantiate_function`,
+monomorph now reorders them into the template's declared-parameter order (new
+`arg_types_in_param_order` helper, mirroring `normalize_local_call_arguments`) when
+the call uses named arguments, so each template type-param binds against the type
+of the argument that actually fills its slot. Only applied when every slot is
+filled; positional calls are unaffected.
+Regression Test: verified at runtime — `FUNC f OF A, B(x AS A, y AS B) AS A` called
+as `f(y := "s", x := 1)` binds `A=Integer` and returns `1` (previously bound
+`A=String` → spurious type error / wrong symbol).
 
 `instantiate_function` zips a template's params (declaration order) against the
 call's argument types in **source** order, ignoring named-argument reordering.
