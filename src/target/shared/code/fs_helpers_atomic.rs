@@ -1214,6 +1214,14 @@ pub(super) fn lower_fs_read_text_path_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&string_alloc_ok),
+        // The result-String alloc failed after `open`+`seek`: close the live fd
+        // before reporting OOM (bug-101). Only this post-open failure closes fd;
+        // the pre-open C-string alloc failure jumps to the close-free `alloc_error`
+        // (bug-201 — it would otherwise close an unassigned fd vreg).
+        abi::move_register(abi::return_register(), &fd),
+    ]);
+    platform.emit_close_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
         abi::move_register(&string, abi::RET[1]),
@@ -1330,15 +1338,11 @@ pub(super) fn lower_fs_read_text_path_helper(
     );
     instructions.extend([
         abi::branch(&done),
+        // Close-free OOM exit: reached from the pre-open C-string alloc failure
+        // (fd not yet opened) and, after an inline `close`, from the post-open
+        // result-String alloc failure. Closing fd here would close an unassigned
+        // vreg on the pre-open path (bug-201).
         abi::label(&alloc_error),
-        // The result-String allocation failed after the file fd was opened and
-        // seeked; close the fd before returning ErrOutOfMemory so a caught OOM in
-        // a loop doesn't leak an fd per call and exhaust the fd table (bug-101,
-        // mirroring the fd-close on this helper's seek/read error paths).
-        abi::move_register(abi::return_register(), &fd),
-    ]);
-    platform.emit_close_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
-    instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);

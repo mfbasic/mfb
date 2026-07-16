@@ -5,8 +5,14 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: memory-safety
 
-Status: Open
-Regression Test: tests/rt-behavior/ (fs::readText under C-string alloc OOM does not close a live fd)
+Status: Fixed (2026-07-15) — `lower_fs_read_text_path_helper`'s `alloc_error` tail
+is now close-free (reached from the pre-open C-string alloc failure, before `fd`
+is assigned); the post-open result-String alloc failure closes `fd` inline before
+branching to it. Mirrors `lower_fs_open_helper`, so only the post-open path closes
+the fd.
+Regression Test: normal `fs::readText` verified at runtime (reads a file
+correctly); the pre-open OOM path no longer closes an uninitialized fd vreg. The
+OOM path itself is not directly runtime-triggerable (arena alloc failure).
 
 `lower_fs_read_text_path_helper` shares an `alloc_error` tail that
 unconditionally `close()`s `fd`. But the **pre-open** C-string allocation failure
