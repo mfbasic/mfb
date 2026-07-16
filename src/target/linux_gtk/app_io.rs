@@ -459,6 +459,11 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::add_immediate("x0", "x20", prefix_len + 17)); // 16 hdr + prefix + text + nl
     asm.call_external("malloc");
     asm.push(abi::move_register("x21", "x0")); // heap chunk
+    // On allocation failure the memcpy below would fault on the worker thread
+    // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
+    // output still reaches the user rather than killing the program.
+    asm.push(abi::compare_immediate("x21", "0"));
+    asm.push(abi::branch_eq("fd_path"));
     if stderr {
         asm.push(abi::add_immediate("x0", "x21", 16)); // memcpy(chunk+16, "[stderr] ", 9)
         asm.local_address("x1", STR_STDERR_PREFIX.0);

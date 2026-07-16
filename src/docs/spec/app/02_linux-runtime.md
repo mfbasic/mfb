@@ -107,7 +107,7 @@ One writable runtime-state global holds every widget handle, the input-pipe fds,
 the input-mode/line buffer, and the entire term:: grid backing store, so every
 helper reaches them without register preservation. The data object is emitted
 zero-initialized with `align: 8`, layout label
-`mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 mode; u64 lineLen; u8 lineBuf[] }`,
+`mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 argc; u64 argv; u64 mode; u64 lineLen; u8 lineBuf[] }`,
 `size = STATE_SIZE`. [[src/target/linux_gtk/mod.rs:STATE_SYMBOL]]
 [[src/target/linux_gtk/mod.rs:app_mode_data_objects]]
 
@@ -127,55 +127,73 @@ throughout the term code. [[src/target/linux_gtk/mod.rs:state_array]]
 | 32 | `ST_TEXT_BUFFER` | `GtkTextBuffer*` |
 | 40 | `ST_PIPE_READ_FD` | input pipe read fd (dup2'd onto 0) |
 | 48 | `ST_PIPE_WRITE_FD` | input pipe write fd |
-| 56 | `ST_INPUT_MODE` | `MODE_*` (line-noecho / line-echo / raw) |
-| 64 | `ST_LINE_LEN` | pending uncommitted line length |
-| 72 | `ST_LINE_BUF` | pending input bytes, `LINE_BUF_CAP = 1024` |
+| 56 | `ST_ARGC` | process `argc`, for an arg-accepting entry |
+| 64 | `ST_ARGV` | process `argv`, for an arg-accepting entry |
+| 72 | `ST_INPUT_MODE` | `MODE_*` (line-noecho / line-echo / raw) |
+| 80 | `ST_LINE_LEN` | pending uncommitted line length |
+| 88 | `ST_LINE_BUF` | pending input bytes, `LINE_BUF_CAP = 1024` |
+
+`_mfb_gtkapp_main` publishes `ST_ARGC`/`ST_ARGV` before `g_application_run`, and
+the worker shim loads them to call an arg-accepting language entry. They live in
+the state rather than riding `pthread_create`'s `arg` (as the macOS worker does)
+because the GTK worker is created from the transient `activate` callback, which
+cannot reach `_mfb_gtkapp_main`'s locals.
 
 [[src/target/linux_gtk/mod.rs:ST_APPLICATION]]
 [[src/target/linux_gtk/mod.rs:LINE_BUF_CAP]]
 
 ### term:: surface state and grid
 
-The term:: section starts at `ST_TERM_AREA = ST_LINE_BUF + LINE_BUF_CAP = 1096`.
-Cursor/cell/geometry fields are 8-byte slots; the three parallel per-cell grids
-use a fixed `TERM_MAX_COLS = 160` stride and `TERM_MAX_ROWS = 48` rows (storage is
+The term:: section starts at `ST_TERM_AREA = ST_LINE_BUF + LINE_BUF_CAP = 1112`.
+Cursor/cell/geometry fields are 8-byte slots; the parallel per-cell grids use a
+fixed `TERM_MAX_COLS = 160` stride and `TERM_MAX_ROWS = 48` rows (storage is
 static — active `cols`×`rows` are derived from window size + cell metrics and never
-exceed the bounds). [[src/target/linux_gtk/mod.rs:ST_TERM_AREA]]
+exceed the bounds). Each of the three grids is stored twice: the live copy the
+worker mutates, and the draw-owned snapshot a present copies it into on the main
+loop before `queue_draw`, so a draw can never observe a half-written frame
+(plan-35-E). [[src/target/linux_gtk/mod.rs:ST_TERM_AREA]]
 [[src/target/linux_gtk/mod.rs:TERM_MAX_COLS]]
 
 | Offset | Symbol | Field |
 | --- | --- | --- |
-| 1096 | `ST_TERM_AREA` | `GtkDrawingArea*` (held by ref) |
-| 1104 | `ST_TERM_ACTIVE` | 1 while term:: is on |
-| 1112 | `ST_TERM_ROW` | cursor row |
-| 1120 | `ST_TERM_COL` | cursor col |
-| 1128 | `ST_TERM_CUR_FG` | current fg (packed `| COLOR_SET`) |
-| 1136 | `ST_TERM_CUR_BG` | current bg (packed `| COLOR_SET`) |
-| 1144 | `ST_TERM_CUR_BOLD` | current bold flag |
-| 1152 | `ST_TERM_CUR_UNDERLINE` | current underline flag |
-| 1160 | `ST_TERM_CURSOR_VISIBLE` | cursor visibility |
-| 1168 | `ST_TERM_COLS` | active columns (derived) |
-| 1176 | `ST_TERM_ROWS` | active rows (derived) |
-| 1184 | `ST_TERM_CELL_W` | cell width (px) |
-| 1192 | `ST_TERM_CELL_H` | cell height (px) |
-| 1200 | `ST_TERM_CHARS` | char grid, `u8[160*48]` = 7680 B |
-| 8880 | `ST_TERM_FG` | fg grid, `u32[160*48]` = 30720 B |
-| 39600 | `ST_TERM_BG` | bg grid, `u32[160*48]` = 30720 B |
-| 70320 | `STATE_SIZE` | total |
+| 1112 | `ST_TERM_AREA` | `GtkDrawingArea*` (held by ref) |
+| 1120 | `ST_TERM_ACTIVE` | 1 while term:: is on |
+| 1128 | `ST_TERM_ROW` | cursor row |
+| 1136 | `ST_TERM_COL` | cursor col |
+| 1144 | `ST_TERM_CUR_FG` | current fg (packed `| COLOR_SET`) |
+| 1152 | `ST_TERM_CUR_BG` | current bg (packed `| COLOR_SET`) |
+| 1160 | `ST_TERM_CUR_BOLD` | current bold flag |
+| 1168 | `ST_TERM_CUR_UNDERLINE` | current underline flag |
+| 1176 | `ST_TERM_CURSOR_VISIBLE` | cursor visibility |
+| 1184 | `ST_TERM_COLS` | active columns (derived) |
+| 1192 | `ST_TERM_ROWS` | active rows (derived) |
+| 1200 | `ST_TERM_CELL_W` | cell width (px) |
+| 1208 | `ST_TERM_CELL_H` | cell height (px) |
+| 1216 | `ST_TERM_CHARS` | live char grid, `u8[160*48]` = 7680 B |
+| 8896 | `ST_TERM_FG` | live fg grid, `u32[160*48]` = 30720 B |
+| 39616 | `ST_TERM_BG` | live bg grid, `u32[160*48]` = 30720 B |
+| 70336 | `ST_TERM_SNAP_CHARS` | snapshot char grid, 7680 B |
+| 78016 | `ST_TERM_SNAP_FG` | snapshot fg grid, 30720 B |
+| 108736 | `ST_TERM_SNAP_BG` | snapshot bg grid, 30720 B |
+| 139456 | `STATE_SIZE` | total |
 
 [[src/target/linux_gtk/mod.rs:ST_TERM_CHARS]]
 [[src/target/linux_gtk/mod.rs:STATE_SIZE]]
 
 ```text
-_mfb_gtkapp_state layout (70320 bytes, align 8)
-  0 .. 56    handles[7]  GtkApplication,Window,Scrolled,TextView,TextBuffer,
-                          pipeRead,pipeWrite
- 56 .. 72    mode (u64), lineLen (u64)
- 72 .. 1096  lineBuf[1024]
-1096 .. 1200 term cursor/cell/geometry scalars (13 u64 slots)
-1200 .. 8880 chars  u8[160*48]   (row stride = 160)
-8880 ..39600 fg     u32[160*48]
-39600..70320 bg     u32[160*48]
+_mfb_gtkapp_state layout (139456 bytes, align 8)
+     0 ..    56  handles[7]  GtkApplication,Window,Scrolled,TextView,TextBuffer,
+                             pipeRead,pipeWrite
+    56 ..    72  argc (u64), argv (u64)
+    72 ..    88  mode (u64), lineLen (u64)
+    88 ..  1112  lineBuf[1024]
+  1112 ..  1216  term cursor/cell/geometry scalars (13 u64 slots)
+  1216 ..  8896  chars      u8[160*48]   (row stride = 160)
+  8896 .. 39616  fg         u32[160*48]
+ 39616 .. 70336  bg         u32[160*48]
+ 70336 .. 78016  snapChars  u8[160*48]
+ 78016 ..108736  snapFg     u32[160*48]
+108736 ..139456  snapBg     u32[160*48]
 ```
 
 ### Cell color/attribute encoding

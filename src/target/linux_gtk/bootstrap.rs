@@ -52,6 +52,11 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // argc
     asm.push(abi::store_u64("x1", abi::stack_pointer(), 16)); // argv
+    // Publish argc/argv for the worker shim: it runs an arg-accepting language
+    // entry but is created from the transient `activate` callback, which cannot
+    // reach these locals (bug-240).
+    asm.store_state("x0", ST_ARGC);
+    asm.store_state("x1", ST_ARGV);
 
     // Disable the a11y + IM layers before GTK initializes (they crash in
     // g_variant_new_string on transcript inserts): setenv("GTK_A11Y","none",1) and
@@ -84,10 +89,20 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate("x5", "Integer", "0"));
     asm.call_external("g_signal_connect_data");
 
-    // g_application_run(app, argc, argv) — forward the real argv so GApplication's
-    // platform-data (argv[0], cwd) is valid UTF-8 rather than garbage.
+    // g_application_run(app, 1, argv) — hand GApplication only argv[0], so its
+    // platform-data (argv[0], cwd) is still valid UTF-8 rather than garbage.
+    //
+    // The count is deliberately 1 rather than the real argc (bug-240). The app is
+    // registered with G_APPLICATION_DEFAULT_FLAGS, i.e. without HANDLES_OPEN or
+    // HANDLES_COMMAND_LINE, so GApplication interprets any argv tail as *files to
+    // open* — and refuses: it emits "GLib-GIO-CRITICAL: This application can not
+    // open files", never emits `activate`, and returns non-zero. The window is
+    // never built and the worker never starts, so ANY argument passed to an
+    // app-mode binary killed the program before it ran. These are an MFBASIC
+    // program's arguments, not GTK's; the worker reads the real argc/argv from
+    // ST_ARGC/ST_ARGV, which is where an arg-accepting entry gets them.
     asm.load_state("x0", ST_APPLICATION);
-    asm.push(abi::load_u64("x1", abi::stack_pointer(), 8)); // argc
+    asm.push(abi::move_immediate("x1", "Integer", "1")); // argc: program name only
     asm.push(abi::load_u64("x2", abi::stack_pointer(), 16)); // argv
     asm.call_external("g_application_run");
 
@@ -213,7 +228,9 @@ pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate("x5", "Integer", "0"));
     asm.call_external("g_signal_connect_data");
 
-    // gtk_window_present(window); focus the transcript so it receives keys.
+    // gtk_window_present(window). Nothing is focused on purpose: keys are
+    // captured by the window-level key controller connected above, so the design
+    // deliberately avoids giving the transcript a focusable widget.
     asm.load_state("x0", ST_WINDOW);
     asm.call_external("gtk_window_present");
 
@@ -285,9 +302,11 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> Result<CodeFunction, Stri
         0,
     ));
     if spec.language_entry_accepts_args {
-        // Scaffold: no argv plumbing yet (TODO(plan-05)); pass argc=0/argv=NULL.
-        asm.push(abi::move_immediate("x0", "Integer", "0"));
-        asm.push(abi::move_immediate("x1", "Integer", "0"));
+        // The real argv that reached `g_application_run`, published to the state
+        // by `_mfb_gtkapp_main` (bug-240). Load argv first: `load_state` clobbers
+        // x9, not x0/x1, but keeping argc last mirrors the macOS shim.
+        asm.load_state("x1", ST_ARGV);
+        asm.load_state("x0", ST_ARGC);
     }
     asm.call_internal(code::MACAPP_PROGRAM_SYMBOL);
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -512,6 +531,11 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate("x0", "Integer", "64")); // 16 hdr + prefix + 3 digits + nl
     asm.call_external("malloc");
     asm.push(abi::move_register("x20", "x0")); // chunk
+    // On allocation failure the memcpy below would fault on the worker thread
+    // (bug-240). Skip the status line and park: the window stays up and the main
+    // loop still owns shutdown, so only the cosmetic exit-code line is lost.
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq("park"));
     asm.push(abi::add_immediate("x0", "x20", 16)); // memcpy(chunk+16, prefix, prefix_len)
     asm.local_address("x1", STR_EXIT_PREFIX.0);
     asm.push(abi::move_immediate(

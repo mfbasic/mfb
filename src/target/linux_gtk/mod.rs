@@ -60,13 +60,20 @@ const ST_TEXT_VIEW: usize = 24;
 const ST_TEXT_BUFFER: usize = 32;
 const ST_PIPE_READ_FD: usize = 40;
 const ST_PIPE_WRITE_FD: usize = 48;
+/// The process argc/argv, stashed by `_mfb_gtkapp_main` for the worker shim to
+/// pass to an arg-accepting language entry (bug-240). They live here rather than
+/// riding pthread_create's `arg` (the macOS approach) because the worker is
+/// created from the transient `activate` callback, whose frame cannot host the
+/// arg block; `_mfb_gtkapp_main`'s locals are not reachable from there.
+const ST_ARGC: usize = 56;
+const ST_ARGV: usize = 64;
 /// Current input mode (see `MODE_*`): selects echo / raw key handling, exactly like
 /// the macOS `INPUT_MODE_*` associated object.
-const ST_INPUT_MODE: usize = 56;
+const ST_INPUT_MODE: usize = 72;
 /// Length of the pending (uncommitted) input line in `ST_LINE_BUF`.
-const ST_LINE_LEN: usize = 64;
+const ST_LINE_LEN: usize = 80;
 /// Accumulated bytes of the line being typed (committed to the pipe on Enter).
-const ST_LINE_BUF: usize = 72;
+const ST_LINE_BUF: usize = 88;
 // Kept modest so every state field stays within a 12-bit immediate add/ldr offset.
 const LINE_BUF_CAP: usize = 1024;
 // term:: TUI surface state (plan-01-term.md §6.3): a fixed character grid rendered
@@ -797,9 +804,9 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
     objects.push(CodeDataObject {
         symbol: STATE_SYMBOL.to_string(),
         kind: "raw".to_string(),
-        layout:
-            "mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 mode; u64 lineLen; u8 lineBuf[] }"
-                .to_string(),
+        layout: "mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 argc; u64 argv; u64 mode; \
+                 u64 lineLen; u8 lineBuf[] }"
+            .to_string(),
         align: 8,
         size: STATE_SIZE,
         value: "00".repeat(STATE_SIZE),
