@@ -47,10 +47,11 @@ END FUNC
    - **(a) Register overlays** — fixed register maps (a UART). Width-typed fields,
      and **field access *is* the volatile register I/O**: `r.status` is one volatile
      read of the field's width; `r.control = 0` is one volatile write. The struct's
-     field offsets *are* the register map. No `CPtr`, no `GET`/`SET`.
+     field offsets *are* the register map. No `CPtr`, no `PEEK`/`POKE`.
    - **(b) Dynamic windows** — runtime-sized byte regions (a framebuffer). A
      fat-pointer **view** (`MEM` / `MemView` = pointer **and** length) with indexed,
-     bounds-checked access: `GET r.mem AT off FOR n` / `SET r.mem AT off = val`.
+     bounds-checked access: `PEEK r.mem AT off FOR n` / `POKE r.mem AT off FOR n = val`
+     (`FOR n` mandatory on both — #15).
 
    Rationale: forcing both through `CPtr` fields makes the window case work but makes
    the register case ambiguous — `r.control = 0` then nulls a pointer instead of
@@ -83,25 +84,25 @@ END FUNC
    example).
 
 9. **Low-`n`-bytes placement — one marshaling rule, `n = 8` is the degenerate case.**
-   A field/`GET` of `n` bytes places those `n` source bytes into the low `n` bytes of the
+   A field/`PEEK` of `n` bytes places those `n` source bytes into the low `n` bytes of the
    destination `Integer`; the high `8 − n` bytes are zero. For `n < 8` (`CUInt8/16/32`) the
-   result is therefore always non-negative. For **`n = 8`** (`CUInt64` / `GET … FOR 8`)
+   result is therefore always non-negative. For **`n = 8`** (`CUInt64` / `PEEK … FOR 8`)
    there are no high bytes left to zero — the read is an **exact 64-bit bit-copy**, so a
    value with bit 63 set reads back as a *negative* `Integer`. The bit **pattern** is
    preserved, not the unsigned magnitude: `Integer` is MFB's only 64-bit carrier and it is
    signed, so full-width reads are bit patterns, and any code needing unsigned semantics on
    them uses `bits::` (which operates on the raw pattern) rather than a signed compare. This
-   also settles the `GET`-section open question: the bound is **`≤`** — `FOR 8` is allowed,
+   also settles the `PEEK`-section open question: the bound is **`≤`** — `FOR 8` is allowed,
    with the sign caveat above.
 
 9b. **Access width equals field width — no splitting.** A `CUInt64` field is *one* 64-bit
    bus access. A device that permits only 32-bit MMIO must be modeled with two `CUInt32`
    fields, not one `CUInt64` — the block never splits a wide field into narrower cycles.
 
-10. **`MEM` is a simple primitive-ish byte-window type — `GET`/`SET` only.** Not a
+10. **`MEM` is a simple primitive-ish byte-window type — `PEEK`/`POKE` only.** Not a
     parameterized `MemView OF T`, not a List: just a raw bounded byte window (ptr+len)
     with no `length`/index/iterate/slice surface. All reads/writes go through
-    `GET`/`SET … AT off FOR n`; to materialize a List you `GET` each element and
+    `PEEK`/`POKE … AT off FOR n`; to materialize a List you `PEEK` each element and
     `append()`. **`MEM` is valid *only* inside a `MEMORY` block** — it cannot be named,
     returned, or stored in ordinary code (like `CPtr` relative to `LINK`).
 
@@ -115,7 +116,7 @@ END FUNC
     other host devices, open the device node with `fs::open` or bind a library through
     `LINK` — those are *not* userspace MMIO and are out of scope for this block.
 
-13. **Multi-byte access is defined little-endian.** A `GET`/`SET … FOR n` (and any
+13. **Multi-byte access is defined little-endian.** A `PEEK`/`POKE … FOR n` (and any
     multi-byte `LAYOUT` field) interprets the bytes as **little-endian**, regardless of
     host. The memory-access layer is responsible for the translation:
     - **Free on every current target.** aarch64 (macOS/Linux), x86-64, and rv64 are all
@@ -131,21 +132,23 @@ END FUNC
       device formats that are big-endian on the wire are byteswapped by the developer
       via `bits::` — the same under any model, and now the *only* place a swap appears.
     - **Build the translation seam *now*, even with no BE target.** The LE guarantee is
-      a contract, not "we happen to be LE." Every `GET`/`SET`/`LAYOUT`-field access must
+      a contract, not "we happen to be LE." Every `PEEK`/`POKE`/`LAYOUT`-field access must
       route through a single host-order → little-endian translation point (in-place /
       a per-access hook), which is the identity no-op on today's LE targets. Pre-planning
       this means adding a big-endian backend later is a localized change (flip the hook
       to emit `REV*`), not a tree-wide retrofit of every access site. Do **not** hardcode
       the assumption that host order == LE at each call site.
 
-14. **Grammar is settled; `GET` is an expression, `SET` is a statement.** The `OVERLAY`
-    / `VIEW` / `GET` / `SET` forms as written in the sketches are the intended grammar
-    (incl. `SET … AT off FOR n = value`). **Locked asymmetry:** `GET … AT off FOR n` is
-    expression-like (it yields a primitive, usable inline as an arg/operand); `SET … AT
-    off FOR n = value` is statement-only (it never yields a value).
+14. **Grammar is settled; `PEEK` is an expression, `POKE` is a statement.** The `OVERLAY`
+    / `VIEW` / `PEEK` / `POKE` forms as written in the sketches are the intended grammar
+    (incl. `POKE … AT off FOR n = value`). **Locked asymmetry:** `PEEK … AT off FOR n` is
+    expression-like (it yields a primitive, usable inline as an arg/operand); `POKE … AT
+    off FOR n = value` is statement-only (it never yields a value). This asymmetry is not
+    an invention — it is exactly what `PEEK()`/`POKE` have meant since classic BASIC, which
+    is part of why those names were chosen (#26).
 
-15. **`FOR n` is required on both `GET` and `SET`.** No width inference. MFB literals
-    are initially untyped, so a width-less `SET r.mem AT off = 0` would be ambiguously
+15. **`FOR n` is required on both `PEEK` and `POKE`.** No width inference. MFB literals
+    are initially untyped, so a width-less `POKE r.mem AT off = 0` would be ambiguously
     1/2/4/8 bytes — intolerable in a low-level block. Mandatory `FOR n` forces the
     developer to state the hardware register width on every read and write; omitting it
     is a compile error.
@@ -161,14 +164,34 @@ END FUNC
     access vs volatile register I/O. `LAYOUT` reads as "a memory layout, not a value
     type" and makes the overload explicit at the declaration site.
 
-18. **`MEMORY`-only keywords.** `LAYOUT`, `MEM`, `GET`, `SET`, `OVERLAY`, `VIEW`, and
-    `FENCE` are valid **only inside a `MEMORY` block**. Outside one they are not in scope
-    (a plain identifier / parse error), the same way `MEM` cannot be named in ordinary
-    code. The block is the sole place this vocabulary exists.
+18. **`MEMORY`-only keywords — and this is load-bearing, not tidiness.** `LAYOUT`, `MEM`,
+    `PEEK`, `POKE`, `OVERLAY`, `VIEW`, and `FENCE` are valid **only inside a `MEMORY`
+    block**. Outside one they are not in scope (a plain identifier / parse error), the same
+    way `MEM` cannot be named in ordinary code. The block is the sole place this vocabulary
+    exists.
+
+    **Why it's load-bearing.** `keyword()` (`src/lexer.rs`) matches
+    `eq_ignore_ascii_case`, and `::` lexes as a separate `DoubleColon` token, so the
+    identifier *after* `::` goes through the same keyword lookup — a global keyword would
+    capture `collections::mem`, `foo::layout`, and friends. Measured across the tree's
+    27,369 `.mfb` files: `mem` 75 word-matches, `layout` 52, `memory` 233 (`view`, `fence`,
+    and `overlay` are clean at 0). Scoping the vocabulary to the block is therefore what
+    keeps these spellings usable at all.
+
+    **Implementation requirement.** The lexer must recognize this vocabulary
+    *contextually* — tracking `MEMORY … END MEMORY` nesting — not via the global keyword
+    table. Precedent exists: the lexer already does context-sensitive work for `DOC`
+    raw-capture and for `REM` at statement start (`is_statement_start`). Do not add these
+    to `keyword()` unconditionally.
+
+    **Residual cost, accepted.** Inside a `MEMORY` block these spellings are unavailable as
+    identifiers, so a block cannot call e.g. a `mem::` package or name a local `layout`.
+    Given #16 (keep the block's surface minimal), that's tolerable — but it is a real
+    constraint on block-local code, not a theoretical one.
 
 19. **Volatile by definition — no annotation.** Everything in a `MEMORY` block is
     volatile because it's in the block; there is no `VOLATILE` marker and no need to tag
-    individual `FUNC`/`SUB`s. Every `LAYOUT` field / `GET` / `SET` access is one
+    individual `FUNC`/`SUB`s. Every `LAYOUT` field / `PEEK` / `POKE` access is one
     in-order bus access, exempt from fold/CSE/reorder/cache. (See the volatile-crux
     section.)
 
@@ -182,7 +205,7 @@ END FUNC
 
 21. **An unwired `MEM` field is the null view `{ptr: 0, len: 0}`.** `OVERLAY` without a
     `WITH` for a `MEM` field leaves it null. Because every access is bounds-checked against
-    `len`, any `GET`/`SET` on an unwired field fails the check (`off + n > 0` for any
+    `len`, any `PEEK`/`POKE` on an unwired field fails the check (`off + n > 0` for any
     `n ≥ 1`) and traps `ErrBounds` — it **never dereferences null**. So the dynamic form
     (registers live, `pixels` not yet wired in `attachDisplay`) is safe by construction:
     touching `pixels` before `r.pixels = VIEW …` traps cleanly.
@@ -199,7 +222,7 @@ END FUNC
     programmer's responsibility.** Register fields lay out at natural alignment and the base
     is checked aligned to the widest field (#11), so **every register-field access is
     naturally aligned** — the one-bus-access guarantee holds unconditionally, no per-access
-    check. `GET`/`SET … AT off` on a `MEM` window is byte-addressed; `off` need not be
+    check. `PEEK`/`POKE … AT off` on a `MEM` window is byte-addressed; `off` need not be
     aligned, but the single-access / atomicity guarantee applies **only to naturally-aligned
     accesses** (`off % n = 0`). An unaligned `FOR n>1` may lower to multiple accesses and
     **will fault on strict-alignment device mappings** — consistent with `MEM` being the
@@ -220,6 +243,32 @@ END FUNC
     or as the RHS of `RES r AS T = …` (`attachDisplay`). There is no separate statement
     form — both usages are the one expression.
 
+26. **The window accessors are `PEEK` / `POKE`, not `GET` / `SET`.** Two independent
+    reasons, either of which would be sufficient:
+
+    - **`GET`/`SET` are unusable as keywords here.** They collide head-on with the
+      `collections::` API. Measured across the tree's 27,369 `.mfb` files: **`get` 14,238
+      word-matches, `set` 3,135** — sampling confirms these are overwhelmingly real call
+      sites (`IF collections::get`, `r = collections::set`), not comments. Because the
+      lexer is case-insensitive and `::` is its own token, `GET`/`SET` keywords would
+      capture the identifier in every one of them. Decision #18's contextual lexing would
+      technically contain the damage to `MEMORY` blocks — but the residual is exactly
+      backwards for this feature: #10 says you materialize a `List` by `PEEK`-ing each
+      element and `append()`-ing it, which is precisely the block-local code most likely to
+      want `collections::get`. `PEEK`/`POKE` measure **0 / 0** — no collision anywhere, and
+      no entry in `keyword()`.
+    - **They're the right names on their own merits.** `PEEK`/`POKE` are the BASIC
+      lineage's own vocabulary for exactly this operation — raw, address-indexed,
+      width-explicit memory access — so the feature reads as native to the language rather
+      than grafted on. They also carry the correct connotation: `collections::get` is a
+      safe, checked container read, and reusing that verb for an unchecked-address device
+      access would have understated the danger at precisely the wrong site.
+
+    **The lineage also reinforces #14's locked asymmetry for free.** In classic BASIC
+    `PEEK(addr)` is a *function* (it yields a value) and `POKE addr, val` is a *statement*
+    (it does not) — the same expression/statement split #14 arrives at independently. The
+    asymmetry now needs no defending; it is what the names have always meant.
+
 ## Why not unify register-maps and windows through `CPtr`
 
 `=` cannot mean both "set the pointer" and "write through the pointer":
@@ -231,7 +280,7 @@ r.control = 0           ' write-through-the-pointer (RHS is a scalar) — intend
 
 Overloading `=` by RHS type is ambiguous and fragile. Splitting into (a) field-access
 overlays and (b) indexed `MEM` views removes the ambiguity: in (a) the field *is* the
-register so `=` is always a register write; in (b) all access is explicit `GET`/`SET`.
+register so `=` is always a register write; in (b) all access is explicit `PEEK`/`POKE`.
 
 ## Sketch (current synthesized shape)
 
@@ -240,7 +289,7 @@ register so `=` is always a register write; in (b) all access is explicit `GET`/
 A fixed register map. Width-typed fields; **field access *is* the volatile register
 I/O** — `r.status` is one volatile read of the field width, `r.control = 0` one
 volatile write. The struct's field offsets *are* the register map. No `MEM`, no
-`GET`/`SET`.
+`PEEK`/`POKE`.
 
 ```basic
 MEMORY
@@ -267,7 +316,8 @@ END MEMORY
 ### (b) Dynamic window — indexed bounded I/O
 
 A runtime-sized byte region. A fat-pointer **view** (`MEM` = pointer **and** length)
-with indexed, bounds-checked access via `GET`/`SET … AT off [FOR n]`.
+with indexed, bounds-checked access via `PEEK`/`POKE … AT off FOR n` (`FOR n` is
+mandatory, never inferred — #15).
 
 ```basic
 MEMORY
@@ -280,7 +330,7 @@ MEMORY
     END FUNC
 
     SUB setPixel(RES r AS Framebuffer, x AS Integer, y AS Integer, val AS Byte)
-        SET r.mem AT y * width + x FOR 1 = val   ' FOR required; 1-byte write, bounds-checked
+        POKE r.mem AT y * width + x FOR 1 = val   ' FOR required; 1-byte write, bounds-checked
     END SUB
 END MEMORY
 ```
@@ -289,7 +339,7 @@ END MEMORY
 
 The split in decision #3 is about *access modes*, not about *resources*. A single
 opaque resource can hold **both**: width-typed **register fields** (field access =
-volatile I/O) *and* one or more **`MEM` buffer fields** (indexed bounded `GET`/`SET`).
+volatile I/O) *and* one or more **`MEM` buffer fields** (indexed bounded `PEEK`/`POKE`).
 Field type decides the mode — a fixed-width C int is a register; a `MEM` is a buffer
 view. This is the common real shape: a device with a control/status register block
 *plus* a data buffer (framebuffer, DMA ring, FIFO payload).
@@ -303,7 +353,7 @@ MEMORY
         height  AS CUInt32          ' @ 0x04
         control AS CUInt32          ' @ 0x08
         bufPhys AS CUInt64          ' @ 0x0C  device's DMA base for the pixel buffer
-        ' --- buffer: indexed bounded GET/SET ---
+        ' --- buffer: indexed bounded PEEK/POKE ---
         pixels  AS MEM              ' a view (ptr+len); registers are auto-laid-out,
                                     ' but a MEM field is wired explicitly (see below)
     END LAYOUT
@@ -341,11 +391,11 @@ through the one resource:
 
 ```basic
     SUB setPixel(RES r AS Display, x AS Integer, y AS Integer, argb AS Integer)
-        SET r.pixels AT (y * r.width + x) * 4 FOR 4 = argb   ' bounds-checked buffer write
+        POKE r.pixels AT (y * r.width + x) * 4 FOR 4 = argb   ' bounds-checked buffer write
     END SUB
 
     FUNC getPixel(RES r AS Display, x AS Integer, y AS Integer) AS Integer
-      RETURN GET r.pixels AT (y * r.width + x) * 4 FOR 4   ' bounds-checked ARGB read
+      RETURN PEEK r.pixels AT (y * r.width + x) * 4 FOR 4   ' bounds-checked ARGB read
     END FUNC
 
     SUB present(RES r AS Display)
@@ -391,9 +441,9 @@ This means decision #3 stays — they're still two *access modes* — but they a
 *resources*; a single overlay can carry both. (a) and (b) are just the degenerate cases
 where a `Display`-like type has only registers, or only a `MEM` field.
 
-## `GET` / `SET` semantics
+## `PEEK` / `POKE` semantics
 
-`GET <memField> AT <off> FOR <n>` reads `n` raw bytes from the view at `off` and
+`PEEK <memField> AT <off> FOR <n>` reads `n` raw bytes from the view at `off` and
 produces an MFBASIC **primitive**.
 
 - **Width check + low-`n`-bytes placement.** `n` must fit the destination primitive:
@@ -402,23 +452,23 @@ produces an MFBASIC **primitive**.
   zero (non-negative result), and `n = 8` is an exact bit-copy that can read negative —
   see #9. Reading more bytes than the destination holds is a compile error (static when
   `FOR` is constant).
-- **Primitives only — `GET` cannot build a Collection.** No `List`/`Map`/record/bulk
-  form. To fill a `List OF Byte` / `List OF Integer` you `GET` each element and
+- **Primitives only — `PEEK` cannot build a Collection.** No `List`/`Map`/record/bulk
+  form. To fill a `List OF Byte` / `List OF Integer` you `PEEK` each element and
   `append()` it into the list. There is no "read N bytes straight into a List."
 - **Bounds-checked** against the view length, overflow-free (#22): in-bounds iff
   `0 ≤ off` and `1 ≤ n` and `n ≤ len` and `off ≤ len − n`; otherwise `ErrBounds`. (Not
   `off + n > len`, which can wrap.)
 
-`SET <memField> AT <off> FOR <n> = <value>` writes the low `n` bytes of `value` to the
+`POKE <memField> AT <off> FOR <n> = <value>` writes the low `n` bytes of `value` to the
 view at `off` (same width + bounds rules in reverse).
 
-- **`FOR n` is REQUIRED on `SET`** — mirroring `GET`. Do **not** infer width from the
-  value's type. MFB literals are initially untyped, so `SET r.mem AT off = 0` would be
+- **`FOR n` is REQUIRED on `POKE`** — mirroring `PEEK`. Do **not** infer width from the
+  value's type. MFB literals are initially untyped, so `POKE r.mem AT off = 0` would be
   ambiguously 1/2/4/8 bytes depending on context — exactly the ambiguity a low-level
-  block can't tolerate. Forcing `SET r.mem AT off FOR 2 = 0` makes the developer state
+  block can't tolerate. Forcing `POKE r.mem AT off FOR 2 = 0` makes the developer state
   the hardware's register width explicitly. Omitting `FOR` is a compile error.
 
-Example — read a row into a `List`, element by element (because `GET` can't build the
+Example — read a row into a `List`, element by element (because `PEEK` can't build the
 list itself):
 
 ```basic
@@ -426,8 +476,8 @@ FUNC readRow(RES r AS Display, y AS Integer) AS List OF Integer
     MUT row AS List OF Integer = []
     MUT x AS Integer = 0
     WHILE x < r.width                         ' r.width re-read each iter (live register)
-        ' GET makes a primitive; append it — GET cannot make the List
-        collections::append(row, GET r.pixels AT (y * r.width + x) * 4 FOR 4)
+        ' PEEK makes a primitive; append it — PEEK cannot make the List
+        collections::append(row, PEEK r.pixels AT (y * r.width + x) * 4 FOR 4)
         x = x + 1
     END WHILE
     RETURN row
@@ -452,9 +502,9 @@ build-time switch:
 ## Volatile semantics — the implementation crux
 
 **Everything in a `MEMORY` block is volatile by definition — no annotation.** Volatility
-is a property of the block (every `LAYOUT` field, `GET`, and `SET` access), not an opt-in
+is a property of the block (every `LAYOUT` field, `PEEK`, and `POKE` access), not an opt-in
 on individual `FUNC`/`SUB`s. There is no `VOLATILE` marker to write; being inside a
-`MEMORY` block *is* the marker. So every `r.status` / `GET` / `SET` is **exactly one bus
+`MEMORY` block *is* the marker. So every `r.status` / `PEEK` / `POKE` is **exactly one bus
 access of the declared width, in program order**, and the compiler must exempt these
 access nodes from:
 
