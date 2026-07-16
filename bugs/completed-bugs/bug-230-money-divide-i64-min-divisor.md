@@ -5,7 +5,13 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — `emit_money_divide_scalar` now runtime-guards
+`k == i64::MIN` before `emit_apply_rounding`: since `|raw| < 2^63 = |i64::MIN|`,
+the remainder magnitude is always below the half, so the result is exactly the
+truncated quotient — the guard sets `dst = quotient` and skips the signed
+half-compare (which `emit_abs_i64` would feed a negative `abs_divisor`).
+Regression Test: verified at runtime — `(-92233720368547.75808m) / i64::MIN`
+(raw i64::MIN ÷ i64::MIN) yields Money raw 1 (`= 0.00001m`), not the buggy raw 2.
 
 `emit_money_divide_scalar` (`src/target/shared/code/builder_money_math.rs:176-187`)
 produces `abs_divisor` via `emit_abs_i64`, which leaves `i64::MIN` unchanged;

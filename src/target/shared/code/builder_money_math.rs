@@ -184,7 +184,25 @@ impl CodeBuilder<'_> {
                     &scalar.location,
                 ));
                 self.emit(abi::arithmetic_shift_right_immediate(&sign_neg, &sign_neg, 63));
+                // Guard k == i64::MIN: `emit_abs_i64` leaves it negative (its
+                // magnitude is unrepresentable), which would make the signed
+                // half-compare in `emit_apply_rounding` take the wrong branch
+                // (bug-230). Because |raw| < 2^63 = |i64::MIN|, the remainder
+                // magnitude is always below the half, so the result is exactly the
+                // truncated quotient — skip rounding entirely for this divisor.
+                let min_divisor = self.allocate_register()?;
+                // i64::MIN as its unsigned bit pattern (2^63); `move_immediate`
+                // takes the u64 pattern, not the signed "-9223372036854775808".
+                self.emit(abi::move_immediate(&min_divisor, "Integer", "9223372036854775808"));
+                let not_min = self.label("money_div_scalar_not_min");
+                let div_done = self.label("money_div_scalar_done");
+                self.emit(abi::compare_registers(&scalar.location, &min_divisor));
+                self.emit(abi::branch_ne(&not_min));
+                self.emit(abi::move_register(dst, &quotient));
+                self.emit(abi::branch(&div_done));
+                self.emit(abi::label(&not_min));
                 self.emit_apply_rounding(dst, &quotient, &remainder, &abs_div, &sign_neg)?;
+                self.emit(abi::label(&div_done));
                 Ok(dst.to_string())
             }
             // `raw * 2^32 / fixed_raw` is exactly `emit_fixed_divide(raw, fixed_raw)`
