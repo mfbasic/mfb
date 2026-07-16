@@ -326,6 +326,8 @@ fn lower_net_endpoint_helper(
     let connect_poll_retry = format!("{symbol}_connect_poll_retry");
     let connect_poll_ready = format!("{symbol}_connect_poll_ready");
     let connect_timeout = format!("{symbol}_connect_timeout");
+    let connect_timeout_ok = format!("{symbol}_connect_timeout_ok");
+    let listen_backlog_ok = format!("{symbol}_listen_backlog_ok");
     let connected_done = format!("{symbol}_connected_done");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -474,6 +476,13 @@ fn lower_net_endpoint_helper(
             // listen(fd, backlog)
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), EXTRA_OFFSET),
+            // Clamp backlog to INT_MAX: listen() takes a C `int`, so a 64-bit value
+            // with bit 31 set would be passed as a negative backlog (bug-239).
+            abi::move_immediate("%v9", "Integer", "2147483647"),
+            abi::compare_registers(abi::ARG[1], "%v9"),
+            abi::branch_le(&listen_backlog_ok),
+            abi::move_register(abi::ARG[1], "%v9"),
+            abi::label(&listen_backlog_ok),
         ]);
         platform.emit_libc_call(
             "listen",
@@ -570,6 +579,13 @@ fn lower_net_endpoint_helper(
             abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
             abi::move_immediate(abi::ARG[1], "Integer", "1"),
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), EXTRA_OFFSET),
+            // Clamp the connect timeout to INT_MAX: poll() takes a C `int`, so a
+            // 64-bit value with bit 31 set would block forever (bug-239).
+            abi::move_immediate("%v11", "Integer", "2147483647"),
+            abi::compare_registers(abi::ARG[2], "%v11"),
+            abi::branch_le(&connect_timeout_ok),
+            abi::move_register(abi::ARG[2], "%v11"),
+            abi::label(&connect_timeout_ok),
         ]);
         platform.emit_libc_call(
             "poll",

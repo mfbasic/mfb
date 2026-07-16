@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun
 
-Status: Open
+Status: Fixed (2026-07-15) — the net poll timeout (poll.rs), the non-blocking-connect poll timeout, and the listen backlog (net/mod.rs) are now clamped to INT_MAX before being passed to poll()/listen() (which take a C `int`), so a 64-bit Integer with bit 31 set no longer narrows to a negative value (poll blocking forever / negative backlog). Negatives were already rejected/handled. Existing net poll/timeout test still builds.
 
 A 64-bit MFBASIC Integer timeout/backlog is passed unchanged in the arg register
 to `poll`/`listen`, whose C prototypes read only a 32-bit `int`, so a large

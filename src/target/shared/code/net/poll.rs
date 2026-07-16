@@ -36,6 +36,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let poll_retry = format!("{symbol}_poll_retry");
+    let timeout_ok = format!("{symbol}_timeout_ok");
     let poll_fail = format!("{symbol}_poll_fail");
     let not_ready = format!("{symbol}_not_ready");
     let done = format!("{symbol}_done");
@@ -47,6 +48,14 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::compare_immediate(abi::ARG[1], "0"),
         abi::branch_lt(&invalid),
         abi::move_register("%v12", abi::ARG[1]),
+        // Clamp timeoutMs to INT_MAX: poll() takes a C `int`, so a 64-bit value
+        // with bit 31 set would be read as a negative timeout (block forever)
+        // instead of a long wait (bug-239). Negatives were already rejected above.
+        abi::move_immediate("%v13", "Integer", "2147483647"),
+        abi::compare_registers("%v12", "%v13"),
+        abi::branch_le(&timeout_ok),
+        abi::move_register("%v12", "%v13"),
+        abi::label(&timeout_ok),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
