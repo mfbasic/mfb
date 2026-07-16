@@ -424,12 +424,12 @@ fn lower_validated_module(
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    if !matches!(
-        build_mode,
-        NativeBuildMode::Console | NativeBuildMode::LinuxApp
-    ) {
-        // Console or GTK4 app-mode output only; the CLI selects the build mode
-        // from the target OS, so `MacApp` never reaches here.
+    if !matches!(build_mode, NativeBuildMode::Console) {
+        // Console output only: riscv64 `supports_app_mode()` is false, so admitting
+        // `LinuxApp` here would reach `code.rs`'s `unimplemented!("rv64 app mode not
+        // ported")` and abort the process instead of returning a clean error
+        // (bug-223). The CLI rejects `-app` for this target first, but a
+        // non-CLI/API caller could construct a `LinuxApp` module directly.
         return Err(format!(
             "Linux riscv64 native targets do not support the {} build mode",
             build_mode.as_str()

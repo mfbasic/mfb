@@ -406,8 +406,9 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // The Linux AArch64 ABI passes variadic GP arguments in registers, so the
-        // trailing variadic argument in `x2` needs no special handling.
+        // The RISC-V lp64d ABI passes variadic GP arguments in the a0–a7 argument
+        // registers (like non-variadic ones), so the trailing variadic argument
+        // needs no special handling.
         emit_linux_c_call(from, base, platform_imports, instructions, relocations)
     }
 

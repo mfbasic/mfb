@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun / docs
 
-Status: Open
+Status: Fixed (2026-07-15) — lower_validated_module now admits only NativeBuildMode::Console for riscv64 (a LinuxApp module returns a clean error instead of reaching code.rs's unimplemented! panic), and emit_variadic_call's comment references the RISC-V lp64d ABI (a0–a7) instead of the copied AArch64 text.
 
 Two low items on the linux-riscv64 target:
 
