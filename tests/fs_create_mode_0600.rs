@@ -79,7 +79,8 @@ fn file_creating_builtins_create_owner_only_0600() {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    let exe = project.join("bug184_mode.out");
+    // plan-46-D §4.1: the build emits into its own `<name>/` directory.
+    let exe = project.join("bug184_mode").join("bug184_mode.out");
     let run = Command::new(&exe).output().expect("run built executable");
     assert!(
         run.status.success(),

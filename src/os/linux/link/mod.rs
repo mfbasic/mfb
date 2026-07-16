@@ -108,12 +108,18 @@ pub(crate) fn write_executable(
     } else {
         encode_dynamic_elf(arch, flavor, entry_offset, &text, &image.data, image)?
     };
-    // App mode (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the
-    // console build emits one flavored `<name>-{glibc,musl}.out` per libc world.
+    // Every build emits into its own `<name>/` directory (plan-46-D §4.1) so the
+    // executable and the `vendor/` its RPATH points at move as one unit. App mode
+    // (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the console
+    // build emits one flavored `<name>-{glibc,musl}.out` per libc world — both
+    // flavors share the one directory.
+    let out_dir = project_dir.join(project_name);
+    fs::create_dir_all(&out_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", out_dir.display()))?;
     let path = if app_mode {
-        project_dir.join(format!("{project_name}.out"))
+        out_dir.join(format!("{project_name}.out"))
     } else {
-        project_dir.join(format!("{project_name}-{}.out", flavor.suffix()))
+        out_dir.join(format!("{project_name}-{}.out", flavor.suffix()))
     };
     fs::write(&path, bytes)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/general/toFloat_invalid_format/func_general_toFloat_
 Wrote IR to tests/rt-error/general/toFloat_invalid_format/func_general_toFloat_invalid_format.ir
 [exit 0]
 $ mfb build tests/rt-error/general/toFloat_invalid_format
-Wrote executable to tests/rt-error/general/toFloat_invalid_format/func_general_toFloat_invalid_format.out
+Wrote executable to tests/rt-error/general/toFloat_invalid_format/func_general_toFloat_invalid_format/func_general_toFloat_invalid_format.out
 [exit 0]
-$ tests/rt-error/general/toFloat_invalid_format/func_general_toFloat_invalid_format.out
+$ tests/rt-error/general/toFloat_invalid_format/func_general_toFloat_invalid_format/func_general_toFloat_invalid_format.out
 Error: 7-705-0003
 Text parse or non-finite numeric representation conversion failed.
 [exit 255]

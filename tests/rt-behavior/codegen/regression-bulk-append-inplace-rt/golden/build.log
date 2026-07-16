@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/codegen/regression-bulk-append-inplace-rt/regress
 Wrote IR to tests/rt-behavior/codegen/regression-bulk-append-inplace-rt/regression_bulk_append_inplace_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/codegen/regression-bulk-append-inplace-rt
-Wrote executable to tests/rt-behavior/codegen/regression-bulk-append-inplace-rt/regression_bulk_append_inplace_rt.out
+Wrote executable to tests/rt-behavior/codegen/regression-bulk-append-inplace-rt/regression_bulk_append_inplace_rt/regression_bulk_append_inplace_rt.out
 [exit 0]
-$ tests/rt-behavior/codegen/regression-bulk-append-inplace-rt/regression_bulk_append_inplace_rt.out
+$ tests/rt-behavior/codegen/regression-bulk-append-inplace-rt/regression_bulk_append_inplace_rt/regression_bulk_append_inplace_rt.out
 int len=900 mismatch=0
 words len=100
 first=item0

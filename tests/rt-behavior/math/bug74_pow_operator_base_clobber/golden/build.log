@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_op
 Wrote IR to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.ir
 [exit 0]
 $ mfb build tests/rt-behavior/math/bug74_pow_operator_base_clobber
-Wrote executable to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.out
+Wrote executable to tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.out
 [exit 0]
-$ tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.out
+$ tests/rt-behavior/math/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber/bug74_pow_operator_base_clobber.out
 8.00
 8.00
 100.00

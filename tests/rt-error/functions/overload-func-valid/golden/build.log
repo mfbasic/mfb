@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/functions/overload-func-valid/overload_func_valid.as
 Wrote IR to tests/rt-error/functions/overload-func-valid/overload_func_valid.ir
 [exit 0]
 $ mfb build tests/rt-error/functions/overload-func-valid
-Wrote executable to tests/rt-error/functions/overload-func-valid/overload_func_valid.out
+Wrote executable to tests/rt-error/functions/overload-func-valid/overload_func_valid/overload_func_valid.out
 [exit 0]
-$ tests/rt-error/functions/overload-func-valid/overload_func_valid.out
+$ tests/rt-error/functions/overload-func-valid/overload_func_valid/overload_func_valid.out
 int 42
 str hello
 bool true

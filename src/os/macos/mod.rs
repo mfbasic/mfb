@@ -132,7 +132,8 @@ mod tests {
     fn writes_linked_executable_mach_o() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_linked_executable(dir.path(), "prog", &image()).expect("write exe");
-        assert_eq!(path, dir.path().join("prog.out"));
+        // plan-46-D §4.1: the build emits into its own `<name>/` directory.
+        assert_eq!(path, dir.path().join("prog").join("prog.out"));
         let bytes = std::fs::read(&path).unwrap();
         // Mach-O 64 magic (little-endian 0xfeedfacf).
         assert_eq!(&bytes[0..4], &[0xcf, 0xfa, 0xed, 0xfe]);

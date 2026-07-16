@@ -3,7 +3,7 @@ Wrote AST to tests/rt-error/match/control-flow-match-when/control_flow_match_whe
 Wrote IR to tests/rt-error/match/control-flow-match-when/control_flow_match_when.ir
 [exit 0]
 $ mfb build tests/rt-error/match/control-flow-match-when
-Wrote executable to tests/rt-error/match/control-flow-match-when/control_flow_match_when.out
+Wrote executable to tests/rt-error/match/control-flow-match-when/control_flow_match_when/control_flow_match_when.out
 [exit 0]
-$ tests/rt-error/match/control-flow-match-when/control_flow_match_when.out
+$ tests/rt-error/match/control-flow-match-when/control_flow_match_when/control_flow_match_when.out
 [exit 60]

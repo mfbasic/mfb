@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/datetime/datetime-civil-valid/datetime-civil-vali
 Wrote IR to tests/rt-behavior/datetime/datetime-civil-valid/datetime-civil-valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/datetime/datetime-civil-valid
-Wrote executable to tests/rt-behavior/datetime/datetime-civil-valid/datetime-civil-valid.out
+Wrote executable to tests/rt-behavior/datetime/datetime-civil-valid/datetime-civil-valid/datetime-civil-valid.out
 [exit 0]
-$ tests/rt-behavior/datetime/datetime-civil-valid/datetime-civil-valid.out
+$ tests/rt-behavior/datetime/datetime-civil-valid/datetime-civil-valid/datetime-civil-valid.out
 epoch=1970-01-01 00:00:00
 epoch_weekday=TRUE
 leap=2024-02-29 12:00:00

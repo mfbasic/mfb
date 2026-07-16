@@ -1,11 +1,11 @@
 # macOS aarch64
 
 The macOS backend writes a Mach-O executable directly, with no host linker.
-Console builds emit one file:
+Console builds emit one file, inside a per-project output directory:
 [[src/os/macos/link.rs]]
 
 ```text
-<project>.out
+<project>/<project>.out
 ```
 
 App-mode builds (`mfb build --app`) emit a `.app` bundle (see below). The Mach-O
@@ -110,7 +110,7 @@ carries MFBASIC's own executable signing metadata when the build supplies it.
 <project>.app/
   Contents/
     Info.plist
-    MacOS/<project>            (the Mach-O executable, byte-identical to <project>.out)
+    MacOS/<project>            (the Mach-O executable, byte-identical to <project>/<project>.out)
     Resources/AppIcon.icns     (multi-resolution app icon)
 ```
 
@@ -151,7 +151,8 @@ canvas. `image`/`icns` are compiler build-time dependencies only.
 The bundle writer recreates the directory tree under the project directory:
 `<project>.app/Contents/MacOS` is created with one `create_dir_all` (so the
 intermediate `Contents` directory is materialized too). The Mach-O is encoded by
-the same `encode_executable_bytes` helper the console `<project>.out` path uses,
+the same `encode_executable_bytes` helper the console `<project>/<project>.out`
+path uses,
 so the executable written to `Contents/MacOS/<project>` is byte-identical to the
 console output for the same image — only the on-disk layout, the `Info.plist`,
 and the `Resources/AppIcon.icns` sidecar differ. The executable file is then

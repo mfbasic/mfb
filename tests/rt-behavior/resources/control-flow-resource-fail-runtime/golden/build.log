@@ -3,8 +3,8 @@ Wrote AST to tests/rt-behavior/resources/control-flow-resource-fail-runtime/cont
 Wrote IR to tests/rt-behavior/resources/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.ir
 [exit 0]
 $ mfb build tests/rt-behavior/resources/control-flow-resource-fail-runtime
-Wrote executable to tests/rt-behavior/resources/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.out
+Wrote executable to tests/rt-behavior/resources/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime/control_flow_resource_fail_runtime.out
 [exit 0]
-$ tests/rt-behavior/resources/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.out
+$ tests/rt-behavior/resources/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime/control_flow_resource_fail_runtime.out
 fail
 [exit 0]

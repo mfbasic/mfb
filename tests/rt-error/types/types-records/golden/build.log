@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/types/types-records/types_records.ast
 Wrote IR to tests/rt-error/types/types-records/types_records.ir
 [exit 0]
 $ mfb build tests/rt-error/types/types-records
-Wrote executable to tests/rt-error/types/types-records/types_records.out
+Wrote executable to tests/rt-error/types/types-records/types_records/types_records.out
 [exit 0]
-$ tests/rt-error/types/types-records/types_records.out
+$ tests/rt-error/types/types-records/types_records/types_records.out
 Point
 ready
 done

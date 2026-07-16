@@ -15,9 +15,9 @@ $ mfb build tests/rt-behavior/money/money_operations
      | ^
 tests/rt-behavior/money/money_operations/src/main.mfb:27 warn[2-203-0109 MONEY_INEXACT_FLOAT_LITERAL]: scaling Money by a bare decimal literal uses inexact Float arithmetic
                scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional.
-Wrote executable to tests/rt-behavior/money/money_operations/money_operations.out
+Wrote executable to tests/rt-behavior/money/money_operations/money_operations/money_operations.out
 [exit 0]
-$ tests/rt-behavior/money/money_operations/money_operations.out
+$ tests/rt-behavior/money/money_operations/money_operations/money_operations.out
 1.25
 2.50000
 -1.25

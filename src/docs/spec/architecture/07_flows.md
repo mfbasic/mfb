@@ -43,12 +43,17 @@ For an executable project, `mfb build` performs this sequence:[[src/cli/build.rs
 The default output file is:
 
 ```text
-<project>/<project-name>.out          (macOS)
-<project>/<project-name>-glibc.out    (Linux)
-<project>/<project-name>-musl.out     (Linux)
+<project>/<project-name>/<project-name>.out          (macOS)
+<project>/<project-name>/<project-name>-glibc.out    (Linux)
+<project>/<project-name>/<project-name>-musl.out     (Linux)
 ```
 
-Linux builds always emit both flavor outputs in a single `mfb build` run.
+Every executable build emits into its own `<project-name>/` output directory, so
+the executable and the `vendor/` directory its RPATH points at (see
+`./mfb spec language native-libraries`) move as a single unit.
+
+Linux builds always emit both flavor outputs in a single `mfb build` run, into the
+one output directory.
 
 ## Source to Package
 

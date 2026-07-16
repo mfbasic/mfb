@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/threads/func_thread_openStdIn_valid/func_thread_o
 Wrote IR to tests/rt-behavior/threads/func_thread_openStdIn_valid/func_thread_openStdIn_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/threads/func_thread_openStdIn_valid
-Wrote executable to tests/rt-behavior/threads/func_thread_openStdIn_valid/func_thread_openStdIn_valid.out
+Wrote executable to tests/rt-behavior/threads/func_thread_openStdIn_valid/func_thread_openStdIn_valid/func_thread_openStdIn_valid.out
 [exit 0]
-$ tests/rt-behavior/threads/func_thread_openStdIn_valid/func_thread_openStdIn_valid.out
+$ tests/rt-behavior/threads/func_thread_openStdIn_valid/func_thread_openStdIn_valid/func_thread_openStdIn_valid.out
 closed1=77050019
 closed2=77050019
 [exit 0]

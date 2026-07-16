@@ -3,7 +3,7 @@ Wrote AST to tests/rt-behavior/project/project-entry-sub-default-trap/project_en
 Wrote IR to tests/rt-behavior/project/project-entry-sub-default-trap/project_entry_sub_default_trap.ir
 [exit 0]
 $ mfb build tests/rt-behavior/project/project-entry-sub-default-trap
-Wrote executable to tests/rt-behavior/project/project-entry-sub-default-trap/project_entry_sub_default_trap.out
+Wrote executable to tests/rt-behavior/project/project-entry-sub-default-trap/project_entry_sub_default_trap/project_entry_sub_default_trap.out
 [exit 0]
-$ tests/rt-behavior/project/project-entry-sub-default-trap/project_entry_sub_default_trap.out
+$ tests/rt-behavior/project/project-entry-sub-default-trap/project_entry_sub_default_trap/project_entry_sub_default_trap.out
 [exit 0]

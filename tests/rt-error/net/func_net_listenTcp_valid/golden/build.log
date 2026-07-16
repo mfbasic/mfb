@@ -3,8 +3,8 @@ Wrote AST to tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_vali
 Wrote IR to tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid.ir
 [exit 0]
 $ mfb build tests/rt-error/net/func_net_listenTcp_valid
-Wrote executable to tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid.out
+Wrote executable to tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid/func_net_listenTcp_valid.out
 [exit 0]
-$ tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid.out
+$ tests/rt-error/net/func_net_listenTcp_valid/func_net_listenTcp_valid/func_net_listenTcp_valid.out
 listening all overloads
 [exit 0]

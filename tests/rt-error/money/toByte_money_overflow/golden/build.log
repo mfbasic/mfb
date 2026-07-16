@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/money/toByte_money_overflow/toByte_money_overflow.as
 Wrote IR to tests/rt-error/money/toByte_money_overflow/toByte_money_overflow.ir
 [exit 0]
 $ mfb build tests/rt-error/money/toByte_money_overflow
-Wrote executable to tests/rt-error/money/toByte_money_overflow/toByte_money_overflow.out
+Wrote executable to tests/rt-error/money/toByte_money_overflow/toByte_money_overflow/toByte_money_overflow.out
 [exit 0]
-$ tests/rt-error/money/toByte_money_overflow/toByte_money_overflow.out
+$ tests/rt-error/money/toByte_money_overflow/toByte_money_overflow/toByte_money_overflow.out
 Error: 7-705-0010
 Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

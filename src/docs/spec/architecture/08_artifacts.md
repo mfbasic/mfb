@@ -43,10 +43,17 @@ artifact, the flag that produces it, and the pipeline stage it captures.[[src/cl
 | `<name>.nplan` | `mfb build --nplan` | Native function/storage/call plan. |
 | `<name>.nobj` | `mfb build --nobj` | OS object/container layout plan. |
 | `<name>.ncode` | `mfb build --ncode` | Target code-generation plan. |
-| `<name>.out` | `mfb build` executable (macOS) | Native executable (Mach-O). |
-| `<name>-glibc.out` | `mfb build` executable (Linux) | Native executable (ELF, glibc). |
-| `<name>-musl.out` | `mfb build` executable (Linux) | Native executable (ELF, musl). |
+| `<name>/<name>.out` | `mfb build` executable (macOS) | Native executable (Mach-O). |
+| `<name>/<name>-glibc.out` | `mfb build` executable (Linux) | Native executable (ELF, glibc). |
+| `<name>/<name>-musl.out` | `mfb build` executable (Linux) | Native executable (ELF, musl). |
 | `<name>.mfp` | `mfb build` package | Compiled MFB package. |
+
+Every executable build emits into its own `<name>/` output directory beside the
+project — on Linux both libc flavors share the one directory. The directory is the
+unit of relocation: a build that resolves any `vendor` native-library locator also
+writes `<name>/vendor/` there and carries an RPATH pointing at it, so moving
+`<name>/` elsewhere keeps the executable loadable. See
+`./mfb spec language native-libraries`.
 
 ## `.mfp` verification
 

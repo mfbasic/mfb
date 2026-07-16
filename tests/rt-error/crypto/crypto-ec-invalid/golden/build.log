@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/crypto/crypto-ec-invalid/crypto-ec-invalid.ast
 Wrote IR to tests/rt-error/crypto/crypto-ec-invalid/crypto-ec-invalid.ir
 [exit 0]
 $ mfb build tests/rt-error/crypto/crypto-ec-invalid
-Wrote executable to tests/rt-error/crypto/crypto-ec-invalid/crypto-ec-invalid.out
+Wrote executable to tests/rt-error/crypto/crypto-ec-invalid/crypto-ec-invalid/crypto-ec-invalid.out
 [exit 0]
-$ tests/rt-error/crypto/crypto-ec-invalid/crypto-ec-invalid.out
+$ tests/rt-error/crypto/crypto-ec-invalid/crypto-ec-invalid/crypto-ec-invalid.out
 before
 Error: 7-705-0002
 Argument value is not valid for the requested operation.

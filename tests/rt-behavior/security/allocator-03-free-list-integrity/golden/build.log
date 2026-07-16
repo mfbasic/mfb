@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/security/allocator-03-free-list-integrity/allocat
 Wrote IR to tests/rt-behavior/security/allocator-03-free-list-integrity/allocator_03_free_list_integrity.ir
 [exit 0]
 $ mfb build tests/rt-behavior/security/allocator-03-free-list-integrity
-Wrote executable to tests/rt-behavior/security/allocator-03-free-list-integrity/allocator_03_free_list_integrity.out
+Wrote executable to tests/rt-behavior/security/allocator-03-free-list-integrity/allocator_03_free_list_integrity/allocator_03_free_list_integrity.out
 [exit 0]
-$ tests/rt-behavior/security/allocator-03-free-list-integrity/allocator_03_free_list_integrity.out
+$ tests/rt-behavior/security/allocator-03-free-list-integrity/allocator_03_free_list_integrity/allocator_03_free_list_integrity.out
 churn 248331
 control 3200
 [exit 0]

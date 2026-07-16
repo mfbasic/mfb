@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/project/project-entry-sub-args-main-error/project_en
 Wrote IR to tests/rt-error/project/project-entry-sub-args-main-error/project_entry_sub_args_main_error.ir
 [exit 0]
 $ mfb build tests/rt-error/project/project-entry-sub-args-main-error
-Wrote executable to tests/rt-error/project/project-entry-sub-args-main-error/project_entry_sub_args_main_error.out
+Wrote executable to tests/rt-error/project/project-entry-sub-args-main-error/project_entry_sub_args_main_error/project_entry_sub_args_main_error.out
 [exit 0]
-$ tests/rt-error/project/project-entry-sub-args-main-error/project_entry_sub_args_main_error.out
+$ tests/rt-error/project/project-entry-sub-args-main-error/project_entry_sub_args_main_error/project_entry_sub_args_main_error.out
 Error: 100
 This is a message
 [exit 255]

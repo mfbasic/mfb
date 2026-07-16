@@ -29,7 +29,7 @@ IR
   -> shared code generator
   -> architecture encoding
   -> OS linking
-  -> <project>.out
+  -> <project>/<project>.out
 ```
 
 ## Native IR
@@ -403,9 +403,10 @@ native code plan.
 The final OS-specific executable writers are per OS.[[src/os/macos/link/]][[src/os/linux/link/]]
 Both patch relocations in the encoded text, resolve the
 entry symbol to a text offset, encode the OS executable container, and write the
-output. macOS emits a single Mach-O `<project>.out`; Linux emits one ELF per
-flavor (`<project>-glibc.out`, `<project>-musl.out`) and chooses static vs.
-dynamic by whether external imports are present.
+output. macOS emits a single Mach-O `<project>/<project>.out`; Linux emits one ELF
+per flavor (`<project>/<project>-glibc.out`, `<project>/<project>-musl.out`) into
+the one output directory, and chooses static vs. dynamic by whether external
+imports are present.
 
 The container byte details — Mach-O segments and the ad hoc code signature,
 `libSystem` imports and import stubs; the ELF static/dynamic split, PLT/GOT,

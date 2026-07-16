@@ -4,14 +4,16 @@ The Linux backend is cross-compiled and writes ELF64 aarch64 executables
 directly. It does not invoke `ld`, `gold`, `lld`, `gcc`, `clang`, or any host
 linker. [[src/os/linux/link.rs]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
-A console build emits two flavors, one per dynamic loader / library naming:
+A console build emits two flavors, one per dynamic loader / library naming, both
+inside a per-project output directory:
 
 ```text
-<project>-glibc.out
-<project>-musl.out
+<project>/<project>-glibc.out
+<project>/<project>-musl.out
 ```
 
-An app-mode build (`mfb build --app`) emits a single glibc binary, `<project>.out`
+An app-mode build (`mfb build --app`) emits a single glibc binary,
+`<project>/<project>.out`
 (the `app_mode` flag selects single-output, glibc-only). Each flavor is planned
 and linked independently from the same NIR, because the sonames it imports differ.
 

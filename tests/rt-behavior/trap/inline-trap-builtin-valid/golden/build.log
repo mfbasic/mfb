@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/trap/inline-trap-builtin-valid/inline_trap_builti
 Wrote IR to tests/rt-behavior/trap/inline-trap-builtin-valid/inline_trap_builtin_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/trap/inline-trap-builtin-valid
-Wrote executable to tests/rt-behavior/trap/inline-trap-builtin-valid/inline_trap_builtin_valid.out
+Wrote executable to tests/rt-behavior/trap/inline-trap-builtin-valid/inline_trap_builtin_valid/inline_trap_builtin_valid.out
 [exit 0]
-$ tests/rt-behavior/trap/inline-trap-builtin-valid/inline_trap_builtin_valid.out
+$ tests/rt-behavior/trap/inline-trap-builtin-valid/inline_trap_builtin_valid/inline_trap_builtin_valid.out
 42
 -1
 <missing>

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/fs/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt.ast
 Wrote IR to tests/rt-behavior/fs/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/fs/fs-pathjoin-rules-rt
-Wrote executable to tests/rt-behavior/fs/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt.out
+Wrote executable to tests/rt-behavior/fs/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt/fs_pathjoin_rules_rt.out
 [exit 0]
-$ tests/rt-behavior/fs/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt.out
+$ tests/rt-behavior/fs/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt/fs_pathjoin_rules_rt.out
 a/b/c
 a/b
 a/b

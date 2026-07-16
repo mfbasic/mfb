@@ -62,7 +62,8 @@ fn build_macho(project: &Path, name: &str) -> Vec<u8> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
-    let path = project.join(format!("{name}.out"));
+    // plan-46-D §4.1: the build emits into its own `<name>/` directory.
+    let path = project.join(name).join(format!("{name}.out"));
     fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }
 

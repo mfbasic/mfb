@@ -80,6 +80,39 @@ project_name() {
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/project.json" | head -n 1
 }
 
+# Remove a build's `<test_dir>/<package_name>/` output directory (plan-46-D §4.1).
+#
+# Guarded deliberately: `$package_name` comes from a sed over project.json, and an
+# empty or malformed parse used to make the old `rm -f` a harmless no-op. With a
+# recursive remove the same bad parse would delete the fixture's own source
+# directory, so refuse unless both components are non-empty, the target is a real
+# directory, and it holds only build output (a `.out` executable and/or `vendor/`).
+remove_output_dir() {
+  local test_dir=$1
+  local package_name=$2
+
+  [ -n "$test_dir" ] || return 0
+  [ -n "$package_name" ] || return 0
+
+  local out_dir="$test_dir/$package_name"
+  [ -d "$out_dir" ] || return 0
+
+  # Only ever remove a directory we can positively identify as build output.
+  local entry
+  for entry in "$out_dir"/* "$out_dir"/.[!.]*; do
+    [ -e "$entry" ] || continue
+    case "${entry##*/}" in
+      *.out | vendor) ;;
+      *)
+        echo "refusing to remove non-output directory: $out_dir (unexpected entry: $entry)" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  rm -rf "$out_dir"
+}
+
 compare_file() {
   local label=$1
   local expected=$2
@@ -158,7 +191,7 @@ while IFS= read -r project_json; do
       printf '%s\n' "$test_out"
       echo "[exit $test_status]"
     } >"$actual_dir/test.log"
-    rm -f "$test_dir/$package_name.out"
+    remove_output_dir "$test_dir" "$package_name"
     if [ "$test_status" -ne 0 ]; then
       echo "behavioral test failed (exit $test_status): $test_name" >&2
       printf '%s\n' "$test_out" >&2
@@ -189,7 +222,8 @@ while IFS= read -r project_json; do
   target_app_nplan_path="$test_dir/$package_name.$target_name.app.nplan"
   target_app_ncode_path="$test_dir/$package_name.$target_name.app.ncode"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$mir_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$target_mir_path" "$target_app_nir_path" "$target_app_nplan_path" "$target_app_ncode_path" "$test_dir/$package_name.out"
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$mir_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$target_mir_path" "$target_app_nir_path" "$target_app_nplan_path" "$target_app_ncode_path"
+  remove_output_dir "$test_dir" "$package_name"
 
   {
     # Batch the artifact dumps: `mfb build` output flags combine, so one
@@ -262,7 +296,7 @@ while IFS= read -r project_json; do
       fi
     fi
   } >"$log_path" 2>&1
-  rm -f "$test_dir/$package_name.out"
+  remove_output_dir "$test_dir" "$package_name"
 
   if [ -f "$ast_path" ]; then
     mv "$ast_path" "$actual_dir/$package_name.ast"
@@ -342,7 +376,7 @@ while IFS= read -r project_json; do
       echo "[exit $?]"
     } >"$testrun_path"
     # `mfb test` links an executable into the project dir; do not leave it behind.
-    rm -f "$test_dir/$package_name.out"
+    remove_output_dir "$test_dir" "$package_name"
   fi
 
   # `mfb test --coverage` proof (plan-18-C): run with coverage and capture the
@@ -357,7 +391,8 @@ while IFS= read -r project_json; do
     done
     # Do not leave the coverage sidecars, report, or executable behind.
     rm -f "$test_dir/coverage.covmap.json" "$test_dir/coverage.covdata" \
-      "$test_dir/coverage.covfail" "$test_dir/coverage.html" "$test_dir/$package_name.out"
+      "$test_dir/coverage.covfail" "$test_dir/coverage.html"
+    remove_output_dir "$test_dir" "$package_name"
   fi
 
   compare_file "$test_name/build.log" "$golden_dir/build.log" "$log_path"

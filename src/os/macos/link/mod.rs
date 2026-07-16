@@ -28,7 +28,12 @@ pub(crate) fn write_executable(
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
     let bytes = encode_executable_bytes(project_name, image)?;
-    let path = project_dir.join(format!("{project_name}.out"));
+    // Every build emits into its own `<name>/` directory (plan-46-D §4.1) so the
+    // executable and the `vendor/` its RPATH points at move as one unit.
+    let out_dir = project_dir.join(project_name);
+    fs::create_dir_all(&out_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", out_dir.display()))?;
+    let path = out_dir.join(format!("{project_name}.out"));
     write_executable_file(&path, &bytes)?;
     Ok(path)
 }

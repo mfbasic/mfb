@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/operators/unary-numeric-negation-valid/unary_nume
 Wrote IR to tests/rt-behavior/operators/unary-numeric-negation-valid/unary_numeric_negation_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/operators/unary-numeric-negation-valid
-Wrote executable to tests/rt-behavior/operators/unary-numeric-negation-valid/unary_numeric_negation_valid.out
+Wrote executable to tests/rt-behavior/operators/unary-numeric-negation-valid/unary_numeric_negation_valid/unary_numeric_negation_valid.out
 [exit 0]
-$ tests/rt-behavior/operators/unary-numeric-negation-valid/unary_numeric_negation_valid.out
+$ tests/rt-behavior/operators/unary-numeric-negation-valid/unary_numeric_negation_valid/unary_numeric_negation_valid.out
 0
 -12.50
 -6.25

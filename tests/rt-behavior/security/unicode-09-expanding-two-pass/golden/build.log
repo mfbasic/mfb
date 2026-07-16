@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/security/unicode-09-expanding-two-pass/unicode_09
 Wrote IR to tests/rt-behavior/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass.ir
 [exit 0]
 $ mfb build tests/rt-behavior/security/unicode-09-expanding-two-pass
-Wrote executable to tests/rt-behavior/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass.out
+Wrote executable to tests/rt-behavior/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass/unicode_09_expanding_two_pass.out
 [exit 0]
-$ tests/rt-behavior/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass.out
+$ tests/rt-behavior/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass/unicode_09_expanding_two_pass.out
 STRASSE
 7
 3

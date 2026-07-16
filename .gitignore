@@ -8,6 +8,14 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
+# Build output. Every build emits `<project dir>/<name>/<name>.out` (plan-46-D
+# §4.1); `*.out` matches at any depth, so it covers both the new output
+# directories and stale pre-change artifacts sitting at the project root. The
+# output directory's `vendor/` copies are removed by the test harness — they are
+# not ignored by pattern, because a binding author's *source* `vendor/` blobs are
+# tracked.
+*.out
+
 # Local editor and OS files
 .DS_Store
 *.swp

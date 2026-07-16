@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/lexical/lexical-comments/lexical_comments.ast
 Wrote IR to tests/rt-behavior/lexical/lexical-comments/lexical_comments.ir
 [exit 0]
 $ mfb build tests/rt-behavior/lexical/lexical-comments
-Wrote executable to tests/rt-behavior/lexical/lexical-comments/lexical_comments.out
+Wrote executable to tests/rt-behavior/lexical/lexical-comments/lexical_comments/lexical_comments.out
 [exit 0]
-$ tests/rt-behavior/lexical/lexical-comments/lexical_comments.out
+$ tests/rt-behavior/lexical/lexical-comments/lexical_comments/lexical_comments.out
 ordinary rem identifier
 rem comment after colon
 1

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/security/unicode-05-find-fold-parity/unicode_05_f
 Wrote IR to tests/rt-behavior/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity.ir
 [exit 0]
 $ mfb build tests/rt-behavior/security/unicode-05-find-fold-parity
-Wrote executable to tests/rt-behavior/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity.out
+Wrote executable to tests/rt-behavior/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity/unicode_05_find_fold_parity.out
 [exit 0]
-$ tests/rt-behavior/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity.out
+$ tests/rt-behavior/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity/unicode_05_find_fold_parity.out
 find 77050001
 -1
 mid 77050001

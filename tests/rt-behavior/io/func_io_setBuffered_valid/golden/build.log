@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/io/func_io_setBuffered_valid/func_io_setBuffered_
 Wrote IR to tests/rt-behavior/io/func_io_setBuffered_valid/func_io_setBuffered_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/io/func_io_setBuffered_valid
-Wrote executable to tests/rt-behavior/io/func_io_setBuffered_valid/func_io_setBuffered_valid.out
+Wrote executable to tests/rt-behavior/io/func_io_setBuffered_valid/func_io_setBuffered_valid/func_io_setBuffered_valid.out
 [exit 0]
-$ tests/rt-behavior/io/func_io_setBuffered_valid/func_io_setBuffered_valid.out
+$ tests/rt-behavior/io/func_io_setBuffered_valid/func_io_setBuffered_valid/func_io_setBuffered_valid.out
 abc
 d
 [exit 0]

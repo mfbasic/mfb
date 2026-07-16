@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/functions/lambda-mut-foreach-valid/lambda_mut_foreac
 Wrote IR to tests/rt-error/functions/lambda-mut-foreach-valid/lambda_mut_foreach_valid.ir
 [exit 0]
 $ mfb build tests/rt-error/functions/lambda-mut-foreach-valid
-Wrote executable to tests/rt-error/functions/lambda-mut-foreach-valid/lambda_mut_foreach_valid.out
+Wrote executable to tests/rt-error/functions/lambda-mut-foreach-valid/lambda_mut_foreach_valid/lambda_mut_foreach_valid.out
 [exit 0]
-$ tests/rt-error/functions/lambda-mut-foreach-valid/lambda_mut_foreach_valid.out
+$ tests/rt-error/functions/lambda-mut-foreach-valid/lambda_mut_foreach_valid/lambda_mut_foreach_valid.out
 15
 2
 10

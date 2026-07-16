@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/types/types-union/types_union.ast
 Wrote IR to tests/rt-error/types/types-union/types_union.ir
 [exit 0]
 $ mfb build tests/rt-error/types/types-union
-Wrote executable to tests/rt-error/types/types-union/types_union.out
+Wrote executable to tests/rt-error/types/types-union/types_union/types_union.out
 [exit 0]
-$ tests/rt-error/types/types-union/types_union.out
+$ tests/rt-error/types/types-union/types_union/types_union.out
 Shape
 ExtraShape
 10

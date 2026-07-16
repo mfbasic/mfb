@@ -109,7 +109,8 @@ spelling — yields `mfb build got duplicate output flag `<arg>``, echoing the
 argument as given). Each artifact is a `<name>.<ext>` file in
 the project directory — identical byte-for-byte to the file a single-flag
 invocation writes. With no output flag, `build` validates and emits the
-project's primary artifact (`<name>.out` for executable, `<name>.mfp` for
+project's primary artifact (`<name>/<name>.out` for executable — every executable
+build emits into its own `<name>/` output directory — or `<name>.mfp` for
 package).
 
 | Flag | Output mode | Artifact / effect |

@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/os/func_os_getEnv_valid/func_os_getEnv_valid.ast
 Wrote IR to tests/rt-behavior/os/func_os_getEnv_valid/func_os_getEnv_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/os/func_os_getEnv_valid
-Wrote executable to tests/rt-behavior/os/func_os_getEnv_valid/func_os_getEnv_valid.out
+Wrote executable to tests/rt-behavior/os/func_os_getEnv_valid/func_os_getEnv_valid/func_os_getEnv_valid.out
 [exit 0]
-$ tests/rt-behavior/os/func_os_getEnv_valid/func_os_getEnv_valid.out
+$ tests/rt-behavior/os/func_os_getEnv_valid/func_os_getEnv_valid/func_os_getEnv_valid.out
 value-123
 notfound:77050004
 [exit 0]

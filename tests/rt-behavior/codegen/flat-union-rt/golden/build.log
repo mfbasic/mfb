@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/codegen/flat-union-rt/flat_union_rt.ast
 Wrote IR to tests/rt-behavior/codegen/flat-union-rt/flat_union_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/codegen/flat-union-rt
-Wrote executable to tests/rt-behavior/codegen/flat-union-rt/flat_union_rt.out
+Wrote executable to tests/rt-behavior/codegen/flat-union-rt/flat_union_rt/flat_union_rt.out
 [exit 0]
-$ tests/rt-behavior/codegen/flat-union-rt/flat_union_rt.out
+$ tests/rt-behavior/codegen/flat-union-rt/flat_union_rt/flat_union_rt.out
 dot:7
 tag:hello
 pair:3/boxed-and-longer

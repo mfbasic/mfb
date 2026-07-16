@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/math/bug164_exp_large_argument_saturation/bug164_
 Wrote IR to tests/rt-behavior/math/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation.ir
 [exit 0]
 $ mfb build tests/rt-behavior/math/bug164_exp_large_argument_saturation
-Wrote executable to tests/rt-behavior/math/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation.out
+Wrote executable to tests/rt-behavior/math/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation.out
 [exit 0]
-$ tests/rt-behavior/math/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation.out
+$ tests/rt-behavior/math/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation/bug164_exp_large_argument_saturation.out
 zero
 trap:77050014
 zero

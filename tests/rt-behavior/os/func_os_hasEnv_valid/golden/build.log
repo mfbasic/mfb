@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/os/func_os_hasEnv_valid/func_os_hasEnv_valid.ast
 Wrote IR to tests/rt-behavior/os/func_os_hasEnv_valid/func_os_hasEnv_valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/os/func_os_hasEnv_valid
-Wrote executable to tests/rt-behavior/os/func_os_hasEnv_valid/func_os_hasEnv_valid.out
+Wrote executable to tests/rt-behavior/os/func_os_hasEnv_valid/func_os_hasEnv_valid/func_os_hasEnv_valid.out
 [exit 0]
-$ tests/rt-behavior/os/func_os_hasEnv_valid/func_os_hasEnv_valid.out
+$ tests/rt-behavior/os/func_os_hasEnv_valid/func_os_hasEnv_valid/func_os_hasEnv_valid.out
 FALSE
 TRUE
 [exit 0]

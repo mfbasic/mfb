@@ -5,8 +5,8 @@ Wrote IR to tests/rt-behavior/resources/native-resource-import-valid/native_reso
 [exit 0]
 $ mfb build tests/rt-behavior/resources/native-resource-import-valid
 uses native_resource_link_valid - [Unsigned]
-Wrote executable to tests/rt-behavior/resources/native-resource-import-valid/native_resource_import_valid.out
+Wrote executable to tests/rt-behavior/resources/native-resource-import-valid/native_resource_import_valid/native_resource_import_valid.out
 [exit 0]
-$ tests/rt-behavior/resources/native-resource-import-valid/native_resource_import_valid.out
+$ tests/rt-behavior/resources/native-resource-import-valid/native_resource_import_valid/native_resource_import_valid.out
 importer ok
 [exit 0]

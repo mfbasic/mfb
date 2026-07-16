@@ -5,9 +5,9 @@ Wrote IR to tests/rt-behavior/threads/thread-error-source-rt/thread_error_source
 [exit 0]
 $ mfb build tests/rt-behavior/threads/thread-error-source-rt
 uses thread_runtime_workers - [Unsigned]
-Wrote executable to tests/rt-behavior/threads/thread-error-source-rt/thread_error_source_rt.out
+Wrote executable to tests/rt-behavior/threads/thread-error-source-rt/thread_error_source_rt/thread_error_source_rt.out
 [exit 0]
-$ tests/rt-behavior/threads/thread-error-source-rt/thread_error_source_rt.out
+$ tests/rt-behavior/threads/thread-error-source-rt/thread_error_source_rt/thread_error_source_rt.out
 77050099 worker boom
 src/lib.mfb:191:8
 [exit 0]

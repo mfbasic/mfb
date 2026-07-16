@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/collections/collection-map-bindings/collection_ma
 Wrote IR to tests/rt-behavior/collections/collection-map-bindings/collection_map_bindings.ir
 [exit 0]
 $ mfb build tests/rt-behavior/collections/collection-map-bindings
-Wrote executable to tests/rt-behavior/collections/collection-map-bindings/collection_map_bindings.out
+Wrote executable to tests/rt-behavior/collections/collection-map-bindings/collection_map_bindings/collection_map_bindings.out
 [exit 0]
-$ tests/rt-behavior/collections/collection-map-bindings/collection_map_bindings.out
+$ tests/rt-behavior/collections/collection-map-bindings/collection_map_bindings/collection_map_bindings.out
 a
 one
 b

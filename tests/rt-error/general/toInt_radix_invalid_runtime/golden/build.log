@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toI
 Wrote IR to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.ir
 [exit 0]
 $ mfb build tests/rt-error/general/toInt_radix_invalid_runtime
-Wrote executable to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.out
+Wrote executable to tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.out
 [exit 0]
-$ tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.out
+$ tests/rt-error/general/toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime/func_general_toInt_radix_invalid_runtime.out
 Error: 7-705-0003
 Text parse or non-finite numeric representation conversion failed.
 [exit 255]

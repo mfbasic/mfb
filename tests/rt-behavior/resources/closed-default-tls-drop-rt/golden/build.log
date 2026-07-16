@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/resources/closed-default-tls-drop-rt/closed_defau
 Wrote IR to tests/rt-behavior/resources/closed-default-tls-drop-rt/closed_default_tls_drop_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/resources/closed-default-tls-drop-rt
-Wrote executable to tests/rt-behavior/resources/closed-default-tls-drop-rt/closed_default_tls_drop_rt.out
+Wrote executable to tests/rt-behavior/resources/closed-default-tls-drop-rt/closed_default_tls_drop_rt/closed_default_tls_drop_rt.out
 [exit 0]
-$ tests/rt-behavior/resources/closed-default-tls-drop-rt/closed_default_tls_drop_rt.out
+$ tests/rt-behavior/resources/closed-default-tls-drop-rt/closed_default_tls_drop_rt/closed_default_tls_drop_rt.out
 tls-failed=TRUE
 clean
 [exit 0]

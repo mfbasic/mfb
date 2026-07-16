@@ -5,9 +5,9 @@ Wrote IR to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofol
 [exit 0]
 $ mfb build tests/rt-error/threads/thread-fs-nofollow-symlink-rt
 uses fs_thread_workers - [Unsigned]
-Wrote executable to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
+Wrote executable to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt/thread_fs_nofollow_symlink_rt.out
 [exit 0]
-$ tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
+$ tests/rt-error/threads/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt/thread_fs_nofollow_symlink_rt.out
 Error: 7-703-0003
 Filesystem access was denied.
 [exit 255]

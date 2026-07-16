@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmet
 Wrote IR to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt
-Wrote executable to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.out
+Wrote executable to tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt/arithmetic_float_fma_observed_rt.out
 [exit 0]
-$ tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt.out
+$ tests/rt-error/arithmetic/arithmetic-float-fma-observed-rt/arithmetic_float_fma_observed_rt/arithmetic_float_fma_observed_rt.out
 Error: 7-705-0015
 Floating-point arithmetic overflowed to infinity.
 [exit 255]

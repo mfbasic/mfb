@@ -3,9 +3,9 @@ Wrote AST to tests/rt-behavior/fs/fs-path-errors-rt/fs_path_errors_rt.ast
 Wrote IR to tests/rt-behavior/fs/fs-path-errors-rt/fs_path_errors_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/fs/fs-path-errors-rt
-Wrote executable to tests/rt-behavior/fs/fs-path-errors-rt/fs_path_errors_rt.out
+Wrote executable to tests/rt-behavior/fs/fs-path-errors-rt/fs_path_errors_rt/fs_path_errors_rt.out
 [exit 0]
-$ tests/rt-behavior/fs/fs-path-errors-rt/fs_path_errors_rt.out
+$ tests/rt-behavior/fs/fs-path-errors-rt/fs_path_errors_rt/fs_path_errors_rt.out
 77030001
 77030001
 77030001

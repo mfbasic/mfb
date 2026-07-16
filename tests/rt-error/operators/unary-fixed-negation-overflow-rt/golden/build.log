@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/operators/unary-fixed-negation-overflow-rt/unary_fix
 Wrote IR to tests/rt-error/operators/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/operators/unary-fixed-negation-overflow-rt
-Wrote executable to tests/rt-error/operators/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt.out
+Wrote executable to tests/rt-error/operators/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt/unary_fixed_negation_overflow_rt.out
 [exit 0]
-$ tests/rt-error/operators/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt.out
+$ tests/rt-error/operators/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt/unary_fixed_negation_overflow_rt.out
 Error: 7-705-0010
 Arithmetic overflow or numeric conversion outside the destination range.
 [exit 255]

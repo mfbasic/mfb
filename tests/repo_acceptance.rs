@@ -350,7 +350,8 @@ fn repo_signs_package_and_embeds_executable_metadata() {
         "signed executable build failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let executable = std::fs::read_dir(&app_dir)
+    // plan-46-D §4.1: the build emits into its own `<name>/` directory.
+    let executable = std::fs::read_dir(app_dir.join("signed_app"))
         .unwrap()
         .filter_map(Result::ok)
         .map(|entry| entry.path())

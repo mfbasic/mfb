@@ -59,8 +59,10 @@ fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
-    let glibc = project.join(format!("{name}-glibc.out"));
-    let musl = project.join(format!("{name}-musl.out"));
+    // plan-46-D §4.1: the build emits into its own `<name>/` directory.
+    let out_dir = project.join(name);
+    let glibc = out_dir.join(format!("{name}-glibc.out"));
+    let musl = out_dir.join(format!("{name}-musl.out"));
     let path = if glibc.exists() { glibc } else { musl };
     fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }

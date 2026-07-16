@@ -3,9 +3,9 @@ Wrote AST to tests/rt-error/vector/normalize_zero_integer_rt/func_vector_normali
 Wrote IR to tests/rt-error/vector/normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.ir
 [exit 0]
 $ mfb build tests/rt-error/vector/normalize_zero_integer_rt
-Wrote executable to tests/rt-error/vector/normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.out
+Wrote executable to tests/rt-error/vector/normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.out
 [exit 0]
-$ tests/rt-error/vector/normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.out
+$ tests/rt-error/vector/normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.out
 Error: 7-705-0002
 vector::normalize of a zero-length vector
 [exit 255]
