@@ -5,7 +5,55 @@ Effort: small (<1h)
 Severity: LOW
 Class: memory-safety (leak)
 
-Status: Partially fixed (2026-07-15).
+Status: FIXED (2026-07-16). Both halves done — the OpenSSL half on 2026-07-15
+(below), the macOS CFRelease half on 2026-07-16.
+
+DONE — macOS CFRelease (2026-07-16). Implemented via the safe ownership order
+this bug's own note prescribed, not the unsafe one the original Fix Design
+proposed:
+
+- `emit_import_pem_item` now `CFRetain`s the extracted cert/key ref BEFORE
+  releasing the array that owns it, then releases ITEMS and DATA. The naive
+  "release ITEMS/DATA after extracting the ref" would deallocate the array and
+  leave the ref dangling — `CFArrayGetValueAtIndex` is a *Get*, so the ref is
+  unretained.
+- Releasing inside the import (rather than deferring to the caller) turned out to
+  be **required**, not merely tidy: the cert and key imports share the DATA and
+  ITEMS stack slots, so the key import OVERWRITES the cert's handles. Deferring
+  would not just leak them — it would lose the only pointers to them.
+- `lower_tls_listen_macos` releases CERTREF/KEYREF once `SecIdentityCreate` has
+  taken its own references; the identity then holds the only remaining ones.
+- `cert_fail` best-effort releases all four slots. Each release is NULL-guarded
+  and clears its slot, so an exit taken before a slot was filled, or after the
+  success path already released it, is a no-op rather than an over-release.
+  Deliberately NOT emitted at `load_fail`: the releases resolve `CFRelease`
+  through `dlsym`, whose failure branches to `load_fail`, so emitting them there
+  would let that branch loop into itself.
+- `CFRetain`/`CFRelease` added to `SERVER_SYMBOLS`.
+- The guard label is keyed on the emission point, not the slot: a slot is
+  released from several sites in one function, and a slot-keyed label collided
+  (caught immediately by the encoder's duplicate-label check).
+
+**The claim below that this "cannot be runtime-verified here" was wrong.**
+`tests/macos_tls_write_capacity.rs` is exactly the missing harness: it stands up
+an mfb TLS server with a generated PEM identity and connects with a real
+`openssl s_client`. It passes — the server still imports the PEM, creates the
+identity, completes a live handshake and transfers the exact bytes. An
+over-release would leave the ref dangling and fail that handshake, so the
+ownership change is runtime-proven, not guessed.
+
+Emitted code verified: 10 CFRelease guard labels, all unique (2 imports × ITEMS +
+DATA, CERTREF + KEYREF after SecIdentityCreate, 4 on the error exit) and one
+CFRetain per import. Full acceptance 949/949; all Rust test binaries green.
+
+Not addressed (out of this bug's scope, still bounded and one-shot): the
+`alloc_fail`/`net_fail`/`load_fail` exits still leak the
+listener/queue/params/endpoint/identity built so far, which needs `nw_release`
+plumbing rather than the CoreFoundation ownership fix above.
+
+Historical record of the first half:
+
+Status was: Partially fixed (2026-07-15).
 
 DONE — OpenSSL: the TlsListener record allocation ran its OOM through
 `alloc_fail_fd`, which closes the fd but leaked the already-created server

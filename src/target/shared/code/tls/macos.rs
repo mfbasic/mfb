@@ -145,6 +145,10 @@ const SERVER_SYMBOLS: &[&str] = &[
     "CFDataCreate",
     "CFArrayGetCount",
     "CFArrayGetValueAtIndex",
+    // bug-236: balance the +1 CFData/CFArray the PEM import creates, and own the
+    // extracted cert/key ref across the array's release.
+    "CFRetain",
+    "CFRelease",
 ];
 
 fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
@@ -2020,6 +2024,109 @@ fn emit_import_pem_item(
         abi::branch_eq(fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), ref_off),
     ]);
+    // Take ownership of the extracted ref, then drop the two +1 objects this
+    // import created (bug-236).
+    //
+    // `CFArrayGetValueAtIndex` follows the CoreFoundation *Get* rule: the ref is
+    // UNRETAINED and owned by the array. Releasing ITEMS while holding only that
+    // borrowed pointer would leave `ref_off` dangling — a use-after-free, worse
+    // than the leak. So `CFRetain` first; the caller releases the ref once
+    // `SecIdentityCreate` has taken its own.
+    //
+    // Releasing here (rather than after the caller is done with both items) is
+    // also what makes the two imports safe: the cert and key calls share the DATA
+    // and ITEMS slots, so the key import OVERWRITES the cert's handles. Deferring
+    // would not merely leak them — it would lose the only pointers to them.
+    //
+    // `SecItemImport` does not retain DATA beyond the call, so it is released
+    // here too.
+    dlsym(
+        symbol,
+        cf_handle_off,
+        "CFRetain",
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), ref_off),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+    ]);
+    emit_cf_release_slot(
+        symbol,
+        cf_handle_off,
+        items_off,
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    emit_cf_release_slot(
+        symbol,
+        cf_handle_off,
+        data_off,
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    Ok(())
+}
+
+/// `CFRelease(*(sp + slot_off))` when the slot is non-NULL, then NULL the slot so
+/// a later release of the same slot is a no-op (bug-236). Resolves `CFRelease`
+/// through the already-open CoreFoundation handle.
+///
+/// The NULL guard and the clear are what let the error exits release
+/// unconditionally: an exit taken before the slot was filled, or after it was
+/// already released, does nothing rather than over-releasing.
+#[allow(clippy::too_many_arguments)]
+fn emit_cf_release_slot(
+    symbol: &str,
+    cf_handle_off: usize,
+    slot_off: usize,
+    fnptr_off: usize,
+    load_fail: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    // Unique per emission point, not per slot: a slot is released from several
+    // sites in one function (once per PEM import, again on the error exit), so a
+    // slot-keyed label would collide.
+    let skip = format!("{symbol}_cf_rel_skip_{slot_off}_{}", ins.len());
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), slot_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+    ]);
+    dlsym(
+        symbol,
+        cf_handle_off,
+        "CFRelease",
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), slot_off),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), slot_off),
+        abi::label(&skip),
+    ]);
     Ok(())
 }
 
@@ -2221,6 +2328,23 @@ pub(super) fn lower_tls_listen_macos(
         abi::branch_eq(&cert_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), IDENT),
     ]);
+    // SecIdentityCreate took its own references to the cert and key, so drop the
+    // ones `emit_import_pem_item` retained for us (bug-236). Done here rather
+    // than at function exit so the identity holds the only remaining refs, and so
+    // the error exits below have nothing left to unwind for them.
+    for slot in [CERTREF, KEYREF] {
+        emit_cf_release_slot(
+            symbol,
+            CFH,
+            slot,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+    }
     // secIdentity = sec_identity_create(identity)
     dlsym(
         symbol,
@@ -2775,6 +2899,28 @@ pub(super) fn lower_tls_listen_macos(
     ));
     platform.emit_close_file(symbol, platform_imports, &mut ins, &mut rel)?;
     ins.push(abi::label(&cert_fail));
+    // Best-effort release of the PEM-import CoreFoundation objects still held
+    // when the import fails (bug-236). Every slot is NULL-guarded and cleared, so
+    // this is correct for an exit taken before a slot was filled and for one
+    // taken after the success path already released it. `read_fail_fd` falls
+    // through to here, where all four slots are still NULL — a no-op.
+    //
+    // Deliberately NOT emitted at `load_fail`: these releases resolve `CFRelease`
+    // through `dlsym`, whose own failure branches to `load_fail` — emitting them
+    // there would let that branch loop back into itself.
+    for slot in [CERTREF, KEYREF, ITEMS, DATA] {
+        emit_cf_release_slot(
+            symbol,
+            CFH,
+            slot,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+    }
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
