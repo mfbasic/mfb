@@ -1328,6 +1328,11 @@ fn validate_value(
                 || locals
                     .get(target)
                     .is_some_and(|local| is_function_type(&local.type_))
+                // A top-level (global) binding holding a function value is a valid
+                // indirect-call target too (bug-198); typecheck already rejected a
+                // non-function callee, so accepting the global name here is safe and
+                // codegen enforces the FUNC type when loading the pointer.
+                || global_names.contains(target)
             {
                 Ok(())
             } else {

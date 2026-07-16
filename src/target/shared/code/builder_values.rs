@@ -595,6 +595,33 @@ impl CodeBuilder<'_> {
                         );
                     }
                 }
+                // A top-level (global) binding holding a function value is called
+                // indirectly too (bug-198): load the function pointer from the
+                // global's arena slot, mirroring the local FUNC-value path above.
+                if let Some(global) = self.globals.get(target).cloned() {
+                    if global.type_.starts_with("FUNC(") {
+                        let return_type = callable_return_type(&global.type_).ok_or_else(|| {
+                            format!(
+                                "native call through global `{target}` has invalid callable type `{}`",
+                                global.type_
+                            )
+                        })?;
+                        let address = self.load_global_address(target)?;
+                        let register = self.allocate_register()?;
+                        self.emit(abi::load_u64(&register, &address, 0));
+                        let callable = ValueResult {
+                            type_: global.type_,
+                            location: register,
+                            text: target.clone(),
+                        };
+                        return self.emit_function_value_call(
+                            target,
+                            &callable,
+                            args,
+                            Some(&return_type),
+                        );
+                    }
+                }
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
                 }

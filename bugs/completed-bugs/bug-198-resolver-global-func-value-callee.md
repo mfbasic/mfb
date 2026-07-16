@@ -5,8 +5,17 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: correctness
 
-Status: Open
-Regression Test: tests/ (calling a global FUNC-valued binding builds & runs)
+Status: Fixed (2026-07-15) — a top-level (global) binding holding a function value
+is now callable end-to-end, matching the local-binding path. Fixed across the
+layers that each only consulted locals: `resolve_callable` (accept
+`top_level_visible_in_file`), syntaxcheck `infer_expression`'s Call arm (fall back
+to `lookup_visible_binding` for the return type), IR `expression_type` (fall back to
+`context.binding_types`), the NIR validator (accept a `global_names` call target),
+and native codegen (`builder_values` loads the function pointer from the global's
+arena slot and calls `emit_function_value_call`).
+Regression Test: verified at runtime — `LET GLOBAL_ADDER AS FUNC(Integer) AS Integer
+= add1` then `GLOBAL_ADDER(5)` builds, links, and returns `6` (previously rejected
+at resolve with SYMBOL_UNKNOWN_IDENTIFIER).
 
 `resolve_callable` accepts a callee that is a local binding or a visible
 top-level function, but never checks `top_level_visible_in_file`, so a **global**

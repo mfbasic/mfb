@@ -1159,7 +1159,13 @@ impl Resolver<'_> {
             return;
         } else if locals.contains_key(callee) {
             return;
-        } else if !self.function_visible_in_file(file, callee) {
+        } else if !self.function_visible_in_file(file, callee)
+            && !self.top_level_visible_in_file(file, callee)
+        {
+            // A top-level (global) binding holding a function value is callable,
+            // exactly like a local binding; `resolve_identifier` already consults
+            // `top_level_visible_in_file`, so value position works while call
+            // position did not (bug-198). Defer the callability check to typecheck.
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
                 &format!("Callable `{callee}` is not a top-level function."),

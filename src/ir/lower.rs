@@ -2352,6 +2352,15 @@ fn expression_type(
                         .get(callee)
                         .and_then(|type_| function_return_from_type(type_))
                 })
+                .or_else(|| {
+                    // A global binding holding a function value is callable too
+                    // (bug-198): infer its return type from the declared FUNC type,
+                    // mirroring the local-binding fallback above.
+                    context
+                        .binding_types
+                        .get(callee)
+                        .and_then(|type_| function_return_from_type(type_))
+                })
         }
         Expression::Lambda {
             params,

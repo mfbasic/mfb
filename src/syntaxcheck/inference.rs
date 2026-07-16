@@ -272,6 +272,24 @@ impl<'a> SyntaxChecker<'a> {
                     );
                 }
 
+                // A top-level (global) binding holding a function value is callable
+                // just like a local binding (bug-198): infer the call's return type
+                // from the binding's declared FUNC type, mirroring the Identifier
+                // value path's `lookup_visible_binding` fallback.
+                if let Some(binding_type) = self
+                    .lookup_visible_binding(file, callee)
+                    .map(|binding| binding.type_.clone())
+                {
+                    return self.check_function_value_call(
+                        file,
+                        callee,
+                        &binding_type,
+                        arguments,
+                        locals,
+                        line,
+                    );
+                }
+
                 Type::Unknown
             }
             Expression::Lambda {
