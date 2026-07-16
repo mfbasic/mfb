@@ -1,17 +1,17 @@
 # plan-46-B: `NATIVE_LIBRARY_TABLE` (.mfp section id 10) + author-side checks
 
-Last updated: 2026-07-14
+Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: plan-46-A
 
 Lights up the reserved-but-unused `.mfp` section **id 10** as
 `NATIVE_LIBRARY_TABLE`: a per-logical-library table of platform locators
-(`{os, arch?, libc?, source, kind, hash?}`) built from plan-46-A's parsed
+(`{os, arch?, libc?, type, source, hash?}`) built from plan-46-A's parsed
 `libraries` section, emitted **only** for a binding package that declares a
 `LINK` block. This is the binding-author side: assemble the table, compute the
-sha256 for `vendored` locators, **error** when a `LINK "name"` in code has no
-matching `libraries` entry, **warn** per supported target the table fails to
-cover, and encode it into the `.mfp`.
+sha256 for `vendor` locators from `<project root>/vendor/<source>`, **error**
+when a `LINK "name"` in code has no matching `libraries` entry, **warn** per
+supported target the table fails to cover, and encode it into the `.mfp`.
 
 The single behavioral outcome: building a `LINK`-bearing package with a complete
 `libraries` section produces a `.mfp` carrying a section-10 table that
@@ -33,7 +33,8 @@ References (read first):
 - `src/ir/link.rs` — `IrLinkFunction` (`.library` holds the logical name,
   line 22).
 - `src/target/package_mfp/mod.rs` — `write_package` → container flags
-  (`container_flags`), `build_package_bytes`.
+  (`container_flags`), `build_package_bytes`, and the private
+  `sha256` helper at line 199 (§4.3).
 - `src/docs/spec/package/01_container-format.md` (flag bit 0 + section table),
   `.../10_native-bindings.md`, `.../14_compact-summary.md` (the "id 10 reserved,
   not emitted" note to update).
@@ -48,23 +49,25 @@ References (read first):
   `NATIVE_LIBRARY_MISSING` (error).
 - For every supported target `(os,arch,libc)` the assembled table does **not**
   cover, exactly one `NATIVE_LIBRARY_TARGET_UNCOVERED` **warning** is emitted.
-- `vendored` locators carry a 32-byte sha256 computed from the file at `source`;
-  `system` locators carry no hash. Building a `vendored` locator whose `source`
-  file is unreadable is a hard error.
+- `vendor` locators carry a 32-byte sha256 computed from
+  `<project root>/vendor/<source>`; `system` locators carry no hash. A `vendor`
+  locator whose file is missing or unreadable is a hard error.
 - A package with no `LINK` block emits **no** section 10 and does not set bit 0
   (byte-identical `.mfp` to today for non-binding packages).
 
 ### Non-goals (explicit constraints)
 
-- No consumer-side resolution, no `link_thunk`/`library_filename` change, no
-  vendored file distribution (all plan-46-C or explicitly deferred).
+- No consumer-side resolution and no `link_thunk`/`library_filename` change
+  (plan-46-C); no output-layout, RPATH, or vendor-copy change (plan-46-D).
 - Do not touch the existing `(alias, name, library, symbol, …)` IR-payload
   trailer (`src/ir/binary.rs` `encode_link_function`) — it stays the interface
   record and is valid for any physical file. Section 10 is a **separate**,
   additive structure.
 - Do not reuse `NATIVE_MANIFEST_INVALID` (`2-205-0002`) for these checks — it
-  guards the trailer's shape (and is already code-collided with
-  `DOC_NAME_MISMATCH`); allocate fresh native-library diagnostics.
+  guards the trailer's shape, has no active raise site, and its code is already
+  collided with `DOC_NAME_MISMATCH` (intentional; lookup is by rule *name*, so
+  the collision is not itself a defect — but do not add to it). Allocate fresh
+  native-library diagnostics.
 - No backward-compatibility shim: readers are updated in lockstep; an old
   reader seeing section 10 is out of scope (the project controls all readers).
 
@@ -97,8 +100,15 @@ Manifest metadata reaches the encoder via `package_metadata(manifest)`
 format but never emitted (`src/docs/spec/package/01_container-format.md:198`,
 `206`).
 
-Native diagnostics live around `2-203-0089`..`0098` (native ABI) and
-`2-205-0002` (`NATIVE_MANIFEST_INVALID`, no active raise site).
+### 2.1 Diagnostic code allocation (corrected)
+
+**Verified against `src/rules/table.rs`** — an earlier draft suggested
+`2-203-0099..0101` for the new rules. All three are taken. `2-203-0099` is
+`NATIVE_FREE_INVALID` (line 944), which is easy to miss because it sits just
+before the `2-200-0011` row rather than inside the contiguous native block; and
+the `2-203` range runs on to **`2-203-0113`** (`TYPE_ISOLATED_NOT_VISIBLE`, line
+764). **The next free native code is `2-203-0114`.** (Gaps exist below 0113 —
+110 rows over a 0001..0113 range — but do not scavenge them; append.)
 
 ## 3. Design Overview
 
@@ -109,11 +119,11 @@ Three pieces, layered:
    `NativeLibraryTable` struct, and string-pool-backed encode/decode mirroring
    `DocTable`. Round-trips independently of any manifest.
 2. **Assembly + validation** (build path, `src/cli/build.rs` around the existing
-   `package_metadata` call at line ~527, plus a new
-   `src/manifest/libraries.rs` builder): from plan-46-A's `project_libraries` +
-   the IR's distinct `IrLinkFunction.library` names, build the table, compute
-   vendored sha256s, run the **missing-entry error** and **coverage warning**
-   checks, and hand the table to the encoder.
+   `package_metadata` call at line ~527, plus a builder in
+   `src/manifest/libraries.rs`): from plan-46-A's `project_libraries` + the IR's
+   distinct `IrLinkFunction.library` names, build the table, compute vendor
+   sha256s, run the **missing-entry error** and **coverage warning** checks, and
+   hand the table to the encoder.
 3. **Container flag** (`container_flags`): set optional bit 0 when the table is
    non-empty.
 
@@ -140,26 +150,34 @@ NATIVE_LIBRARY_TABLE (section id 10):
   u32 libraryCount
   repeat libraryCount (sorted by logicalName):
     stringId logicalName            // "sqlite3"
-    u32      localeCount
-    repeat localeCount (stable order):
+    u32      locatorCount
+    repeat locatorCount (stable order):
       stringId os                   // "macos" | "linux"
       stringId arch                 // "" = any-arch, else "aarch64"|"x86_64"|"riscv64"
       u8       libc                 // 0 = unspecified, 1 = glibc, 2 = musl
-      u8       kind                 // 0 = system, 1 = vendored
-      stringId source               // "libsqlite3.dylib" | "libs/libsqlite3.so"
-      // sha256 present iff kind == vendored (1):
+      u8       type                 // 0 = system, 1 = vendor
+      stringId source               // bare filename: "libsqlite3.dylib" | "libsqlite3-riscv64-musl.so"
+      // sha256 present iff type == vendor (1):
       [32 bytes] hash               // omitted entirely for system
 ```
 
-Decode validates: `libc`/`kind` in range; `hash` present ⇔ `kind==vendored`;
+`source` is a bare filename in the wire format exactly as in the manifest — the
+`vendor/` prefix is **never** encoded. It is a fixed, known location that both
+sides derive; storing it would be redundant data that could disagree with the
+rule.
+
+Decode validates: `libc`/`type` in range; `hash` present ⇔ `type==vendor`;
+`source` still a bare filename (re-check on decode — the `.mfp` is an untrusted
+input on the consumer side, and plan-46-C feeds `source` straight into a C string
+and a filesystem path; do **not** rely on the producer having validated it);
 otherwise a structural decode error (bounded reads, same style as
 `decode_link_function`).
 
 ### 4.2 Supported-target coverage matrix
 
 The set the coverage warning checks against — derived at build time from
-`NATIVE_BACKENDS` (`src/target.rs:161`) × `LinuxFlavor::ALL`
-(`src/os/linux/flavor.rs`), with libc applied to linux only:
+`NATIVE_BACKENDS` (`src/target.rs:165`, four registered backends) ×
+`LinuxFlavor::ALL` (`src/os/linux/flavor.rs:8`), with libc applied to linux only:
 
 | os | arch | libc |
 | --- | --- | --- |
@@ -171,11 +189,24 @@ The set the coverage warning checks against — derived at build time from
 | linux | riscv64 | glibc |
 | linux | riscv64 | musl |
 
-= **7 target slots**. A locator with `arch:None` covers all arches of its `os`;
-a linux locator with `libc:None` covers **glibc only** (the default, per
-plan-46-A). For each of the 7 slots not covered by any locator of a given
-logical library, emit one `NATIVE_LIBRARY_TARGET_UNCOVERED` warning naming the
-logical name + the uncovered `os/arch/libc`.
+= **7 target slots**. Derive this from the registry rather than hardcoding it, so
+plan-47's windows backend widens the matrix for free.
+
+Coverage, per plan-46-A's settled semantics: `arch: None` covers **all arches**
+of its `os`, and `libc: None` covers **both flavors** — the two axes are
+symmetric wildcards. So one `{ "os": "linux", "type": "system", "source":
+"libsqlite3.so.0" }` entry covers all six Linux slots, and adding
+`{ "os": "linux", "arch": "riscv64", "libc": "musl", "source": "…" }` refines
+exactly one of them without opening a hole.
+
+Note a `vendor` locator can never be a wildcard on Linux (plan-46-A §3.2 requires
+`arch` + `libc`), so it always covers **exactly one** slot. A binding that vendors
+its way across all of Linux therefore needs six locators and six files — which is
+the truth, not an inconvenience.
+
+For each of the 7 slots not covered by any locator of a given logical library,
+emit one `NATIVE_LIBRARY_TARGET_UNCOVERED` warning naming the logical name + the
+uncovered `os/arch/libc`.
 
 ### 4.3 Assembly + checks (build path)
 
@@ -187,22 +218,46 @@ read (`src/cli/build.rs:~527`):
 3. **Missing-entry error:** for each name in `linked` with no `libs[name]` →
    `NATIVE_LIBRARY_MISSING` (error, abort). This is the "error if `LINK
    logical_name` not listed in libraries" requirement.
-4. **Vendored hash:** for each `vendored` locator, read the file at `source`
-   (resolved relative to the project root); sha256 it; unreadable → hard error
-   `NATIVE_LIBRARY_SOURCE_UNREADABLE`.
+4. **Vendor hash:** for each `vendor` locator, read
+   `<project root>/vendor/<source>` and sha256 it; missing or unreadable → hard
+   error `NATIVE_LIBRARY_SOURCE_UNREADABLE` (the message must name the full
+   expected path, since "put the file in `vendor/`" is the entire fix).
 5. **Coverage warning:** per §4.2, emit `NATIVE_LIBRARY_TARGET_UNCOVERED` per
    uncovered slot per linked library.
-6. Build `NativeLibraryTable` (only for names in `linked` — a `libraries` entry
-   with no matching `LINK` is ignored, or optionally a warning) and thread it
-   into `lower_package_project`/`BinaryReprProject` so `encode` pushes section
-   10 when non-empty.
+6. **Unused-entry warning:** for each name in `libs` with no matching `LINK` in
+   `linked` → `NATIVE_LIBRARY_UNUSED` (warn). This catches dead config — a
+   renamed `LINK`, a removed binding, or a typo in the `libraries` key that would
+   otherwise sit in the manifest looking authoritative while doing nothing.
+7. Build `NativeLibraryTable` from the names in `linked` only — an unused
+   `libraries` entry is warned about but **not** encoded, so the section stays
+   minimal and never carries a locator nothing can reach. Thread it into
+   `lower_package_project`/`BinaryReprProject` so `encode` pushes section 10
+   when non-empty.
 
-New diagnostics in `src/rules/table.rs` (allocate next-free in the native
-range; suggested `2-203-0099`..`2-203-0101`):
-- `NATIVE_LIBRARY_MISSING` (Error) — a `LINK "name"` has no `libraries` entry.
-- `NATIVE_LIBRARY_TARGET_UNCOVERED` (Warn) — a supported target has no locator.
-- `NATIVE_LIBRARY_SOURCE_UNREADABLE` (Error) — a vendored `source` file cannot
-  be read to hash it.
+**sha256 source:** the repo has **no** reusable Rust digest helper. The `sha2`
+crate is a direct dependency (`Cargo.toml:9`) and is used directly in four
+modules (`src/target/package_mfp/mod.rs:3`, `src/binary_repr/mod.rs:3`,
+`src/os/macos/link/mod.rs:2`, `src/audit/collect/mod.rs:85`) — follow that
+pattern. Note `package_mfp::sha256` (line 199) is **module-private**, and
+`package_content_hash` validates `MFP_MAGIC` first so it is not a
+general-purpose digest. Either promote `package_mfp::sha256`'s visibility or use
+`sha2::{Digest, Sha256}` directly; do **not** reach for
+`src/target/shared/code/crypto.rs` or `src/builtins/crypto.rs` — those are
+codegen for the MFBASIC-language `crypto::sha256` builtin, not callable Rust.
+Stream the file (`package_content_hash_file` at line 165 uses 64 KiB chunks) —
+a vendored `.so` can be tens of MB.
+
+New diagnostics in `src/rules/table.rs`, appended at the next free native code
+per §2.1:
+- `2-203-0114` `NATIVE_LIBRARY_MISSING` (Error) — a `LINK "name"` has no
+  `libraries` entry.
+- `2-203-0115` `NATIVE_LIBRARY_TARGET_UNCOVERED` (Warn) — a supported target has
+  no locator.
+- `2-203-0116` `NATIVE_LIBRARY_SOURCE_UNREADABLE` (Error) — a `vendor` locator's
+  file at `<project root>/vendor/<source>` is missing or cannot be read to hash
+  it.
+- `2-203-0117` `NATIVE_LIBRARY_UNUSED` (Warn) — a `libraries` entry has no
+  matching `LINK` in code.
 
 ### 4.4 Container flag
 
@@ -237,46 +292,60 @@ Codec in isolation, hand-built table; no manifest wiring. Safe to land alone.
       (`src/binary_repr/reader.rs`); add the field to the project/package
       structs.
 - [ ] Tests: round-trip unit tests in `src/binary_repr/` — empty table absent
-      from output; a populated table (system + vendored, wildcard arch, both
+      from output; a populated table (system + vendor, wildcard arch, both
       libc values) encodes and decodes to an equal structure; duplicate section
-      id rejected; `hash`⇔`vendored` invariant enforced on decode.
+      id rejected; `hash`⇔`vendor` invariant enforced on decode; **a `source`
+      carrying a `/` or an interior NUL rejected on decode** (§4.1); out-of-range
+      `libc`/`type` rejected.
 
 Acceptance: a hand-built `NativeLibraryTable` round-trips byte-faithfully; a
-project with an empty table produces an `.mfp` with no section 10.
+project with an empty table produces an `.mfp` with no section 10; every
+malformed-decode case above returns a structural error rather than panicking.
 Commit: —
 
 ### Phase 2 — assembly, checks, hash, flag
 
-- [ ] Add the table builder to `src/manifest/libraries.rs` (or a new
-      `src/target/package_mfp` helper): `project_libraries` + IR link names →
-      `NativeLibraryTable`, with sha256 over vendored sources
-      (reuse the repo's existing sha256, e.g. the crypto core / signing path).
+- [ ] Add the table builder to `src/manifest/libraries.rs`: `project_libraries` +
+      IR link names → `NativeLibraryTable`, with streamed sha256 over
+      `<project root>/vendor/<source>` per §4.3.
 - [ ] Wire it into the `kind:"package"` build in `src/cli/build.rs` near the
       `package_metadata` call; run the missing-entry error, coverage warnings,
-      and unreadable-source error (§4.3).
+      unused-entry warning, and unreadable-source error (§4.3).
 - [ ] Set container flag bit 0 in `container_flags`
       (`src/target/package_mfp/mod.rs`) when the table is non-empty.
-- [ ] Add the three `NATIVE_LIBRARY_*` rows to `src/rules/table.rs`.
+- [ ] Add the four `NATIVE_LIBRARY_*` rows (`2-203-0114`..`0117`) to
+      `src/rules/table.rs`.
+- [ ] Commit the fixture blob: a tiny file at
+      `<fixture>/vendor/libfixture.so` (see Open Decisions — bytes need only hash
+      stably, not be a valid ELF), so the vendor-hash goldens are hermetic.
 - [ ] Tests: golden acceptance fixtures under the binding-package test area — a
       `LINK`+`libraries` package builds and its `.mfp` carries section 10
       (assert via a decode check or an `mfb`-side dump if one exists); a package
       with `LINK "x"` and no `libraries["x"]` fails with `NATIVE_LIBRARY_MISSING`
       (golden `build.log`); a package covering only macOS emits 6
-      `NATIVE_LIBRARY_TARGET_UNCOVERED` warnings.
+      `NATIVE_LIBRARY_TARGET_UNCOVERED` warnings; a `libraries` entry with no
+      matching `LINK` emits `NATIVE_LIBRARY_UNUSED` and is **absent from the
+      encoded section**; a `vendor` locator with no file in `vendor/` fails with
+      `NATIVE_LIBRARY_SOURCE_UNREADABLE`; a `vendor` locator with the committed
+      fixture file produces the expected hash.
+- [ ] Verify the coverage math against a wildcard case: one
+      `{ "os": "linux", "type": "system" }` entry must cover all six Linux slots
+      and emit **zero** uncovered warnings (§4.2) — the regression that the old
+      "libc defaults to glibc" semantics would have caused.
 - [ ] Doc: update `src/docs/spec/package/10_native-bindings.md` (section 10
       format), `01_container-format.md` (bit 0 now emitted, id 10 now used),
       `14_compact-summary.md` (drop id 10 from the "reserved, not emitted"
       list), and `src/docs/man/link/package.md` diagnostics table.
 
-Acceptance: the three fixtures above produce the exact section-10 bytes / error /
+Acceptance: the fixtures above produce the exact section-10 bytes / error /
 warning set; non-binding packages are byte-identical to pre-change `.mfp`.
 Commit: —
 
 ## Validation Plan
 
 - Tests: codec round-trip units (Phase 1); golden build fixtures for
-  present-table / missing-entry-error / uncovered-warning (Phase 2), including
-  a vendored-hash case with a fixture `.so`.
+  present-table / missing-entry-error / uncovered-warning / vendor-hash-pass /
+  vendor-file-missing (Phase 2), including a small committed fixture `.so`.
 - Runtime proof: `./mfb build` a `LINK`-bearing package fixture → `.mfp` decodes
   with the expected locators and bit 0 set; remove the `libraries["sqlite3"]`
   entry → build fails with `NATIVE_LIBRARY_MISSING`.
@@ -289,14 +358,23 @@ Commit: —
 
 ## Open Decisions
 
-- A `libraries` entry with **no** matching `LINK` in code — silently ignore
-  (recommended, keeps the section minimal) vs warn (catches dead config). (§4.3)
-- Exact diagnostic code numbers within the native range (`2-203-0099`+ vs a new
-  `2-205-000x`). Recommend the `2-203` native block for locality. (§4.3)
+None outstanding. Settled:
+
+- **A `libraries` entry with no matching `LINK` warns** —
+  `NATIVE_LIBRARY_UNUSED` (`2-203-0117`), and the entry is not encoded (§4.3).
+  Dead config that looks authoritative is worth a line of output.
+- **The vendor-hash fixture blob is committed**, not generated (§Phase 2). The
+  hash check does not care that the file is a *valid* ELF — only that its bytes
+  hash stably — so a handful of committed bytes named `libfixture.so` is enough,
+  and it keeps the goldens hermetic with no toolchain dependency on the test
+  host. Keep it small and mark it clearly as a non-ELF hashing fixture so nobody
+  later "fixes" it into a real shared object.
 
 ## Summary
 
 Additive `.mfp` section that finally uses reserved id 10 + flag bit 0. Real risk
-is the coverage matrix (must equal the true target set) and deterministic encode
-order (byte-diff gate). The interface trailer and every non-binding package stay
-untouched.
+is the coverage matrix (must equal the true target set, and depends on plan-46-A's
+unsettled `libc: None` semantics) and deterministic encode order (byte-diff
+gate). `source` stays a bare filename on the wire — `vendor/` is derived, never
+stored — and is re-validated on decode because the consumer treats the `.mfp` as
+untrusted. The interface trailer and every non-binding package stay untouched.
