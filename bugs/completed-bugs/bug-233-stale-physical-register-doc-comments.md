@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: docs
 
-Status: Open
+Status: Fixed (2026-07-15) — reworded the register-lifetime doc comments in builder_codegen_primitives.rs (emit_build_error_loc) and builder_collection_layout.rs (emit_copy_bytes / emit_inlined_block_size_from_ptr_slot / emit_record_block_size_to_slot / emit_data_union_size_to_slot / emit_align_offset_slot) to describe logical scratch vregs instead of the removed physical x8/x9/x12/x13 registers. Documentation only.
 
 Doc comments in several collection/primitive codegen helpers still describe
 specific physical scratch registers (x8/x9/x12/x13, "returns the pointer in x9",

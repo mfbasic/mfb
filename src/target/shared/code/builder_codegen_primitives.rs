@@ -387,8 +387,8 @@ impl CodeBuilder<'_> {
     /// allocation itself fails (OOM), where no `ErrorLoc` could be allocated
     /// regardless. This never routes back through the error-return path, so it is
     /// safe to call from `emit_error_register_return`.
-    /// Allocation-free: uses only the `x9` scratch register and stack slots, and
-    /// returns the pointer in `x9`. Error-emitting paths are terminal, so they
+    /// Allocation-free: uses only a temporary scratch vreg and stack slots, and
+    /// returns the pointer in that vreg. Error-emitting paths are terminal, so they
     /// must not consume the temporary-register pool (the surrounding expression
     /// may already be near the physical-register limit). Callers must save any
     /// live register inputs to the stack before invoking this.

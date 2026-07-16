@@ -96,8 +96,8 @@ impl CodeBuilder<'_> {
     }
 
     /// Rounds the unsigned offset stored at `slot` up to `alignment`. A no-op
-    /// for `alignment <= 1`. Uses x12/x13 as scratch so it does not disturb the
-    /// x8-x11 registers used by the surrounding collection-writer code.
+    /// for `alignment <= 1`. Uses temporary scratch vregs (colored by regalloc),
+    /// so it does not disturb the surrounding collection-writer code's values.
     pub(super) fn emit_align_offset_slot(&mut self, slot: usize, alignment: usize) {
         if alignment <= 1 {
             return;
@@ -136,9 +136,9 @@ impl CodeBuilder<'_> {
     /// Block-copy `len` bytes from `src` to `dst`, advancing both pointers.
     /// Copies 8 bytes per iteration with a byte tail for the remainder — an
     /// order-of-magnitude fewer iterations than a pure byte loop on payloads
-    /// larger than a word. `len` is preserved (a private copy in x13 drives the
-    /// loop); `src`/`dst` are advanced past the copied region; x13/x14 are
-    /// clobbered. The destination region must not overlap the source ahead of
+    /// larger than a word. `len` is preserved (a private scratch-vreg copy drives
+    /// the loop); `src`/`dst` are advanced past the copied region; the loop's
+    /// scratch vregs are clobbered. The destination region must not overlap the source ahead of
     /// it (it never does here — collection buffers are freshly allocated).
     pub(super) fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
         let scratch13 = self.temporary_vreg();
@@ -594,7 +594,7 @@ impl CodeBuilder<'_> {
     /// Emit the byte size of an inlined field value of `field_type` whose pointer
     /// is in `ptr_slot`, into `out_slot`. An inlined `String` is `len + 9`; an
     /// inlined nested record recurses through `emit_record_block_size_to_slot`.
-    /// Clobbers x8/x9/x12/x13 (and the recursion's scratch).
+    /// Clobbers its temporary scratch vregs (and the recursion's scratch).
     pub(super) fn emit_inlined_block_size_from_ptr_slot(
         &mut self,
         field_type: &str,
@@ -648,7 +648,7 @@ impl CodeBuilder<'_> {
     }
 
     /// Total byte size of a data union into `out_slot`: the `size` word at `+8`
-    /// (plan-02 §4.3). `ptr_slot` holds the union pointer. Clobbers x8.
+    /// (plan-02 §4.3). `ptr_slot` holds the union pointer. Clobbers a scratch vreg.
     pub(super) fn emit_data_union_size_to_slot(&mut self, ptr_slot: usize, out_slot: usize) {
         let scratch8 = self.temporary_vreg();
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), ptr_slot));
@@ -733,8 +733,8 @@ impl CodeBuilder<'_> {
     /// base pointer is in `base_slot`, into `out_slot`. Walks the fixed slot
     /// region (`8*fieldCount`) plus each inlined sub-block (8-aligned, in field
     /// order) — an inlined `String` (`len + 9`) or a fully-flat nested record
-    /// (recursively) — matching `emit_build_inlined_record`'s layout. Clobbers
-    /// x8/x9/x12/x13 (and the recursion's scratch). Recursion is bounded by the
+    /// (recursively) — matching `emit_build_inlined_record`'s layout. Clobbers its
+    /// temporary scratch vregs (and the recursion's scratch). Recursion is bounded by the
     /// static type nesting (a record cannot directly contain itself).
     pub(super) fn emit_record_block_size_to_slot(
         &mut self,
