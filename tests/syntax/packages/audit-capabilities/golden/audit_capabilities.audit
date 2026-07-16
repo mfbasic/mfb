@@ -45,6 +45,8 @@ Control flow:
     trap err -> returns value
     fallible call net.connectTcp at src/main.mfb:31 -> trap
     fallible call net.close at src/main.mfb:32 -> trap
+    fallible call sql.open at src/main.mfb:33 -> trap
+    fallible call sql.close at src/main.mfb:34 -> trap
     fallible call io.print at src/main.mfb:35 -> trap
     fallible call io.print at src/main.mfb:36 -> trap
     fallible call io.print at src/main.mfb:37 -> trap
@@ -112,6 +114,18 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
           "line": 32,
           "propagation": "trap",
           "capability": "network"
+        },
+        {
+          "callee": "sql.open",
+          "line": 33,
+          "propagation": "trap",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.close",
+          "line": 34,
+          "propagation": "trap",
+          "capability": "native"
         },
         {
           "callee": "io.print",

@@ -36,7 +36,13 @@ Native resources:
 
 Control flow:
   main at src/main.mfb:52 (fallible)
+    fallible call sql.open at src/main.mfb:53 -> return
+    fallible call sql.prepare at src/main.mfb:54 -> return
+    fallible call sql.bindText at src/main.mfb:55 -> return
+    fallible call sql.bindText at src/main.mfb:56 -> return
     fallible call io.print at src/main.mfb:63 -> return
+    fallible call sql.finalize at src/main.mfb:64 -> return
+    fallible call sql.close at src/main.mfb:65 -> return
 
 Findings:
   info AUDIT-PERM-NATIVE project uses host capability: native
@@ -81,10 +87,46 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "trap": null,
       "calls": [
         {
+          "callee": "sql.open",
+          "line": 53,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.prepare",
+          "line": 54,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.bindText",
+          "line": 55,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.bindText",
+          "line": 56,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
           "callee": "io.print",
           "line": 63,
           "propagation": "return",
           "capability": "terminal"
+        },
+        {
+          "callee": "sql.finalize",
+          "line": 64,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.close",
+          "line": 65,
+          "propagation": "return",
+          "capability": "native"
         }
       ]
     }
