@@ -285,7 +285,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&span, "Integer", "0"));
         self.emit(abi::label(&materialize));
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
-        self.emit(abi::branch(&done));
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),

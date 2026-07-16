@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: dead-code
 
-Status: Open
+Status: Fixed (2026-07-15) — removed the redundant branch-to-next-label in lower_fs_path_extension; deleted the never-branched-to zip_n_from_b label (builder_collection_queries) and cmp_label (builder_strings_package emit_chars_set_contains_branch); and dropped the redundant abi::branch(&done) after emit_errno_error_mapping in fs_helpers_atomic (the mapping branches to done in every case), correcting the wrong 'does not branch to done' comment.
 
 Several codegen builders emit labels that are never branched to, or an
 unconditional branch to the immediately-following label (a jump to the next

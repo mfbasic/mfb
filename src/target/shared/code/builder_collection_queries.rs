@@ -745,12 +745,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s9, &s8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&s10, abi::stack_pointer(), b_slot));
         self.emit(abi::load_u64(&s11, &s10, COLLECTION_OFFSET_COUNT));
-        let n_from_b = self.label("zip_n_from_b");
         let n_done = self.label("zip_n_done");
         self.emit(abi::compare_registers(&s9, &s11));
         self.emit(abi::branch_le(&n_done));
         self.emit(abi::move_register(&s9, &s11));
-        self.emit(abi::label(&n_from_b));
         self.emit(abi::label(&n_done));
         self.emit(abi::store_u64(&s9, abi::stack_pointer(), n_slot));
 

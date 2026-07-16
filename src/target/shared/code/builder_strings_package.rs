@@ -149,7 +149,6 @@ impl CodeBuilder<'_> {
     ) {
         // Save scalar ptr/len into scratch we control across the inner loop.
         let loop_label = self.label("strings_chars_set_loop");
-        let cmp_label = self.label("strings_chars_set_cmp");
         let cmp_loop = self.label("strings_chars_set_cmp_loop");
         let next = self.label("strings_chars_set_next");
         // Scratch as vregs (was out-of-pool x2-x7 plus x0/x1, which are x86 ABI
@@ -197,7 +196,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&clen));
         self.emit(abi::label(&clen_done));
         // candidate byte length = scalar_end - cursor. Compare with scalar_len.
-        self.emit(abi::label(&cmp_label));
         self.emit(abi::subtract_registers(tmp, scalar_end, cursor));
         self.emit(abi::compare_registers(tmp, scalar_len));
         self.emit(abi::branch_ne(&next));

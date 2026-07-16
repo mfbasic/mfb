@@ -744,12 +744,10 @@ pub(super) fn lower_fs_atomic_write_helper(
         abi::move_register(&errno_reg, &saved_errno),
         abi::label(&rename_error_map),
     ]);
+    // `emit_errno_error_mapping` branches to `done` in every case (including its
+    // generic `err_output` tail), so this mkstemps/rename errno path already
+    // terminates and cannot fall through into the write/sync close tail below.
     emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
-    // `emit_errno_error_mapping`'s generic `err_output` case does not branch to
-    // `done` — terminate the mkstemps/rename errno path explicitly so it cannot
-    // fall through into the write/sync close tail below and re-close the fd (a
-    // garbage fd vreg on mkstemps failure; an already-closed fd on rename failure).
-    instructions.push(abi::branch(&done));
     instructions.extend([
         abi::label(&write_error),
         abi::label(&sync_error),
