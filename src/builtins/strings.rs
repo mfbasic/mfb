@@ -322,8 +322,22 @@ fn item_references_seam(item: &crate::ast::Item) -> bool {
     match item {
         Item::Function(f) => f.body.iter().any(stmt_references_seam),
         Item::Binding(b) => b.value.as_ref().is_some_and(expr_references_seam),
+        // TCASE bodies are ordinary statements and can reference the scalar seam.
+        // `lower_testing_blocks` desugars them into `Item::Function`s before this
+        // gate runs today, so this arm is belt-and-braces — but relying on that
+        // pass ordering left `__strings_*` undefined if it ever changed (bug-222).
+        // Over-injection is harmless (the module's design note).
+        Item::Testing(block) => block.groups.iter().any(group_references_seam),
         _ => false,
     }
+}
+
+fn group_references_seam(group: &crate::ast::TestGroup) -> bool {
+    use crate::ast::TestGroupMember;
+    group.members.iter().any(|member| match member {
+        TestGroupMember::Case(case) => case.body.iter().any(stmt_references_seam),
+        TestGroupMember::Group(nested) => group_references_seam(nested),
+    })
 }
 
 fn stmt_references_seam(stmt: &crate::ast::Statement) -> bool {

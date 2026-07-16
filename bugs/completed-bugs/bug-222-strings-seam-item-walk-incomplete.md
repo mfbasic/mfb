@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness (latent)
 
-Status: Open
+Status: Fixed (2026-07-15) — item_references_seam now also walks Item::Testing (recursing TGROUP members into TCASE bodies via a new group_references_seam helper), so a scalar-seam reference appearing only inside a TESTING block still triggers injection of strings_package.mfb. Previously this was saved only by pass ordering (lower_testing_blocks desugars TCASE bodies into Item::Functions before the augmentation gate); the walk no longer depends on that invariant. Over-injection is harmless per the module's design note. Verified: `mfb test` on a TCASE using strings::toScalars passes (1/1).
 
 `item_references_seam` (`src/builtins/strings.rs:320-327`) only inspects
 `Item::Function` and `Item::Binding`, so a scalar-seam reference
