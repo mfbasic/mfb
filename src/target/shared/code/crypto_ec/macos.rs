@@ -521,6 +521,13 @@ fn generate(
         abi::stack_pointer(),
         NUM,
     ));
+    // bug-237: CFNumberCreate returns NULL under memory pressure. The attributes
+    // dict is built with kCFTypeDictionaryValueCallBacks, whose retain callback
+    // would run CFRetain(NULL) on a NULL value. Bail to the error exit instead.
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&load_fail),
+    ]);
 
     // Attributes dict { kSecAttrKeyType: EC, kSecAttrKeySizeInBits: <number> }.
     load_cf_const(

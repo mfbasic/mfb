@@ -3,7 +3,9 @@
 //!
 //! Key material is exchanged with OpenSSL as DER and driven through the `d2i_*` /
 //! `EVP_DigestSign` / `EVP_DigestVerify` APIs, which are present and
-//! **non-deprecated on both OpenSSL 1.1 and 3.x** (unlike the 3.x-only
+//! **non-deprecated on both OpenSSL 1.1.1 and 3.x** (the one-shot
+//! `EVP_DigestSign`/`EVP_DigestVerify` arrived in 1.1.1, not 1.1.0 — a 1.1.0 build
+//! fails closed via `load_fail` when the `dlsym` misses, bug-237) (unlike the 3.x-only
 //! `OSSL_PARAM`/`EVP_PKEY_fromdata` and the 3.x-deprecated `EC_KEY_*`). Every key
 //! component has a fixed size per curve, so the private key is a constant PKCS#8
 //! template with the scalar/point spliced at fixed offsets, and the public key is
@@ -633,6 +635,13 @@ fn generate(
         abi::stack_pointer(),
         PKEY,
     ));
+    // bug-237: EVP_PKEY_new returns NULL on malloc failure; EVP_PKEY_assign below
+    // dereferences it immediately. Route to gen_fail, which EC_KEY_frees the
+    // still-owned eckey (pkey is NULL, so its free is a no-op).
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&gen_fail),
+    ]);
     dlsym_into(
         symbol,
         HANDLE,
@@ -1117,6 +1126,15 @@ fn sign(
         abi::stack_pointer(),
         MD,
     ));
+
+    // bug-237: EVP_MD_CTX_new returns NULL on malloc failure; without this check
+    // the NULL ctx is dereferenced by EVP_DigestSignInit below. Route to the
+    // generic error exit — the same check verify() already carries (bug-136).
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&load_fail),
+    ]);
 
     // EVP_DigestSignInit(ctx, NULL, md, NULL, pkey)
     dlsym_into(

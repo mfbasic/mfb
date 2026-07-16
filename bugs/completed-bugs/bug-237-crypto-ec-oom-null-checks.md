@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: memory-safety / docs
 
-Status: Open
+Status: Fixed (2026-07-15) — OpenSSL sign() now NULL-checks the EVP_MD_CTX_new result before EVP_DigestSignInit (the check verify() already had from bug-136), and generate() NULL-checks EVP_PKEY_new before EVP_PKEY_assign (routing to gen_fail, which EC_KEY_frees the still-owned eckey). macOS generate() NULL-checks the CFNumberCreate result before it is placed in the kCFTypeDictionaryValueCallBacks attributes dict (whose retain callback would run CFRetain(NULL)). Docs: the header now says the one-shot EVP_DigestSign/Verify are non-deprecated on OpenSSL 1.1.1 and 3.x (they arrived in 1.1.1, not 1.1.0; a 1.1.0 build fails closed via load_fail). Verified: the crypto acceptance tests pass.
 
 A small cluster of OOM-only NULL-pointer derefs where an allocation-returning C
 API result is used without a NULL check — one a proven asymmetry (verify checks
