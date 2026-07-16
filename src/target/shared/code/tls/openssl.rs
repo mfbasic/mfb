@@ -876,6 +876,7 @@ pub(crate) fn lower_tls_listen_helper(
     let tls_fail_fd = format!("{symbol}_tls_fail_fd");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let alloc_fail_fd = format!("{symbol}_alloc_fail_fd");
+    let alloc_fail_ctx_fd = format!("{symbol}_alloc_fail_ctx_fd");
     let done = format!("{symbol}_done");
 
     let addr_off = platform.addrinfo_addr_offset();
@@ -1188,7 +1189,13 @@ pub(crate) fn lower_tls_listen_helper(
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail_fd);
+    // The server SSL_CTX already exists here, so an OOM must free it before
+    // reporting: `alloc_fail_fd` closes the fd but leaked the context (bug-236).
+    // It cannot gain an SSL_CTX_free itself — the pre-ctx cstring allocs share it
+    // and the CTX slot is not live for them (the bug-201 class) — so route to a
+    // dedicated ctx-freeing OOM exit that falls into it. connect/accept already do
+    // full SSL/CTX/fd cleanup on this same OOM class (bug-55).
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail_ctx_fd);
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::RET[1], TLS_LISTENER_OFFSET_FD),
@@ -1286,6 +1293,26 @@ pub(crate) fn lower_tls_listen_helper(
         &mut relocations,
         &done,
     );
+    // The record-alloc OOM exit taken once the server SSL_CTX exists: free the
+    // context, then fall through into the shared fd-close + ErrOutOfMemory report
+    // (bug-236). A `dlsym` miss for SSL_CTX_free still reports the OOM.
+    instructions.push(abi::label(&alloc_fail_ctx_fd));
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_free",
+        FNPTR_OFFSET,
+        &alloc_fail_fd,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+    ]);
     instructions.push(abi::label(&alloc_fail_fd));
     instructions.push(abi::load_u64(
         abi::return_register(),
