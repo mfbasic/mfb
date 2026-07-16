@@ -66,10 +66,21 @@ pub(crate) fn run_fmt_command(args: &[String]) -> i32 {
     }
 }
 
+/// Upper bound on `--indent`. `indent_str` builds `" ".repeat(level * width)`, so
+/// an unbounded width drives a multiply-/capacity-overflow panic or a multi-GB
+/// allocation on any nested source (bug-220); no real style uses a deep indent.
+const MAX_INDENT: usize = 256;
+
 fn parse_indent(value: &str) -> Result<usize, String> {
-    value
-        .parse::<usize>()
-        .map_err(|_| format!("mfb fmt --indent requires a non-negative integer (got `{value}`)"))
+    let width = value.parse::<usize>().map_err(|_| {
+        format!("mfb fmt --indent requires a non-negative integer (got `{value}`)")
+    })?;
+    if width > MAX_INDENT {
+        return Err(format!(
+            "mfb fmt --indent must be between 0 and {MAX_INDENT} (got `{value}`)"
+        ));
+    }
+    Ok(width)
 }
 
 /// Format the source selected by `path`. Without `check`, rewrites files in

@@ -5,7 +5,8 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun
 
-Status: Open
+Status: Fixed (2026-07-15) — parse_indent now rejects a value > MAX_INDENT (256), mirroring parse_spec_width's clamp, so `mfb fmt --indent` can no longer drive indent_str's " ".repeat(level*width) into an overflow panic / multi-GB allocation.
+Regression Test: verified — `mfb fmt --indent=18446744073709551615` prints a clean range error instead of panicking.
 
 `parse_indent` (`src/cli/fmt.rs:69-73`) accepts any `usize` with no upper bound,
 unlike the sibling `parse_spec_width` (`src/cli/spec.rs:79`) which clamps to
