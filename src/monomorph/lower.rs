@@ -777,20 +777,42 @@ impl<'a> Monomorphizer<'a> {
                     .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
                 line: *line,
             },
-            Statement::Assign { name, value, line } => Statement::Assign {
-                name: name.clone(),
-                value: self.lower_expression(value, substitutions, context, None, *line),
-                line: *line,
-            },
+            Statement::Assign { name, value, line } => {
+                // Pass the target local's declared type as the RHS expected type so
+                // a return-type-overloaded call disambiguates, exactly like the
+                // `LET … AS T = call()` form (bug-197). Only consulted by call
+                // overload resolution; other RHS expressions ignore it.
+                let expected = context.locals.get(name).cloned();
+                Statement::Assign {
+                    name: name.clone(),
+                    value: self.lower_expression(
+                        value,
+                        substitutions,
+                        context,
+                        expected.as_deref(),
+                        *line,
+                    ),
+                    line: *line,
+                }
+            }
             Statement::StateAssign {
                 resource,
                 value,
                 line,
-            } => Statement::StateAssign {
-                resource: resource.clone(),
-                value: self.lower_expression(value, substitutions, context, None, *line),
-                line: *line,
-            },
+            } => {
+                let expected = context.locals.get(resource).cloned();
+                Statement::StateAssign {
+                    resource: resource.clone(),
+                    value: self.lower_expression(
+                        value,
+                        substitutions,
+                        context,
+                        expected.as_deref(),
+                        *line,
+                    ),
+                    line: *line,
+                }
+            }
             Statement::Expression { expression, line } => Statement::Expression {
                 expression: self.lower_expression(expression, substitutions, context, None, *line),
                 line: *line,

@@ -5,8 +5,13 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: correctness
 
-Status: Open
-Regression Test: tests/ (return-type-overloaded call on assignment RHS resolves)
+Status: Fixed (2026-07-15) — the `Assign`/`StateAssign` arms of monomorph lowering
+now pass the target local's declared type (`context.locals.get(name/resource)`) as
+the RHS expected type into `lower_expression`, so a return-type-overloaded call on
+the RHS disambiguates exactly like the `LET … AS T = call()` form.
+Regression Test: verified at runtime — with `make() AS Integer` / `make() AS String`,
+`MUT n AS Integer = 0` then `n = make()` resolves to the Integer overload and
+prints `42`.
 
 `Statement::Assign` and `Statement::StateAssign` lower their RHS with
 `expected_type = None`, so a return-type-overloaded call on the RHS cannot be
