@@ -32,7 +32,7 @@ For an executable project, `mfb build` performs this sequence:[[src/cli/build.rs
 16. Validate NIR and backend runtime capabilities.
 17. Lower NIR to a native plan.
 18. Validate the native plan.
-19. Lower the native plan to an OS object plan for validation or `-nobj`.
+19. Lower the native plan to an OS object plan for validation or `--nobj`.
 20. Lower NIR and the native plan to a native code plan.
 21. Validate the native code plan.
 22. Encode AArch64 text, data, symbols, relocations, and imports.
@@ -83,7 +83,7 @@ The default output file is:
 ```
 
 Package projects do not support native intermediate outputs. Use plain
-`mfb build` for `.mfp` emission or `-ast`, `-ir`, and `-br` for front-end and
+`mfb build` for `.mfp` emission or `--ast`, `--ir`, and `--br` for front-end and
 binary representation inspection.
 
 ## See Also

@@ -19,7 +19,7 @@ termios, pthread object sizes), so only the import library names and the
 interpreter differ. The two-flavor emission loop lives in the target front-end, not
 the linker. [[src/target/linux_riscv64/mod.rs:write_executable]]
 
-App mode (`mfb build -app`) is **not supported** on this target — see below — so
+App mode (`mfb build --app`) is **not supported** on this target — see below — so
 every riscv64 build is a console build.
 
 ## Container layout
@@ -178,9 +178,9 @@ pthread library. As on glibc, `libm.so` is not needed. [[src/target/linux_riscv6
 
 ## App mode
 
-App mode (`mfb build -app`) is **rejected** for this target: the GTK4 toolkit
+App mode (`mfb build --app`) is **rejected** for this target: the GTK4 toolkit
 bootstrap has not been ported to rv64, so `supports_app_mode()` is false and the CLI
-refuses `-app`. The app-only code paths (the GTK entry, the `__libc_start_main`
+refuses `--app`. The app-only code paths (the GTK entry, the `__libc_start_main`
 trampoline, the toolkit rodata) hard-stop rather than emit aarch64-convention code.
 A build mode other than console — or the internal Linux-app mode — is rejected with
 `Linux riscv64 native targets do not support the … build mode`.

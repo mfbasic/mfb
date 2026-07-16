@@ -51,37 +51,15 @@ Project Setup:
 
 Package Management:
   pkg add <target>        Add a package: file:// URL or <owner>#<pkg>[@ver] ident
-  pkg info <pkg>          Show information about a compiled package
-  pkg verify              Verify packages declared in project.json
-  pkg validate <pkg>      Check an existing package's signatures and structure
-  pkg publish <own> <pkg> Publish a signed package project
   pkg update              Resolve dependencies and write mfb.lock
   pkg install             Install dependencies from mfb.lock (by hash)
-  pkg check-abi           Diff this package's ABI against its published version
-  pkg release-state <s>   Set a published version's state (available/deprecated/yanked)
-  pkg transfer <ident> <to-owner>
-                          Offer a package to another owner
-  pkg transfer-accept <ident>@<to-owner>
-                          Accept a pending package transfer
+  pkg verify              Verify packages declared in project.json
+  Run 'mfb pkg --help' for all package commands.
 
 Repository & Auth:
   repo register <owner>   Register a repository owner
   repo auth <owner>       Authenticate as a repository owner
-  repo link [--start] <owner>
-                          Link this (or a new) machine to an account
-  repo trust <registry-id> <root-fingerprint>
-                          Pin and verify a registry's signed-metadata root
-  machine revoke <owner> <fingerprint>
-                          Revoke a lost machine's auth key
-  key rotate <owner>      Rotate the account ident (chained successor)
-  org grant <org> <member> <role>
-                          Grant a member an org role (owner/admin/publisher)
-  org remove <org> <member>
-                          Remove a member from an org
-  token issue <owner> <scope> <ttl-seconds>
-                          Issue a scoped, short-lived publish token
-  token revoke <owner> <token-fingerprint>
-                          Revoke a publish token
+  Run 'mfb repo --help' for all repository & auth commands.
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
@@ -95,6 +73,7 @@ Documentation & Reference:
   man [pkg] [func]        Show built-in package and function help
   spec [topic] [sub]      Show the MFBASIC language specification
   help                    Show this message
+  --version               Show the compiler version and build provenance
 
 Run 'mfb <command> --help' for more information on a specific command.";
 
@@ -118,29 +97,58 @@ pub(crate) const PKG_HELP: &str = "\
 Usage: mfb pkg <command> [arguments]
 
 Commands:
-  add <url>           Add a compiled package as a dependency
-  info <pkg>          Show metadata and dependencies of a compiled package
-  verify              Check project.json dependencies against local cache
-  publish <own> <pkg> Sign and publish the current project to a repository
-  doc <pkg>           Generate HTML documentation from a compiled package
+  add <target>            Add a package: file:// URL or <owner>#<pkg>[@ver] ident
+  info <pkg>              Show metadata and dependencies of a compiled package
+  doc <pkg> [--out <f>]   Render HTML documentation from a compiled package
+  verify [--proof]        Verify packages declared in project.json
+  validate <pkg>          Check an existing package's signatures and structure
+  install [path]          Install dependencies from mfb.lock (by hash)
+  update [path]           Resolve dependencies and write mfb.lock
+  publish <owner> <pkg>   Sign and publish a package project to a repository
+  check-abi [path]        Diff this package's ABI against its published version
+  release-state <state> [version]
+                          Set a published version's state (available/deprecated/yanked)
+  transfer <owner>#<pkg> <to-owner>
+                          Offer a package to another owner
+  transfer-accept <owner>#<pkg>@<to-owner>
+                          Accept a pending package transfer
 
-Options for 'publish':
-  --owner <name>      Explicitly set the owner name for signing";
+Options:
+  --proof                 (verify) Also print each dependency's inclusion proof
+  --out <file>            (doc) Path to the generated HTML file (default: index.html)";
 
 pub(crate) const REPO_HELP: &str = "\
-Usage: mfb repo <command> <owner>
-       mfb machine revoke <owner> <auth-fingerprint>
+Usage: mfb repo <command> [arguments]
+       mfb machine|key|org|token <command> [arguments]
 
-Commands:
-  register            Register a new repository owner identity
-  auth                Log in to an existing owner account
-  link --start        (old machine) display a one-time pairing code
-  link                (new machine) enter the pairing code to become an equal
-  machine revoke      Revoke a lost machine's auth key (needs the ident key)
-  key rotate          Rotate the account ident; consumers follow the chain
+Repository:
+  repo register <owner>   Register a new repository owner identity
+  repo auth <owner>       Log in to an existing owner account
+  repo link --start <owner>
+                          (old machine) display a one-time pairing code
+  repo link <owner>       (new machine) enter the pairing code to become an equal
+  repo trust <registry-id> <root-fingerprint>
+                          Pin and verify a registry's signed-metadata root
+
+Machines & Keys:
+  machine revoke <owner> <auth-fingerprint>
+                          Revoke a lost machine's auth key (needs the ident key)
+  key rotate <owner>      Rotate the account ident; consumers follow the chain
+
+Organizations:
+  org grant <org> <member> <role>
+                          Grant a member an org role (owner/admin/publisher)
+  org remove <org> <member>
+                          Remove a member from an org
+
+Publish Tokens:
+  token issue <owner> <scope> <ttl-seconds>
+                          Issue a scoped, short-lived publish token
+  token revoke <owner> <token-fingerprint>
+                          Revoke a publish token
 
 Arguments:
-  <owner>             The unique handle for the repository owner";
+  <owner>                 The unique handle for the repository owner";
 
 pub(crate) const BUILD_HELP: &str = "\
 Usage: mfb build [options] [path]
@@ -152,20 +160,22 @@ Arguments:
 
 Options:
   --sign <owner>      Sign the resulting binary with the specified owner
-  --target <os-arch>  Cross-compile to a specific target (e.g., linux-x64)
+  --target <os-arch>  Cross-compile to a specific target (e.g., linux-x86_64)
+  --regalloc <name>   Select the register-allocation strategy
   --app               Build as a standalone application instead of a library
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
 
 Debug/Inspection (Emits intermediate output):
-  -ast                Outputs Abstract Syntax Tree
-  -ir                 Outputs Intermediate Representation
-  -br                 Outputs MFPC binary representation
-  -mir                Outputs Mid-level IR
-  -nir                Outputs native IR
-  -nplan              Outputs the execution plan
-  -ncode              Outputs native code output";
+  --ast               Outputs Abstract Syntax Tree
+  --ir                Outputs Intermediate Representation
+  --br                Outputs MFPC binary representation
+  --mir               Outputs Mid-level IR
+  --nir               Outputs native IR
+  --nplan             Outputs the execution plan
+  --nobj              Outputs the object plan
+  --ncode             Outputs native code output";
 
 pub(crate) const TEST_HELP: &str = "\
 Usage: mfb test [options] [path]
@@ -178,8 +188,8 @@ Arguments:
 
 Options:
   --coverage          Emit coverage.html for the exercised source lines
-  -target <os-arch>   Build for a specific target (only host targets are run)
-  -regalloc <name>    Select the register-allocation strategy";
+  --target <os-arch>  Build for a specific target (only host targets are run)
+  --regalloc <name>   Select the register-allocation strategy";
 
 pub(crate) const FMT_HELP: &str = "\
 Usage: mfb fmt [options] [path]
@@ -246,8 +256,14 @@ fn main() {
     let mut args = env::args().skip(1);
 
     match args.next().as_deref() {
-        Some("help") | None => {
+        // `help`, `--help`/`-h`, and a bare `mfb` all reach the same screen; the
+        // flag spellings are what a user reaching for help actually types
+        // (plan-42 §4.4).
+        Some("help") | Some("--help") | Some("-h") | None => {
             println!("{USAGE}");
+        }
+        Some("--version") | Some("-V") => {
+            cli::version::print_version();
         }
         Some("init") => {
             let init_args = args.collect::<Vec<_>>();
@@ -537,24 +553,24 @@ mod tests {
 
     #[test]
     fn parse_build_options_accepts_app_flag() {
-        let options = parse_build_options(vec!["-app".to_string(), "some/project".to_string()])
+        let options = parse_build_options(vec!["--app".to_string(), "some/project".to_string()])
             .expect("options");
         assert!(options.app_mode);
     }
 
     #[test]
     fn parse_build_options_rejects_duplicate_app_flag() {
-        let result = parse_build_options(vec!["-app".to_string(), "-app".to_string()]);
+        let result = parse_build_options(vec!["--app".to_string(), "--app".to_string()]);
         match result {
             Err(err) => assert!(err.contains("at most one -app")),
-            Ok(_) => panic!("duplicate -app must be rejected"),
+            Ok(_) => panic!("duplicate --app must be rejected"),
         }
     }
 
     #[test]
     fn parse_build_options_app_flag_composes_with_native_output() {
         let options =
-            parse_build_options(vec!["-app".to_string(), "-nir".to_string()]).expect("options");
+            parse_build_options(vec!["--app".to_string(), "--nir".to_string()]).expect("options");
         assert!(options.app_mode);
         assert_eq!(options.outputs, vec![BuildOutput::NativeIr]);
     }
@@ -562,10 +578,10 @@ mod tests {
     #[test]
     fn parse_build_options_combines_output_flags_in_order() {
         let options = parse_build_options(vec![
-            "-ast".to_string(),
-            "-ir".to_string(),
-            "-ncode".to_string(),
-            "-mir".to_string(),
+            "--ast".to_string(),
+            "--ir".to_string(),
+            "--ncode".to_string(),
+            "--mir".to_string(),
             "some/project".to_string(),
         ])
         .expect("options");
@@ -580,12 +596,38 @@ mod tests {
         );
     }
 
+    /// plan-42: the single-dash spellings stay working, undocumented aliases —
+    /// a mixed-spelling command line parses exactly like the `--` one.
+    #[test]
+    fn parse_build_options_accepts_single_dash_aliases() {
+        let options = parse_build_options(vec![
+            "-app".to_string(),
+            "-ast".to_string(),
+            "--ir".to_string(),
+            "-mir".to_string(),
+            "some/project".to_string(),
+        ])
+        .expect("options");
+        assert!(options.app_mode);
+        assert_eq!(
+            options.outputs,
+            vec![BuildOutput::Ast, BuildOutput::Ir, BuildOutput::Mir]
+        );
+    }
+
     #[test]
     fn parse_build_options_rejects_duplicate_output_flag() {
-        let result = parse_build_options(vec!["-ncode".to_string(), "-ncode".to_string()]);
+        let result = parse_build_options(vec!["--ncode".to_string(), "--ncode".to_string()]);
         match result {
-            Err(err) => assert!(err.contains("duplicate output flag `-ncode`")),
+            Err(err) => assert!(err.contains("duplicate output flag `--ncode`")),
             Ok(_) => panic!("duplicate output flag must be rejected"),
+        }
+        // The duplicate check is per-output, not per-spelling: `-ncode --ncode`
+        // is the same flag twice.
+        let mixed = parse_build_options(vec!["-ncode".to_string(), "--ncode".to_string()]);
+        match mixed {
+            Err(err) => assert!(err.contains("duplicate output flag `--ncode`")),
+            Ok(_) => panic!("mixed-spelling duplicate output flag must be rejected"),
         }
     }
 

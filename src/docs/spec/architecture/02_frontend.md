@@ -58,7 +58,7 @@ For each source file:
 
 The AST keeps imports, type declarations, function declarations, statements,
 expressions, visibility, parameters, default values, and source line positions.
-`mfb build -ast` serializes this structure to `<project>.ast`.
+`mfb build --ast` serializes this structure to `<project>.ast`.
 
 Current discovery behavior:
 
@@ -98,7 +98,7 @@ when their members are — handled by the normal template machinery rather than
 special-cased.
 
 The AST serializer filters this file out by path, so the prelude does not
-appear in `mfb build -ast` golden output. The resolver, monomorphizer, and both
+appear in `mfb build --ast` golden output. The resolver, monomorphizer, and both
 checkers consume the full project (prelude included), so `Pair` and
 `Partition` resolve, monomorphize, and check as if user-declared.[[src/ast/manifest.rs:BUILTIN_PRELUDE_PATH]]
 

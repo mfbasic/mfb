@@ -25,7 +25,7 @@ DESCRIPTION
   (a minimal set of cursor moves, color/attribute changes, and glyphs), so a
   full-screen program that repaints every frame shows no flicker and emits output
   proportional to how much actually changed rather than repainting the whole
-  screen. In app mode (mfb build -app) term::sync coalesces the frame into a
+  screen. In app mode (mfb build --app) term::sync coalesces the frame into a
   single redraw of the terminal view. term::off performs a final term::sync
   automatically before it restores the user's previous screen, so the last frame
   a program draws is always shown.

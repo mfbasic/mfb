@@ -2,12 +2,15 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let error_codes_doc = manifest_dir.join("src/docs/spec/diagnostics/02_error-codes.md");
     println!("cargo:rerun-if-changed={}", error_codes_doc.display());
+
+    emit_build_metadata(&manifest_dir);
 
     // Man pages and spec pages share one discovery model: walk a tree, and any
     // directory holding an index file (`package.{txt,md}` / `spec.md`) is a
@@ -36,6 +39,110 @@ fn main() {
     );
 
     generate_errorcode_table(&error_codes_doc, &out_dir);
+}
+
+/// Stamp the `mfb --version` block's build metadata into the binary (plan-42
+/// §4.7): the UTC build time, the short commit, and whether that commit is one a
+/// reader could actually fetch.
+///
+/// Provenance is captured here rather than in the shipped binary because that
+/// binary may run far from the tree it was built in. Every probe is best-effort
+/// and never fails the build: a tree with no `.git` (a vendored tarball) or a
+/// host with no `git` still compiles, it just reports `Local Development`.
+///
+/// The claim `Commit: <hash>` is only made when git proves the tree is both
+/// clean and pushed. Every unprovable case — no git, no upstream, a probe that
+/// errored — falls to `Local Development`, so the version block can understate
+/// provenance but never overstate it.
+fn emit_build_metadata(manifest_dir: &Path) {
+    // `date -u` keeps this std-only (a formatting crate would be a new build
+    // dependency); an unavailable `date` renders as "unknown build date".
+    let build_date = capture("date", &["-u", "+%Y-%m-%d %H:%M:%S UTC"], manifest_dir);
+    println!(
+        "cargo:rustc-env=MFB_BUILD_DATE={}",
+        build_date.unwrap_or_default()
+    );
+
+    watch_build_state(manifest_dir);
+
+    let commit =
+        capture("git", &["rev-parse", "--short", "HEAD"], manifest_dir).unwrap_or_default();
+    // Clean: no uncommitted work of any kind (`--porcelain` prints one line per
+    // modified, staged, or untracked path, and nothing at all when clean).
+    let clean = capture("git", &["status", "--porcelain"], manifest_dir)
+        .is_some_and(|status| status.is_empty());
+    // Pushed: no commit on HEAD that the upstream lacks. A missing or
+    // unresolvable `@{u}` exits non-zero — no upstream means nothing to fetch
+    // the commit from, which is exactly local development.
+    let pushed = capture("git", &["rev-list", "@{u}..HEAD"], manifest_dir)
+        .is_some_and(|ahead| ahead.is_empty());
+    let local_dev = if !commit.is_empty() && clean && pushed {
+        "0"
+    } else {
+        "1"
+    };
+    println!("cargo:rustc-env=MFB_COMMIT={commit}");
+    println!("cargo:rustc-env=MFB_LOCAL_DEV={local_dev}");
+}
+
+/// Force this script to re-run whenever anything that decides the commit line
+/// changes: a new commit (`HEAD` / the branch ref), a staged edit (the index), a
+/// push (the upstream's remote-tracking ref), or an edit to a tracked source
+/// file — which makes the tree dirty without touching `.git` at all, so watching
+/// git alone would leave a stale `Commit:` line on a modified tree.
+///
+/// Only existing paths are emitted: cargo treats a `rerun-if-changed` path that
+/// does not exist as perpetually dirty, which would re-run this script on every
+/// build.
+///
+/// Known caveat (plan-42 §4.7): cargo caches build-script output, so
+/// `MFB_BUILD_DATE` is when this script last re-ran, not the instant of the
+/// final link. That is accepted for a `--version` stamp; the provenance line,
+/// which must not go stale, is what this watch set covers.
+fn watch_build_state(manifest_dir: &Path) {
+    let mut watched = vec![manifest_dir.join("src"), manifest_dir.join("Cargo.toml")];
+
+    if let Some(git_dir) = capture("git", &["rev-parse", "--absolute-git-dir"], manifest_dir) {
+        let git_dir = PathBuf::from(git_dir);
+        watched.push(git_dir.join("HEAD"));
+        watched.push(git_dir.join("index"));
+        // A loose branch/upstream ref is its own file; when refs are packed they
+        // live in `packed-refs` instead. Watch whichever exist.
+        watched.push(git_dir.join("packed-refs"));
+        for rev in ["HEAD", "@{u}"] {
+            if let Some(name) = capture(
+                "git",
+                &["rev-parse", "--symbolic-full-name", rev],
+                manifest_dir,
+            ) {
+                if !name.is_empty() {
+                    watched.push(git_dir.join(name));
+                }
+            }
+        }
+    }
+
+    for path in watched {
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+}
+
+/// Run `program` in `dir` and return its trimmed stdout, or `None` if the
+/// program is absent, fails to spawn, exits non-zero, or emits non-UTF-8. A
+/// successful command that prints nothing yields `Some("")` — the difference
+/// between "clean tree" and "no git" that `emit_build_metadata` turns on.
+fn capture(program: &str, args: &[&str], dir: &Path) -> Option<String> {
+    let output = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8(output.stdout).ok()?.trim().to_string())
 }
 
 /// Discover every package under `root`, emit `cargo:rerun-if-changed` lines for

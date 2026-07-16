@@ -192,7 +192,7 @@ initializer that runs `dlopen`/`dlsym` before `main`.
 [[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]] See `./mfb spec linker
 package-linking` and `./mfb spec language native-libraries`.
 
-## `mfb-nir` JSON (`mfb build -nir`)
+## `mfb-nir` JSON (`mfb build --nir`)
 
 `NirModule::to_json` emits the stable, versioned debug form. The envelope is
 fixed at `"format": "mfb-nir"`, `"version": 1`. The `globals` key is omitted
@@ -243,7 +243,7 @@ are intentionally dropped; `Capture.byRef` is emitted only when true.
 - `./mfb spec architecture ir` — the shared IR that NIR lowers from
 - `./mfb spec architecture monomorphization` — source of `_mfb_fn_` callee names
 - `./mfb spec architecture native` — per-target code generation downstream of NIR
-- `./mfb spec architecture artifacts` — the `-nir` artifact among build outputs
+- `./mfb spec architecture artifacts` — the `--nir` artifact among build outputs
 - `./mfb spec memory runtime-helper-abi` — `_mfb_rt_*` runtime-call ABI
 - `./mfb spec memory fallible-call-abi` — `CallResult` calling convention
 - `./mfb spec memory native-calling-convention` — register/stack rules for calls

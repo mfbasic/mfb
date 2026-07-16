@@ -8,7 +8,7 @@ Console builds emit one file:
 <project>.out
 ```
 
-App-mode builds (`mfb build -app`) emit a `.app` bundle (see below). The Mach-O
+App-mode builds (`mfb build --app`) emit a `.app` bundle (see below). The Mach-O
 bytes are identical in both cases.
 
 ## Container layout
@@ -104,7 +104,7 @@ carries MFBASIC's own executable signing metadata when the build supplies it.
 
 ## App-mode bundle
 
-`mfb build -app` produces:
+`mfb build --app` produces:
 
 ```text
 <project>.app/

@@ -1,6 +1,6 @@
 # App Mode Runtime
 
-The GUI application runtime selected by `mfb build -app`: how a windowed MFBASIC
+The GUI application runtime selected by `mfb build --app`: how a windowed MFBASIC
 program boots, where its per-process state lives, how `io::` is redirected to the
 window, and how the `term::` TUI is rendered on a drawing surface. This is the
 runtime contract a GUI MFBASIC program observes — distinct from the console-mode
@@ -27,6 +27,6 @@ the toolkit: AppKit on macOS, GTK4 on Linux. [[src/target/shared/code/types.rs:A
 ## See Also
 
 * ./mfb spec memory program-startup — the console-mode entry/teardown sequence
-* ./mfb spec architecture commands — the `-app` build flag and `buildMode`
+* ./mfb spec architecture commands — the `--app` build flag and `buildMode`
 * ./mfb spec linker static-and-dynamic-output — app-mode entry-bootstrap import differences
 * ./mfb spec threading os-integration — the worker pthread the window drives

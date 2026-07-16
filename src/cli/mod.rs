@@ -7,6 +7,7 @@ pub mod pkg;
 pub mod repo;
 pub mod resolve;
 pub mod spec;
+pub mod version;
 
 use std::path::{Path, PathBuf};
 

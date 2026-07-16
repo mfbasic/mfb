@@ -5,9 +5,26 @@ and the structured output of `pkg info`, plus the terminal-rendering rules share
 by the embedded `spec` and `man` help. This topic owns the reimplementable CLI
 detail; the language/architecture specs only mention these commands in passing.
 
-The first argument is the command; `mfb help` or no argument prints the usage
-block and exits `0`. An unknown command prints `error: unknown command '<cmd>'`
-followed by the usage block to stderr and exits `2`.[[src/main.rs:main]]
+The first argument is the command; `mfb help`, `mfb --help`, `mfb -h`, or no
+argument prints the usage block and exits `0`. `mfb --version` (or `-V`) prints
+the version/build block and exits `0`. An unknown command prints `error: unknown
+command '<cmd>'` followed by the usage block to stderr and exits
+`2`.[[src/main.rs:main]]
+
+Every flag longer than one character is spelled `--flag`. The single-dash
+spellings of the `build`/`test` flags (`-ast`, `-ir`, `-br`, `-nir`, `-nplan`,
+`-nobj`, `-ncode`, `-mir`, `-target`, `-regalloc`, `-app`) predate this and
+remain accepted, undocumented aliases of the `--` forms; they parse identically
+and are not listed below.[[src/cli/build.rs:from_flag]] The single-character
+flags `-q`/`-v` keep their single dash (with `--quiet`/`--verbose` long forms).
+The diagnostics quoted in this topic name the legacy single-dash spelling
+verbatim, whichever form was typed.
+
+The usage block is two-tier: the top-level screen advertises only the common
+`pkg` (`add`/`update`/`install`/`verify`) and `repo` (`register`/`auth`)
+commands; `mfb pkg --help` and `mfb repo --help` list each family in full, and
+`pkg`/`repo` usage errors print those sub-help screens rather than the top-level
+one.[[src/main.rs:PKG_HELP]][[src/main.rs:REPO_HELP]]
 
 ## Commands and Exit Codes
 
@@ -17,11 +34,12 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 
 | Command | Synopsis | Exit codes |
 | --- | --- | --- |
-| `help` | `mfb help` (or no args) | 0 |
+| `help` | `mfb help`, `mfb --help`, `mfb -h` (or no args) | 0 |
+| `--version` | `mfb --version` (or `-V`) | 0 |
 | `init` | `mfb init <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `init-pkg` | `mfb init-pkg <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
-| `test` | `mfb test [--coverage] [-target os-arch] [-regalloc name] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
+| `test` | `mfb test [--coverage] [--target os-arch] [--regalloc name] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]>` | 0 ok; 2 usage; 1 failed |
@@ -53,13 +71,42 @@ source root; `init-pkg` writes `project.json` (kind `package`) + a `lib.mfb`
 under `src`. Both refuse to overwrite
 an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]]
 
+## `--version`
+
+`mfb --version` prints exactly three lines and exits `0`:
+
+```
+MFBasic Compiler <crate version>
+<UTC build date/time>
+Commit: <short-hash>   |   Local Development
+```
+
+Line 1 is `CARGO_PKG_VERSION`. Line 2 is the build time as
+`YYYY-MM-DD HH:MM:SS UTC`, or `unknown build date` if it was not
+captured.[[src/cli/version.rs:format_version]]
+
+Line 3 states provenance. It is `Commit: <short-hash>` **only** when the build
+tree was both **clean** (`git status --porcelain` empty — no modified, staged,
+or untracked path) and **pushed** (`git rev-list @{u}..HEAD` empty — no commit
+the upstream lacks). Every other case is `Local Development`: a dirty tree, an
+unpushed or upstream-less commit, a tree with no `.git`, or a host with no
+`git`. The line can therefore understate provenance but never claim a commit a
+reader could not fetch.[[build.rs:emit_build_metadata]]
+
+The metadata is captured at **build** time (`MFB_BUILD_DATE`, `MFB_COMMIT`,
+`MFB_LOCAL_DEV`), not resolved at runtime — the shipped binary may run far from
+the tree it was built in, and a missing `.git` never fails the build. Because
+cargo caches build-script output, the timestamp is when the build script last
+re-ran rather than the instant of the final link.[[build.rs:watch_build_state]]
+
 ## `build` Flags
 
 `parse_build_options` parses the flags.[[src/cli/build.rs:parse_build_options]] The
 output-mode flags **combine**: any number of distinct output flags may be given
 in one invocation, and every requested artifact file is written from a single
-shared front-end pass, in flag order (repeating the same flag yields `mfb build
-got duplicate output flag `-<flag>``). Each artifact is a `<name>.<ext>` file in
+shared front-end pass, in flag order (repeating the same flag — in either
+spelling — yields `mfb build got duplicate output flag `<arg>``, echoing the
+argument as given). Each artifact is a `<name>.<ext>` file in
 the project directory — identical byte-for-byte to the file a single-flag
 invocation writes. With no output flag, `build` validates and emits the
 project's primary artifact (`<name>.out` for executable, `<name>.mfp` for
@@ -68,22 +115,22 @@ package).
 | Flag | Output mode | Artifact / effect |
 | --- | --- | --- |
 | (none) | full build (empty `outputs`) | `.out` (executable) or `.mfp` (package) |
-| `-ast` | `Ast` | `<name>.ast` (parsed AST dump) |
-| `-ir` | `Ir` | `<name>.ir` |
-| `-br` | `BinaryRepr` | `<name>.hex` (hex dump of this project's MFPC binary representation) |
-| `-nir` | `NativeIr` | `<name>.nir` (native IR) |
-| `-nplan` | `NativePlan` | `<name>.nplan` |
-| `-nobj` | `NativeObjectPlan` | `<name>.nobj` |
-| `-ncode` | `NativeCodePlan` | `<name>.ncode` |
-| `-mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
-| `-regalloc <bump,linear-scan>` / `-regalloc=…` | — | register-allocation strategy; default `linear-scan`. `bump` is the byte-identical reference oracle |
-| `-target os-arch` / `-target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
+| `--ast` | `Ast` | `<name>.ast` (parsed AST dump) |
+| `--ir` | `Ir` | `<name>.ir` |
+| `--br` | `BinaryRepr` | `<name>.hex` (hex dump of this project's MFPC binary representation) |
+| `--nir` | `NativeIr` | `<name>.nir` (native IR) |
+| `--nplan` | `NativePlan` | `<name>.nplan` |
+| `--nobj` | `NativeObjectPlan` | `<name>.nobj` |
+| `--ncode` | `NativeCodePlan` | `<name>.ncode` |
+| `--mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
+| `--regalloc <bump,linear-scan>` / `--regalloc=…` | — | register-allocation strategy; default `linear-scan`. `bump` is the byte-identical reference oracle |
+| `--target os-arch` / `--target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
-| `-app` | — | GUI app-mode runtime; at most one |
+| `--app` | — | GUI app-mode runtime; at most one |
 | `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
 | `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |
 
-`-target` requires a value (`mfb build -target requires os-arch`). `--sign`
+`--target` requires a value (`mfb build -target requires os-arch`). `--sign`
 requires a value, accepts at most one (`mfb build accepts at most one --sign
 option`), and is only honored when no output flag is given (package/executable
 builds); combined with any output flag it errors with `mfb build --sign is
@@ -96,16 +143,16 @@ with the build. The signed ident is the manifest `ident` (which must belong to
 `owner`), else `<owner>#<name>`. See `./mfb spec package-manager signing`.
 [[src/cli/build.rs:load_build_signing_info]]
 
-`-app` is **executable-only** and requires a native target that supports app mode
+`--app` is **executable-only** and requires a native target that supports app mode
 (`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`); otherwise it errors before any lowering
 (`mfb build -app requires an executable project` / `mfb build -app requires a
-macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `-app` yields
+macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `--app` yields
 `mfb build accepts at most one -app option`. App mode selects
 `NativeBuildMode::LinuxApp`/`MacApp`; console builds use `NativeBuildMode::Console`.
 
-Native intermediate outputs (`-nir`/`-nplan`/`-nobj`/`-ncode`/`-mir`) are **rejected
+Native intermediate outputs (`--nir`/`--nplan`/`--nobj`/`--ncode`/`--mir`) are **rejected
 for package projects** with the `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` diagnostic; a
-package emits only `.mfp`. The `-regalloc` flag requires a value (`mfb build
+package emits only `.mfp`. The `--regalloc` flag requires a value (`mfb build
 -regalloc requires a strategy name`) and rejects an unknown one (`unknown
 -regalloc strategy`). An unknown `-flag` yields `unknown build option
 ` `` `<arg>` `` ``; a second positional yields `mfb build accepts at most one

@@ -1,6 +1,6 @@
 # App-Mode Console I/O
 
-In a GUI build (`mfb build -app`) the MFBASIC program runs unchanged on a worker
+In a GUI build (`mfb build --app`) the MFBASIC program runs unchanged on a worker
 thread; the `io::` module is re-pointed at the window instead of the process's
 real terminal. Output is appended to a transcript view, and typed input is fed
 back to the program through an OS pipe whose read end is `dup2`'d onto file

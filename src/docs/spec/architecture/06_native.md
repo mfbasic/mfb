@@ -46,7 +46,7 @@ NIR is close to the shared IR but adds native build concerns:
 The NIR lowerer reads installed package exports and produces NIR imports. It
 also rewrites supported built-in calls into runtime-call forms where needed.
 
-`mfb build -nir` writes `<project>.nir`.
+`mfb build --nir` writes `<project>.nir`.
 
 ## Runtime Helper Selection
 
@@ -200,7 +200,7 @@ The native plan records:
 - Planned operation descriptions.
 - Calls and call kinds.
 
-`mfb build -nplan` writes `<project>.nplan`.
+`mfb build --nplan` writes `<project>.nplan`.
 
 ## Native Object Plan
 
@@ -225,7 +225,7 @@ macOS object plans target a Mach-O layout; Linux object plans target an ELF
 layout. The concrete segment/section regions are owned by
 `./mfb spec linker object-plan`.
 
-`mfb build -nobj` writes `<project>.nobj`.
+`mfb build --nobj` writes `<project>.nobj`.
 
 ## Native Code Plan
 
@@ -254,7 +254,7 @@ The code generator also adds:
 - String data objects.
 - Error string data used by entry/error paths.
 
-`mfb build -ncode` writes `<project>.ncode`.
+`mfb build --ncode` writes `<project>.ncode`.
 
 ### Register Allocation
 
@@ -325,13 +325,13 @@ core:
   implement the trait.[[src/target/shared/regmodel.rs:RegisterModel]] [[src/arch/aarch64/regmodel.rs:Aarch64RegisterModel]]
 
 The allocation method is a swappable `AllocationStrategy`, selected by the
-`-regalloc <name>` build flag. The default, `linear-scan`, computes liveness over
+`--regalloc <name>` build flag. The default, `linear-scan`, computes liveness over
 the lowered stream and colors the integer class by live interval, spilling to a
 stack slot under pressure (so a deeply nested expression no longer fails — it
 spills); a value live across a call is spilled, since no register survives an
 internal runtime helper. The `bump` strategy (`BumpAndReset`) replays the legacy
 per-statement bump numbering and is byte-identical to the pre-allocator backend;
-it is retained as the differential reference oracle (`-regalloc bump`). Further
+it is retained as the differential reference oracle (`--regalloc bump`). Further
 strategies (graph-coloring) slot in without touching the rewrite pass or the
 register model.
 

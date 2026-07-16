@@ -35,14 +35,14 @@ artifact, the flag that produces it, and the pipeline stage it captures.[[src/cl
 
 | Artifact | Command | Contents |
 | --- | --- | --- |
-| `<name>.ast` | `mfb build -ast` | Parsed source tree, before monomorphization. |
-| `<name>.ir` | `mfb build -ir` | Typed, architecture-independent compiler IR. |
-| `<name>.hex` | `mfb build -br` | Hex dump of the MFPC binary representation. |
-| `<name>.mir` | `mfb build -mir` | Target-neutral MIR dump. |
-| `<name>.nir` | `mfb build -nir` | Native IR for the selected target. |
-| `<name>.nplan` | `mfb build -nplan` | Native function/storage/call plan. |
-| `<name>.nobj` | `mfb build -nobj` | OS object/container layout plan. |
-| `<name>.ncode` | `mfb build -ncode` | Target code-generation plan. |
+| `<name>.ast` | `mfb build --ast` | Parsed source tree, before monomorphization. |
+| `<name>.ir` | `mfb build --ir` | Typed, architecture-independent compiler IR. |
+| `<name>.hex` | `mfb build --br` | Hex dump of the MFPC binary representation. |
+| `<name>.mir` | `mfb build --mir` | Target-neutral MIR dump. |
+| `<name>.nir` | `mfb build --nir` | Native IR for the selected target. |
+| `<name>.nplan` | `mfb build --nplan` | Native function/storage/call plan. |
+| `<name>.nobj` | `mfb build --nobj` | OS object/container layout plan. |
+| `<name>.ncode` | `mfb build --ncode` | Target code-generation plan. |
 | `<name>.out` | `mfb build` executable (macOS) | Native executable (Mach-O). |
 | `<name>-glibc.out` | `mfb build` executable (Linux) | Native executable (ELF, glibc). |
 | `<name>-musl.out` | `mfb build` executable (Linux) | Native executable (ELF, musl). |

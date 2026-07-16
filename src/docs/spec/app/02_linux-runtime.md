@@ -1,6 +1,6 @@
 # Linux App Runtime (GTK4)
 
-The Linux counterpart of the macOS AppKit app runtime: when `mfb build -app`
+The Linux counterpart of the macOS AppKit app runtime: when `mfb build --app`
 targets `linux-aarch64`, the backend emits a GTK4 `_main` bootstrap, a language
 worker thread, the transcript/input widgets, a `GtkDrawingArea`+Cairo `term::`
 surface, and the app-mode `io::*`/`term::*` helper bodies. Every GTK / GObject /
@@ -323,4 +323,4 @@ artifact debugging. [[src/target/linux_gtk/mod.rs:lib_for]]
 - ./mfb spec memory program-startup — the console-mode entry/teardown sequence
 - ./mfb spec linker static-and-dynamic-output — glibc-only ELF and app-mode imports
 - ./mfb spec threading os-integration — the worker pthread the window drives
-- ./mfb spec architecture commands — the `-app` build flag and `buildMode`
+- ./mfb spec architecture commands — the `--app` build flag and `buildMode`

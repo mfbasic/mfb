@@ -23,7 +23,7 @@ DESCRIPTION
   column. On the console backend no upper bound is enforced; the row and column
   are passed through to the terminal (after conversion to the 1-based form ANSI
   terminals use) and the terminal itself decides how to handle a position past the
-  last row or column. In windowed app mode (mfb build -app) the position is also
+  last row or column. In windowed app mode (mfb build --app) the position is also
   clamped at the high end to the last valid cell, that is to the grid range
   [0, rows-1] by [0, columns-1] for the current surface size reported by
   term::terminalSize.

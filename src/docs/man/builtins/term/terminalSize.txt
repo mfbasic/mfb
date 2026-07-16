@@ -21,7 +21,7 @@ DESCRIPTION
   The reported size reflects the backend the program is running on. On the
   console backend it is the size of the controlling terminal window at the time
   of the call, so resizing the terminal and calling term::terminalSize again can
-  return different values. In windowed app mode (mfb build -app) it is the size
+  return different values. In windowed app mode (mfb build --app) it is the size
   of the surface grid derived from the current window dimensions. Because the
   surface can be resized between calls, a program that relies on the dimensions
   (for layout, centering, or bounds checks) should call term::terminalSize again

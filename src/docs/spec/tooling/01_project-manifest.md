@@ -31,7 +31,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `mfb` | string | yes | toolchain/manifest schema version (`"1.0"`); non-empty after trim |
 | `sources` | array of objects | yes | source roots (see *Source Entries*); non-empty |
 | `kind` | string | yes¹ | `"executable"` or `"package"` |
-| `mode` | string | no | `"console"` (default) or `"app"`; `"app"` is equivalent to passing `-app` (see ²) |
+| `mode` | string | no | `"console"` (default) or `"app"`; `"app"` is equivalent to passing `--app` (see ²) |
 | `icon` | string | no | project-relative path to a 1024×1024 PNG source for the macOS app icon (see ³) |
 | `entry` | string | no | entry-point function name; defaults to `"main"` |
 | `author` | string | no | package author metadata |
@@ -52,8 +52,8 @@ value that is *neither* `executable` nor `package` only **warns**
 (`PROJECT_JSON_UNKNOWN_KIND`) and validation continues; a missing or non-string
 `kind` is a hard error. [[src/manifest/mod.rs:validate_kind]]
 
-² `mode` composes with the `-app` CLI flag: app mode is requested if **either**
-is set (`-app` is additive, never subtractive). Like `kind`, a present-and-string
+² `mode` composes with the `--app` CLI flag: app mode is requested if **either**
+is set (`--app` is additive, never subtractive). Like `kind`, a present-and-string
 `mode` that is neither `console` nor `app` only **warns**
 (`PROJECT_JSON_UNKNOWN_MODE`) and continues; a non-string `mode` is a hard error.
 App mode still requires `kind: "executable"` and an app-capable target (macOS/Linux).

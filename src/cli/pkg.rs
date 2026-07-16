@@ -12,7 +12,7 @@ use crate::manifest::{
     parse_project_json, project_kind, validate_packages_array, validate_project_manifest,
 };
 use crate::target;
-use crate::USAGE;
+use crate::PKG_HELP;
 
 use super::build::{build_project, BuildOptions, Verbosity};
 
@@ -46,7 +46,7 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
             super::resolve::install(Path::new(location)).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "install" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg install accepts at most one [location]\n\n{USAGE}"
+            "mfb pkg install accepts at most one [location]\n\n{PKG_HELP}"
         ))),
         [command] if command == "update" => {
             super::resolve::update(Path::new(".")).map_err(PkgCommandError::Failed)
@@ -55,19 +55,19 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
             super::resolve::update(Path::new(location)).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "update" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg update accepts at most one [location]\n\n{USAGE}"
+            "mfb pkg update accepts at most one [location]\n\n{PKG_HELP}"
         ))),
         [command, ident, to_owner] if command == "transfer" => {
             transfer_offer(ident, to_owner).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "transfer" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg transfer requires <owner>#<package> <to-owner>\n\n{USAGE}"
+            "mfb pkg transfer requires <owner>#<package> <to-owner>\n\n{PKG_HELP}"
         ))),
         [command, ident] if command == "transfer-accept" => {
             transfer_accept(ident).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "transfer-accept" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg transfer-accept requires <owner>#<package>\n\n{USAGE}"
+            "mfb pkg transfer-accept requires <owner>#<package>\n\n{PKG_HELP}"
         ))),
         [command, state] if command == "release-state" => {
             set_release_state(Path::new("."), state, None).map_err(PkgCommandError::Failed)
@@ -76,7 +76,7 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
             set_release_state(Path::new("."), state, Some(version)).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "release-state" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg release-state requires <available|deprecated|yanked> [version]\n\n{USAGE}"
+            "mfb pkg release-state requires <available|deprecated|yanked> [version]\n\n{PKG_HELP}"
         ))),
         [command] if command == "check-abi" => {
             check_abi(Path::new(".")).map_err(PkgCommandError::Failed)
@@ -85,31 +85,31 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
             check_abi(Path::new(location)).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "check-abi" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg check-abi accepts at most one [location]\n\n{USAGE}"
+            "mfb pkg check-abi accepts at most one [location]\n\n{PKG_HELP}"
         ))),
         [command, ..] if command == "validate" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg validate requires exactly one <package>\n\n{USAGE}"
+            "mfb pkg validate requires exactly one <package>\n\n{PKG_HELP}"
         ))),
         [command, owner, package] if command == "publish" => {
             publish_package_project(owner, Path::new(package)).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "add" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg add requires exactly one <url>\n\n{USAGE}"
+            "mfb pkg add requires exactly one <url>\n\n{PKG_HELP}"
         ))),
         [command, ..] if command == "info" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg info requires exactly one <package>\n\n{USAGE}"
+            "mfb pkg info requires exactly one <package>\n\n{PKG_HELP}"
         ))),
         [command, ..] if command == "verify" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg verify accepts only the optional --proof flag\n\n{USAGE}"
+            "mfb pkg verify accepts only the optional --proof flag\n\n{PKG_HELP}"
         ))),
         [command, ..] if command == "publish" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg publish requires <owner_name> <package>\n\n{USAGE}"
+            "mfb pkg publish requires <owner_name> <package>\n\n{PKG_HELP}"
         ))),
         [] => Err(PkgCommandError::Usage(format!(
-            "mfb pkg requires a subcommand\n\n{USAGE}"
+            "mfb pkg requires a subcommand\n\n{PKG_HELP}"
         ))),
         [command, ..] => Err(PkgCommandError::Usage(format!(
-            "unknown pkg command `{command}`\n\n{USAGE}"
+            "unknown pkg command `{command}`\n\n{PKG_HELP}"
         ))),
     }
 }
@@ -990,7 +990,7 @@ fn run_pkg_doc(args: &[String]) -> Result<(), PkgCommandError> {
         index += 1;
     }
     let target = target.ok_or_else(|| {
-        PkgCommandError::Usage(format!("mfb pkg doc requires <name-or-path>\n\n{USAGE}"))
+        PkgCommandError::Usage(format!("mfb pkg doc requires <name-or-path>\n\n{PKG_HELP}"))
     })?;
     let out_path = out
         .map(PathBuf::from)
@@ -1641,6 +1641,24 @@ mod tests {
     #[test]
     fn run_pkg_rejects_unknown_command() {
         assert!(usage(run_pkg_command(&s(&["frobnicate"]))).contains("unknown pkg command"));
+    }
+
+    /// plan-42 §4.5: the top-level screen advertises only four pkg commands, so
+    /// pkg's own usage errors must interpolate `PKG_HELP` — the complete list —
+    /// not the trimmed top-level `USAGE` they used to show.
+    #[test]
+    fn run_pkg_usage_errors_show_the_full_pkg_command_set() {
+        let message = usage(run_pkg_command(&s(&["frobnicate"])));
+        // Present in PKG_HELP, absent from the trimmed top-level screen.
+        for command in ["check-abi", "release-state", "transfer-accept", "validate"] {
+            assert!(
+                message.contains(command),
+                "pkg error must list `{command}`: {message}"
+            );
+        }
+        assert!(message.contains("Usage: mfb pkg <command>"));
+        // ...and must not be the top-level screen.
+        assert!(!message.contains("Project Setup:"));
     }
 
     #[test]

@@ -268,12 +268,12 @@ Add a metadata step to the existing `build.rs`:
 Land the parser changes first; single-dash aliases mean nothing downstream
 breaks.
 
-- [ ] Extend `BuildOutput::from_flag` (`src/cli/build.rs:116-130`) to accept
+- [x] Extend `BuildOutput::from_flag` (`src/cli/build.rs:116-130`) to accept
       `--x | -x` for all 8 emit flags.
-- [ ] Extend `parse_build_options` and `parse_test_options` (`src/cli/build.rs`)
+- [x] Extend `parse_build_options` and `parse_test_options` (`src/cli/build.rs`)
       to accept `--target`/`--target=`, `--regalloc`/`--regalloc=`, `--app`
       alongside their single-dash forms.
-- [ ] Tests (`src/cli/build.rs`): update/extend `from_flag` round-trip
+- [x] Tests (`src/cli/build.rs`): update/extend `from_flag` round-trip
       (`:1288-1305`) and `parse_build_options`/`parse_test_options` tests
       (`:561-589`, `:1322-1335`, `:1420-1422`, `:1695-1696`) to assert **both**
       spellings map identically for every affected flag.
@@ -285,10 +285,10 @@ Commit: —
 
 ### Phase 2 — Top-level `--help` / `-h` / `--version` dispatch
 
-- [ ] Add `Some("--help") | Some("-h")` arm (print `USAGE`, exit 0) and
+- [x] Add `Some("--help") | Some("-h")` arm (print `USAGE`, exit 0) and
       `Some("--version")` arm (call `print_version()`) before the catch-all in
       `fn main` (`src/main.rs:~500`).
-- [ ] Add `print_version()` (§4.6) reading `option_env!` MFB_* vars +
+- [x] Add `print_version()` (§4.6) reading `option_env!` MFB_* vars +
       `CARGO_PKG_VERSION`.
 
 Acceptance: `mfb --help` and `mfb -h` print the usage screen to stdout and exit
@@ -298,12 +298,12 @@ Commit: —
 
 ### Phase 3 — Usage re-tiering + accurate sub-help
 
-- [ ] Trim `USAGE` Package Management → add/update/install/verify and Repository
+- [x] Trim `USAGE` Package Management → add/update/install/verify and Repository
       & Auth → register/auth, each with a `Run 'mfb <x> --help' …` hint
       (`src/main.rs:44-98`).
-- [ ] Rewrite `PKG_HELP` (`:116-127`) to the complete 12-command set and
+- [x] Rewrite `PKG_HELP` (`:116-127`) to the complete 12-command set and
       `REPO_HELP` (`:129-142`) to the full repo/machine/key/org/token set.
-- [ ] Redirect `run_pkg_command` `Usage` errors from `crate::USAGE` to
+- [x] Redirect `run_pkg_command` `Usage` errors from `crate::USAGE` to
       `crate::PKG_HELP` (`src/cli/pkg.rs`); audit `src/cli/repo.rs` error
       strings and point them at `mfb repo --help` where appropriate.
 
@@ -315,10 +315,10 @@ Commit: —
 
 ### Phase 4 — Build metadata (highest-risk, last)
 
-- [ ] Extend `build.rs` (root) to emit `MFB_BUILD_DATE`, `MFB_COMMIT`,
+- [x] Extend `build.rs` (root) to emit `MFB_BUILD_DATE`, `MFB_COMMIT`,
       `MFB_LOCAL_DEV` per §4.7, with `cargo:rerun-if-changed` on `.git/HEAD`,
       the branch ref, and `.git/index`, and a no-git fallback.
-- [ ] Verify `print_version()` renders `Commit: <hash>` on a clean+pushed build
+- [x] Verify `print_version()` renders `Commit: <hash>` on a clean+pushed build
       and `Local Development` when the tree is dirty or unpushed.
 
 Acceptance: on a clean, fully-pushed checkout `mfb --version` line 3 reads
@@ -329,9 +329,9 @@ Commit: —
 
 ### Phase 5 — Doc & spec sync
 
-- [ ] Update `BUILD_HELP`/`TEST_HELP`/`USAGE` flag spellings to `--` only
+- [x] Update `BUILD_HELP`/`TEST_HELP`/`USAGE` flag spellings to `--` only
       (folded with Phase 1/3 edits where they touch the same constants).
-- [ ] Update flag tables in `07_cli-reference.md`, `01_commands.md`,
+- [x] Update flag tables in `07_cli-reference.md`, `01_commands.md`,
       `08_artifacts.md`; add `mfb --version`/`mfb --help` to the CLI reference;
       `grep -rn src/docs/spec/**` to confirm no single-dash *flag* usage remains
       (artifact-name prose excepted).

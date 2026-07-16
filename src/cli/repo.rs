@@ -9,6 +9,12 @@
 
 use std::io::BufRead;
 
+/// Where a user who does not know the command set should look. The top-level
+/// `mfb` screen advertises only `repo register`/`repo auth`, so every error that
+/// leaves the user hunting for a subcommand points at the full sub-help
+/// (plan-42 §4.5).
+const REPO_HELP_HINT: &str = "Run 'mfb repo --help' for all repository & auth commands.";
+
 pub(crate) enum RepoCommandError {
     Usage(String),
     Failed(String),
@@ -16,9 +22,9 @@ pub(crate) enum RepoCommandError {
 
 pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> {
     let Some(command) = args.first().map(String::as_str) else {
-        return Err(RepoCommandError::Usage(
-            "mfb repo requires register, auth, or link".to_string(),
-        ));
+        return Err(RepoCommandError::Usage(format!(
+            "mfb repo requires a subcommand (register, auth, link, trust)\n\n{REPO_HELP_HINT}"
+        )));
     };
 
     let repo_url = mfb_repository::client::repo_url_from_env();
@@ -110,7 +116,7 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
             )),
         },
         _ => Err(RepoCommandError::Usage(format!(
-            "unknown mfb repo command '{command}'"
+            "unknown mfb repo command '{command}'\n\n{REPO_HELP_HINT}"
         ))),
     }
 }
@@ -140,11 +146,11 @@ pub(crate) fn run_key_command(args: &[String]) -> Result<(), RepoCommandError> {
             "mfb key rotate requires exactly one <owner_name>".to_string(),
         )),
         [command, ..] => Err(RepoCommandError::Usage(format!(
-            "unknown mfb key command '{command}'"
+            "unknown mfb key command '{command}'\n\n{REPO_HELP_HINT}"
         ))),
-        [] => Err(RepoCommandError::Usage(
-            "mfb key requires a subcommand (rotate)".to_string(),
-        )),
+        [] => Err(RepoCommandError::Usage(format!(
+            "mfb key requires a subcommand (rotate)\n\n{REPO_HELP_HINT}"
+        ))),
     }
 }
 
@@ -247,11 +253,11 @@ pub(crate) fn run_machine_command(args: &[String]) -> Result<(), RepoCommandErro
             "mfb machine revoke requires <owner_name> <auth-fingerprint>".to_string(),
         )),
         [command, ..] => Err(RepoCommandError::Usage(format!(
-            "unknown mfb machine command '{command}'"
+            "unknown mfb machine command '{command}'\n\n{REPO_HELP_HINT}"
         ))),
-        [] => Err(RepoCommandError::Usage(
-            "mfb machine requires a subcommand (revoke)".to_string(),
-        )),
+        [] => Err(RepoCommandError::Usage(format!(
+            "mfb machine requires a subcommand (revoke)\n\n{REPO_HELP_HINT}"
+        ))),
     }
 }
 
@@ -282,7 +288,26 @@ mod tests {
     #[test]
     fn repo_requires_a_subcommand() {
         let message = usage(run_repo_command(&s(&[])));
-        assert!(message.contains("register, auth, or link"));
+        assert!(message.contains("register, auth, link, trust"));
+    }
+
+    /// plan-42: the top-level screen no longer lists the repo/key/machine command
+    /// sets, so every discovery error must point at the sub-help that does.
+    #[test]
+    fn discovery_errors_point_at_the_repo_sub_help() {
+        for message in [
+            usage(run_repo_command(&s(&[]))),
+            usage(run_repo_command(&s(&["frobnicate"]))),
+            usage(run_key_command(&s(&[]))),
+            usage(run_key_command(&s(&["bogus"]))),
+            usage(run_machine_command(&s(&[]))),
+            usage(run_machine_command(&s(&["bogus"]))),
+        ] {
+            assert!(
+                message.contains("mfb repo --help"),
+                "discovery error must point at the sub-help: {message}"
+            );
+        }
     }
 
     #[test]

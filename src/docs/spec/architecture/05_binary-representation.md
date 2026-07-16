@@ -43,7 +43,7 @@ user-defined types into the type table, literal values into the constant pool,
 import/export and dependency metadata, function tables with parameters and
 cleanup metadata, and the ABI hashes package readers use for dependency checks.
 
-`mfb build -br` writes a hexadecimal dump of the binary representation to `<project>.hex`.
+`mfb build --br` writes a hexadecimal dump of the binary representation to `<project>.hex`.
 
 ## Decode-and-Merge of Package Dependencies
 

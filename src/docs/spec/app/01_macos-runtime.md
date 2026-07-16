@@ -1,6 +1,6 @@
 # macOS App Runtime (AppKit)
 
-The macOS `mfb build -app` runtime: the AppKit `_main` bootstrap, the worker
+The macOS `mfb build --app` runtime: the AppKit `_main` bootstrap, the worker
 pthread that runs the MFBASIC program, and the per-process state scheme. The
 bootstrap and its helpers are emitted as hand-written aarch64 by
 `emit_app_program_entry`, which returns the bootstrap (`_main`), the worker shim,

@@ -108,22 +108,24 @@ pub(crate) enum BuildOutput {
     NativePlan,
     NativeObjectPlan,
     NativeCodePlan,
-    /// Target-neutral MIR dump (`-mir`, plan-00-A §12a): the neutral counterpart
-    /// to `-ncode`.
+    /// Target-neutral MIR dump (`--mir`, plan-00-A §12a): the neutral counterpart
+    /// to `--ncode`.
     Mir,
 }
 
 impl BuildOutput {
+    /// `--x` is the documented spelling; the single-dash `-x` form predates
+    /// plan-42 and stays a working — but undocumented — alias.
     fn from_flag(flag: &str) -> Option<BuildOutput> {
         match flag {
-            "-ast" => Some(BuildOutput::Ast),
-            "-ir" => Some(BuildOutput::Ir),
-            "-br" => Some(BuildOutput::BinaryRepr),
-            "-nir" => Some(BuildOutput::NativeIr),
-            "-nplan" => Some(BuildOutput::NativePlan),
-            "-nobj" => Some(BuildOutput::NativeObjectPlan),
-            "-ncode" => Some(BuildOutput::NativeCodePlan),
-            "-mir" => Some(BuildOutput::Mir),
+            "--ast" | "-ast" => Some(BuildOutput::Ast),
+            "--ir" | "-ir" => Some(BuildOutput::Ir),
+            "--br" | "-br" => Some(BuildOutput::BinaryRepr),
+            "--nir" | "-nir" => Some(BuildOutput::NativeIr),
+            "--nplan" | "-nplan" => Some(BuildOutput::NativePlan),
+            "--nobj" | "-nobj" => Some(BuildOutput::NativeObjectPlan),
+            "--ncode" | "-ncode" => Some(BuildOutput::NativeCodePlan),
+            "--mir" | "-mir" => Some(BuildOutput::Mir),
             _ => None,
         }
     }
@@ -146,12 +148,15 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
                 return Err(format!("mfb build got duplicate output flag `{arg}`"));
             }
             outputs.push(output);
-        } else if arg == "-target" {
+        } else if arg == "--target" || arg == "-target" {
             let Some(value) = iter.next() else {
                 return Err("mfb build -target requires os-arch".to_string());
             };
             target = Some(target::BuildTarget::parse(&value)?);
-        } else if let Some(value) = arg.strip_prefix("-target=") {
+        } else if let Some(value) = arg
+            .strip_prefix("--target=")
+            .or_else(|| arg.strip_prefix("-target="))
+        {
             target = Some(target::BuildTarget::parse(value)?);
         } else if arg == "--sign" {
             let Some(value) = iter.next() else {
@@ -164,19 +169,22 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
             if sign_owner.replace(value.to_string()).is_some() {
                 return Err("mfb build accepts at most one --sign option".to_string());
             }
-        } else if arg == "-app" {
+        } else if arg == "--app" || arg == "-app" {
             if app_mode {
                 return Err("mfb build accepts at most one -app option".to_string());
             }
             app_mode = true;
         } else if arg == "--unsigned" {
             allow_unsigned = true;
-        } else if arg == "-regalloc" {
+        } else if arg == "--regalloc" || arg == "-regalloc" {
             let Some(value) = iter.next() else {
                 return Err("mfb build -regalloc requires a strategy name".to_string());
             };
             regalloc = target::shared::code::regalloc::parse_kind(&value)?;
-        } else if let Some(value) = arg.strip_prefix("-regalloc=") {
+        } else if let Some(value) = arg
+            .strip_prefix("--regalloc=")
+            .or_else(|| arg.strip_prefix("-regalloc="))
+        {
             regalloc = target::shared::code::regalloc::parse_kind(value)?;
         } else if arg == "-q" || arg == "--quiet" {
             if verbosity.replace(Verbosity::Quiet) == Some(Verbosity::Verbose) {
@@ -729,7 +737,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     Ok(())
 }
 
-/// Parse `mfb test [location] [--coverage] [-target …] [-regalloc …]`. The build
+/// Parse `mfb test [location] [--coverage] [--target …] [--regalloc …]`. The build
 /// pipeline is shared with `mfb build`; only the compile mode and the always-run
 /// behavior differ (plan-18).
 pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, String> {
@@ -742,19 +750,25 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     while let Some(arg) = iter.next() {
         if arg == "--coverage" {
             coverage = true;
-        } else if arg == "-target" {
+        } else if arg == "--target" || arg == "-target" {
             let Some(value) = iter.next() else {
                 return Err("mfb test -target requires os-arch".to_string());
             };
             target = Some(target::BuildTarget::parse(&value)?);
-        } else if let Some(value) = arg.strip_prefix("-target=") {
+        } else if let Some(value) = arg
+            .strip_prefix("--target=")
+            .or_else(|| arg.strip_prefix("-target="))
+        {
             target = Some(target::BuildTarget::parse(value)?);
-        } else if arg == "-regalloc" {
+        } else if arg == "--regalloc" || arg == "-regalloc" {
             let Some(value) = iter.next() else {
                 return Err("mfb test -regalloc requires a strategy name".to_string());
             };
             regalloc = target::shared::code::regalloc::parse_kind(&value)?;
-        } else if let Some(value) = arg.strip_prefix("-regalloc=") {
+        } else if let Some(value) = arg
+            .strip_prefix("--regalloc=")
+            .or_else(|| arg.strip_prefix("-regalloc="))
+        {
             regalloc = target::shared::code::regalloc::parse_kind(value)?;
         } else if arg.starts_with('-') {
             return Err(format!("unknown test option `{arg}`"));
@@ -1289,24 +1303,40 @@ mod tests {
 
     #[test]
     fn build_output_from_flag_maps_every_flag() {
-        assert_eq!(BuildOutput::from_flag("-ast"), Some(BuildOutput::Ast));
-        assert_eq!(BuildOutput::from_flag("-ir"), Some(BuildOutput::Ir));
-        assert_eq!(BuildOutput::from_flag("-br"), Some(BuildOutput::BinaryRepr));
-        assert_eq!(BuildOutput::from_flag("-nir"), Some(BuildOutput::NativeIr));
+        assert_eq!(BuildOutput::from_flag("--ast"), Some(BuildOutput::Ast));
+        assert_eq!(BuildOutput::from_flag("--ir"), Some(BuildOutput::Ir));
         assert_eq!(
-            BuildOutput::from_flag("-nplan"),
+            BuildOutput::from_flag("--br"),
+            Some(BuildOutput::BinaryRepr)
+        );
+        assert_eq!(BuildOutput::from_flag("--nir"), Some(BuildOutput::NativeIr));
+        assert_eq!(
+            BuildOutput::from_flag("--nplan"),
             Some(BuildOutput::NativePlan)
         );
         assert_eq!(
-            BuildOutput::from_flag("-nobj"),
+            BuildOutput::from_flag("--nobj"),
             Some(BuildOutput::NativeObjectPlan)
         );
         assert_eq!(
-            BuildOutput::from_flag("-ncode"),
+            BuildOutput::from_flag("--ncode"),
             Some(BuildOutput::NativeCodePlan)
         );
-        assert_eq!(BuildOutput::from_flag("-mir"), Some(BuildOutput::Mir));
+        assert_eq!(BuildOutput::from_flag("--mir"), Some(BuildOutput::Mir));
+        assert_eq!(BuildOutput::from_flag("--nope"), None);
         assert_eq!(BuildOutput::from_flag("-nope"), None);
+    }
+
+    /// plan-42: every emit flag's single-dash spelling stays a working alias of
+    /// the documented `--` form.
+    #[test]
+    fn build_output_from_flag_single_dash_aliases_double_dash() {
+        for name in ["ast", "ir", "br", "nir", "nplan", "nobj", "ncode", "mir"] {
+            let long = BuildOutput::from_flag(&format!("--{name}"));
+            let short = BuildOutput::from_flag(&format!("-{name}"));
+            assert!(long.is_some(), "--{name} must parse");
+            assert_eq!(long, short, "--{name} and -{name} must map identically");
+        }
     }
 
     #[test]
@@ -1323,20 +1353,94 @@ mod tests {
     #[test]
     fn parse_build_options_parses_target_both_forms() {
         let split =
-            parse_build_options(s(&["-target", "linux-aarch64"])).expect("split target form");
+            parse_build_options(s(&["--target", "linux-aarch64"])).expect("split target form");
         assert_eq!(split.target.name(), "linux-aarch64");
-        let joined = parse_build_options(s(&["-target=linux-x86_64"])).expect("joined target form");
+        let joined =
+            parse_build_options(s(&["--target=linux-x86_64"])).expect("joined target form");
         assert_eq!(joined.target.name(), "linux-x86_64");
+    }
+
+    /// plan-42: `--target`/`--regalloc`/`--app` are the documented spellings; the
+    /// single-dash forms (space and `=`) stay working aliases that parse to the
+    /// same options.
+    #[test]
+    fn parse_build_options_single_dash_aliases_double_dash() {
+        for (long, short) in [
+            (
+                s(&["--target", "linux-aarch64"]),
+                s(&["-target", "linux-aarch64"]),
+            ),
+            (s(&["--target=linux-x86_64"]), s(&["-target=linux-x86_64"])),
+        ] {
+            let long = parse_build_options(long).expect("--target form");
+            let short = parse_build_options(short).expect("-target form");
+            assert_eq!(long.target.name(), short.target.name());
+        }
+
+        for (long, short) in [
+            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
+            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
+        ] {
+            let long = parse_build_options(long).expect("--regalloc form");
+            let short = parse_build_options(short).expect("-regalloc form");
+            assert_eq!(long.regalloc, short.regalloc);
+            assert_eq!(
+                long.regalloc,
+                target::shared::code::regalloc::parse_kind("bump").expect("bump")
+            );
+        }
+
+        assert!(
+            parse_build_options(s(&["--app"]))
+                .expect("--app form")
+                .app_mode
+        );
+        assert!(
+            parse_build_options(s(&["-app"]))
+                .expect("-app form")
+                .app_mode
+        );
+        // The duplicate guard spans both spellings — they are one flag.
+        assert!(parse_build_options(s(&["--app", "-app"])).is_err());
+    }
+
+    /// plan-42: `mfb test` accepts both spellings of its two behavioral flags —
+    /// and still refuses `--app`/`-app`, which it never took.
+    #[test]
+    fn parse_test_options_single_dash_aliases_double_dash() {
+        for (long, short) in [
+            (
+                s(&["--target", "linux-aarch64"]),
+                s(&["-target", "linux-aarch64"]),
+            ),
+            (s(&["--target=linux-x86_64"]), s(&["-target=linux-x86_64"])),
+        ] {
+            let long = parse_test_options(long).expect("--target form");
+            let short = parse_test_options(short).expect("-target form");
+            assert_eq!(long.target.name(), short.target.name());
+        }
+
+        for (long, short) in [
+            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
+            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
+        ] {
+            let long = parse_test_options(long).expect("--regalloc form");
+            let short = parse_test_options(short).expect("-regalloc form");
+            assert_eq!(long.regalloc, short.regalloc);
+        }
+
+        assert!(parse_test_options(s(&["--app"])).is_err());
+        assert!(parse_test_options(s(&["-app"])).is_err());
     }
 
     #[test]
     fn parse_build_options_target_requires_value() {
-        assert!(build_err(&["-target"]).contains("-target requires os-arch"));
+        assert!(build_err(&["--target"]).contains("-target requires os-arch"));
     }
 
     #[test]
     fn parse_build_options_target_rejects_malformed() {
-        assert!(parse_build_options(s(&["-target", "nodash"])).is_err());
+        assert!(parse_build_options(s(&["--target", "nodash"])).is_err());
     }
 
     #[test]
@@ -1421,9 +1525,9 @@ mod tests {
 
     #[test]
     fn parse_build_options_regalloc_both_forms_and_bad_value() {
-        assert!(parse_build_options(s(&["-regalloc"])).is_err());
-        assert!(parse_build_options(s(&["-regalloc", "not-a-strategy"])).is_err());
-        assert!(parse_build_options(s(&["-regalloc=not-a-strategy"])).is_err());
+        assert!(parse_build_options(s(&["--regalloc"])).is_err());
+        assert!(parse_build_options(s(&["--regalloc", "not-a-strategy"])).is_err());
+        assert!(parse_build_options(s(&["--regalloc=not-a-strategy"])).is_err());
     }
 
     fn build_err(args: &[&str]) -> String {

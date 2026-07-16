@@ -3,7 +3,7 @@
 The target-neutral machine IR (MIR) is the seam between the per-target code
 builder and the backend: a single ISA-independent op vocabulary the backend
 lowers *to* and selects *from*. It is the layer every backend plugs into, and
-the `-mir` dump is its observable form. [[src/target/shared/code/mir.rs:MirOp]]
+the `--mir` dump is its observable form. [[src/target/shared/code/mir.rs:MirOp]]
 
 > The op set, mnemonics, and grouping below catalogue the MIR vocabulary. The NIR
 > the code builder derives from is `./mfb spec architecture native-ir`; how a
@@ -39,8 +39,8 @@ ISA-specific spellings in the field values:
   base is pinned program-wide. [[src/target/shared/code/mir.rs:ARENA_BASE]]
   [[src/target/shared/code/mir.rs:rename_field_values]]
 - Virtual registers (`%vN` integer, `%fN` float) appear in the pre-allocation
-  `-mir` dump; the hand-written runtime helpers are shown over their final
-  physical-register stream instead (see *The `-mir` dump*).
+  `--mir` dump; the hand-written runtime helpers are shown over their final
+  physical-register stream instead (see *The `--mir` dump*).
 
 ## Op groups
 
@@ -65,7 +65,7 @@ back byte-for-byte at selection. [[src/target/shared/code/mir.rs:to_code]]
 
 Each carries the ISA-neutral semantic name instead of an ISA-specific
 instruction spelling. The mapping is 1:1, so selection and encoding stay
-byte-identical; only the `-mir` mnemonic changes.
+byte-identical; only the `--mir` mnemonic changes.
 [[src/target/shared/code/mir.rs:mir_ops]]
 
 | MIR mnemonic | Meaning |
@@ -143,7 +143,7 @@ Every operand is a string in the field bag, distinguished only by which field
 names it. [[src/target/shared/code/mir.rs:MirInstruction]]
 
 - **Registers.** `%vN` is a virtual integer/GPR value, `%fN` a virtual float
-  value (`N` a decimal index), as they appear in the pre-allocation `-mir` dump.
+  value (`N` a decimal index), as they appear in the pre-allocation `--mir` dump.
   The hand-written runtime helpers are shown over physical registers instead.
   `arena_base` is the one named pinned operand (the arena-state base pointer).
 - **Immediates.** A decimal integer literal as a string, carried in `value`
@@ -231,12 +231,12 @@ Signed orderings use `b.ge`/`b.lt`/`b.gt`/`b.le`; unsigned use
 `b.hi`/`b.lo`/`b.ls`; `b.vs`/`b.vc` test overflow (set/clear) for `add_ovf`/
 `sub_ovf` and the syscall error check. [[src/arch/ops.rs:CodeOp]]
 
-## The `-mir` dump (`mfb build -mir`)
+## The `--mir` dump (`mfb build --mir`)
 
-`-mir` is the neutral counterpart to `-ncode`: it serializes the MIR stream
+`--mir` is the neutral counterpart to `--ncode`: it serializes the MIR stream
 captured **before** register allocation and instruction selection, as stable,
 versioned JSON. The whole-module form is deliberately ISA-independent — no
-`target` / `arch` field, so diffing a `-mir` dump across targets is identical
+`target` / `arch` field, so diffing a `--mir` dump across targets is identical
 where a per-target code dump is not. [[src/target/shared/code/mir.rs:MirPlan]]
 [[src/target/shared/code/mod.rs:lower_module_mir_for_platform]]
 
@@ -281,7 +281,7 @@ a backend picks. [[src/target/shared/code/mir.rs:MirRelocation]]
 
 - ./mfb spec architecture native-ir — the NIR the code builder derives from
 - ./mfb spec architecture native — the per-target code plan and code generation
-- ./mfb spec architecture artifacts — the `-mir` dump among build outputs
+- ./mfb spec architecture artifacts — the `--mir` dump among build outputs
 - ./mfb spec architecture aarch64-instruction-set — how the in-tree backend realizes MIR ops as concrete instructions
 - ./mfb spec memory native-calling-convention — the register/ABI rules a backend realizes
 - ./mfb spec linker symbols-and-relocations — how the neutral reloc intents are emitted
