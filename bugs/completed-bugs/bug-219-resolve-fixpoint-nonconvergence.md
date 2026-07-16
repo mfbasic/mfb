@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — the dependency resolver now tracks a `converged` flag and, if the bounded fixpoint loop exhausts its passes without stabilizing, returns an error (oscillating registry graph) instead of falling through and assembling an mfb.lock from the last unstable selection. The comment now matches the behavior.
 
 `resolve` (`src/cli/resolve.rs:219-262`) runs a bounded fixpoint whose comment
 says it "errors instead of spinning," but on non-convergence the loop simply

@@ -221,6 +221,7 @@ pub(crate) fn resolve(
     let mut blob_cache: BTreeMap<String, Vec<(String, BTreeMap<String, String>, Option<String>)>> =
         BTreeMap::new();
     let node_idents: Vec<String> = nodes.keys().cloned().collect();
+    let mut converged = false;
     for _ in 0..(node_idents.len() * node_idents.len() + 4) {
         let mut changed = false;
         for ident in &node_idents {
@@ -257,8 +258,21 @@ pub(crate) fn resolve(
             }
         }
         if !changed {
+            converged = true;
             break;
         }
+    }
+
+    // Non-convergence means the import-edge selection is still oscillating after
+    // the bounded number of passes; error out instead of assembling an mfb.lock
+    // from the last (unstable) selection (bug-219 — the comment above claimed this
+    // already happened, but the loop merely fell through).
+    if !converged {
+        return Err(
+            "dependency resolution did not converge: the registry import graph's version \
+             selection oscillates. Pin the conflicting dependencies to break the cycle."
+                .to_string(),
+        );
     }
 
     // Every node must have converged to a selection.
