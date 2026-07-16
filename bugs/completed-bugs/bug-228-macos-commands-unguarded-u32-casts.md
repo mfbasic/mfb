@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun (latent)
 
-Status: Open
+Status: Fixed (2026-07-15) — the dysymtab nundefsym / indirectsymoff / nindirectsyms fields and the symtab symbol string offset now route through the u32_field() overflow guard instead of a bare `as u32`, matching every other offset/size field in commands.rs (bug-88/bug-168). Latent (>4 GiB regime only), now uniform.
 
 A handful of Mach-O u32 fields in `src/os/macos/link/commands.rs` (nundefsym,
 indirectsymoff, nindirectsyms, symbol string offsets — `:258, 265, 266, 452`) are

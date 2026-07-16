@@ -276,15 +276,15 @@ pub(super) fn dysymtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
-    put_u32(bytes, linkedit.symbol_count as u32);
+    put_u32(bytes, u32_field("dysymtab nundefsym", linkedit.symbol_count));
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
-    put_u32(bytes, linkedit.indirect_symbol_offset as u32);
-    put_u32(bytes, linkedit.indirect_symbol_count as u32);
+    put_u32(bytes, u32_field("dysymtab indirectsymoff", linkedit.indirect_symbol_offset));
+    put_u32(bytes, u32_field("dysymtab nindirectsyms", linkedit.indirect_symbol_count));
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
@@ -471,7 +471,10 @@ pub(super) fn symbol_table(image: &EncodedImage) -> Vec<u8> {
     let strings = string_offsets(image);
     let mut bytes = Vec::new();
     for import in &image.imports {
-        put_u32(&mut bytes, strings[&import.symbol] as u32);
+        put_u32(
+            &mut bytes,
+            u32_field("symtab symbol string offset", strings[&import.symbol]),
+        );
         bytes.push(0x1);
         bytes.push(0);
         put_u16(&mut bytes, 0);
