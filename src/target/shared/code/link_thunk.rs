@@ -404,6 +404,9 @@ fn lower_link_thunk(
     // const pins are pinned, and ordinary params are marshaled per ABI type.
     let mut out_seq = 0usize;
     let mut result_out_off: Option<usize> = None;
+    // The OUT-slot result's ctype drives the same marshalling the direct-return
+    // path applies (bug-238); without it a `CInt32` OUT surfaced -1 as 4294967295.
+    let mut result_out_ctype: Option<String> = None;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
         if slot.is_out {
@@ -416,6 +419,7 @@ fn lower_link_thunk(
             ]);
             if slot.name == "return" {
                 result_out_off = Some(out_off);
+                result_out_ctype = Some(slot.ctype.clone());
             }
         } else if let Some(value) = const_for.get(slot.name.as_str()) {
             // §12.3: a `CInt32` slot is a signed 32-bit C argument. A param feeding
@@ -545,11 +549,66 @@ fn lower_link_thunk(
 
     // Produce the wrapper result value in RESULT_VALUE_REGISTER (x1).
     if let Some(out_off) = result_out_off {
-        instructions.push(abi::load_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            out_off,
-        ));
+        // bug-238: an OUT-slot result carries the same C value shapes as a direct
+        // return, so apply the same ctype-driven marshalling instead of a bare
+        // 8-byte load — otherwise a `CInt32` OUT writing -1 surfaced as
+        // 4294967295 (zero-extended) and a `CDouble` OUT bypassed the finiteness
+        // rejection an MFBASIC `Float` requires.
+        match result_out_ctype.as_deref().unwrap_or("") {
+            "CInt32" => {
+                instructions.extend([
+                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
+                    abi::sign_extend_word(RESULT_VALUE_REGISTER, "%v9"),
+                ]);
+            }
+            "CBool" => {
+                let set = format!("{symbol}_out_bool_true");
+                let end = format!("{symbol}_out_bool_end");
+                instructions.extend([
+                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
+                    abi::compare_immediate("%v9", "0"),
+                    abi::branch_ne(&set),
+                    abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
+                    abi::branch(&end),
+                    abi::label(&set),
+                    abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
+                    abi::label(&end),
+                ]);
+            }
+            "CByte" => {
+                instructions.extend([
+                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
+                    abi::move_immediate("%v10", "Integer", "255"),
+                    abi::and_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                ]);
+            }
+            "CDouble" => {
+                // Mirrors the direct-return finiteness gate: a non-finite double has
+                // all exponent bits set; the mantissa distinguishes Inf from NaN.
+                let finite = format!("{symbol}_out_float_finite");
+                instructions.extend([
+                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
+                    abi::move_immediate("%v10", "Integer", "9218868437227405312"),
+                    abi::and_registers("%v11", "%v9", "%v10"),
+                    abi::compare_registers("%v11", "%v10"),
+                    abi::branch_ne(&finite),
+                    abi::move_immediate("%v12", "Integer", "4503599627370495"),
+                    abi::and_registers("%v13", "%v9", "%v12"),
+                    abi::compare_immediate("%v13", "0"),
+                    abi::branch_eq(&inf_fail),
+                    abi::branch(&nan_fail),
+                    abi::label(&finite),
+                    abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
+                ]);
+            }
+            _ => {
+                instructions.push(abi::load_u64(
+                    RESULT_VALUE_REGISTER,
+                    abi::stack_pointer(),
+                    out_off,
+                ));
+            }
+        }
     } else if function.abi_return_name == "return" {
         emit_return_passthrough(
             function,
