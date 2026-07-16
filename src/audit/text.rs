@@ -4,26 +4,12 @@ use super::report::*;
 use std::borrow::Cow;
 use std::fmt::Write;
 
-/// Escapes control characters in a string bound for the operator's terminal.
-///
-/// Names, versions, and paths in a report come from untrusted manifests and
-/// `.mfp` headers. Written raw, an embedded ESC or newline lets a malicious
-/// package erase lines, recolor output, or forge whole report rows in the very
-/// tool the operator uses to decide whether to trust it. Well-formed values
-/// contain no control characters and pass through unchanged (and unallocated).
+/// Escapes terminal-unsafe code points in a string bound for the operator's
+/// terminal — C0/C1 controls **and** Unicode bidi/format overrides (bug-210).
+/// See [`crate::terminal_safe`] for why each class is escaped. Names, versions,
+/// and paths in a report come from untrusted manifests and `.mfp` headers.
 fn safe(value: &str) -> Cow<'_, str> {
-    if !value.chars().any(char::is_control) {
-        return Cow::Borrowed(value);
-    }
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        if ch.is_control() {
-            let _ = write!(escaped, "\\u{{{:04x}}}", ch as u32);
-        } else {
-            escaped.push(ch);
-        }
-    }
-    Cow::Owned(escaped)
+    crate::terminal_safe::safe(value)
 }
 
 pub fn render(report: &AuditReport) -> String {

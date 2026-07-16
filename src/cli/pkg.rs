@@ -1037,25 +1037,25 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     let header = read_mfp_header(path)?;
     let info = binary_repr::read_package_info(path)?;
 
-    println!("Package: {}", header.name);
+    println!("Package: {}", crate::terminal_safe::safe(&header.name));
     println!("Ident: {}", empty_marker(&header.ident));
-    println!("Version: {}", header.version);
+    println!("Version: {}", crate::terminal_safe::safe(&header.version));
     println!("Ident Key: {}", empty_marker(&header.ident_key));
     println!("Signing Key: {}", empty_marker(&header.signing_key));
     println!(
         "Proof: {}",
         if header.proof.is_empty() {
-            "<none>"
+            std::borrow::Cow::Borrowed("<none>")
         } else {
-            &header.proof
+            crate::terminal_safe::safe(&header.proof)
         }
     );
     println!(
         "Attestation: {}",
         if header.attestation.is_empty() {
-            "<none>"
+            std::borrow::Cow::Borrowed("<none>")
         } else {
-            &header.attestation
+            crate::terminal_safe::safe(&header.attestation)
         }
     );
     println!("Author: {}", empty_marker(&header.author));
@@ -1228,11 +1228,15 @@ fn package_export_kind_name(kind: binary_repr::BinaryReprExportKind) -> &'static
     }
 }
 
-fn empty_marker(value: &str) -> &str {
+/// `<empty>` for a blank field, otherwise the value with terminal-unsafe code
+/// points escaped. Header fields come from an untrusted `.mfp`, so an embedded
+/// ESC/newline or bidi override must not reach the operator's terminal verbatim
+/// (bug-210; `read_mfp_string` only enforces valid UTF-8).
+fn empty_marker(value: &str) -> std::borrow::Cow<'_, str> {
     if value.is_empty() {
-        "<empty>"
+        std::borrow::Cow::Borrowed("<empty>")
     } else {
-        value
+        crate::terminal_safe::safe(value)
     }
 }
 

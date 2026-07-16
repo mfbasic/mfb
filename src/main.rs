@@ -21,6 +21,7 @@ mod rules;
 mod scope_privates;
 mod syntaxcheck;
 mod target;
+mod terminal_safe;
 mod testing;
 #[cfg(test)]
 mod testutil;
