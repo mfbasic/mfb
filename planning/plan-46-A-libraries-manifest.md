@@ -294,6 +294,17 @@ for `libsqlite3.so.0` is the *normal* case, not an error. A blanket
 uniqueness check over every locator would false-positive on the most common
 manifest anyone will write.
 
+**This rule is per-manifest, and that is all it can be.** It catches *this*
+author's duplicate-blob mistake and nothing else. It emphatically does **not**
+make vendor filenames unique across a build: two package authors never see each
+other's manifest, so package `A` and package `B` can each ship a different
+`libfoo.so` with neither doing anything wrong. Since plan-46-D §4.5 flattens every
+resolved vendor file into one output directory and plan-46-C emits the filename as
+the `dlopen` string, that cross-package case would be a silent wrong-library load
+— and it is resolved *there*, by prefixing the copied file and the emitted name
+with the declaring package (plan-46-D §4.5). Do not extend this check to try to
+cover it; the information required is not in one manifest.
+
 ### 4.4 `validate_libraries` (in `src/manifest/mod.rs`)
 
 Absent `libraries` → return `true` (optional). Present:

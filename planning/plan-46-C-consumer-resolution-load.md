@@ -133,24 +133,41 @@ The remaining work there is pure plumbing (thread the flavor's libc into
 `emit_link_support`). What real risk exists is in getting the match rule (§4.1)
 and the vendor verify (§4.4) correct, not in codegen structure.
 
-### 3.1 Emission no longer branches on type
+### 3.1 Emission is a **name**, never a path — but it does branch on type
 
-Worth calling out, because it is the payoff of plan-46-A's redesign: since
-`source` is always a **bare filename**, and plan-46-D's RPATH makes the loader
-search the vendor directory for exactly such a name, `system` and `vendor`
-locators emit the **identical** cstring — `source`, verbatim. There is no path
-construction, no type branch, and no platform string-munging anywhere in the
-emission path. `type` affects only (a) whether a hash is verified here and
-(b) whether plan-46-D copies the file; it never affects the bytes handed to
-`dlopen`.
+Since `source` is always a **bare filename**, and plan-46-D's RPATH makes the
+loader search the vendor directory, emission is always a plain name: no path
+construction, no platform string-munging, no directory anywhere in the cstring.
 
 This is what keeps the vendor directory's *location* entirely plan-46-D's
 problem. That location is not uniform — `$ORIGIN/vendor` on Linux,
 `@loader_path/vendor` for a macOS console build, and
 `@executable_path/../Frameworks` for a macOS `.app` bundle, whose dylibs live in
 the platform-standard `Contents/Frameworks/` (plan-46-D §4.4) — but none of that
-variation reaches this plan. C emits one bare filename; D decides where the
-loader looks for it.
+variation reaches this plan. C emits a name; D decides where the loader looks.
+
+**The name is not always `source`, though.** An earlier draft of this plan claimed
+`system` and `vendor` emit the identical cstring — `source` verbatim, with no type
+branch — and sold that as the payoff of plan-46-A's redesign. **That claim is
+retracted.** It was buying a silent wrong-library load:
+
+- a **`system`** locator emits `source` verbatim — the exact soname, which the
+  platform's dynamic loader resolves and which knows nothing of our conventions;
+- a **`vendor`** locator emits `<declaring-unit>-<source>` — the disambiguated
+  name plan-46-D §4.5 writes into the output vendor directory.
+
+The reason is plan-46-D §4.5: vendor `source` filenames are unique only *within
+one manifest* (plan-46-A §4.3), the output flattens every vendor file into one
+directory, and the emitted filename **is** the library's identity. Two packages
+each vendoring a `libfoo.so` would otherwise collide, and both bindings would
+`dlopen("libfoo.so")` and get whichever file won. So plan-46-D prefixes on copy,
+and this plan must emit the same prefixed name.
+
+The elegance was real, but it cost correctness. The branch is one `if` in
+`emit_link_support`; the collision is a wrong library loaded silently. Take the
+branch — and **share the name-building helper with plan-46-D's copy step** rather
+than constructing the string independently in two places, because the file written
+and the string emitted must be byte-identical or the `dlopen` misses.
 
 Rejected alternative: keep one shared cstring and pick glibc/musl at **runtime**
 inside `_mfb_linker_init` via libc detection. Rejected — brittle runtime
@@ -192,14 +209,29 @@ error.
 
 ### 4.2 `emit_link_support` rewrite
 
-Replace the `library_filename(platform.target(), library)` call with:
-`resolve(&table, library, os, arch, libc)?` → emit
-`cstring_object(lib_symbol(idx), locator.source)`. On `ResolveErr`, raise the
-corresponding build diagnostic and abort (no cstring emitted). Delete
-`library_filename`. `lower_link_initializer` is untouched.
+Replace the `library_filename(platform.target(), library)` call with
+`resolve(&table, library, os, arch, libc)?`, then emit
+`cstring_object(lib_symbol(idx), dlopen_name(&locator, declaring_unit))` where
+(§3.1):
 
-For a `vendor` resolved locator, run §4.4 verify before emitting. Per §3.1, the
-emitted cstring is `locator.source` either way.
+```rust
+fn dlopen_name(locator: &Locator, declaring_unit: &str) -> String {
+    match locator.lib_type {
+        LibType::System => locator.source.clone(),                    // exact soname
+        LibType::Vendor => format!("{declaring_unit}-{}", locator.source), // matches D §4.5
+    }
+}
+```
+
+`declaring_unit` is the package name for an imported binding's locator, the
+project name for one from the project's own `libraries` section. This helper is
+**shared with plan-46-D §4.5's copy step** — the file written and the string
+emitted must be identical, so they must not be built independently.
+
+On `ResolveErr`, raise the corresponding build diagnostic and abort (no cstring
+emitted). Delete `library_filename`. `lower_link_initializer` is untouched.
+
+For a `vendor` resolved locator, run §4.4 verify before emitting.
 
 ### 4.3 Per-flavor emission (already supported — plumbing only)
 
@@ -281,8 +313,14 @@ Full end-to-end for `system` locators; the common, lower-risk case.
       **a concrete vendor entry outranking a wildcard system entry for its slot**
       (the §4.1 worked example), no-match, ambiguous, macos-libc-ignored.
 - [ ] Rewrite `emit_link_support` (`src/target/shared/code/link_thunk.rs`) to
-      call `resolve` and emit `locator.source`; delete `library_filename`;
-      surface `NATIVE_LIBRARY_NO_MATCH`/`AMBIGUOUS` as build diagnostics.
+      call `resolve` and emit `dlopen_name(&locator, declaring_unit)` (§4.2 — the
+      bare soname for `system`, the `<declaring-unit>-<source>` prefixed name for
+      `vendor`); delete `library_filename`; surface
+      `NATIVE_LIBRARY_NO_MATCH`/`AMBIGUOUS` as build diagnostics.
+- [ ] Put `dlopen_name` where plan-46-D §4.5's copy step can call the **same**
+      helper (§3.1); a test must assert the emitted cstring equals the copied
+      file's name, since a divergence is a `dlopen` miss at runtime and invisible
+      at build time.
 - [ ] Thread the flavor's libc from the per-flavor `lower_module` call into
       `emit_link_support` (via `lower_module_for_platform`,
       `src/target/shared/code/mod.rs:1162`) so `resolve` sees the correct libc
@@ -351,7 +389,11 @@ Turns the author-declared locator table into real load behavior and kills the
 soname guess. The feared Linux per-libc-flavor emission turned out to be a
 non-issue — codegen already runs per flavor with its own data image, so it's
 just plumbing the libc into `emit_link_support`. Because `source` is a bare
-filename and D's RPATH covers `vendor/`, emission is type-agnostic: one cstring,
-no branch, no path munging. What's left is a pure resolver (§4.1) + a build-time
+filename and D's RPATH covers `vendor/`, emission is always a plain **name** —
+never a path, no platform string-munging. It does branch on `type`, though: a
+`system` locator emits the exact soname, a `vendor` locator emits the
+`<declaring-unit>-<source>` name plan-46-D §4.5 copies it under, because vendor
+filenames are only unique *within* a manifest and the output flattens them into
+one directory (§3.1). What's left is a pure resolver (§4.1) + a build-time
 sha256 check (§4.4). Vendor *loadability* is plan-46-D and C should not ship far
 ahead of it (§1.1).

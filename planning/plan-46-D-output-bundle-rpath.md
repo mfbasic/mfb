@@ -395,17 +395,94 @@ where it sits. That is the vendoring author's responsibility to satisfy (most
 distributed dylibs already are signed); the build neither verifies nor re-signs
 it, and no diagnostic covers it.
 
-### 4.5 Vendor copy
+### 4.5 Vendor copy — and the filename that gets copied
 
-After plan-46-C's resolve + hash verify succeeds, for each resolved `vendor`
-locator: copy `<consumer root>/vendor/<source>` → `<outdir>/<name>/vendor/<source>`,
-preserving the executable bit. Copy **only resolved** locators — not the whole
-`vendor/` directory — so a project vendoring blobs for six targets ships one per
-build.
+After plan-46-C's resolve + hash verify succeeds, copy each resolved `vendor`
+locator's file into the output vendor directory, preserving the executable bit.
+Copy **only resolved** locators — not the whole `vendor/` directory — so a project
+vendoring blobs for six targets ships one per build.
 
 The copy is the last step, after the hash verify that plan-46-C §4.4 already
 performs on the same file, so the bytes landing in the output are the bytes that
 were verified. Do not re-hash.
+
+#### The output filename must be disambiguated
+
+The file is **not** copied under its bare `source`. It is copied as
+**`<declaring-unit>-<source>`** — the name of whatever declared the locator,
+hyphen, then the filename:
+
+```text
+<name>/vendor/
+  sqlite3-libfoo.so        # from imported package `sqlite3`
+  imaging-libfoo.so        # from imported package `imaging`
+  myapp-libbar.so          # from the project's own `libraries` section
+```
+
+The declaring unit is the **package name** for a locator that arrived in an
+imported binding's section 10, and the **project name** for one from the
+project's own `libraries` section (§4.5.2 — the project's own files need the
+prefix for exactly the same reason).
+
+**Why.** plan-46-A §4.3 makes vendor `source` filenames unique *within one
+manifest*. Nothing makes them unique **across** a build, and nothing can — two
+package authors never see each other's manifest, and neither is doing anything
+wrong. But this step flattens every resolved vendor file into **one** directory
+(a single RPATH is what makes the bundle relocatable, §4.2/§4.3), and plan-46-C
+emits the filename as the `dlopen` string, so **the filename is the identity**.
+Two packages that each vendor a `libfoo.so` would otherwise have one silently
+overwrite the other, and both bindings would `dlopen("libfoo.so")` and get
+whichever survived — a silent wrong-library load, the exact failure this whole
+plan exists to eliminate.
+
+Renaming is safe: the loader resolves the *file* by the name given, while the
+library's own `DT_SONAME` / `LC_ID_DYLIB` and its `DT_NEEDED` edges are unaffected
+by its filename on disk.
+
+This is why plan-46-C's emission branches on `type` (plan-46-C §3.1): a `system`
+locator emits the bare soname, a `vendor` locator emits this prefixed name. The
+two must agree — **the string emitted and the file written here are the same
+string**, and a test should assert exactly that rather than trusting two call
+sites to independently build it. Prefer one shared helper that both the copy and
+the emission call.
+
+#### Rejected alternatives
+
+- **Erroring on collision.** Detect two resolved vendor locators with the same
+  `source` and differing hashes, and fail. Safe but hostile: it makes two
+  unrelated packages permanently un-combinable, and *neither author can fix it* —
+  not the consumer, not either package. A registry of any size produces
+  `libfoo.so` collisions by accident; that is a defect with a nicer error message,
+  not a fix.
+- **Per-package subdirectories** (`vendor/<package>/libfoo.so`, one RPATH entry
+  each). Tidier-looking and needs no renaming, but it does not work: RPATH is a
+  search **list** consulted per `dlopen` *call*, not per calling library.
+  `dlopen("libfoo.so")` scans every entry and takes the first hit — the same
+  ambiguity, just later and less visibly.
+- **Content-hash prefix** (`a3f9c2e1-libfoo.so`). Unique *by construction* — equal
+  bytes give an equal name, so identical libraries vendored by two packages
+  deduplicate for free, and no uniqueness argument is needed at all. Genuinely
+  attractive, and rejected only on debuggability: an operator or author looking in
+  the bundle should be able to see which dependency a library came from without
+  reverse-mapping a hash. Revisit if the residual check below ever fires in
+  practice.
+
+#### 4.5.2 The residual check
+
+The prefix makes collisions essentially unrepresentable, but not *provably* so:
+two different declaring units can share a name in one pathological case — a
+project named `sqlite3` that also imports a package named `sqlite3` — and both
+could vendor the same filename. Absurd, but "absurd" is not "impossible," and the
+cost is a silent wrong-library load.
+
+So keep a cheap assertion on the **output** name: if two resolved vendor locators
+map to the same `<declaring-unit>-<source>` with **differing hashes**, fail with
+`NATIVE_LIBRARY_VENDOR_COLLISION` (Error, next free native code `2-203-0122`),
+naming both units and the filename. Identical hashes are fine — the same bytes,
+legitimately shared, and the copy is idempotent.
+
+This check should never fire. That is the point: it is the guard rail that lets
+the prefix be trusted, not the mechanism.
 
 ## Compatibility / Format Impact
 
@@ -482,17 +559,26 @@ Commit: —
 
 ### Phase 3 — vendor copy
 
-- [ ] Copy each resolved vendor file into `<outdir>/<name>/vendor/<source>` per
-      §4.5, preserving the executable bit; only resolved locators.
+- [ ] Copy each resolved vendor file into
+      `<outdir>/<name>/vendor/<declaring-unit>-<source>` per §4.5, preserving the
+      executable bit; only resolved locators. Build the name with the **same**
+      `dlopen_name` helper plan-46-C §4.2 emits from — not a second copy of the
+      format string.
+- [ ] Add the `2-203-0122` `NATIVE_LIBRARY_VENDOR_COLLISION` residual check
+      (§4.5.2) and its rule row.
+- [ ] Tests: two packages each vendoring a **different** `libfoo.so` both build,
+      land as two distinct files, and each binding loads **its own** library —
+      the collision regression, and it needs a real run, not a build assertion.
+      Assert the emitted cstring equals the copied filename byte-for-byte.
 - [ ] macOS `-app`: `create_dir_all` and copy into
       `<name>.app/Contents/Frameworks/` (§4.4), only when the build vendors
       something — no empty `Frameworks/` in ordinary bundles.
 - [ ] Tests: golden + runtime — a project importing a `vendor`-locator binding
-      builds into `<name>/` with `<name>/vendor/<source>` present, and the
-      executable **runs and loads the library from a different working
-      directory** (`cd /tmp && /path/to/<name>/<name>.out`), and **still runs
-      after the whole `<name>/` directory is moved**. Both are the actual proof
-      that RPATH resolution works; a build-time assertion is not.
+      builds into `<name>/` with `<name>/vendor/<declaring-unit>-<source>`
+      present, and the executable **runs and loads the library from a different
+      working directory** (`cd /tmp && /path/to/<name>/<name>.out`), and **still
+      runs after the whole `<name>/` directory is moved**. Both are the actual
+      proof that RPATH resolution works; a build-time assertion is not.
 - [ ] Tests: the same runtime proof for a macOS `-app` build — the dylib sits in
       `<name>.app/Contents/Frameworks/`, the bundle launches from a foreign CWD,
       and it survives being moved (e.g. to `/Applications`, the case the bundle
@@ -517,8 +603,10 @@ Commit: —
 
 - Tests: header assertions for `DT_RUNPATH`/`LC_RPATH` presence *and absence*,
   including the per-shape macOS strings; the narrowed byte-identity invariant
-  (§4.4); golden builds for the new layout; runtime vendor-load tests that run
-  from a foreign CWD and from a moved directory.
+  (§4.4); the emitted-cstring-equals-copied-filename assertion and the
+  two-packages-one-filename collision regression (§4.5); golden builds for the new
+  layout; runtime vendor-load tests that run from a foreign CWD and from a moved
+  directory.
 - Runtime proof: **required, not optional** — a codegen + loader change is not
   done until a real binary `dlopen`s a real vendored library on real hardware
   (`.ai/compiler.md`). Cover at least one Linux flavor, macOS console, and a
@@ -559,9 +647,21 @@ it is also what lets the `.app` bundle put its dylibs in the platform-standard
 `Contents/Frameworks/` for free, since the whole per-shape difference reduces to
 one string passed into the encoder.
 
-The one invariant this plan knowingly narrows: the macOS bundled binary is no
-longer *unconditionally* byte-identical to the console `.out` (`mod.rs:41-43`,
-tested at `tests.rs:811`). It still is for every build that vendors nothing —
-which is every existing project and fixture — and differs by exactly one
-`LC_RPATH` when it must, because the two binaries genuinely load from different
-places. That narrowing is pinned by a new test rather than left implicit.
+Two things this plan knowingly retracts from earlier drafts, both because they
+were buying correctness with elegance:
+
+The macOS bundled binary is no longer *unconditionally* byte-identical to the
+console `.out` (`mod.rs:41-43`, tested at `tests.rs:811`, and published in the
+spec). It still is for every build that vendors nothing — which is every existing
+project and fixture — and differs by exactly one `LC_RPATH` when it must, because
+the two binaries genuinely load from different places. That narrowing is pinned by
+a new test rather than left implicit.
+
+And vendor files are **not** copied under their bare `source` (§4.5). Filenames
+are unique only within one manifest, this step flattens every vendor file into one
+directory, and plan-46-C emits the filename as the `dlopen` string — so two
+packages each shipping a `libfoo.so` would silently load one another's library.
+Prefixing with the declaring package fixes it, at the cost of plan-46-C's
+type-agnostic emission (§4.5, plan-46-C §3.1). Erroring on the collision was
+rejected: it would make two unrelated packages permanently un-combinable with
+neither author able to fix it.
