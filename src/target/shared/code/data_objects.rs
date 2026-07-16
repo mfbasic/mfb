@@ -255,15 +255,22 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
+    // Every `tls::` helper that can raise one of these must be listed, including
+    // the server-side ones: a `listen`+`accept` program's closes are emitted by
+    // scope-drop rather than as NIR calls, so `tls.close`/`tls.closeListener`
+    // alone never fire the gate for it (bug-249).
     if module_uses_any_call(
         module,
         &[
             "tls.connect",
+            "tls.listen",
+            "tls.accept",
             "tls.read",
             "tls.readText",
             "tls.write",
             "tls.writeText",
             "tls.close",
+            "tls.closeListener",
         ],
     ) {
         for value in [

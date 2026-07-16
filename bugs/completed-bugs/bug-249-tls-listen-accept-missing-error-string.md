@@ -1,12 +1,42 @@
 # bug-249: a `tls::listen` + `tls::accept` program fails to build — `_mfb_str_error_tls_failed` data object not emitted
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 Effort: small (<1h)
 Severity: MEDIUM
 Class: correctness (build failure on valid source)
 
-Status: Open
-Regression Test: tests/ (a program calling tls::listen and tls::accept builds)
+Status: FIXED (2026-07-16).
+
+The error-message data-object gate
+(`src/target/shared/code/data_objects.rs`) keyed the `ErrTlsFailed` string set
+on the client-side calls only — `tls.connect`/`read`/`readText`/`write`/
+`writeText`/`close`. The three server-side calls (`tls.listen`, `tls.accept`,
+`tls.closeListener`) were missing, so a program built from them emitted the
+helper bodies (which carry a `_mfb_str_error_tls_failed` relocation) without
+ever emitting the string. Fix: add the three to the trigger list.
+
+Why `tls.close` did not already cover the repro: a listen+accept program that
+lets scope-drop close its resources issues **no** NIR `tls.close` call at all —
+drops are codegen-emitted, and `module_uses_call` only sees NIR calls (plus
+resource-union drops). The pre-existing `tests/syntax/tls/accept_valid` fixture
+closes explicitly, which is why it never caught this.
+
+The emitted message set already was the union of every tls helper's error
+strings, so no message row needed adding — only the trigger list. Audited: the
+union across all 7 helpers on both backends (openssl.rs + macos.rs) is
+TLS_FAILED / ADDRESS_INVALID / ADDRESS_NOT_FOUND / NETWORK_FAILED /
+CONNECTION_CLOSED / RESOURCE_CLOSED / INVALID_ARGUMENT / ENCODING / TIMEOUT,
+all present, plus ALLOCATION which is emitted unconditionally.
+
+Verified: repro builds for macos-aarch64, linux-x86_64, linux-aarch64,
+linux-riscv64; 3 new regression tests pass and all 3 fail with the fix
+reverted; full acceptance suite shows zero golden churn (949 tests, same 2
+pre-existing unrelated `.audit` mismatches before and after).
+
+No previously-building program changes output: any program reaching the
+newly-added calls without a client-side call failed to build before this fix.
+
+Regression Test: tests/tls_listen_accept_build.rs
 
 A program that calls both `tls::listen` and `tls::accept` fails to build with:
 
