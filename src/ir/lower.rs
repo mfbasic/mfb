@@ -3762,7 +3762,9 @@ impl TypeIndex {
                         );
                     }
                     TypeDeclKind::Union => {
-                        for variant in expanded_union_variants(type_decl, &union_decls) {
+                        for variant in
+                            expanded_union_variants(type_decl, &union_decls, &mut HashSet::new())
+                        {
                             variants
                                 .entry(variant.name.clone())
                                 .or_insert_with(|| type_decl.name.clone());
@@ -3838,13 +3840,23 @@ impl TypeIndex {
 fn expanded_union_variants<'a>(
     type_decl: &'a TypeDecl,
     union_decls: &HashMap<String, &'a TypeDecl>,
+    visiting: &mut HashSet<String>,
 ) -> Vec<&'a UnionVariant> {
+    // Guard against an `INCLUDES` cycle (a self- or mutually-including union):
+    // without this the recursion is unbounded and overflows the native stack with
+    // no diagnostic (bug-194). Insert-before/remove-after tracks only the current
+    // DFS path, so a genuine cycle short-circuits while a legitimate diamond
+    // include still expands each edge (preserving acyclic-union output).
+    if !visiting.insert(type_decl.name.clone()) {
+        return Vec::new();
+    }
     let mut variants = Vec::new();
     for include in &type_decl.includes {
         if let Some(included) = union_decls.get(include) {
-            variants.extend(expanded_union_variants(included, union_decls));
+            variants.extend(expanded_union_variants(included, union_decls, visiting));
         }
     }
     variants.extend(type_decl.variants.iter());
+    visiting.remove(&type_decl.name);
     variants
 }

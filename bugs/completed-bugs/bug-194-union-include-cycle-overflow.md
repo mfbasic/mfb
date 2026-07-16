@@ -5,8 +5,14 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: memory-safety (compile-time DoS)
 
-Status: Open
-Regression Test: tests/syntax/ (mutually-including unions → include-cycle diagnostic, not abort)
+Status: Fixed (2026-07-15) — `expanded_union_variants` in IR lowering now threads a
+`visiting: HashSet<String>` cycle guard (insert-before/remove-after, tracking the
+current DFS path) so a self- or mutually-including union short-circuits instead of
+recursing unboundedly; a legitimate diamond include still expands each edge
+(acyclic output unchanged).
+Regression Test: verified at runtime — `UNION A INCLUDES B` / `UNION B INCLUDES A`
+(and a self-`INCLUDES`) now build to a clean diagnostic (`mfb build` exit 1), not a
+native stack overflow.
 
 `expanded_union_variants` in IR lowering recurses through `UNION ... INCLUDES ...`
 edges with no cycle guard, so a mutually- or self-including union recurses
