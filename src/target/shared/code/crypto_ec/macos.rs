@@ -703,10 +703,24 @@ fn generate(
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&gen_fail));
     cleanup(&mut ins, "gf");
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
     cleanup(&mut ins, "af");
     emit_fail(
@@ -1394,7 +1408,6 @@ fn emit_cfdata_to_list(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod error_path_release_tests {
     // Regression guards for bug-55: the macOS SecKey `crypto::` sign/verify/
@@ -1419,7 +1432,10 @@ mod error_path_release_tests {
             generate(Curve::P256, "g", &imports, &TestPlatform).expect("lower generate");
         assert!(reloc_has(&rel, "CFRelease"));
         // gen_fail null-guards each CFRelease (NUM here).
-        assert!(has_label(&ins, "g_gfn_norel"), "gen_fail must null-guard CFRelease");
+        assert!(
+            has_label(&ins, "g_gfn_norel"),
+            "gen_fail must null-guard CFRelease"
+        );
     }
 
     #[test]
@@ -1429,10 +1445,16 @@ mod error_path_release_tests {
         let (_f, ins, rel, _s) =
             sign(Curve::P256, "s", &imports, &TestPlatform).expect("lower sign");
         assert!(reloc_has(&rel, "CFRelease"));
-        assert!(has_label(&ins, "s_sfp_norel"), "sign_fail must null-guard CFRelease(PRIVDATA)");
+        assert!(
+            has_label(&ins, "s_sfp_norel"),
+            "sign_fail must null-guard CFRelease(PRIVDATA)"
+        );
         // The private scalar scratch is wiped on both the success (privS) and the
         // error (sfz) exits.
-        assert!(has_label(&ins, "s_privS_noz"), "success exit must wipe PRIVBUF");
+        assert!(
+            has_label(&ins, "s_privS_noz"),
+            "success exit must wipe PRIVBUF"
+        );
         assert!(has_label(&ins, "s_sfz_noz"), "sign_fail must wipe PRIVBUF");
     }
 
@@ -1443,6 +1465,9 @@ mod error_path_release_tests {
         let (_f, ins, rel, _s) =
             verify(Curve::P256, "v", &imports, &TestPlatform).expect("lower verify");
         assert!(reloc_has(&rel, "CFRelease"));
-        assert!(has_label(&ins, "v_ivp_norel"), "invalid_fail must null-guard CFRelease(PUBDATA)");
+        assert!(
+            has_label(&ins, "v_ivp_norel"),
+            "invalid_fail must null-guard CFRelease(PUBDATA)"
+        );
     }
 }

@@ -1596,7 +1596,8 @@ mod tests {
     #[test]
     fn classify_installed_package_reads_unsigned_fixture() {
         // A valid unsigned package classifies as Unsigned (no signature).
-        let path = Path::new("tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp");
+        let path =
+            Path::new("tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp");
         assert!(path.is_file(), "fixture must exist");
         let classification = classify_installed_package(path, None);
         assert_eq!(classification.state, PackageVerification::Unsigned);

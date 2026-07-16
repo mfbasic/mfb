@@ -101,11 +101,19 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(abi::ARG[1], &scratch9, 8));
             }
             "Boolean" | "Byte" => {
-                self.emit(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), key_slot));
+                self.emit(abi::add_immediate(
+                    abi::ARG[1],
+                    abi::stack_pointer(),
+                    key_slot,
+                ));
                 self.emit(abi::move_immediate(abi::ARG[2], "Integer", "1"));
             }
             "Integer" | "Float" | "Fixed" => {
-                self.emit(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), key_slot));
+                self.emit(abi::add_immediate(
+                    abi::ARG[1],
+                    abi::stack_pointer(),
+                    key_slot,
+                ));
                 self.emit(abi::move_immediate(abi::ARG[2], "Integer", "8"));
             }
             other => {
@@ -178,9 +186,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch, "Integer", &entry_size));
         self.emit(abi::multiply_registers(&data_base, &capacity, &scratch));
         self.emit(abi::add_registers(&data_base, &data_base, &map));
-        self.emit(abi::add_immediate(&data_base, &data_base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &data_base,
+            &data_base,
+            COLLECTION_HEADER_SIZE,
+        ));
         let bucket_base = self.temporary_vreg();
-        self.emit(abi::load_u64(&bucket_base, &map, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &bucket_base,
+            &map,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit(abi::add_registers(&bucket_base, &bucket_base, &data_base));
         let bucket_count = self.temporary_vreg();
         self.emit(abi::shift_left_immediate(&bucket_count, &capacity, 1));
@@ -210,7 +226,12 @@ impl CodeBuilder<'_> {
         // linear-probe insertion fills the first empty slot from the home).
         let slot = self.temporary_vreg();
         self.emit(abi::unsigned_divide_registers(&slot, &hash, &bucket_count));
-        self.emit(abi::multiply_subtract_registers(&slot, &slot, &bucket_count, &hash));
+        self.emit(abi::multiply_subtract_registers(
+            &slot,
+            &slot,
+            &bucket_count,
+            &hash,
+        ));
         let bucket = self.temporary_vreg();
         self.emit(abi::shift_left_immediate(&bucket, &slot, 3));
         self.emit(abi::add_registers(&bucket, &bucket_base, &bucket));
@@ -224,16 +245,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch, "Integer", &entry_size));
         self.emit(abi::multiply_registers(&entry_addr, &bucket, &scratch));
         self.emit(abi::add_registers(&entry_addr, &entry_addr, &map));
-        self.emit(abi::add_immediate(&entry_addr, &entry_addr, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &entry_addr,
+            &entry_addr,
+            COLLECTION_HEADER_SIZE,
+        ));
 
         // A length mismatch means a hash collision at the home slot — hand the full
         // probe walk to the helper (rare); otherwise byte-compare the stored key.
         let stored_len = self.temporary_vreg();
-        self.emit(abi::load_u64(&stored_len, &entry_addr, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::load_u64(
+            &stored_len,
+            &entry_addr,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
         self.emit(abi::compare_registers(&stored_len, &key_len));
         self.emit(abi::branch_ne(&fallback));
         let stored_ptr = self.temporary_vreg();
-        self.emit(abi::load_u64(&stored_ptr, &entry_addr, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::load_u64(
+            &stored_ptr,
+            &entry_addr,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
         self.emit(abi::add_registers(&stored_ptr, &data_base, &stored_ptr));
         self.emit(abi::move_register(&cursor, &key_ptr));
         self.emit(abi::move_register(&remaining, &key_len));
@@ -252,12 +285,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&cmp_loop));
 
         self.emit(abi::label(&store_entry));
-        self.emit(abi::store_u64(&entry_addr, abi::stack_pointer(), entry_slot));
+        self.emit(abi::store_u64(
+            &entry_addr,
+            abi::stack_pointer(),
+            entry_slot,
+        ));
         self.emit(abi::branch(&done));
 
         // Fallback: full probe via `_mfb_rt_map_probe` (also lazily builds buckets).
         self.emit(abi::label(&fallback));
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(
+            abi::ARG[0],
+            abi::stack_pointer(),
+            collection_slot,
+        ));
         self.emit(abi::move_register(abi::ARG[1], &key_ptr));
         self.emit(abi::move_register(abi::ARG[2], &key_len));
         self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
@@ -276,9 +317,17 @@ impl CodeBuilder<'_> {
         let fb_entry = self.temporary_vreg();
         self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
         self.emit(abi::multiply_registers(&fb_entry, abi::RET[0], &fb_scratch));
-        self.emit(abi::load_u64(&fb_map, abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(
+            &fb_map,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
         self.emit(abi::add_registers(&fb_entry, &fb_entry, &fb_map));
-        self.emit(abi::add_immediate(&fb_entry, &fb_entry, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &fb_entry,
+            &fb_entry,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::store_u64(&fb_entry, abi::stack_pointer(), entry_slot));
 
         self.emit(abi::label(&done));

@@ -179,7 +179,11 @@ impl CodeBuilder<'_> {
 
         // Error mask accumulator v7 = 0 (always, so the reduce is valid even when
         // the loop body never runs).
-        self.emit(abi::vector_eor(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7]));
+        self.emit(abi::vector_eor(
+            abi::VEC_SCRATCH[7],
+            abi::VEC_SCRATCH[7],
+            abi::VEC_SCRATCH[7],
+        ));
         self.emit_simd_unary_setup(kernel)?;
 
         // --- 2-lane chunk loop ---
@@ -281,8 +285,16 @@ impl CodeBuilder<'_> {
             SimdUnaryKernel::AbsInteger => {
                 // Detect INT64_MIN lanes from the *input* (abs of INT64_MIN wraps
                 // back to INT64_MIN, so the check must precede the abs).
-                self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_cmeq(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[6],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[1],
+                ));
                 self.emit(abi::vector_abs(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
             }
             SimdUnaryKernel::AbsFloat => {
@@ -290,8 +302,15 @@ impl CodeBuilder<'_> {
             }
             SimdUnaryKernel::SqrtFloat => {
                 // Negative lanes (from the input) have no real square root.
-                self.emit(abi::vector_fcmlt_zero(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_fcmlt_zero(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[1],
+                ));
                 self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
             }
             SimdUnaryKernel::FloorFloat
@@ -300,41 +319,113 @@ impl CodeBuilder<'_> {
                 let frint = kernel.float_round_mnemonic().unwrap();
                 // Inf/NaN: exp field == 2047 (caught here; range compares below
                 // miss NaN, which compares false against everything).
-                self.emit(abi::vector_ushr(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], 52));
-                self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4]));
-                self.emit(abi::vector_cmeq(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[4]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_ushr(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[0],
+                    52,
+                ));
+                self.emit(abi::vector_and(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[4],
+                ));
+                self.emit(abi::vector_cmeq(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[4],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[1],
+                ));
                 // Round to integral, then bounds-check the rounded double.
                 self.emit(
                     CodeInstruction::new(frint)
                         .field("dst", abi::VEC_SCRATCH[3])
                         .field("src", abi::VEC_SCRATCH[0]),
                 );
-                self.emit(abi::vector_fcmge(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5])); // rounded >= 2^63
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
-                self.emit(abi::vector_fcmgt(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[3])); // -2^63 > rounded
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_fcmge(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[5],
+                )); // rounded >= 2^63
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[1],
+                ));
+                self.emit(abi::vector_fcmgt(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[6],
+                    abi::VEC_SCRATCH[3],
+                )); // -2^63 > rounded
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[7],
+                    abi::VEC_SCRATCH[1],
+                ));
                 self.emit(abi::vector_fcvtzs(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[3]));
             }
             SimdUnaryKernel::FloorFixed => {
                 // Arithmetic shift right by 32 rounds toward -infinity.
-                self.emit(abi::vector_sshr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], FIXED_SHIFT));
+                self.emit(abi::vector_sshr(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[0],
+                    FIXED_SHIFT,
+                ));
             }
             SimdUnaryKernel::CeilFixed => {
                 // ceil(x) = floor(x + (ONE-1)); arithmetic shift handles all signs.
-                self.emit(abi::vector_add(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[4]));
-                self.emit(abi::vector_sshr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], FIXED_SHIFT));
+                self.emit(abi::vector_add(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[4],
+                ));
+                self.emit(abi::vector_sshr(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[0],
+                    FIXED_SHIFT,
+                ));
             }
             SimdUnaryKernel::RoundFixed => {
                 // result = floor(x) + (frac >= threshold), threshold = half + sign
                 // (ties away from zero, matching the scalar Fixed rounder).
-                self.emit(abi::vector_sshr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], FIXED_SHIFT)); // whole
-                self.emit(abi::vector_and(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[4])); // frac
-                self.emit(abi::vector_ushr(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0], 63)); // sign bit (0/1)
-                self.emit(abi::vector_add(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[3])); // threshold
-                self.emit(abi::vector_cmge(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[3])); // frac >= threshold
-                self.emit(abi::vector_and(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[6])); // mask & 1
-                self.emit(abi::vector_add(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[3]));
+                self.emit(abi::vector_sshr(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                    FIXED_SHIFT,
+                )); // whole
+                self.emit(abi::vector_and(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[4],
+                )); // frac
+                self.emit(abi::vector_ushr(
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[0],
+                    63,
+                )); // sign bit (0/1)
+                self.emit(abi::vector_add(
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[5],
+                    abi::VEC_SCRATCH[3],
+                )); // threshold
+                self.emit(abi::vector_cmge(
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[3],
+                )); // frac >= threshold
+                self.emit(abi::vector_and(
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[6],
+                )); // mask & 1
+                self.emit(abi::vector_add(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[3],
+                ));
             }
         }
         Ok(())
@@ -586,19 +677,51 @@ impl CodeBuilder<'_> {
     /// Per-chunk NEON min/max: lanes in `v0` (left) and `v1` (right); result → `v0`.
     fn emit_simd_binary_vector(&mut self, kernel: SimdBinaryKernel) {
         match kernel {
-            SimdBinaryKernel::MinFloat => self.emit(abi::vector_fmin(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])),
-            SimdBinaryKernel::MaxFloat => self.emit(abi::vector_fmax(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])),
+            SimdBinaryKernel::MinFloat => self.emit(abi::vector_fmin(
+                abi::VEC_SCRATCH[0],
+                abi::VEC_SCRATCH[0],
+                abi::VEC_SCRATCH[1],
+            )),
+            SimdBinaryKernel::MaxFloat => self.emit(abi::vector_fmax(
+                abi::VEC_SCRATCH[0],
+                abi::VEC_SCRATCH[0],
+                abi::VEC_SCRATCH[1],
+            )),
             SimdBinaryKernel::MinSigned => {
                 // min(a,b): select a where b>a (a is smaller), else b.
-                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0])); // b > a
-                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+                self.emit(abi::vector_cmgt(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                )); // b > a
+                self.emit(abi::vector_bsl(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[2],
+                ));
             }
             SimdBinaryKernel::MaxSigned => {
                 // max(a,b): select a where a>b, else b.
-                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1])); // a > b
-                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2]));
+                self.emit(abi::vector_cmgt(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                )); // a > b
+                self.emit(abi::vector_bsl(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[2],
+                ));
             }
         }
     }
@@ -629,9 +752,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], left));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], right));
                 if matches!(kernel, SimdBinaryKernel::MinFloat) {
-                    self.emit(abi::float_min_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                    self.emit(abi::float_min_d(
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[1],
+                    ));
                 } else {
-                    self.emit(abi::float_max_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                    self.emit(abi::float_max_d(
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[1],
+                    ));
                 }
                 self.emit(abi::float_move_x_from_d(left, abi::FP_SCRATCH[0]));
             }
@@ -774,18 +905,50 @@ impl CodeBuilder<'_> {
     fn emit_simd_clamp_vector(&mut self, kernel: SimdClampKernel) {
         match kernel {
             SimdClampKernel::Float => {
-                self.emit(abi::vector_fmin(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6])); // min(x, high)
-                self.emit(abi::vector_fmax(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5])); // max(.., low)
+                self.emit(abi::vector_fmin(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[6],
+                )); // min(x, high)
+                self.emit(abi::vector_fmax(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[5],
+                )); // max(.., low)
             }
             SimdClampKernel::Signed => {
                 // min(x, high): select x where high>x else high.
-                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[0]));
-                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[6]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_cmgt(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[6],
+                    abi::VEC_SCRATCH[0],
+                ));
+                self.emit(abi::vector_bsl(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[6],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[1],
+                ));
                 // max(.., low): select v0 where v0>low else low.
-                self.emit(abi::vector_cmgt(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5]));
-                self.emit(abi::vector_bsl(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[5]));
-                self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1]));
+                self.emit(abi::vector_cmgt(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[5],
+                ));
+                self.emit(abi::vector_bsl(
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[5],
+                ));
+                self.emit(abi::vector_orr(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[1],
+                ));
             }
         }
     }
@@ -821,9 +984,17 @@ impl CodeBuilder<'_> {
                 // lane = max(min(lane, high), low)
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], lane));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], high));
-                self.emit(abi::float_min_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])); // min(lane, high)
+                self.emit(abi::float_min_d(
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[1],
+                )); // min(lane, high)
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], low));
-                self.emit(abi::float_max_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])); // max(.., low)
+                self.emit(abi::float_max_d(
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[1],
+                )); // max(.., low)
                 self.emit(abi::float_move_x_from_d(lane, abi::FP_SCRATCH[0]));
             }
         }

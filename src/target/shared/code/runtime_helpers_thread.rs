@@ -82,7 +82,11 @@ pub(super) fn simple_thread_handle_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    instructions.extend([abi::store_u64(abi::ARG[0], abi::stack_pointer(), HANDLE_OFFSET)]);
+    instructions.extend([abi::store_u64(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        HANDLE_OFFSET,
+    )]);
     match op {
         ThreadSimpleOp::IsRunning => {
             let running = format!("{symbol}_running");
@@ -1013,8 +1017,7 @@ pub(super) fn thread_queue_write_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -1153,10 +1156,7 @@ pub(super) fn thread_queue_read_helper(
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    instructions.extend([
-        abi::branch(&drain_loop),
-        abi::label(&drain_done),
-    ]);
+    instructions.extend([abi::branch(&drain_loop), abi::label(&drain_done)]);
     instructions.extend([
         abi::label(&wait_loop),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
@@ -1344,8 +1344,7 @@ pub(super) fn thread_queue_read_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 

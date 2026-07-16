@@ -1738,9 +1738,7 @@ mod tests {
                 if name.contains("test") || name == "abi.rs" {
                     continue;
                 }
-                if name == "analysis.rs"
-                    && path.parent().is_some_and(|p| p.ends_with("regalloc"))
-                {
+                if name == "analysis.rs" && path.parent().is_some_and(|p| p.ends_with("regalloc")) {
                     continue;
                 }
                 let src = std::fs::read_to_string(&path).expect("read source");

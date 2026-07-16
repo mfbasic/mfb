@@ -218,7 +218,11 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
 
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(
             output_len,
             abi::stack_pointer(),
@@ -458,20 +462,32 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&overflow));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
 
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.kind.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(
+            &scratch13,
+            abi::RET[1],
+            COLLECTION_OFFSET_KIND,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(
+            &scratch13,
+            abi::RET[1],
+            COLLECTION_OFFSET_KEY_TYPE,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
@@ -494,8 +510,16 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::store_u64(&scratch11, abi::RET[1], COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch11, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(
+            &scratch11,
+            abi::RET[1],
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::store_u64(
+            &scratch11,
+            abi::RET[1],
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::load_u64(
             &scratch15,
             abi::stack_pointer(),
@@ -520,13 +544,21 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::add_immediate(
             &scratch16,
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::add_immediate(&scratch17, abi::RET[1], COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch17,
+            abi::RET[1],
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::move_immediate(
             &scratch14,
@@ -918,7 +950,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
         self.emit(abi::store_u64(length, abi::RET[1], 0));
         self.emit(abi::add_immediate(dst, abi::RET[1], 8));
@@ -1160,7 +1196,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
         self.emit(abi::store_u64(length, abi::RET[1], 0));
         self.emit(abi::add_immediate(dst, abi::RET[1], 8));
@@ -1346,7 +1386,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(
             total_len,
             abi::stack_pointer(),
@@ -1493,7 +1537,11 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::move_register(raw, source_register));
         self.emit(abi::move_register(precision, precision_register));
-        self.emit(abi::store_u64(precision, abi::stack_pointer(), precision_slot));
+        self.emit(abi::store_u64(
+            precision,
+            abi::stack_pointer(),
+            precision_slot,
+        ));
         self.emit(abi::move_immediate(negative, "Integer", "0"));
         self.emit(abi::compare_immediate(raw, "0"));
         self.emit(abi::branch_ge(&nonnegative));
@@ -1522,7 +1570,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&round_pow_done));
         // q = raw / divisor, r = raw - q*divisor; bump q when 2*r >= divisor.
         self.emit(abi::unsigned_divide_registers(quotient, raw, divisor));
-        self.emit(abi::multiply_subtract_registers(remainder, quotient, divisor, raw));
+        self.emit(abi::multiply_subtract_registers(
+            remainder, quotient, divisor, raw,
+        ));
         self.emit(abi::add_registers(remainder, remainder, remainder)); // 2*r (no overflow: r<divisor<=1e5)
         self.emit(abi::compare_registers(remainder, divisor));
         self.emit(abi::branch_lt(&round_no_bump));
@@ -1535,9 +1585,15 @@ impl CodeBuilder<'_> {
         // int_part = raw / 100000; frac_part = raw % 100000.
         self.emit(abi::move_immediate(scale, "Integer", "100000"));
         self.emit(abi::unsigned_divide_registers(int_part, raw, scale));
-        self.emit(abi::multiply_subtract_registers(frac_part, int_part, scale, raw));
+        self.emit(abi::multiply_subtract_registers(
+            frac_part, int_part, scale, raw,
+        ));
         self.emit(abi::move_immediate(length, "Integer", "0"));
-        self.emit(abi::add_immediate(cursor, abi::stack_pointer(), buffer_slot + 47));
+        self.emit(abi::add_immediate(
+            cursor,
+            abi::stack_pointer(),
+            buffer_slot + 47,
+        ));
         self.emit(abi::compare_immediate(int_part, "0"));
         self.emit(abi::branch_eq(&integer_zero));
         self.emit(abi::move_immediate(divisor, "Integer", "10"));
@@ -1545,7 +1601,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(int_part, "0"));
         self.emit(abi::branch_eq(&integer_done));
         self.emit(abi::unsigned_divide_registers(quotient, int_part, divisor));
-        self.emit(abi::multiply_subtract_registers(digit, quotient, divisor, int_part));
+        self.emit(abi::multiply_subtract_registers(
+            digit, quotient, divisor, int_part,
+        ));
         self.emit(abi::add_immediate(digit, digit, b'0' as usize));
         self.emit(abi::store_u8(digit, cursor, 0));
         self.emit(abi::subtract_immediate(cursor, cursor, 1));
@@ -1554,7 +1612,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&integer_loop));
 
         self.emit(abi::label(&integer_zero));
-        self.emit(abi::move_immediate(digit, "Integer", &(b'0' as u64).to_string()));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'0' as u64).to_string(),
+        ));
         self.emit(abi::store_u8(digit, cursor, 0));
         self.emit(abi::subtract_immediate(cursor, cursor, 1));
         self.emit(abi::move_immediate(length, "Integer", "1"));
@@ -1562,21 +1624,37 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&integer_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(&sign_done));
-        self.emit(abi::move_immediate(digit, "Integer", &(b'-' as u64).to_string()));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'-' as u64).to_string(),
+        ));
         self.emit(abi::store_u8(digit, cursor, 0));
         self.emit(abi::subtract_immediate(cursor, cursor, 1));
         self.emit(abi::add_immediate(length, length, 1));
         self.emit(abi::label(&sign_done));
         self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::store_u64(cursor, abi::stack_pointer(), integer_start_slot));
-        self.emit(abi::store_u64(length, abi::stack_pointer(), integer_len_slot));
+        self.emit(abi::store_u64(
+            cursor,
+            abi::stack_pointer(),
+            integer_start_slot,
+        ));
+        self.emit(abi::store_u64(
+            length,
+            abi::stack_pointer(),
+            integer_len_slot,
+        ));
         self.emit(abi::move_register(total_len, length));
         self.emit(abi::compare_immediate(precision, "0"));
         self.emit(abi::branch_eq(&no_fraction));
         self.emit(abi::add_immediate(total_len, total_len, 1));
         self.emit(abi::add_registers(total_len, total_len, precision));
         self.emit(abi::label(&no_fraction));
-        self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_len_slot));
+        self.emit(abi::store_u64(
+            total_len,
+            abi::stack_pointer(),
+            total_len_slot,
+        ));
 
         self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
@@ -1588,16 +1666,35 @@ impl CodeBuilder<'_> {
             binding: "internal".to_string(),
             library: None,
         });
-        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(total_len, abi::stack_pointer(), total_len_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit(abi::load_u64(
+            total_len,
+            abi::stack_pointer(),
+            total_len_slot,
+        ));
         self.emit(abi::store_u64(total_len, abi::RET[1], 0));
         self.emit(abi::add_immediate(dst, abi::RET[1], 8));
-        self.emit(abi::load_u64(cursor, abi::stack_pointer(), integer_start_slot));
-        self.emit(abi::load_u64(length, abi::stack_pointer(), integer_len_slot));
+        self.emit(abi::load_u64(
+            cursor,
+            abi::stack_pointer(),
+            integer_start_slot,
+        ));
+        self.emit(abi::load_u64(
+            length,
+            abi::stack_pointer(),
+            integer_len_slot,
+        ));
         self.emit(abi::label(&copy_integer_loop));
         self.emit(abi::compare_immediate(length, "0"));
         self.emit(abi::branch_eq(&copy_integer_done));
@@ -1609,10 +1706,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&copy_integer_loop));
         self.emit(abi::label(&copy_integer_done));
 
-        self.emit(abi::load_u64(precision, abi::stack_pointer(), precision_slot));
+        self.emit(abi::load_u64(
+            precision,
+            abi::stack_pointer(),
+            precision_slot,
+        ));
         self.emit(abi::compare_immediate(precision, "0"));
         self.emit(abi::branch_eq(&fraction_done));
-        self.emit(abi::move_immediate(digit, "Integer", &(b'.' as u64).to_string()));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'.' as u64).to_string(),
+        ));
         self.emit(abi::store_u8(digit, dst, 0));
         self.emit(abi::add_immediate(dst, dst, 1));
         // frac_part = raw % 100000 (from the possibly-rounded magnitude); each
@@ -1621,7 +1726,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(raw, abi::stack_pointer(), magnitude_slot));
         self.emit(abi::move_immediate(scale, "Integer", "100000"));
         self.emit(abi::unsigned_divide_registers(int_part, raw, scale));
-        self.emit(abi::multiply_subtract_registers(frac_part, int_part, scale, raw));
+        self.emit(abi::multiply_subtract_registers(
+            frac_part, int_part, scale, raw,
+        ));
         self.emit(abi::move_immediate(counter, "Integer", "0"));
         self.emit(abi::move_immediate(divisor, "Integer", "10"));
         self.emit(abi::label(&fraction_loop));
@@ -1629,7 +1736,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&fraction_done));
         self.emit(abi::multiply_registers(frac_part, frac_part, divisor));
         self.emit(abi::unsigned_divide_registers(digit, frac_part, scale));
-        self.emit(abi::multiply_subtract_registers(frac_part, digit, scale, frac_part));
+        self.emit(abi::multiply_subtract_registers(
+            frac_part, digit, scale, frac_part,
+        ));
         self.emit(abi::add_immediate(digit, digit, b'0' as usize));
         self.emit(abi::store_u8(digit, dst, 0));
         self.emit(abi::add_immediate(dst, dst, 1));

@@ -162,23 +162,22 @@ impl<'a> Monomorphizer<'a> {
         line: usize,
     ) -> Option<String> {
         let candidates = self.imported_overloads.get(callee)?;
-        let matches: Vec<String> = candidates
-            .iter()
-            .filter(|candidate| {
-                candidate.param_types.len() == arg_types.len()
-                    && candidate
-                        .param_types
-                        .iter()
-                        .zip(arg_types.iter())
-                        .all(|(param, actual)| {
-                            self.types_compatible(
-                                &self.normalize_type(param),
-                                &self.normalize_type(actual),
-                            )
-                        })
-            })
-            .map(|candidate| candidate.qualified_name.clone())
-            .collect();
+        let matches: Vec<String> =
+            candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate.param_types.len() == arg_types.len()
+                        && candidate.param_types.iter().zip(arg_types.iter()).all(
+                            |(param, actual)| {
+                                self.types_compatible(
+                                    &self.normalize_type(param),
+                                    &self.normalize_type(actual),
+                                )
+                            },
+                        )
+                })
+                .map(|candidate| candidate.qualified_name.clone())
+                .collect();
         match matches.len() {
             0 => None,
             1 => Some(matches.into_iter().next().expect("one match")),
@@ -223,7 +222,8 @@ impl<'a> Monomorphizer<'a> {
         // seed, so the same source produced different overload resolutions and
         // flapping diagnostics run-to-run (bug-104). Sort longest-first for a
         // stable, prefix-preferring order.
-        let mut qualifiers: Vec<&str> = self.package_qualifiers.iter().map(String::as_str).collect();
+        let mut qualifiers: Vec<&str> =
+            self.package_qualifiers.iter().map(String::as_str).collect();
         qualifiers.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         let mut normalized = type_.to_string();
         for qualifier in qualifiers {
@@ -1226,8 +1226,7 @@ impl<'a> Monomorphizer<'a> {
                 // type and instantiation emits a wrong concrete symbol (bug-196).
                 let ordered_arg_types =
                     self.arg_types_in_param_order(callee, arguments, &arg_types);
-                let instantiate_arg_types =
-                    ordered_arg_types.as_deref().unwrap_or(&arg_types);
+                let instantiate_arg_types = ordered_arg_types.as_deref().unwrap_or(&arg_types);
                 let target = if let Some(target) =
                     self.instantiate_function(callee, instantiate_arg_types, line)
                 {
@@ -1860,12 +1859,10 @@ impl<'a> Monomorphizer<'a> {
         self.had_error = true;
         // Prefer the file whose body is currently being lowered (bug-107); fall
         // back to the first project file only when the frame is unknown.
-        let relative = self.current_file.clone().or_else(|| {
-            self.source
-                .files
-                .first()
-                .map(|file| file.path.clone())
-        });
+        let relative = self
+            .current_file
+            .clone()
+            .or_else(|| self.source.files.first().map(|file| file.path.clone()));
         let path = relative
             .map(|rel| self.project_dir.join(rel))
             .unwrap_or_else(|| self.project_dir.join("src/main.mfb"));
@@ -2551,7 +2548,10 @@ END FUNC
             monomorphizer.resolve_imported_overload("pkg.other", &[], 1),
             None
         );
-        assert_eq!(monomorphizer.resolve_imported_overload("pkg.f", &[], 1), None);
+        assert_eq!(
+            monomorphizer.resolve_imported_overload("pkg.f", &[], 1),
+            None
+        );
     }
 
     #[test]

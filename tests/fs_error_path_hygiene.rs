@@ -123,7 +123,10 @@ fn count(func: &Value, pred: impl Fn(&Value) -> bool) -> usize {
 /// their success paths, so the fix is exactly the first `close` call to appear;
 /// `fs::readBytes` already closes once on success, so the OOM close makes it two.
 fn assert_close_on_oom(ncode: &Value, target: &str) {
-    let open_closes = count(helper(ncode, target, "_mfb_rt_fs_fs_openFile"), is_close_call);
+    let open_closes = count(
+        helper(ncode, target, "_mfb_rt_fs_fs_openFile"),
+        is_close_call,
+    );
     assert!(
         open_closes >= 1,
         "{target}: fs::openFile OOM branch does not close the fd (bug-63 item 1): \
@@ -206,7 +209,11 @@ fn assert_target(target: &str) {
     let name = format!("fs_err_hygiene_{}", target.replace('-', "_"));
     let project = temp_project(&name, SOURCE);
     let ncode = build_ncode(&project, target, &name);
-    assert_eq!(ncode["target"].as_str(), Some(target), "ncode target mismatch");
+    assert_eq!(
+        ncode["target"].as_str(),
+        Some(target),
+        "ncode target mismatch"
+    );
     assert_close_on_oom(&ncode, target);
     assert_atomic_unlinks(&ncode, target);
     assert_close_marked_before_branch(&ncode, target);

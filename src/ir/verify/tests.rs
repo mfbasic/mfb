@@ -273,7 +273,10 @@ fn rejects_member_access_on_money_and_scalar() {
         let err = check(&project(vec![f], vec![]))
             .err()
             .unwrap_or_else(|| panic!("member on {ty} must be rejected"));
-        assert!(err.contains("TYPE_FIELD_ACCESS_REQUIRES_RECORD"), "{ty}: {err}");
+        assert!(
+            err.contains("TYPE_FIELD_ACCESS_REQUIRES_RECORD"),
+            "{ty}: {err}"
+        );
     }
 }
 
@@ -4742,7 +4745,12 @@ fn enum_member_access_returns_after_check() {
 /// so the member access reads a string at `Account.balance`'s offset.
 #[test]
 fn call_result_annotated_as_a_foreign_record_is_rejected() {
-    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let get_name = func_returns(
+        "getName",
+        "String",
+        vec![],
+        vec![ret(const_of("String", "a"))],
+    );
     let confused = IrValue::MemberAccess {
         target: Box::new(IrValue::Call {
             target: "getName".to_string(),
@@ -4767,7 +4775,12 @@ fn call_result_annotated_as_a_foreign_record_is_rejected() {
 /// operand rule, so codegen emitted an integer subtract over a string pointer.
 #[test]
 fn string_call_annotated_integer_cannot_feed_arithmetic() {
-    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let get_name = func_returns(
+        "getName",
+        "String",
+        vec![],
+        vec![ret(const_of("String", "a"))],
+    );
     let confused = binary(
         "-",
         IrValue::Call {
@@ -4789,7 +4802,12 @@ fn string_call_annotated_integer_cannot_feed_arithmetic() {
 /// The same lie through a fallible call node.
 #[test]
 fn call_result_node_annotation_is_reconciled_too() {
-    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let get_name = func_returns(
+        "getName",
+        "String",
+        vec![],
+        vec![ret(const_of("String", "a"))],
+    );
     let caller = func(
         "run",
         vec![],
@@ -4809,7 +4827,12 @@ fn call_result_node_annotation_is_reconciled_too() {
 /// A truthful annotation still verifies, on both call node kinds.
 #[test]
 fn a_truthful_call_annotation_is_accepted() {
-    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let get_name = func_returns(
+        "getName",
+        "String",
+        vec![],
+        vec![ret(const_of("String", "a"))],
+    );
     let caller = func_returns(
         "run",
         "String",
@@ -4824,7 +4847,12 @@ fn a_truthful_call_annotation_is_accepted() {
     accept(&project(vec![get_name, caller], vec![]));
 
     // An `Unknown` annotation is unresolved, not a disagreement.
-    let get_name = func_returns("getName", "String", vec![], vec![ret(const_of("String", "a"))]);
+    let get_name = func_returns(
+        "getName",
+        "String",
+        vec![],
+        vec![ret(const_of("String", "a"))],
+    );
     let caller = func_returns(
         "run",
         "String",

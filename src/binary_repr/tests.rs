@@ -3209,8 +3209,16 @@ mod reader_gap_tests {
             }],
             dep_edges: vec![],
         };
-        validate_abi_index(&good, &[], &imports, &strings.values, &types, &constants, &[])
-            .expect("a faithful type export hash validates");
+        validate_abi_index(
+            &good,
+            &[],
+            &imports,
+            &strings.values,
+            &types,
+            &constants,
+            &[],
+        )
+        .expect("a faithful type export hash validates");
 
         let mut tampered_hash = sig_hash;
         tampered_hash[0] ^= 0xff;
@@ -3232,7 +3240,10 @@ mod reader_gap_tests {
             &[],
         )
         .expect_err("a forged type export hash must be rejected");
-        assert!(err.contains("type export `Point` sigHash disagrees"), "{err}");
+        assert!(
+            err.contains("type export `Point` sigHash disagrees"),
+            "{err}"
+        );
 
         // An export naming a type that is absent from the TYPE_TABLE is an error.
         let orphan_name = strings.intern("Ghost");

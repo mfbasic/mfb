@@ -138,8 +138,12 @@ fn encodes_sxtw() {
     // Guards bug-04: narrows a C `int` return before the 64-bit flush sign-check.
     let mut encoder = fresh_encoder();
     for inst in [
-        CodeInstruction::new("sxtw").field("dst", "x0").field("src", "x0"),
-        CodeInstruction::new("sxtw").field("dst", "x3").field("src", "x1"),
+        CodeInstruction::new("sxtw")
+            .field("dst", "x0")
+            .field("src", "x0"),
+        CodeInstruction::new("sxtw")
+            .field("dst", "x3")
+            .field("src", "x1"),
     ] {
         encoder.emit_instruction(&inst).unwrap();
     }
@@ -771,18 +775,20 @@ fn add_carry_and_sub_borrow_sizes() {
 fn cmp_imm_size_matches_emit_for_out_of_range_immediates() {
     // `emit_words` asserts instruction_size == emitted bytes. Out of imm12 range
     // `emit_cmp_imm` is `mov_imm` (1–4 words) + `cmp`, not the add/sub chunking.
-    assert_eq!(emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4095")]).len(), 1);
-    assert_eq!(emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4096")]).len(), 2);
+    assert_eq!(
+        emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4095")]).len(),
+        1
+    );
+    assert_eq!(
+        emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4096")]).len(),
+        2
+    );
     assert_eq!(
         emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "4294967296")]).len(),
         3
     );
     assert_eq!(
-        emit_words(
-            "cmp_imm",
-            &[("lhs", "x0"), ("rhs", "18446744073709551615")]
-        )
-        .len(),
+        emit_words("cmp_imm", &[("lhs", "x0"), ("rhs", "18446744073709551615")]).len(),
         5
     );
 }
@@ -1230,4 +1236,3 @@ fn sizing_helpers_directly() {
     // A negative delta wraps into the masked field.
     assert_ne!(branch_imm26(8, 0), 0);
 }
-

@@ -152,8 +152,9 @@ fn verbose_build_prints_phase_lines() {
         );
         for phase in ["parse", "resolve", "verify", "codegen+link"] {
             assert!(
-                err.lines()
-                    .any(|line| line.starts_with(&format!("phase {phase} ")) && line.ends_with("ms")),
+                err.lines().any(
+                    |line| line.starts_with(&format!("phase {phase} ")) && line.ends_with("ms")
+                ),
                 "{flag}: missing `phase {phase} …ms` line in:\n{err}"
             );
         }

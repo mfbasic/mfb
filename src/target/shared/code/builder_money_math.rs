@@ -62,7 +62,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&mode, "0"));
         self.emit(abi::branch_eq(&round_up)); // Commercial -> away
-        // Banker: round only when the truncated quotient is odd (to reach even).
+                                              // Banker: round only when the truncated quotient is odd (to reach even).
         let one = self.allocate_register()?;
         self.emit(abi::move_immediate(&one, "Integer", "1"));
         let parity = self.allocate_register()?;
@@ -105,7 +105,11 @@ impl CodeBuilder<'_> {
             }
             "*" => {
                 // Commutative: identify the Money operand and the scalar factor.
-                let (money, scalar) = if l_money { (left, right) } else { (right, left) };
+                let (money, scalar) = if l_money {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
                 self.emit_money_multiply(money, scalar, dst)
             }
             "/" if l_money && r_money => self.emit_money_ratio(left, right),
@@ -183,7 +187,9 @@ impl CodeBuilder<'_> {
                     &money.location,
                     &scalar.location,
                 ));
-                self.emit(abi::arithmetic_shift_right_immediate(&sign_neg, &sign_neg, 63));
+                self.emit(abi::arithmetic_shift_right_immediate(
+                    &sign_neg, &sign_neg, 63,
+                ));
                 // Guard k == i64::MIN: `emit_abs_i64` leaves it negative (its
                 // magnitude is unrepresentable), which would make the signed
                 // half-compare in `emit_apply_rounding` take the wrong branch
@@ -193,7 +199,11 @@ impl CodeBuilder<'_> {
                 let min_divisor = self.allocate_register()?;
                 // i64::MIN as its unsigned bit pattern (2^63); `move_immediate`
                 // takes the u64 pattern, not the signed "-9223372036854775808".
-                self.emit(abi::move_immediate(&min_divisor, "Integer", "9223372036854775808"));
+                self.emit(abi::move_immediate(
+                    &min_divisor,
+                    "Integer",
+                    "9223372036854775808",
+                ));
                 let not_min = self.label("money_div_scalar_not_min");
                 let div_done = self.label("money_div_scalar_done");
                 self.emit(abi::compare_registers(&scalar.location, &min_divisor));
@@ -349,7 +359,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_compare_d(&abs_frac, &half));
         self.emit(abi::branch_mi(&done)); // abs_frac < 0.5 → keep
         self.emit(abi::branch_gt(&round_away)); // abs_frac > 0.5 → round away
-        // Exact half tie: Commercial rounds away; Banker rounds to even.
+                                                // Exact half tie: Commercial rounds away; Banker rounds to even.
         let mode = self.allocate_register()?;
         self.emit(abi::load_u64(
             &mode,

@@ -680,7 +680,10 @@ mod tests {
         );
         let manifest = validate_project_manifest(&path).expect("valid");
         assert_eq!(icon_path(&manifest), Some("art/icon.png"));
-        assert_eq!(icon_path(&validate_project_manifest(&write_manifest(VALID).1).unwrap()), None);
+        assert_eq!(
+            icon_path(&validate_project_manifest(&write_manifest(VALID).1).unwrap()),
+            None
+        );
     }
 
     #[test]

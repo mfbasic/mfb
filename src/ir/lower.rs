@@ -912,7 +912,8 @@ fn lower_statement(
                 // function is classified as `Integer` and its raw bits are
                 // reinterpreted as the destination type (bug-156).
                 let expected = context.current_return_type.clone();
-                let base = lower_expression_with_expected(value, expected.as_deref(), locals, context);
+                let base =
+                    lower_expression_with_expected(value, expected.as_deref(), locals, context);
                 // Implicitly wrap a returned member constructor into the
                 // function's declared union return type, so the wrap is explicit
                 // in the IR (and faithfully serialized into Binary Representation) rather

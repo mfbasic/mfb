@@ -237,8 +237,9 @@ fn lib_for(symbol: &str) -> Result<&'static str, String> {
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
         "pipe" | "dup2" | "close" | "setenv" | "write" | "fcntl" | "_exit"
-        | "__libc_start_main" | "malloc" | "free" | "memcpy" | "memset" | "memmove"
-        | "pause" => LIBC,
+        | "__libc_start_main" | "malloc" | "free" | "memcpy" | "memset" | "memmove" | "pause" => {
+            LIBC
+        }
         // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
         "gdk_keyval_to_unicode" => GTK,
         "g_object_ref_sink" => GOBJECT,
@@ -856,7 +857,10 @@ mod import_tests {
             "the activate handler closes the redundant read fd, so `close` must be imported"
         );
         // The genuinely-used libc env call must remain.
-        assert!(symbols.iter().any(|s| s == "setenv"), "setenv is still used");
+        assert!(
+            symbols.iter().any(|s| s == "setenv"),
+            "setenv is still used"
+        );
     }
 
     /// `lib_for` maps every symbol the backend references; `close` must resolve to

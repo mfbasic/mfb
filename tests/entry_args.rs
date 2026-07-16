@@ -62,7 +62,10 @@ fn build_ncode(name: &str, source: &str, target: &str, app: bool) -> serde_json:
     if app {
         command.arg("-app");
     }
-    let output = command.arg(&project).output().expect("run mfb build -ncode");
+    let output = command
+        .arg(&project)
+        .output()
+        .expect("run mfb build -ncode");
     assert!(
         output.status.success(),
         "build failed for {target}:\n{}\n{}",
@@ -239,10 +242,7 @@ fn host_arg_accepting_program_receives_its_arguments() {
         run.status
     );
     // argv[0] is the program itself, so the vector is [exe, alpha, beta].
-    assert!(
-        stdout.contains("argc=3"),
-        "expected argc=3, got:\n{stdout}"
-    );
+    assert!(stdout.contains("argc=3"), "expected argc=3, got:\n{stdout}");
     assert!(stdout.contains("arg: alpha"), "missing alpha:\n{stdout}");
     assert!(stdout.contains("arg: beta"), "missing beta:\n{stdout}");
 

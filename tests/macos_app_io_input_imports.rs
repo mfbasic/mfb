@@ -89,7 +89,11 @@ fn macos_app_io_input_only_program_builds() {
 fn macos_app_io_input_binds_terminal_probe_symbols() {
     let project = build_app("macos_app_input_syms", INPUT_ONLY_SOURCE);
     let exe = project.join("macos_app_input_syms.app/Contents/MacOS/macos_app_input_syms");
-    assert!(exe.is_file(), "expected app executable at {}", exe.display());
+    assert!(
+        exe.is_file(),
+        "expected app executable at {}",
+        exe.display()
+    );
 
     let nm = Command::new("nm")
         .arg("-u")

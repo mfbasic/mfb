@@ -76,17 +76,33 @@ impl CodeBuilder<'_> {
         // arithmetic-binary sibling: spill left, lower right, reload both.
         let left = self.lower_value(left)?;
         let left_slot = self.allocate_stack_object("xor_left", 8);
-        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
         let left_text = left.text.clone();
         let right = self.lower_value(right)?;
         let right_slot = self.allocate_stack_object("xor_right", 8);
-        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        self.emit(abi::store_u64(
+            &right.location,
+            abi::stack_pointer(),
+            right_slot,
+        ));
         let right_text = right.text.clone();
         self.reset_temporary_registers();
         let left_register = self.allocate_register()?;
         let right_register = self.allocate_register()?;
-        self.emit(abi::load_u64(&left_register, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(&right_register, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(
+            &left_register,
+            abi::stack_pointer(),
+            left_slot,
+        ));
+        self.emit(abi::load_u64(
+            &right_register,
+            abi::stack_pointer(),
+            right_slot,
+        ));
         let result = self.allocate_register()?;
         self.emit(abi::exclusive_or_registers(
             &result,
@@ -366,7 +382,10 @@ impl CodeBuilder<'_> {
                 // hardcoded `x17` as scratch, which corrupted the result when the
                 // allocator handed out x16/x17 — e.g. two inline `-literal` call
                 // arguments.)
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &operand.location));
+                self.emit(abi::float_move_d_from_x(
+                    abi::FP_SCRATCH[0],
+                    &operand.location,
+                ));
                 self.emit(abi::float_negate_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
                 self.emit(abi::float_move_x_from_d(&register, abi::FP_SCRATCH[0]));
             }
@@ -1421,11 +1440,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_gt(&loop_label)); // base > 1: slow path.
         self.emit(abi::compare_immediate(base, &(-1_i64 as u64).to_string()));
         self.emit(abi::branch_lt(&loop_label)); // base < -1: slow path.
-        // base is now one of {-1, 0, 1}; `dst` currently holds 1.
+                                                // base is now one of {-1, 0, 1}; `dst` currently holds 1.
         self.emit(abi::compare_immediate(base, "0"));
         self.emit(abi::branch_eq(&bounded_zero));
         self.emit(abi::branch_gt(&done_label)); // base == 1: 1^n == 1.
-        // base == -1: 1 for an even exponent, -1 for an odd exponent.
+                                                // base == -1: 1 for an even exponent, -1 for an odd exponent.
         let parity = self.allocate_register()?;
         let one_bit = self.allocate_register()?;
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
@@ -1637,12 +1656,16 @@ impl CodeBuilder<'_> {
         // fail to encode (bug-74). `dst` already holds `one_raw`.
         let neg_one_raw = -(one_raw as i64) as u64;
         let neg_one_reg = self.allocate_register()?;
-        self.emit(abi::move_immediate(&neg_one_reg, "Fixed", &neg_one_raw.to_string()));
+        self.emit(abi::move_immediate(
+            &neg_one_reg,
+            "Fixed",
+            &neg_one_raw.to_string(),
+        ));
         self.emit(abi::compare_registers(base, dst));
         self.emit(abi::branch_eq(&done_label)); // 1.0^n == 1.0 (dst already 1.0).
         self.emit(abi::compare_registers(base, &neg_one_reg));
         self.emit(abi::branch_ne(&loop_label)); // |base| != 1.0: enter the loop.
-        // base == -1.0: 1.0 for an even exponent, -1.0 for an odd exponent.
+                                                // base == -1.0: 1.0 for an even exponent, -1.0 for an odd exponent.
         let parity = self.allocate_register()?;
         let one_bit = self.allocate_register()?;
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
@@ -1771,8 +1794,14 @@ impl CodeBuilder<'_> {
         let exponent_roundtrip = self.allocate_register()?;
         let exponent_bits = self.allocate_register()?;
         self.emit(abi::float_convert_to_signed_x(&exponent_int, exponent));
-        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], &exponent_int));
-        self.emit(abi::float_move_x_from_d(&exponent_roundtrip, abi::FP_SCRATCH[2]));
+        self.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            &exponent_int,
+        ));
+        self.emit(abi::float_move_x_from_d(
+            &exponent_roundtrip,
+            abi::FP_SCRATCH[2],
+        ));
         self.emit(abi::float_move_x_from_d(&exponent_bits, exponent));
         self.emit(abi::compare_registers(&exponent_roundtrip, &exponent_bits));
         self.emit(abi::branch_eq(&exponent_whole));
@@ -1785,7 +1814,11 @@ impl CodeBuilder<'_> {
         let base_bits = self.allocate_register()?;
         self.emit(abi::float_move_x_from_d(&base_bits, dst));
         self.emit(abi::store_u64(&base_bits, abi::stack_pointer(), base_slot));
-        self.emit(abi::store_u64(&exponent_bits, abi::stack_pointer(), exp_slot));
+        self.emit(abi::store_u64(
+            &exponent_bits,
+            abi::stack_pointer(),
+            exp_slot,
+        ));
         self.reset_temporary_registers();
         let base_reg = self.allocate_register()?;
         self.emit(abi::load_u64(&base_reg, abi::stack_pointer(), base_slot));

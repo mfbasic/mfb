@@ -81,7 +81,11 @@ impl CodeBuilder<'_> {
         // every math sibling (lower_math_min_max/clamp/scalar_binary) already does
         // (bug-200).
         let raw_slot = self.allocate_stack_object("money_round_raw", 8);
-        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), raw_slot));
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            raw_slot,
+        ));
         let decimals = self.lower_value(decimals_arg)?;
         let text = format!("money.round({}, {})", value.text, decimals.text);
         let raw = self.allocate_register()?;

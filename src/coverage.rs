@@ -367,8 +367,11 @@ mod tests {
         let path = dir.path().join("fail");
         // `pkg/a.mfb:3` splits on the *last* colon; a line without a colon and a
         // line whose number won't parse are both dropped.
-        fs::write(&path, "main.mfb:12\npkg/a.mfb:3\nno-colon-here\nx:notanumber\n")
-            .expect("write");
+        fs::write(
+            &path,
+            "main.mfb:12\npkg/a.mfb:3\nno-colon-here\nx:notanumber\n",
+        )
+        .expect("write");
         let failed = read_failed(&path);
         assert_eq!(failed.len(), 2);
         assert!(failed.contains(&("main.mfb".to_string(), 12)));
@@ -402,11 +405,8 @@ mod tests {
         // is instrumented but never ran (uncovered) *and* recorded as failed; line
         // 1 hosts no slot (neutral). The `<` in line 1 exercises source escaping.
         let dir = tempfile::tempdir().expect("tempdir");
-        fs::write(
-            dir.path().join("main.mfb"),
-            "REM a < b\n  x = 1\n  y = 2\n",
-        )
-        .expect("write source");
+        fs::write(dir.path().join("main.mfb"), "REM a < b\n  x = 1\n  y = 2\n")
+            .expect("write source");
 
         let slots = vec![
             CovSlot {
@@ -427,7 +427,10 @@ mod tests {
         // Summary: 1 of 2 instrumented lines covered.
         assert!(html.contains("Total: 1 / 2 lines (50%)"), "{html}");
         // The file appears in the index with an anchored link.
-        assert!(html.contains("<a href=\"#main-mfb\">main.mfb</a>"), "{html}");
+        assert!(
+            html.contains("<a href=\"#main-mfb\">main.mfb</a>"),
+            "{html}"
+        );
         // Line 2 executed → covered; line 3 never ran and failed → uncovered + fail.
         assert!(html.contains("class=\"line cov\""), "{html}");
         assert!(html.contains("class=\"line unc fail\""), "{html}");

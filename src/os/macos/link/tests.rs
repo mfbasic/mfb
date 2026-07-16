@@ -52,8 +52,16 @@ fn patches_external_data_relocations_to_got_entry() {
         append_import_stubs(&mut text, &image, text_vmaddr, 0x4000, 0).expect("import stubs");
 
     let data_vmaddr = text_vmaddr + text.len() as u64;
-    patch_relocations(&mut text, &image, text_vmaddr, data_vmaddr, data_vmaddr, 0, &locations)
-        .expect("relocations");
+    patch_relocations(
+        &mut text,
+        &image,
+        text_vmaddr,
+        data_vmaddr,
+        data_vmaddr,
+        0,
+        &locations,
+    )
+    .expect("relocations");
 
     assert!(locations.got_entries.contains_key("_mach_task_self_"));
 }
@@ -441,7 +449,9 @@ fn noted_mach_o_verifies_and_runs() {
             verified.success(),
             "{name}: codesign -v must still pass with the LC_NOTE present"
         );
-        let status = std::process::Command::new(&path).status().expect("run binary");
+        let status = std::process::Command::new(&path)
+            .status()
+            .expect("run binary");
         assert_eq!(
             status.code(),
             Some(7),
@@ -760,13 +770,29 @@ fn symbol_vmaddr_splits_constants_from_writable_data() {
     let data_vmaddr = VM_BASE + 0x8000;
     // Constant: `rodata_vmaddr + offset`.
     assert_eq!(
-        symbol_vmaddr(&image, "_const", text_vmaddr, rodata_vmaddr, data_vmaddr, 0x1000).unwrap(),
+        symbol_vmaddr(
+            &image,
+            "_const",
+            text_vmaddr,
+            rodata_vmaddr,
+            data_vmaddr,
+            0x1000
+        )
+        .unwrap(),
         rodata_vmaddr + 0x40,
     );
     // Writable: `data_vmaddr + (offset - rodata_size)` — the first writable byte
     // sits at the base of `__DATA`.
     assert_eq!(
-        symbol_vmaddr(&image, "_arena", text_vmaddr, rodata_vmaddr, data_vmaddr, 0x1000).unwrap(),
+        symbol_vmaddr(
+            &image,
+            "_arena",
+            text_vmaddr,
+            rodata_vmaddr,
+            data_vmaddr,
+            0x1000
+        )
+        .unwrap(),
         data_vmaddr,
     );
 }
@@ -1054,8 +1080,8 @@ fn links_and_launches_app_bundle_importing_libobjc() {
     };
     let dir = std::env::temp_dir().join(format!("mfb_objclink_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let bundle = write_app_bundle(&dir, "objcapp", &image, None, "0.1.0")
-        .expect("write libobjc app bundle");
+    let bundle =
+        write_app_bundle(&dir, "objcapp", &image, None, "0.1.0").expect("write libobjc app bundle");
     let exe = bundle.join("Contents/MacOS/objcapp");
     let status = std::process::Command::new(&exe)
         .status()
@@ -1094,7 +1120,10 @@ fn encode_aarch64(
     crate::arch::aarch64::encode::encode(&plan).expect("aarch64 encode")
 }
 
-fn code_fn(name: &str, instructions: Vec<crate::target::shared::code::CodeInstruction>) -> crate::target::shared::code::CodeFunction {
+fn code_fn(
+    name: &str,
+    instructions: Vec<crate::target::shared::code::CodeInstruction>,
+) -> crate::target::shared::code::CodeFunction {
     crate::target::shared::code::CodeFunction {
         name: name.to_string(),
         symbol: name.to_string(),
@@ -1124,7 +1153,10 @@ fn writes_full_mach_o_with_imports_data_and_initializer() {
         "_main",
         vec![
             inst("adrp", &[("dst", "x0"), ("symbol", "_msg")]),
-            inst("add_pageoff", &[("dst", "x0"), ("src", "x0"), ("symbol", "_msg")]),
+            inst(
+                "add_pageoff",
+                &[("dst", "x0"), ("src", "x0"), ("symbol", "_msg")],
+            ),
             inst("bl", &[("target", "_write")]),
             inst("ret", &[]),
         ],
@@ -1159,9 +1191,13 @@ fn writes_full_mach_o_with_imports_data_and_initializer() {
     assert!(bytes
         .windows(b"/usr/lib/libSystem.B.dylib".len())
         .any(|window| window == b"/usr/lib/libSystem.B.dylib"));
-    assert!(bytes.windows(b"_write".len()).any(|window| window == b"_write"));
+    assert!(bytes
+        .windows(b"_write".len())
+        .any(|window| window == b"_write"));
     // The string data lands in the writable __DATA segment.
-    assert!(bytes.windows(b"__DATA".len()).any(|window| window == b"__DATA"));
+    assert!(bytes
+        .windows(b"__DATA".len())
+        .any(|window| window == b"__DATA"));
     assert!(bytes.windows(2).any(|window| window == b"hi"));
     // The file is comfortably larger than a page (code + data-const + data + linkedit).
     assert!(bytes.len() > PAGE_SIZE);
@@ -1214,7 +1250,10 @@ fn write_app_bundle_creates_layout_and_plist_host_neutral() {
 #[test]
 fn code_offset_and_layout_helpers_vary_with_presence() {
     let no_libs: [(String, String); 0] = [];
-    let libs = [("libSystem".to_string(), "/usr/lib/libSystem.B.dylib".to_string())];
+    let libs = [(
+        "libSystem".to_string(),
+        "/usr/lib/libSystem.B.dylib".to_string(),
+    )];
     // A data-const/dylib image needs a larger header than a bare one.
     let bare = super::macho::code_offset(&no_libs, false, false, false, false);
     let with_libs = super::macho::code_offset(&libs, false, false, false, false);

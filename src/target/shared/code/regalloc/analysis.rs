@@ -213,7 +213,11 @@ fn int_concrete_physical_index(name: &str) -> Option<u32> {
         "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
         "r13", "r14", "r15",
     ];
-    if let Some(i) = X86_GPRS.iter().position(|&reg| reg == name).filter(|&i| i != 4) {
+    if let Some(i) = X86_GPRS
+        .iter()
+        .position(|&reg| reg == name)
+        .filter(|&i| i != 4)
+    {
         return Some(i as u32);
     }
     // RISC-V lp64d GPRs, indexed by their register number (`zero`=0 … `t6`=31,
@@ -229,7 +233,10 @@ pub(super) fn riscv_int_index(name: &str) -> Option<u32> {
         "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
         "t5", "t6",
     ];
-    RISCV_GPRS.iter().position(|&reg| reg == name).map(|i| i as u32)
+    RISCV_GPRS
+        .iter()
+        .position(|&reg| reg == name)
+        .map(|i| i as u32)
 }
 
 /// The FP/SIMD physical-register index, or `None`. AArch64 scalar `d0`–`d31` /
@@ -276,7 +283,10 @@ pub(super) fn riscv_fp_index(name: &str) -> Option<u32> {
         "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9",
         "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
     ];
-    RISCV_FPRS.iter().position(|&reg| reg == name).map(|i| i as u32)
+    RISCV_FPRS
+        .iter()
+        .position(|&reg| reg == name)
+        .map(|i| i as u32)
 }
 
 impl ClassModel {
@@ -582,7 +592,10 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     for (i, instruction) in instructions.iter().enumerate() {
         let eff = effect(instruction, model);
         if eff.is_call {
-            call_clobber.push((i, call_clobber_mask(instruction, model.is_fp, model.is_riscv)));
+            call_clobber.push((
+                i,
+                call_clobber_mask(instruction, model.is_fp, model.is_riscv),
+            ));
         }
         for d in &eff.defs {
             if let Some(p) = (model.physical_index)(d) {

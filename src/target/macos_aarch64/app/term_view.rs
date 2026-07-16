@@ -110,13 +110,13 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_strlen", LIB_SYSTEM);
     asm.push(abi::move_register("x22", "x0")); // bytes still to deliver
-    // Deliver the whole line, resuming after a partial write (bug-241). A pipe
-    // write is atomic only up to PIPE_BUF, so a line longer than that splits
-    // when the reader is behind; writing the remainder off and still sending the
-    // newline below would hand the program a truncated line as a complete one.
-    // x22 (text storage) is dead on this path — only `kd_backspace` reads it and
-    // `kd_commit` branches straight to `kd_done` — so it carries the remaining
-    // count across the `_write` calls, which clobber x0-x17.
+                                               // Deliver the whole line, resuming after a partial write (bug-241). A pipe
+                                               // write is atomic only up to PIPE_BUF, so a line longer than that splits
+                                               // when the reader is behind; writing the remainder off and still sending the
+                                               // newline below would hand the program a truncated line as a complete one.
+                                               // x22 (text storage) is dead on this path — only `kd_backspace` reads it and
+                                               // `kd_commit` branches straight to `kd_done` — so it carries the remaining
+                                               // count across the `_write` calls, which clobber x0-x17.
     asm.push(abi::label("kd_commit_write"));
     asm.push(abi::compare_immediate("x22", "0"));
     asm.push(abi::branch_eq("kd_commit_newline"));
@@ -1169,8 +1169,8 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_strlen", LIB_SYSTEM);
     asm.push(abi::move_register("x22", "x0")); // bytes still to deliver
-    // Deliver the whole line, resuming after a partial write (bug-241) — see
-    // `kd_commit`, which this mirrors.
+                                               // Deliver the whole line, resuming after a partial write (bug-241) — see
+                                               // `kd_commit`, which this mirrors.
     asm.push(abi::label("tkd_commit_write"));
     asm.push(abi::compare_immediate("x22", "0"));
     asm.push(abi::branch_eq("tkd_commit_newline"));
@@ -1321,7 +1321,7 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
     asm.push(abi::move_register("x19", "x0")); // self
-    // Spill the NSSize args (d0 = width, d1 = height); the super call clobbers them.
+                                               // Spill the NSSize args (d0 = width, d1 = height); the super call clobbers them.
     asm.push(abi::float_move_x_from_d("x9", "d0"));
     asm.push(abi::store_u64("x9", abi::stack_pointer(), off_w));
     asm.push(abi::float_move_x_from_d("x9", "d1"));
@@ -1333,7 +1333,11 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
     asm.external_data("x9", CLASS_NS_VIEW, LIB_APPKIT);
     asm.push(abi::store_u64("x9", abi::stack_pointer(), off_super_cls));
     asm.load_selector(SEL_SET_FRAME_SIZE.0); // sel -> x1 (clobbers x0)
-    asm.push(abi::add_immediate("x0", abi::stack_pointer(), off_super_recv)); // &super
+    asm.push(abi::add_immediate(
+        "x0",
+        abi::stack_pointer(),
+        off_super_recv,
+    )); // &super
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_w));
     asm.push(abi::float_move_d_from_x("d0", "x9"));
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_h));

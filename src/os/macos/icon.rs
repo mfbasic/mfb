@@ -35,15 +35,15 @@ const CORNER_RADIUS: f32 = 184.0;
 /// All ten are RGBA/PNG entries (16, 32, 128, 256, 512 at @1x and @2x). Their
 /// OSTypes are `icp4 ic11 icp5 ic12 ic07 ic13 ic08 ic14 ic09 ic10`.
 const ICON_ENTRIES: &[(u32, IconType)] = &[
-    (16, IconType::RGBA32_16x16),       // icp4
-    (32, IconType::RGBA32_16x16_2x),    // ic11
-    (32, IconType::RGBA32_32x32),       // icp5
-    (64, IconType::RGBA32_32x32_2x),    // ic12
-    (128, IconType::RGBA32_128x128),    // ic07
-    (256, IconType::RGBA32_128x128_2x), // ic13
-    (256, IconType::RGBA32_256x256),    // ic08
-    (512, IconType::RGBA32_256x256_2x), // ic14
-    (512, IconType::RGBA32_512x512),    // ic09
+    (16, IconType::RGBA32_16x16),        // icp4
+    (32, IconType::RGBA32_16x16_2x),     // ic11
+    (32, IconType::RGBA32_32x32),        // icp5
+    (64, IconType::RGBA32_32x32_2x),     // ic12
+    (128, IconType::RGBA32_128x128),     // ic07
+    (256, IconType::RGBA32_128x128_2x),  // ic13
+    (256, IconType::RGBA32_256x256),     // ic08
+    (512, IconType::RGBA32_256x256_2x),  // ic14
+    (512, IconType::RGBA32_512x512),     // ic09
     (1024, IconType::RGBA32_512x512_2x), // ic10
 ];
 
@@ -80,10 +80,7 @@ fn normalize_source(source: Option<&Path>) -> Result<RgbaImage, String> {
     match source {
         Some(path) => {
             let decoded = image::open(path).map_err(|err| {
-                format!(
-                    "icon '{}' is not a decodable image: {err}",
-                    path.display()
-                )
+                format!("icon '{}' is not a decodable image: {err}", path.display())
             })?;
             let (width, height) = decoded.dimensions();
             if (width, height) != (CANVAS, CANVAS) {

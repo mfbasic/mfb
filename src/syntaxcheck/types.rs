@@ -438,7 +438,11 @@ fn owns_a_to_separator(body: &str, at: usize) -> bool {
         let prev = bytes[at - 1];
         // An identifier-continue byte (or any UTF-8 continuation/lead byte of a
         // multi-byte identifier char) before the keyword means we are mid-word.
-        if prev.is_ascii_alphanumeric() || prev == b'_' || prev == b'.' || prev == b':' || prev >= 0x80
+        if prev.is_ascii_alphanumeric()
+            || prev == b'_'
+            || prev == b'.'
+            || prev == b':'
+            || prev >= 0x80
         {
             return false;
         }
@@ -479,7 +483,10 @@ fn split_map_body(body: &str) -> Option<(&str, &str)> {
             // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
             // byte where `body[index..]` would panic (bug-169). A non-boundary
             // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0 && body.is_char_boundary(index) && body[index..].starts_with(" TO ") => {
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && body[index..].starts_with(" TO ") =>
+            {
                 if pending > 0 {
                     pending -= 1;
                     index += 4;
@@ -768,7 +775,10 @@ mod types_tests {
     fn split_map_body_handles_nested_key_and_value() {
         use super::split_map_body;
         // Simple body: leftmost and balanced agree.
-        assert_eq!(split_map_body("String TO Integer"), Some(("String", "Integer")));
+        assert_eq!(
+            split_map_body("String TO Integer"),
+            Some(("String", "Integer"))
+        );
         // Nested KEY carries its own ` TO `: the key is the whole inner map, the
         // value is `Boolean` (bug-41 — leftmost split gave `Map OF Map OF String`).
         assert_eq!(
@@ -811,7 +821,8 @@ mod types_tests {
         // `Map OF Map OF String TO Integer TO Boolean` must build
         // `Map(Map(String, Integer), Boolean)`, not the mis-split
         // `Map(User("Map OF Map OF String"), …)`.
-        let Type::Map(key, value) = checker.parse_type("Map OF Map OF String TO Integer TO Boolean")
+        let Type::Map(key, value) =
+            checker.parse_type("Map OF Map OF String TO Integer TO Boolean")
         else {
             panic!("expected a Map type");
         };

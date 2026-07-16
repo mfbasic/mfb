@@ -808,8 +808,14 @@ fn write_executable_rejects_unbound_external_all_kinds() {
     expect_unbound("data_pc32", "cannot bind external data symbol '_missing'");
     // RISC-V external relocations with no bound import hit their own guards.
     expect_unbound("riscv_call", "cannot bind external symbol '_missing'");
-    expect_unbound("riscv_got_hi20", "cannot bind external data symbol '_missing'");
-    expect_unbound("riscv_got_lo12", "cannot bind external data symbol '_missing'");
+    expect_unbound(
+        "riscv_got_hi20",
+        "cannot bind external data symbol '_missing'",
+    );
+    expect_unbound(
+        "riscv_got_lo12",
+        "cannot bind external data symbol '_missing'",
+    );
 }
 
 /// An internal `call` between two functions in the same image lowers to a
@@ -819,7 +825,10 @@ fn write_executable_rejects_unbound_external_all_kinds() {
 #[test]
 fn write_executable_riscv64_internal_call_patches_auipc_jalr_pair() {
     use crate::target::shared::code::{CodeFrame, CodeFunction, NativeCodePlan};
-    fn func(name: &str, instructions: Vec<crate::target::shared::code::CodeInstruction>) -> CodeFunction {
+    fn func(
+        name: &str,
+        instructions: Vec<crate::target::shared::code::CodeInstruction>,
+    ) -> CodeFunction {
         CodeFunction {
             name: name.to_string(),
             symbol: name.to_string(),
@@ -844,15 +853,25 @@ fn write_executable_riscv64_internal_call_patches_auipc_jalr_pair() {
         data_objects: Vec::new(),
         functions: vec![
             // `_main` calls the internal `_helper` (internal riscv_call), then returns.
-            func("_main", vec![rv_inst("bl", &[("target", "_helper")]), rv_inst("ret", &[])]),
+            func(
+                "_main",
+                vec![rv_inst("bl", &[("target", "_helper")]), rv_inst("ret", &[])],
+            ),
             func("_helper", vec![rv_inst("ret", &[])]),
         ],
     };
     let image = crate::arch::riscv64::encode::encode(&plan).expect("riscv encode");
     // No imports → a static ELF; the internal call relocation is still patched.
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(dir.path(), "rvi", "riscv64", LinuxFlavor::Glibc, false, &image)
-        .expect("link riscv static elf with internal call");
+    let path = write_executable(
+        dir.path(),
+        "rvi",
+        "riscv64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link riscv static elf with internal call");
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243); // EM_RISCV
@@ -1120,7 +1139,10 @@ fn riscv_hi_lo_rejects_a_displacement_past_the_auipc_reach() {
     assert!(riscv_hi_lo(i64::MIN + 0x800).is_err());
 }
 
-fn rv_inst(op: &str, fields: &[(&'static str, &str)]) -> crate::target::shared::code::CodeInstruction {
+fn rv_inst(
+    op: &str,
+    fields: &[(&'static str, &str)],
+) -> crate::target::shared::code::CodeInstruction {
     let mut instruction = crate::target::shared::code::CodeInstruction::new(op);
     for (key, value) in fields {
         instruction = instruction.field(key, value);
@@ -1205,7 +1227,10 @@ fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
     // (offset 48) (bug-186).
     assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3); // ET_DYN
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243);
-    assert_eq!(u32::from_le_bytes(bytes[48..52].try_into().unwrap()) & 0x4, 0x4);
+    assert_eq!(
+        u32::from_le_bytes(bytes[48..52].try_into().unwrap()) & 0x4,
+        0x4
+    );
     // 7 program headers (dynamic + PT_GNU_STACK + the plan-43 PT_NOTE) and the
     // riscv64 interpreter path.
     assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 7);
@@ -1234,7 +1259,11 @@ fn mfb_note(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
         assert_eq!(read_u32(base + 4), 4, "PT_NOTE p_flags must be R");
         let offset = read_u64(base + 8) as usize;
         let file_size = read_u64(base + 32) as usize;
-        assert_eq!(read_u64(base + 40) as usize, file_size, "p_memsz == p_filesz");
+        assert_eq!(
+            read_u64(base + 40) as usize,
+            file_size,
+            "p_memsz == p_filesz"
+        );
         let note = &bytes[offset..offset + file_size];
         let namesz = u32::from_le_bytes(note[0..4].try_into().unwrap()) as usize;
         let descsz = u32::from_le_bytes(note[4..8].try_into().unwrap()) as usize;

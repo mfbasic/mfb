@@ -558,7 +558,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // code @0.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), code_slot));
         self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
@@ -569,7 +573,11 @@ impl CodeBuilder<'_> {
             &ERROR_OBJECT_SIZE.to_string(),
         ));
         self.emit(abi::store_u64(&scratch9, abi::RET[1], 8));
-        self.emit(abi::add_immediate(&scratch10, abi::RET[1], ERROR_OBJECT_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch10,
+            abi::RET[1],
+            ERROR_OBJECT_SIZE,
+        ));
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -583,12 +591,20 @@ impl CodeBuilder<'_> {
         self.emit_copy_bytes(&scratch10, &scratch11, &scratch12, "error_msg_copy");
         // source-offset @16; inline source block when present.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::store_u64(&scratch9, abi::RET[1], 16));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&src_null_fill));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
         self.emit(abi::add_registers(&scratch10, abi::RET[1], &scratch9));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), source_slot));
@@ -1005,10 +1021,17 @@ impl CodeBuilder<'_> {
     /// it from the `Error` type and `arena_free`. Used after an adopted block has
     /// been copied into a materialized `Result` value, so the adopted owner is
     /// released exactly once. `ptr_slot` must hold a non-null arena block base.
-    pub(super) fn emit_free_error_block_from_slot(&mut self, ptr_slot: usize) -> Result<(), String> {
+    pub(super) fn emit_free_error_block_from_slot(
+        &mut self,
+        ptr_slot: usize,
+    ) -> Result<(), String> {
         let size_slot = self.allocate_stack_object("adopt_free_size", 8);
         self.emit_inlined_block_size_from_ptr_slot("Error", ptr_slot, size_slot)?;
-        self.emit(abi::load_u64(abi::return_register(), abi::stack_pointer(), ptr_slot));
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            ptr_slot,
+        ));
         self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
         self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
         self.relocations.push(CodeRelocation {

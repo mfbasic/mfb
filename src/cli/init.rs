@@ -50,7 +50,11 @@ pub(crate) fn init_package_project(location: &Path) -> Result<(), String> {
 fn write_new_file(path: &Path, contents: String) -> Result<(), String> {
     use std::io::Write;
 
-    let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(path) {
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
         Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             return Err(format!("refusing to overwrite '{}'", path.display()));

@@ -230,7 +230,11 @@ fn lower_open_output(
         abi::multiply_registers("%v9", "%v9", "%v10"),
         abi::store_u64("%v9", abi::stack_pointer(), BPF_OFF),
         // AudioHandle (arena, 64 B).
-        abi::move_immediate(abi::return_register(), "Integer", &H_RECORD_SIZE.to_string()),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &H_RECORD_SIZE.to_string(),
+        ),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
@@ -258,7 +262,13 @@ fn lower_open_output(
         abi::bitwise_not(abi::ARG[4], abi::ZERO), // fd = -1
         abi::move_immediate(abi::ARG[5], "Integer", "0"), // offset
     ]);
-    platform.emit_libc_call("mmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "mmap",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         // MAP_FAILED == (void*)-1
         abi::add_immediate("%v9", abi::return_register(), 1),
@@ -278,8 +288,26 @@ fn lower_open_output(
         abi::store_u64("%v9", "%v15", S_MAP_SIZE),
     ]);
     // pthread_mutex_init(state+S_MUTEX, NULL); pthread_cond_init(state+S_COND, NULL)
-    emit_pthread1(symbol, "pthread_mutex_init", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_cond_init", STATE_OFF, S_COND, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_init",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_cond_init",
+        STATE_OFF,
+        S_COND,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Build the ASBD.
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
@@ -293,7 +321,7 @@ fn lower_open_output(
         abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 16), // mBytesPerPacket
         abi::move_immediate("%v10", "Integer", "1"),
         abi::store_u32("%v10", abi::stack_pointer(), ASBD_OFF + 20), // mFramesPerPacket
-        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 24), // mBytesPerFrame
+        abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 24),  // mBytesPerFrame
         abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
         abi::store_u32("%v9", abi::stack_pointer(), ASBD_OFF + 28), // mChannelsPerFrame
         abi::move_immediate("%v9", "Integer", "16"),
@@ -301,9 +329,11 @@ fn lower_open_output(
         abi::store_u32(abi::ZERO, abi::stack_pointer(), ASBD_OFF + 36),
     ]);
     // AudioQueueNewOutput(&asbd, callback, handle, NULL, NULL, 0, &state->osobject)
-    instructions.extend([
-        abi::add_immediate(abi::return_register(), abi::stack_pointer(), ASBD_OFF),
-    ]);
+    instructions.extend([abi::add_immediate(
+        abi::return_register(),
+        abi::stack_pointer(),
+        ASBD_OFF,
+    )]);
     emit_data_address(
         symbol,
         abi::ARG[1],
@@ -319,7 +349,13 @@ fn lower_open_output(
         abi::load_u64(abi::ARG[6], abi::stack_pointer(), STATE_OFF),
         abi::add_immediate(abi::ARG[6], abi::ARG[6], S_OSOBJECT),
     ]);
-    platform.emit_libc_call("AudioQueueNewOutput", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueNewOutput",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -327,7 +363,14 @@ fn lower_open_output(
     ]);
     // Optionally select the named device.
     if device {
-        emit_select_device(symbol, &dev_fail, platform, platform_imports, &mut instructions, &mut relocations)?;
+        emit_select_device(
+            symbol,
+            &dev_fail,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     }
     // Allocate NUM_BUFFERS buffers; all start free.
     instructions.extend([
@@ -345,7 +388,13 @@ fn lower_open_output(
         abi::move_register(abi::ARG[1], "%v11"),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), BUFPTR_OFF),
     ]);
-    platform.emit_libc_call("AudioQueueAllocateBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueAllocateBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -373,7 +422,13 @@ fn lower_open_output(
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    platform.emit_libc_call("AudioQueueStart", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueStart",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -384,12 +439,39 @@ fn lower_open_output(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&dev_fail));
-    emit_open_cleanup(symbol, &mut instructions, &mut relocations, platform, platform_imports)?;
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_open_cleanup(
+        symbol,
+        &mut instructions,
+        &mut relocations,
+        platform,
+        platform_imports,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_AUDIO_DEVICE_CODE,
+        ERR_AUDIO_DEVICE_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
 
@@ -419,7 +501,7 @@ fn emit_select_device(
         abi::load_u64("%v9", "%v9", DEVICE_FIELD_ID), // id String ptr
         abi::store_u64("%v9", abi::stack_pointer(), BUFPTR_OFF),
         // Copy the String (len-prefixed) into the UID C-string buffer.
-        abi::load_u64("%v10", "%v9", 0), // len
+        abi::load_u64("%v10", "%v9", 0),      // len
         abi::add_immediate("%v11", "%v9", 8), // src bytes
         // Clamp the copy count to the 256-byte UID buffer minus the NUL
         // terminator; an oversized device id would otherwise overrun it.
@@ -446,7 +528,13 @@ fn emit_select_device(
         abi::add_immediate(abi::ARG[1], abi::stack_pointer(), UID_CSTR_OFF),
         abi::move_immediate(abi::ARG[2], "Integer", ENC_UTF8),
     ]);
-    platform.emit_libc_call("CFStringCreateWithCString", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "CFStringCreateWithCString",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), UID_CFREF_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -458,14 +546,26 @@ fn emit_select_device(
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), UID_CFREF_OFF),
         abi::move_immediate(abi::ARG[3], "Integer", "8"),
     ]);
-    platform.emit_libc_call("AudioQueueSetProperty", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueSetProperty",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CAP_OFF), // save status
         // CFRelease(cfref)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), UID_CFREF_OFF),
     ]);
-    platform.emit_libc_call("CFRelease", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "CFRelease",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CAP_OFF),
         abi::compare_immediate("%v9", "0"),
@@ -499,13 +599,25 @@ fn emit_open_cleanup(
         abi::move_register(abi::return_register(), "%v9"),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    platform.emit_libc_call("AudioQueueDispose", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueDispose",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::label(&munmap),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call("munmap", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "munmap",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&skip));
     Ok(())
 }
@@ -704,8 +816,8 @@ fn emit_channel_flag(
         // mNumberBuffers @ BUFLIST[0]; buffers start at BUFLIST+8, stride 16,
         // mNumberChannels at +0.
         abi::add_immediate("%v9", abi::stack_pointer(), BUFLIST_OFF),
-        abi::load_u32("%v10", "%v9", 0), // nbuf
-        abi::add_immediate("%v11", "%v9", 8), // buffer cursor
+        abi::load_u32("%v10", "%v9", 0),             // nbuf
+        abi::add_immediate("%v11", "%v9", 8),        // buffer cursor
         abi::move_immediate("%v12", "Integer", "0"), // i
         abi::move_immediate("%v13", "Integer", "0"), // sum
         abi::label(&sum_loop),
@@ -796,7 +908,16 @@ fn lower_write(
         abi::compare_registers("%v9", "%v10"),
         abi::branch_ge(&write_done),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_lock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&wait_loop),
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -807,7 +928,13 @@ fn lower_write(
         abi::add_immediate(abi::return_register(), "%v10", S_COND),
         abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
     ]);
-    platform.emit_libc_call("pthread_cond_wait", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "pthread_cond_wait",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::branch(&wait_loop),
         abi::label(&wait_ready),
@@ -822,7 +949,16 @@ fn lower_write(
         abi::load_u64("%v14", "%v11", 0),
         abi::store_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), TOTAL_OFF),
         abi::load_u64("%v10", abi::stack_pointer(), OFFSET_OFF),
@@ -858,7 +994,13 @@ fn lower_write(
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
-    platform.emit_libc_call("AudioQueueEnqueueBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueEnqueueBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -874,9 +1016,23 @@ fn lower_write(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&dev_fail));
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_AUDIO_DEVICE_CODE,
+        ERR_AUDIO_DEVICE_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
@@ -911,7 +1067,16 @@ fn lower_close_output(
         abi::load_u64("%v10", abi::return_register(), H_STATE),
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_lock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&drain_loop),
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -921,7 +1086,13 @@ fn lower_close_output(
         abi::add_immediate(abi::return_register(), "%v10", S_COND),
         abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
     ]);
-    platform.emit_libc_call("pthread_cond_wait", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "pthread_cond_wait",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::branch(&drain_loop),
         abi::label(&drain_done),
@@ -929,21 +1100,60 @@ fn lower_close_output(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", S_CLOSED),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    platform.emit_libc_call("AudioQueueStop", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueStop",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    platform.emit_libc_call("AudioQueueDispose", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_cond_destroy", STATE_OFF, S_COND, platform, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_mutex_destroy", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueDispose",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_cond_destroy",
+        STATE_OFF,
+        S_COND,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_destroy",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate("%v9", "Integer", "1"),
@@ -951,7 +1161,13 @@ fn lower_close_output(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call("munmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "munmap",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&already),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
@@ -994,10 +1210,18 @@ fn lower_query(
     let done = format!("{symbol}_done");
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF));
+    instructions.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        HANDLE_OFF,
+    ));
     if let Query::PollTimeout = kind {
         // Spill `timeoutMs` (ARG[1]) before any libc call clobbers it.
-        instructions.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFF));
+        instructions.push(abi::store_u64(
+            abi::ARG[1],
+            abi::stack_pointer(),
+            TIMEOUT_OFF,
+        ));
     }
     instructions.extend([
         // Closed-resource guard: a defaulted/closed handle has an invalid (null)
@@ -1020,13 +1244,28 @@ fn lower_query(
         let pt_input = format!("{symbol}_pt_input");
         let pt_have = format!("{symbol}_pt_have");
         let pt_result = format!("{symbol}_pt_result");
-        emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+        emit_pthread1(
+            symbol,
+            "pthread_mutex_lock",
+            STATE_OFF,
+            S_MUTEX,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6 on macOS).
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "clock_gettime",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
             abi::move_immediate("%v10", "Integer", "1000000000"),
@@ -1056,7 +1295,13 @@ fn lower_query(
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "clock_gettime",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
             abi::move_immediate("%v10", "Integer", "1000000000"),
@@ -1080,7 +1325,13 @@ fn lower_query(
             abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
             abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TS_OFF),
         ]);
-        platform.emit_libc_call("pthread_cond_timedwait_relative_np", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "pthread_cond_timedwait_relative_np",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::branch(&pt_loop),
             abi::label(&pt_ready),
@@ -1091,10 +1342,32 @@ fn lower_query(
             abi::store_u64(abi::ZERO, abi::stack_pointer(), I_OFF),
             abi::label(&pt_result),
         ]);
-        emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
-        instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), I_OFF));
+        emit_pthread1(
+            symbol,
+            "pthread_mutex_unlock",
+            STATE_OFF,
+            S_MUTEX,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            I_OFF,
+        ));
     } else {
-        emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+        emit_pthread1(
+            symbol,
+            "pthread_mutex_lock",
+            STATE_OFF,
+            S_MUTEX,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), HANDLE_OFF),
             abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -1119,10 +1392,27 @@ fn lower_query(
             abi::load_u64("%v14", "%v10", S_XRUNS),
             abi::store_u64("%v14", abi::stack_pointer(), CAP_OFF),
         ]);
-        emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+        emit_pthread1(
+            symbol,
+            "pthread_mutex_unlock",
+            STATE_OFF,
+            S_MUTEX,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         match kind {
-            Query::Available => instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), I_OFF)),
-            Query::Xruns => instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), CAP_OFF)),
+            Query::Available => instructions.push(abi::load_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                I_OFF,
+            )),
+            Query::Xruns => instructions.push(abi::load_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                CAP_OFF,
+            )),
             Query::Poll => {
                 let poll_set = format!("{symbol}_poll_set");
                 instructions.extend([
@@ -1173,7 +1463,16 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
         abi::load_u64("%v9", abi::return_register(), H_STATE),
         abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_lock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_lock",
+        CB_STATE,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), CB_STATE),
         abi::load_u64("%v9", "%v10", S_CLOSED),
@@ -1199,9 +1498,24 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
         abi::label(&no_underrun),
         abi::add_immediate(abi::return_register(), "%v10", S_COND),
     ]);
-    platform.emit_libc_call("pthread_cond_signal", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "pthread_cond_signal",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&ret));
-    emit_pthread1(symbol, "pthread_mutex_unlock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        CB_STATE,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], CB_FRAME);
     Ok(CodeFunction {
@@ -1228,7 +1542,7 @@ const LIST_PTR_OFF: usize = 80; // result list ptr
 const GOT_OFF: usize = 88; // bytes accumulated so far
 const FRAMES_OFF: usize = 96; // requested frames
 const TIMEOUT_OFF: usize = 104; // timeoutMs
-// openInput-only scratch (device path uses UID buffers; default path uses these).
+                                // openInput-only scratch (device path uses UID buffers; default path uses these).
 const PRECHK_ADDR: usize = 440;
 const PRECHK_SIZE: usize = 456;
 const PRECHK_ID: usize = 464;
@@ -1278,7 +1592,7 @@ fn emit_alloc_byte_list(
         abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
         // entry array: entry[i] = { USED, value_offset=i, value_length=1 }
         abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE), // entry cursor
-        abi::move_immediate("%v13", "Integer", "0"), // i
+        abi::move_immediate("%v13", "Integer", "0"),                // i
         abi::label(&entry_loop),
         abi::compare_registers("%v13", "%v10"),
         abi::branch_ge(&entry_done),
@@ -1357,7 +1671,13 @@ fn lower_open_input(
             abi::add_immediate(abi::ARG[4], abi::stack_pointer(), PRECHK_SIZE),
             abi::add_immediate(abi::ARG[5], abi::stack_pointer(), PRECHK_ID),
         ]);
-        platform.emit_libc_call("AudioObjectGetPropertyData", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "AudioObjectGetPropertyData",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
@@ -1386,7 +1706,11 @@ fn lower_open_input(
         abi::shift_left_immediate("%v11", "%v11", 14),
         abi::store_u64("%v11", abi::stack_pointer(), MAPSIZE_OFF),
         // AudioHandle.
-        abi::move_immediate(abi::return_register(), "Integer", &H_RECORD_SIZE.to_string()),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &H_RECORD_SIZE.to_string(),
+        ),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
@@ -1412,7 +1736,13 @@ fn lower_open_input(
         abi::bitwise_not(abi::ARG[4], abi::ZERO),
         abi::move_immediate(abi::ARG[5], "Integer", "0"),
     ]);
-    platform.emit_libc_call("mmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "mmap",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::add_immediate("%v9", abi::return_register(), 1),
         abi::compare_immediate("%v9", MAP_FAILED_CMP),
@@ -1432,8 +1762,26 @@ fn lower_open_input(
         abi::load_u64("%v9", abi::stack_pointer(), MAPSIZE_OFF),
         abi::store_u64("%v9", "%v15", S_MAP_SIZE),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_init", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_cond_init", STATE_OFF, S_COND, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_init",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_cond_init",
+        STATE_OFF,
+        S_COND,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // ASBD.
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
@@ -1456,7 +1804,13 @@ fn lower_open_input(
         // AudioQueueNewInput(&asbd, callback, handle, NULL, NULL, 0, &osobject)
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), ASBD_OFF),
     ]);
-    emit_data_address(symbol, abi::ARG[1], AUDIO_INPUT_CALLBACK_SYMBOL, &mut instructions, &mut relocations);
+    emit_data_address(
+        symbol,
+        abi::ARG[1],
+        AUDIO_INPUT_CALLBACK_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
@@ -1465,14 +1819,27 @@ fn lower_open_input(
         abi::load_u64(abi::ARG[6], abi::stack_pointer(), STATE_OFF),
         abi::add_immediate(abi::ARG[6], abi::ARG[6], S_OSOBJECT),
     ]);
-    platform.emit_libc_call("AudioQueueNewInput", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueNewInput",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&dev_fail),
     ]);
     if device {
-        emit_select_device(symbol, &dev_fail, platform, platform_imports, &mut instructions, &mut relocations)?;
+        emit_select_device(
+            symbol,
+            &dev_fail,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     }
     // Allocate NUM_BUFFERS buffers and enqueue each (input buffers must be
     // enqueued to receive captured data).
@@ -1490,7 +1857,13 @@ fn lower_open_input(
         abi::move_register(abi::ARG[1], "%v11"),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), BUFPTR_OFF),
     ]);
-    platform.emit_libc_call("AudioQueueAllocateBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueAllocateBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -1502,7 +1875,13 @@ fn lower_open_input(
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
-    platform.emit_libc_call("AudioQueueEnqueueBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueEnqueueBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -1518,7 +1897,13 @@ fn lower_open_input(
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    platform.emit_libc_call("AudioQueueStart", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueStart",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -1528,14 +1913,48 @@ fn lower_open_input(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&unavailable));
-    emit_fail(symbol, ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_AUDIO_UNAVAILABLE_CODE,
+        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&dev_fail));
-    emit_open_cleanup(symbol, &mut instructions, &mut relocations, platform, platform_imports)?;
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_open_cleanup(
+        symbol,
+        &mut instructions,
+        &mut relocations,
+        platform,
+        platform_imports,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_AUDIO_DEVICE_CODE,
+        ERR_AUDIO_DEVICE_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
@@ -1583,7 +2002,11 @@ fn lower_read(
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_OFF),
     ]);
     if timeout {
-        instructions.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFF));
+        instructions.push(abi::store_u64(
+            abi::ARG[2],
+            abi::stack_pointer(),
+            TIMEOUT_OFF,
+        ));
     }
     instructions.extend([
         abi::load_u64("%v9", abi::return_register(), H_CLOSED),
@@ -1612,7 +2035,15 @@ fn lower_read(
     }
     // Allocate the result (sized for the full request) before the lock, and cache
     // its payload base. `got` accumulates across ring fills.
-    emit_alloc_byte_list(symbol, "main", NEED_OFF, LIST_PTR_OFF, &alloc_fail, &mut instructions, &mut relocations);
+    emit_alloc_byte_list(
+        symbol,
+        "main",
+        NEED_OFF,
+        LIST_PTR_OFF,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::load_u64("%v11", abi::stack_pointer(), LIST_PTR_OFF),
         abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
@@ -1623,14 +2054,29 @@ fn lower_read(
         abi::store_u64("%v11", abi::stack_pointer(), PAYLOAD_OFF), // payload base
         abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_lock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     if timeout {
         // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6).
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "clock_gettime",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
             abi::move_immediate("%v10", "Integer", "1000000000"),
@@ -1662,7 +2108,13 @@ fn lower_read(
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call("clock_gettime", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "clock_gettime",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
             abi::move_immediate("%v10", "Integer", "1000000000"),
@@ -1671,7 +2123,7 @@ fn lower_read(
             abi::add_registers("%v9", "%v9", "%v11"), // now
             abi::load_u64("%v12", abi::stack_pointer(), DEADLINE_OFF),
             abi::compare_registers("%v9", "%v12"),
-            abi::branch_ge(&drain_done), // expired
+            abi::branch_ge(&drain_done),                    // expired
             abi::subtract_registers("%v12", "%v12", "%v9"), // remaining
             abi::move_immediate("%v13", "Integer", "1000000000"),
             abi::unsigned_divide_registers("%v14", "%v12", "%v13"),
@@ -1684,7 +2136,13 @@ fn lower_read(
             abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
             abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TS_OFF),
         ]);
-        platform.emit_libc_call("pthread_cond_timedwait_relative_np", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "pthread_cond_timedwait_relative_np",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.push(abi::branch(&wait_data));
     } else {
         instructions.extend([
@@ -1692,7 +2150,13 @@ fn lower_read(
             abi::add_immediate(abi::return_register(), "%v10", S_COND),
             abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
         ]);
-        platform.emit_libc_call("pthread_cond_wait", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "pthread_cond_wait",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.push(abi::branch(&wait_data));
     }
     // have_data: chunk = min(need-got, fill); copy chunk bytes from ring[tail] to
@@ -1741,7 +2205,16 @@ fn lower_read(
         abi::branch(&drain_loop),
         abi::label(&drain_done),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // If we filled the request, return the pre-allocated result; otherwise (timed
     // partial) build a right-sized list of `got` bytes.
     instructions.extend([
@@ -1750,7 +2223,15 @@ fn lower_read(
         abi::compare_registers("%v9", "%v11"),
         abi::branch_ge(&ret_full),
     ]);
-    emit_alloc_byte_list(symbol, "final", GOT_OFF, FINAL_LIST_OFF, &alloc_fail, &mut instructions, &mut relocations);
+    emit_alloc_byte_list(
+        symbol,
+        "final",
+        GOT_OFF,
+        FINAL_LIST_OFF,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         // copy `got` bytes from the oversized payload into the final payload.
         abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
@@ -1793,11 +2274,32 @@ fn lower_read(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&dev_fail));
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_AUDIO_DEVICE_CODE,
+        ERR_AUDIO_DEVICE_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
@@ -1831,27 +2333,75 @@ fn lower_close_input(
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
     ]);
     // Set closed under the mutex first (a racing callback must not touch the ring).
-    emit_pthread1(symbol, "pthread_mutex_lock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_lock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", S_CLOSED),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_unlock", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    platform.emit_libc_call("AudioQueueStop", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueStop",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    platform.emit_libc_call("AudioQueueDispose", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_cond_destroy", STATE_OFF, S_COND, platform, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_mutex_destroy", STATE_OFF, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueDispose",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_cond_destroy",
+        STATE_OFF,
+        S_COND,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_destroy",
+        STATE_OFF,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate("%v9", "Integer", "1"),
@@ -1859,7 +2409,13 @@ fn lower_close_input(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call("munmap", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "munmap",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&already),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
@@ -1902,7 +2458,16 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
         abi::load_u64("%v9", abi::return_register(), H_STATE),
         abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
     ]);
-    emit_pthread1(symbol, "pthread_mutex_lock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_lock",
+        CB_STATE,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), CB_STATE),
         abi::load_u64("%v9", "%v10", S_CLOSED),
@@ -1976,8 +2541,23 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
         // signal
         abi::add_immediate(abi::return_register(), "%v10", S_COND),
     ]);
-    platform.emit_libc_call("pthread_cond_signal", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    emit_pthread1(symbol, "pthread_mutex_unlock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "pthread_cond_signal",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        CB_STATE,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Re-enqueue the buffer.
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CB_AQ),
@@ -1985,11 +2565,26 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
-    platform.emit_libc_call("AudioQueueEnqueueBuffer", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "AudioQueueEnqueueBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::return_());
     // Closed path: unlock and return without touching the ring or re-enqueuing.
     instructions.push(abi::label(&closed_exit));
-    emit_pthread1(symbol, "pthread_mutex_unlock", CB_STATE, S_MUTEX, platform, platform_imports, &mut instructions, &mut relocations)?;
+    emit_pthread1(
+        symbol,
+        "pthread_mutex_unlock",
+        CB_STATE,
+        S_MUTEX,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], CB_FRAME);
     Ok(CodeFunction {

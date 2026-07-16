@@ -105,7 +105,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         READ => Some(&[&["url"], &["headers"], &["method"]]),
         WRITE => Some(&[&["url"], &["body"], &["headers"], &["method"]]),
         SERVER => Some(&[&["port"], &["host"], &["backlog"]]),
-        SERVER_SSL => Some(&[&["port"], &["certPath"], &["keyPath"], &["host"], &["backlog"]]),
+        SERVER_SSL => Some(&[
+            &["port"],
+            &["certPath"],
+            &["keyPath"],
+            &["host"],
+            &["backlog"],
+        ]),
         HANDLE_REQUEST => Some(&[&["listener", "server"], &["routes"]]),
         ROUTE => Some(&[&["pattern"], &["handler"]]),
         RESPONSE_DEFAULT => Some(&[]),
@@ -161,7 +167,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         SERVER_SSL
             if exact(arg_types, &["Integer", "String", "String"])
                 || exact(arg_types, &["Integer", "String", "String", "String"])
-                || exact(arg_types, &["Integer", "String", "String", "String", "Integer"]) =>
+                || exact(
+                    arg_types,
+                    &["Integer", "String", "String", "String", "Integer"],
+                ) =>
         {
             Cow::Borrowed(TLS_LISTENER_TYPE)
         }
@@ -428,7 +437,10 @@ mod tests {
             Some(TLS_LISTENER_TYPE.to_string())
         );
         assert_eq!(
-            rt(SERVER_SSL, &["Integer", "String", "String", "String", "Integer"]),
+            rt(
+                SERVER_SSL,
+                &["Integer", "String", "String", "String", "Integer"]
+            ),
             Some(TLS_LISTENER_TYPE.to_string())
         );
         assert_eq!(rt(SERVER_SSL, &["Integer", "String"]), None);
@@ -461,7 +473,10 @@ mod tests {
             Some(RESPONSE_TYPE.to_string())
         );
         assert_eq!(rt(BYTES, &["String"]), Some(BYTE_LIST.to_string()));
-        assert_eq!(rt(RESPOND_FILE, &[FILE_TYPE]), Some(RESPONSE_TYPE.to_string()));
+        assert_eq!(
+            rt(RESPOND_FILE, &[FILE_TYPE]),
+            Some(RESPONSE_TYPE.to_string())
+        );
         assert_eq!(
             rt(RESPOND_FILE, &[FILE_TYPE, "String"]),
             Some(RESPONSE_TYPE.to_string())

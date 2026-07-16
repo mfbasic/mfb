@@ -238,8 +238,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             // 2-arg: `toInt(text AS String, base AS Integer)` parses `text` in
             // `base` (plan-02-cleanup §5). The optional `base` is a second arity,
             // not a user-level default parameter, since `toInt` is overloaded.
-            if exact_one_of(arg_types, &["String", "Byte", "Float", "Fixed", "Money", "Scalar"])
-                || exact(arg_types, &["String", "Integer"])
+            if exact_one_of(
+                arg_types,
+                &["String", "Byte", "Float", "Fixed", "Money", "Scalar"],
+            ) || exact(arg_types, &["String", "Integer"])
             {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Integer"),

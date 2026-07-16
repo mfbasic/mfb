@@ -523,11 +523,7 @@ fn append_import_stubs(
     Ok(locations)
 }
 
-fn emit_import_stub(
-    text: &mut Vec<u8>,
-    stub_vmaddr: u64,
-    got_vmaddr: u64,
-) -> Result<(), String> {
+fn emit_import_stub(text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) -> Result<(), String> {
     let (immlo, immhi) = adrp_page21(stub_vmaddr, got_vmaddr)?;
     put_u32(text, 0x9000_0010 | (immlo << 29) | (immhi << 5));
     put_u32(
@@ -558,9 +554,7 @@ fn symbol_vmaddr(
         .ok_or_else(|| format!("symbol '{symbol_name}' does not resolve"))?;
     Ok(match symbol.section {
         EncodedSection::Text => text_vmaddr + symbol.offset as u64,
-        EncodedSection::Data if symbol.offset < rodata_size => {
-            rodata_vmaddr + symbol.offset as u64
-        }
+        EncodedSection::Data if symbol.offset < rodata_size => rodata_vmaddr + symbol.offset as u64,
         EncodedSection::Data => data_vmaddr + (symbol.offset - rodata_size) as u64,
     })
 }

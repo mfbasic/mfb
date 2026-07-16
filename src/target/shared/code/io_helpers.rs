@@ -498,13 +498,7 @@ pub(super) fn lower_io_write_helper(
         // the shadow-grid back buffer. No terminal write happens here; the frame
         // is shown when the program calls `term::sync`.
         instructions.push(abi::label(&grid_path));
-        term_grid::emit_grid_write(
-            symbol,
-            tso,
-            strobj_vreg,
-            append_newline,
-            &mut instructions,
-        );
+        term_grid::emit_grid_write(symbol, tso, strobj_vreg, append_newline, &mut instructions);
         instructions.push(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",
@@ -697,7 +691,11 @@ pub(super) fn lower_io_poll_input_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     // Save the caller's timeout before the log-ready check clobbers x0.
-    instructions.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), TIMEOUT_OFFSET));
+    instructions.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        TIMEOUT_OFFSET,
+    ));
     // plan-15 §4.4: a byte already staged for this thread in the broadcast log is
     // invisible to `poll(fd 0)`, so check the log first (ready => report TRUE) and
     // only `poll(fd 0)` when the log has nothing for us. App mode reads the window
@@ -719,7 +717,11 @@ pub(super) fn lower_io_poll_input_helper(
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
     ]);
 
-    instructions.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET));
+    instructions.push(abi::load_u64(
+        abi::ARG[2],
+        abi::stack_pointer(),
+        TIMEOUT_OFFSET,
+    ));
 
     instructions.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
@@ -1245,7 +1247,12 @@ pub(super) fn lower_io_read_byte_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INVALID_CONTEXT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_CONTEXT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         symbol,
@@ -1655,7 +1662,12 @@ pub(super) fn lower_io_read_char_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INVALID_CONTEXT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_CONTEXT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         symbol,
@@ -2239,7 +2251,12 @@ pub(super) fn lower_io_read_line_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INVALID_CONTEXT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_CONTEXT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     if !with_prompt {
         emit_restore_stdin_terminal(

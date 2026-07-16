@@ -9,8 +9,8 @@
 //! so every backend's selection is symmetric, under its own `arch/<isa>/`.
 
 use crate::arch::aarch64::abi;
-use crate::arch::ops::CodeOp;
 use crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
     fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
     FUSED_SHARE_FIELD,

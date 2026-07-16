@@ -42,7 +42,9 @@ pub(crate) const TEST_ABORT_CODE: i64 = 77069001;
 
 /// Whether `name` is one of the assertion builtins.
 pub(crate) fn is_expect_call(name: &str) -> bool {
-    is_equality_assert(name) || is_inequality_assert(name) || matches!(name, EXPECT_TRAP | EXPECT_NTRAP)
+    is_equality_assert(name)
+        || is_inequality_assert(name)
+        || matches!(name, EXPECT_TRAP | EXPECT_NTRAP)
 }
 
 /// An equality assertion (`actual = expected`): the generic `expectEqual` or a

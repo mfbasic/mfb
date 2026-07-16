@@ -40,8 +40,7 @@ pub fn fixture_dir(name: &str) -> PathBuf {
         None
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    find(&root, name)
-        .unwrap_or_else(|| panic!("test fixture `{name}` not found under tests/"))
+    find(&root, name).unwrap_or_else(|| panic!("test fixture `{name}` not found under tests/"))
 }
 
 /// Parse a single `.mfb` source string into an [`AstFile`], panicking on any

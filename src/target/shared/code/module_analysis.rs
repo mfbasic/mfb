@@ -543,7 +543,9 @@ fn collect_ops_function_refs(ops: &[NirOp], out: &mut Vec<(String, String)>) {
                     collect_ops_function_refs(&case.body, out);
                 }
             }
-            NirOp::While { condition, body, .. } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_value_function_refs(condition, out);
                 collect_ops_function_refs(body, out);
             }

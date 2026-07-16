@@ -1412,7 +1412,8 @@ pub(crate) fn package_version_matches(expected: &str, actual: &str) -> bool {
 mod tests {
     use super::*;
 
-    const UNSIGNED_FIXTURE: &str = "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp";
+    const UNSIGNED_FIXTURE: &str =
+        "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp";
 
     fn s(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

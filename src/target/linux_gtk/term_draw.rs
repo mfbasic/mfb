@@ -143,11 +143,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::multiply_registers("x10", "x20", "x9"));
     asm.push(abi::add_registers("x10", "x10", "x21")); // idx
     asm.push(abi::shift_left_immediate("x11", "x10", 2)); // idx*4
-    // char -> charbuf; fg, bg -> stack (survive cairo calls). The cell holds one
-    // code point's UTF-8 bytes packed little-endian, so storing the u32 lays them
-    // out in order; the NUL after it terminates the 1-4 byte sequence for
-    // `cairo_show_text` (bug-203 — this used to store a single byte, which cut a
-    // multi-byte glyph into invalid fragments).
+                                                          // char -> charbuf; fg, bg -> stack (survive cairo calls). The cell holds one
+                                                          // code point's UTF-8 bytes packed little-endian, so storing the u32 lays them
+                                                          // out in order; the NUL after it terminates the 1-4 byte sequence for
+                                                          // `cairo_show_text` (bug-203 — this used to store a single byte, which cut a
+                                                          // multi-byte glyph into invalid fragments).
     asm.push(abi::add_registers("x12", "x23", "x11"));
     asm.push(abi::load_u32("x13", "x12", 0));
     asm.push(abi::store_u32("x13", abi::stack_pointer(), off_buf));
@@ -352,8 +352,8 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
         &TERM_MAX_COLS.to_string(),
     ));
     asm.push(abi::multiply_registers("x19", "x19", "x9")); // cells = (rows-1)*MAX_COLS
-    // memmove each array up one (fixed-stride) row: 4B per cell for all three
-    // (chars became u32 in bug-203, matching fg/bg).
+                                                           // memmove each array up one (fixed-stride) row: 4B per cell for all three
+                                                           // (chars became u32 in bug-203, matching fg/bg).
     for (base, shift) in [(ST_TERM_CHARS, 2u8), (ST_TERM_FG, 2), (ST_TERM_BG, 2)] {
         asm.state_array("x0", base); // dst = row 0
         asm.state_array("x1", base + TERM_MAX_COLS * (1 << shift)); // src = row 1
@@ -561,10 +561,7 @@ fn emit_term_snapshot_copy(asm: &mut Asm) {
     ));
     asm.call_external("memcpy");
     // fg / bg: 4 bytes/cell (packed RGB | flags — copied verbatim).
-    for (snap, live) in [
-        (ST_TERM_SNAP_FG, ST_TERM_FG),
-        (ST_TERM_SNAP_BG, ST_TERM_BG),
-    ] {
+    for (snap, live) in [(ST_TERM_SNAP_FG, ST_TERM_FG), (ST_TERM_SNAP_BG, ST_TERM_BG)] {
         asm.state_array("x0", snap);
         asm.state_array("x1", live);
         asm.push(abi::move_immediate(
@@ -623,7 +620,7 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
     // second arg register (rdx = x2 = height), so both must be captured up front.
     asm.push(abi::move_register("x11", "x1")); // width
     asm.push(abi::move_register("x12", "x2")); // height
-    // cols = clamp(width / cell_w, 1, MAX_COLS).
+                                               // cols = clamp(width / cell_w, 1, MAX_COLS).
     asm.load_state("x10", ST_TERM_CELL_W);
     asm.push(abi::unsigned_divide_registers("x11", "x11", "x10"));
     emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "rz_cols");

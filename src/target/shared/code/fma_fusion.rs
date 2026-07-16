@@ -128,7 +128,10 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         // bail. Today the d-native emitter never lays a label between the two ops,
         // so this never fires and the emitted code is unchanged; it converts a
         // future cross-label chain from a silent miscompile into a skipped fusion.
-        if instructions[i + 1..=j].iter().any(|inst| inst.op == CodeOp::Label) {
+        if instructions[i + 1..=j]
+            .iter()
+            .any(|inst| inst.op == CodeOp::Label)
+        {
             continue;
         }
 

@@ -520,7 +520,11 @@ impl CodeBuilder<'_> {
                 if let Some(env_slot) = env_slot {
                     let env_register = self.allocate_register()?;
                     self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
-                    self.emit(abi::store_u64(&env_register, abi::RET[1], CLOSURE_OFFSET_ENV));
+                    self.emit(abi::store_u64(
+                        &env_register,
+                        abi::RET[1],
+                        CLOSURE_OFFSET_ENV,
+                    ));
                 } else {
                     self.emit(abi::store_u64(abi::ZERO, abi::RET[1], CLOSURE_OFFSET_ENV));
                 }
@@ -1086,7 +1090,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+                self.emit(abi::store_u64(
+                    abi::RET[1],
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
                 let zero_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
@@ -1202,7 +1210,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+                self.emit(abi::store_u64(
+                    abi::RET[1],
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
                 let zero_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
@@ -1491,19 +1503,19 @@ impl CodeBuilder<'_> {
             self.lower_bits_call(function, args)
         } else {
             match crate::builtins::native_builtin_target(target) {
-            Some("get") => self.lower_collection_get(args),
-            Some("set") => self.lower_collection_set(args),
-            Some("insert") => self.lower_collection_insert(args),
-            Some("removeAt") => self.lower_collection_remove_at(args),
-            Some("find") => self.lower_find(args),
-            Some("mid") => self.lower_mid(args),
-            Some("transform") => self.lower_collection_transform_call(args),
-            Some("filter") => self.lower_collection_filter_call(args),
-            Some("reduce") => self.lower_collection_reduce_call(args),
-            Some("forEach") => self.lower_collection_for_each_call(args),
-            other => Err(format!(
-                "native raw inline builtin '{target}' ({other:?}) is not supported"
-            )),
+                Some("get") => self.lower_collection_get(args),
+                Some("set") => self.lower_collection_set(args),
+                Some("insert") => self.lower_collection_insert(args),
+                Some("removeAt") => self.lower_collection_remove_at(args),
+                Some("find") => self.lower_find(args),
+                Some("mid") => self.lower_mid(args),
+                Some("transform") => self.lower_collection_transform_call(args),
+                Some("filter") => self.lower_collection_filter_call(args),
+                Some("reduce") => self.lower_collection_reduce_call(args),
+                Some("forEach") => self.lower_collection_for_each_call(args),
+                other => Err(format!(
+                    "native raw inline builtin '{target}' ({other:?}) is not supported"
+                )),
             }
         };
         self.raw_result_capture = previous;
@@ -1569,9 +1581,9 @@ impl CodeBuilder<'_> {
             return self.lower_to_string(args);
         }
         if target == "typeName" && args.len() == 1 {
-            let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
-                "native code cannot determine typeName argument type".to_string()
-            })?;
+            let type_name = self
+                .static_type_name(&args[0])
+                .ok_or_else(|| "native code cannot determine typeName argument type".to_string())?;
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
                 type_: "String".to_string(),

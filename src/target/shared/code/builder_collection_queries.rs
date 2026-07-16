@@ -528,19 +528,31 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.kind.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(
+            &scratch13,
+            abi::RET[1],
+            COLLECTION_OFFSET_KIND,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(
+            &scratch13,
+            abi::RET[1],
+            COLLECTION_OFFSET_KEY_TYPE,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
@@ -567,8 +579,16 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::RET[1],
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::RET[1],
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -590,14 +610,22 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::add_immediate(&scratch17, abi::RET[1], COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch17,
+            abi::RET[1],
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::move_immediate(
             &scratch14,
@@ -710,7 +738,10 @@ impl CodeBuilder<'_> {
             return Ok(None);
         }
         let is_fixed = |t: &str| {
-            matches!(t, "Integer" | "Float" | "Fixed" | "Byte" | "Boolean" | "Scalar")
+            matches!(
+                t,
+                "Integer" | "Float" | "Fixed" | "Byte" | "Boolean" | "Scalar"
+            )
         };
         if !is_fixed(parts[0]) || !is_fixed(parts[1]) {
             return Ok(None);
@@ -774,7 +805,11 @@ impl CodeBuilder<'_> {
         // the mutate path uses (bug-147.7 / bug-232): a wrapped 64-bit size would
         // under-allocate.
         let size_overflow = self.label("zip_size_overflow");
-        self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::move_immediate(
+            &s14,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
         self.emit_checked_size_multiply(&s15, &s9, &s14, &size_overflow);
         self.emit_checked_size_add_immediate(
             abi::return_register(),
@@ -800,13 +835,20 @@ impl CodeBuilder<'_> {
             library: None,
         });
         let alloc_ok = self.label("zip_alloc_ok");
-        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
 
         // Header. data_length = data_capacity = n*REC.
         self.emit(abi::load_u64(&s9, abi::stack_pointer(), n_slot));
@@ -814,33 +856,73 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(&s16, &s9, &s16));
         self.emit(abi::move_immediate(&s13, "Byte", &layout.kind.to_string()));
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KIND));
-        self.emit(abi::move_immediate(&s13, "Byte", &layout.key_type_code.to_string()));
+        self.emit(abi::move_immediate(
+            &s13,
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
-        self.emit(abi::move_immediate(&s13, "Byte", &layout.value_type_code.to_string()));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate(
+            &s13,
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            &s13,
+            abi::RET[1],
+            COLLECTION_OFFSET_VALUE_TYPE,
+        ));
         self.emit(abi::move_immediate(&s13, "Byte", "1"));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::store_u8(
+            &s13,
+            abi::RET[1],
+            COLLECTION_OFFSET_FLAGS_VERSION,
+        ));
         // `arena_alloc` does not zero the block: zero the bucket-index-ready byte
         // rather than leaving stale poison (bug-232).
-        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::store_u8(
+            abi::ZERO,
+            abi::RET[1],
+            COLLECTION_OFFSET_BUCKETS_READY,
+        ));
         self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
-        self.emit(abi::store_u64(&s16, abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&s16, abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::store_u64(
+            &s16,
+            abi::RET[1],
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &s16,
+            abi::RET[1],
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
 
         // Copy loop: entry i holds [a[i]@0][b[i]@8] at blob offset i*REC.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), a_slot));
         self.emit(abi::load_u64(&s10, abi::stack_pointer(), b_slot));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&s9, abi::stack_pointer(), n_slot));
         // s12 = a entry ptr, s13 = b entry ptr, s17 = result entry ptr.
         self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
         self.emit(abi::add_immediate(&s13, &s10, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_immediate(&s17, abi::RET[1], COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &s17,
+            abi::RET[1],
+            COLLECTION_HEADER_SIZE,
+        ));
         // s20 = a blob base, s21 = b blob base, s22 = result blob base.
         self.emit_collection_data_pointer(&s20, &s8);
         self.emit_collection_data_pointer(&s21, &s10);
-        self.emit(abi::move_immediate(&s16, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::move_immediate(
+            &s16,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
         self.emit(abi::multiply_registers(&s22, &s9, &s16));
         self.emit(abi::add_registers(&s22, &s17, &s22));
         // s11 = running result-blob offset, s14 = i.
@@ -852,23 +934,51 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&s14, &s9));
         self.emit(abi::branch_ge(&loop_done));
         // result entry i: flags USED, key 0, value_offset = running, length = REC.
-        self.emit(abi::move_immediate(&s15, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()));
+        self.emit(abi::move_immediate(
+            &s15,
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
         self.emit(abi::store_u8(&s15, &s17, COLLECTION_ENTRY_OFFSET_FLAGS));
         self.emit(abi::move_immediate(&s15, "Integer", "0"));
-        self.emit(abi::store_u64(&s15, &s17, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
-        self.emit(abi::store_u64(&s15, &s17, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
-        self.emit(abi::store_u64(&s11, &s17, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::store_u64(
+            &s15,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            &s15,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &s11,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
         self.emit(abi::move_immediate(&s15, "Integer", &REC.to_string()));
-        self.emit(abi::store_u64(&s15, &s17, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        self.emit(abi::store_u64(
+            &s15,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
         // a[i] value: 8 bytes at a_blob + a_entry.value_offset.
-        self.emit(abi::load_u64(&s15, &s12, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::load_u64(
+            &s15,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
         self.emit(abi::add_registers(&s15, &s20, &s15));
         self.emit(abi::load_u64(&s15, &s15, 0));
         // dest = result_blob + running.
         self.emit(abi::add_registers(&s16, &s22, &s11));
         self.emit(abi::store_u64(&s15, &s16, 0));
         // b[i] value.
-        self.emit(abi::load_u64(&s15, &s13, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::load_u64(
+            &s15,
+            &s13,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
         self.emit(abi::add_registers(&s15, &s21, &s15));
         self.emit(abi::load_u64(&s15, &s15, 0));
         self.emit(abi::store_u64(&s15, &s16, 8));
@@ -957,11 +1067,23 @@ impl CodeBuilder<'_> {
         // Lower each argument and spill immediately so a later lowering (which may
         // reset the temporary-register pool) cannot alias a live input.
         let list = self.lower_value(&args[0])?;
-        self.emit(abi::store_u64(&list.location, abi::stack_pointer(), collection_slot));
+        self.emit(abi::store_u64(
+            &list.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
         let start = self.lower_value(&args[1])?;
-        self.emit(abi::store_u64(&start.location, abi::stack_pointer(), start_slot));
+        self.emit(abi::store_u64(
+            &start.location,
+            abi::stack_pointer(),
+            start_slot,
+        ));
         let stop = self.lower_value(&args[2])?;
-        self.emit(abi::store_u64(&stop.location, abi::stack_pointer(), stop_slot));
+        self.emit(abi::store_u64(
+            &stop.location,
+            abi::stack_pointer(),
+            stop_slot,
+        ));
 
         // Clamp start into [0, count] and stop into [start, count]; count' = stop-start.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), collection_slot));
@@ -993,7 +1115,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&s12, abi::stack_pointer(), count_slot));
 
         // Length pass: sum value_lengths of entries [start, start+count').
-        self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::move_immediate(
+            &s14,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
         self.emit(abi::multiply_registers(&s13, &s10, &s14));
         self.emit(abi::add_immediate(&s15, &s8, COLLECTION_HEADER_SIZE));
         self.emit(abi::add_registers(&s15, &s15, &s13));
@@ -1004,7 +1130,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&len_loop));
         self.emit(abi::compare_registers(&s17, &s12));
         self.emit(abi::branch_ge(&len_done));
-        self.emit(abi::load_u64(&s20, &s15, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        self.emit(abi::load_u64(
+            &s20,
+            &s15,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
         self.emit(abi::add_registers(&s13, &s13, &s20));
         self.emit(abi::add_immediate(&s15, &s15, COLLECTION_ENTRY_SIZE));
         self.emit(abi::add_immediate(&s17, &s17, 1));
@@ -1018,7 +1148,11 @@ impl CodeBuilder<'_> {
         // Overflow-guarded size arithmetic (bug-147.7 / bug-232): count and
         // data_len come from live headers; a wrapped size would under-allocate.
         let size_overflow = self.label("slice_size_overflow");
-        self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::move_immediate(
+            &s14,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
         self.emit_checked_size_multiply(&s15, &s12, &s14, &size_overflow);
         self.emit_checked_size_add_immediate(
             abi::return_register(),
@@ -1042,44 +1176,95 @@ impl CodeBuilder<'_> {
             library: None,
         });
         let alloc_ok = self.label("slice_alloc_ok");
-        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
 
         // Header.
         self.emit(abi::move_immediate(&s13, "Byte", &layout.kind.to_string()));
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KIND));
-        self.emit(abi::move_immediate(&s13, "Byte", &layout.key_type_code.to_string()));
+        self.emit(abi::move_immediate(
+            &s13,
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
-        self.emit(abi::move_immediate(&s13, "Byte", &layout.value_type_code.to_string()));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate(
+            &s13,
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            &s13,
+            abi::RET[1],
+            COLLECTION_OFFSET_VALUE_TYPE,
+        ));
         self.emit(abi::move_immediate(&s13, "Byte", "1"));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::store_u8(
+            &s13,
+            abi::RET[1],
+            COLLECTION_OFFSET_FLAGS_VERSION,
+        ));
         // `arena_alloc` does not zero the block: zero the bucket-index-ready byte
         // rather than leaving stale poison (bug-232).
-        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::store_u8(
+            abi::ZERO,
+            abi::RET[1],
+            COLLECTION_OFFSET_BUCKETS_READY,
+        ));
         self.emit(abi::load_u64(&s12, abi::stack_pointer(), count_slot));
         self.emit(abi::store_u64(&s12, abi::RET[1], COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&s12, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(
+            &s12,
+            abi::RET[1],
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::load_u64(&s13, abi::stack_pointer(), data_len_slot));
-        self.emit(abi::store_u64(&s13, abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&s13, abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::store_u64(
+            &s13,
+            abi::RET[1],
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &s13,
+            abi::RET[1],
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
 
         // Copy pass: for each entry in [start, start+count') copy its value payload
         // into the new blob and rewrite the entry's value_offset to the running one.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), collection_slot));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&s10, abi::stack_pointer(), start_slot));
         self.emit(abi::load_u64(&s9, abi::stack_pointer(), count_slot));
-        self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::move_immediate(
+            &s14,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
         self.emit(abi::multiply_registers(&s13, &s10, &s14));
         self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
         self.emit(abi::add_registers(&s12, &s12, &s13));
-        self.emit(abi::add_immediate(&s17, abi::RET[1], COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &s17,
+            abi::RET[1],
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&s20, &s8);
         self.emit(abi::multiply_registers(&s21, &s9, &s14));
         self.emit(abi::add_registers(&s21, &s17, &s21));
@@ -1092,15 +1277,43 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_registers(&s10, &s9));
         self.emit(abi::branch_ge(&copy_done));
-        self.emit(abi::move_immediate(&s22, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()));
+        self.emit(abi::move_immediate(
+            &s22,
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
         self.emit(abi::store_u8(&s22, &s17, COLLECTION_ENTRY_OFFSET_FLAGS));
         self.emit(abi::move_immediate(&s22, "Integer", "0"));
-        self.emit(abi::store_u64(&s22, &s17, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
-        self.emit(abi::store_u64(&s22, &s17, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
-        self.emit(abi::load_u64(&s22, &s12, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
-        self.emit(abi::load_u64(&s23, &s12, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
-        self.emit(abi::store_u64(&s11, &s17, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
-        self.emit(abi::store_u64(&s23, &s17, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        self.emit(abi::store_u64(
+            &s22,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            &s22,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &s22,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &s23,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &s11,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            &s23,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
         self.emit(abi::add_registers(&s24, &s20, &s22));
         self.emit(abi::add_registers(&s25, &s21, &s11));
         self.emit(abi::label(&copy_bytes));
@@ -1113,7 +1326,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_immediate(&s23, &s23, 1));
         self.emit(abi::branch(&copy_bytes));
         self.emit(abi::label(&copy_bytes_done));
-        self.emit(abi::load_u64(&s23, &s17, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        self.emit(abi::load_u64(
+            &s23,
+            &s17,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
         self.emit(abi::add_registers(&s11, &s11, &s23));
         self.emit(abi::add_immediate(&s12, &s12, COLLECTION_ENTRY_SIZE));
         self.emit(abi::add_immediate(&s17, &s17, COLLECTION_ENTRY_SIZE));
@@ -1195,7 +1412,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&scratch16, &scratch15, 0));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &scratch14));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &scratch16));
-                self.emit(abi::float_add_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_add_d(
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[1],
+                ));
                 self.emit(abi::float_move_x_from_d(&scratch14, abi::FP_SCRATCH[0]));
             }
             "Fixed" => {

@@ -147,8 +147,7 @@ const VERIFY_MATCH: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH";
 /// Scalar types a value can never be member-accessed through. A `MemberAccess`
 /// whose target provably has one of these types is a type confusion.
 const PRIMITIVE_TYPES: &[&str] = &[
-    "Integer", "Float", "String", "Boolean", "Byte", "Fixed", "Nothing",
-    "Money", "Scalar",
+    "Integer", "Float", "String", "Boolean", "Byte", "Fixed", "Nothing", "Money", "Scalar",
 ];
 
 /// Collect every semantic-verification diagnostic for a merged `IrProject`, in
@@ -1868,8 +1867,12 @@ impl TypeEnv {
         // only fires when *both* sides are known, so an Unknown companion falls
         // through here and must not be rejected (module "Unknown stays
         // permissive" contract, :1834).
-        let numeric =
-            |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown");
+        let numeric = |t: &str| {
+            matches!(
+                t,
+                "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown"
+            )
+        };
         let string = |t: &str| matches!(t, "String" | "Unknown");
         let boolean = |t: &str| matches!(t, "Boolean" | "Unknown");
         // Scalar orders by codepoint value; non-numeric, and never orders against

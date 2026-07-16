@@ -277,8 +277,14 @@ pub(super) fn symtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0x2);
     put_u32(bytes, 24);
     put_u32(bytes, u32_field("symtab offset", linkedit.symtab_offset));
-    put_u32(bytes, u32_field("symtab symbol count", linkedit.symbol_count));
-    put_u32(bytes, u32_field("symtab string offset", linkedit.string_offset));
+    put_u32(
+        bytes,
+        u32_field("symtab symbol count", linkedit.symbol_count),
+    );
+    put_u32(
+        bytes,
+        u32_field("symtab string offset", linkedit.string_offset),
+    );
     put_u32(bytes, u32_field("symtab string size", linkedit.string_size));
 }
 
@@ -290,15 +296,24 @@ pub(super) fn dysymtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
-    put_u32(bytes, u32_field("dysymtab nundefsym", linkedit.symbol_count));
+    put_u32(
+        bytes,
+        u32_field("dysymtab nundefsym", linkedit.symbol_count),
+    );
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
-    put_u32(bytes, u32_field("dysymtab indirectsymoff", linkedit.indirect_symbol_offset));
-    put_u32(bytes, u32_field("dysymtab nindirectsyms", linkedit.indirect_symbol_count));
+    put_u32(
+        bytes,
+        u32_field("dysymtab indirectsymoff", linkedit.indirect_symbol_offset),
+    );
+    put_u32(
+        bytes,
+        u32_field("dysymtab nindirectsyms", linkedit.indirect_symbol_count),
+    );
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
@@ -338,15 +353,30 @@ pub(super) fn dylib_command_size(name: &str) -> usize {
 pub(super) fn dyld_info(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0x8000_0022);
     put_u32(bytes, 48);
-    put_u32(bytes, u32_field("dyld_info rebase offset", linkedit.rebase_offset));
-    put_u32(bytes, u32_field("dyld_info rebase size", linkedit.rebase_size));
-    put_u32(bytes, u32_field("dyld_info fixups offset", linkedit.fixups_offset));
-    put_u32(bytes, u32_field("dyld_info fixups size", linkedit.fixups_size));
+    put_u32(
+        bytes,
+        u32_field("dyld_info rebase offset", linkedit.rebase_offset),
+    );
+    put_u32(
+        bytes,
+        u32_field("dyld_info rebase size", linkedit.rebase_size),
+    );
+    put_u32(
+        bytes,
+        u32_field("dyld_info fixups offset", linkedit.fixups_offset),
+    );
+    put_u32(
+        bytes,
+        u32_field("dyld_info fixups size", linkedit.fixups_size),
+    );
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
     put_u32(bytes, 0);
-    put_u32(bytes, u32_field("dyld_info exports offset", linkedit.exports_offset));
+    put_u32(
+        bytes,
+        u32_field("dyld_info exports offset", linkedit.exports_offset),
+    );
     put_u32(bytes, 0);
 }
 
@@ -402,8 +432,7 @@ pub(super) fn linkedit_layout(
     linkedit_file_offset: usize,
 ) -> LinkeditLayout {
     let has_imports = !libraries.is_empty();
-    let needs_data_const =
-        has_imports || !image.initializers.is_empty() || rodata_len(image) > 0;
+    let needs_data_const = has_imports || !image.initializers.is_empty() || rodata_len(image) > 0;
     // Rebase opcodes (for `__mod_init_func` pointers) lead the dyld_info payload,
     // followed by the bind opcodes. `rebase_offset` is 0 when there is nothing to
     // rebase, leaving the bind stream exactly where it was for imports-only images.
@@ -557,7 +586,10 @@ pub(super) fn code_signature(unsigned: &[u8], name: &str) -> Vec<u8> {
     put_be_u32(&mut bytes, 0);
     put_be_u32(&mut bytes, 20);
     put_be_u32(&mut bytes, 0xfade_0c02);
-    put_be_u32(&mut bytes, u32_field("code directory length", code_directory_len));
+    put_be_u32(
+        &mut bytes,
+        u32_field("code directory length", code_directory_len),
+    );
     put_be_u32(&mut bytes, 0x20400);
     put_be_u32(&mut bytes, 0x20002);
     put_be_u32(&mut bytes, hash_offset as u32);

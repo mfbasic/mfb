@@ -209,11 +209,7 @@ pub(crate) fn lower_program_entry(
                 abi::stack_pointer(),
                 ENTRY_SEED_SCRATCH_OFFSET,
             ),
-            abi::add_immediate(
-                abi::ARG[0],
-                abi::stack_pointer(),
-                ENTRY_SEED_SCRATCH_OFFSET,
-            ),
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
             abi::move_immediate(abi::SYSARG[1], "Integer", "8"),
         ]);
         platform.emit_random_bytes(
@@ -263,12 +259,16 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 0),  // tv_sec
+        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 0), // tv_sec
         abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 8), // tv_nsec
         abi::move_immediate(abi::SCRATCH[2], "Integer", "1000000000"),
         abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
         abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]), // ns = sec*1e9 + nsec
-        abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        abi::store_u64(
+            abi::SCRATCH[0],
+            ARENA_STATE_REGISTER,
+            ARENA_START_TIME_OFFSET,
+        ),
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
         abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
@@ -283,7 +283,11 @@ pub(crate) fn lower_program_entry(
     instructions.extend([
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0), // entropy (or arena addr)
         abi::add_stack(16),
-        abi::load_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        abi::load_u64(
+            abi::SCRATCH[0],
+            ARENA_STATE_REGISTER,
+            ARENA_START_TIME_OFFSET,
+        ),
         abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], abi::SCRATCH[0]), // mix start time
         abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], ARENA_STATE_REGISTER), // mix arena address
         abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
@@ -376,7 +380,11 @@ pub(crate) fn lower_program_entry(
             &mut instructions,
             &mut relocations,
         );
-        instructions.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), args_base + 16));
+        instructions.push(abi::load_u64(
+            abi::ARG[0],
+            abi::stack_pointer(),
+            args_base + 16,
+        ));
     }
     instructions.push(abi::branch_link(language_entry_symbol));
     relocations.push(CodeRelocation {
@@ -569,12 +577,20 @@ fn emit_entry_args_list_materialization(
         abi::add_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
         abi::branch("entry_args_count_loop"),
         abi::label("entry_args_count_done"),
-        abi::move_immediate(abi::SCRATCH[14], "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate(
+            abi::SCRATCH[14],
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ),
         abi::multiply_registers(abi::SCRATCH[15], abi::SCRATCH[10], abi::SCRATCH[14]),
         abi::add_registers(abi::SCRATCH[15], abi::SCRATCH[15], abi::SCRATCH[12]),
         abi::store_u64(abi::SCRATCH[12], abi::stack_pointer(), args_base + 24),
         abi::store_u64(abi::SCRATCH[10], abi::stack_pointer(), args_base + 32),
-        abi::add_immediate(abi::return_register(), abi::SCRATCH[15], COLLECTION_HEADER_SIZE),
+        abi::add_immediate(
+            abi::return_register(),
+            abi::SCRATCH[15],
+            COLLECTION_HEADER_SIZE,
+        ),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -591,7 +607,12 @@ fn emit_entry_args_list_materialization(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(entry_symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    push_error_message_address(
+        entry_symbol,
+        ERR_ALLOCATION_SYMBOL,
+        instructions,
+        relocations,
+    );
     // The fill phase below uses ONLY `x9`–`x17`: the x86 residual-scratch pool
     // has 11 distinct registers, so `map_scratch_register` wraps at `xN+11` —
     // `x9`/`x20` share rbx, `x10`/`x21` share rsi, and so on. Mixing the low
@@ -613,14 +634,26 @@ fn emit_entry_args_list_materialization(
         abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_TYPE_STRING.to_string()),
         abi::store_u8(abi::SCRATCH[8], abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
         abi::move_immediate(abi::SCRATCH[8], "Byte", "1"),
-        abi::store_u8(abi::SCRATCH[8], abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u8(
+            abi::SCRATCH[8],
+            abi::RET[1],
+            COLLECTION_OFFSET_FLAGS_VERSION,
+        ),
         abi::store_u64(abi::SCRATCH[0], abi::RET[1], COLLECTION_OFFSET_COUNT),
         abi::store_u64(abi::SCRATCH[0], abi::RET[1], COLLECTION_OFFSET_CAPACITY),
         abi::store_u64(abi::SCRATCH[7], abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64(abi::SCRATCH[7], abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::store_u64(
+            abi::SCRATCH[7],
+            abi::RET[1],
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ),
         // x11 = entry cursor, x12 = data write cursor (= entries end).
         abi::add_immediate(abi::SCRATCH[2], abi::RET[1], COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::SCRATCH[8], "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate(
+            abi::SCRATCH[8],
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ),
         abi::multiply_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[8]),
         abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[2], abi::SCRATCH[3]),
         // x13 = value-offset accumulator, x14 = index, x10 = argv cursor.
@@ -631,11 +664,31 @@ fn emit_entry_args_list_materialization(
         abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[0]),
         abi::branch_eq("entry_args_fill_done"),
         abi::load_u64(abi::SCRATCH[6], abi::SCRATCH[1], 0), // x15 = argv[i] (NUL-terminated source)
-        abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8(abi::SCRATCH[8], abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64(abi::SCRATCH[4], abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate(
+            abi::SCRATCH[8],
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ),
+        abi::store_u8(
+            abi::SCRATCH[8],
+            abi::SCRATCH[2],
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ),
+        abi::store_u64(
+            abi::ZERO,
+            abi::SCRATCH[2],
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ),
+        abi::store_u64(
+            abi::ZERO,
+            abi::SCRATCH[2],
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ),
+        abi::store_u64(
+            abi::SCRATCH[4],
+            abi::SCRATCH[2],
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ),
         // Copy bytes until the NUL, counting the length in x16 as we go (one
         // pass replaces the original separate strlen + copy loops).
         abi::move_immediate(abi::SCRATCH[7], "Integer", "0"),
@@ -649,7 +702,11 @@ fn emit_entry_args_list_materialization(
         abi::add_immediate(abi::SCRATCH[7], abi::SCRATCH[7], 1),
         abi::branch("entry_args_copy_loop"),
         abi::label("entry_args_copy_done"),
-        abi::store_u64(abi::SCRATCH[7], abi::SCRATCH[2], COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::store_u64(
+            abi::SCRATCH[7],
+            abi::SCRATCH[2],
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ),
         abi::add_registers(abi::SCRATCH[4], abi::SCRATCH[4], abi::SCRATCH[7]),
         abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], COLLECTION_ENTRY_SIZE),
         abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 8),
@@ -1616,7 +1673,11 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::store_u64(abi::ARG[0], &prev, 0), // prev.next = ptr
         abi::branch("insert_done"),
         abi::label("insert_set_head"),
-        abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(
+            abi::ARG[0],
+            ARENA_STATE_REGISTER,
+            ARENA_FREE_LIST_HEAD_OFFSET,
+        ),
         abi::label("insert_done"),
         abi::return_(),
         abi::label("insert_already_free"),
@@ -1896,8 +1957,20 @@ pub(super) fn lower_closure_descriptor_initializer(func_symbols: &[String]) -> C
         let func_reg = vregs.next();
         let desc_reg = vregs.next();
         // func_reg = &func ; desc_reg = &descriptor ; descriptor.code = &func.
-        push_symbol_address(symbol, func_symbol, &func_reg, &mut instructions, &mut relocations);
-        push_symbol_address(symbol, &desc_symbol, &desc_reg, &mut instructions, &mut relocations);
+        push_symbol_address(
+            symbol,
+            func_symbol,
+            &func_reg,
+            &mut instructions,
+            &mut relocations,
+        );
+        push_symbol_address(
+            symbol,
+            &desc_symbol,
+            &desc_reg,
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.push(abi::store_u64(&func_reg, &desc_reg, CLOSURE_OFFSET_CODE));
     }
     instructions.push(abi::return_());
@@ -2239,7 +2312,12 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::branch(&digits_done_label),
         abi::label(&digit_loop_label),
         abi::unsigned_divide_registers(abi::SCRATCH[15], abi::SCRATCH[11], abi::SCRATCH[14]),
-        abi::multiply_subtract_registers(abi::SCRATCH[16], abi::SCRATCH[15], abi::SCRATCH[14], abi::SCRATCH[11]),
+        abi::multiply_subtract_registers(
+            abi::SCRATCH[16],
+            abi::SCRATCH[15],
+            abi::SCRATCH[14],
+            abi::SCRATCH[11],
+        ),
         abi::add_immediate(abi::SCRATCH[16], abi::SCRATCH[16], 48),
         abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
         abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
@@ -2277,7 +2355,11 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::store_u8(abi::SCRATCH[12], abi::SCRATCH[13], 0),
         abi::label(&write_label),
         abi::add_immediate(abi::SCRATCH[17], abi::stack_pointer(), 64),
-        abi::subtract_registers(abi::string_length_register(), abi::SCRATCH[17], abi::SCRATCH[13]),
+        abi::subtract_registers(
+            abi::string_length_register(),
+            abi::SCRATCH[17],
+            abi::SCRATCH[13],
+        ),
         abi::move_register(abi::string_data_register(), abi::SCRATCH[13]),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);

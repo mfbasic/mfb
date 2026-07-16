@@ -134,7 +134,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
@@ -145,8 +149,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
         self.emit(abi::add_immediate(&scratch14, &scratch16, 8));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch20, abi::RET[1], COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            abi::RET[1],
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&scratch21, abi::RET[1]);
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch24, "Integer", "0"));
@@ -335,7 +347,11 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         // x1 holds the new collection pointer.
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::move_register(&scratch20, abi::RET[1]));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), count_slot));
         // Header: count == capacity == dataLength == dataCapacity == count.
@@ -550,12 +566,7 @@ impl CodeBuilder<'_> {
         // bug-175 B: header (+9) add routed through the checked helper so a
         // pathological byte length cannot wrap the allocation size.
         let size_overflow = self.label("strings_case_map_size_overflow");
-        self.emit_checked_size_add_immediate(
-            abi::return_register(),
-            &scratch24,
-            9,
-            &size_overflow,
-        );
+        self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -574,7 +585,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), length_slot));
         self.emit(abi::store_u64(&scratch24, abi::RET[1], 0));
 
@@ -751,13 +766,20 @@ impl CodeBuilder<'_> {
             binding: "internal".to_string(),
             library: None,
         });
-        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
         self.emit(abi::branch_eq(&ascii_alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&ascii_size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&ascii_alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // ARENA_ALLOC clobbers the caller-saved registers, so reload the source
         // pointer/length from their stack homes before copying.
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
@@ -1086,7 +1108,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&result_alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&result_alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(
             &scratch24,
             abi::stack_pointer(),
@@ -1459,7 +1485,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&overflow));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -1721,7 +1751,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(
             &scratch12,
@@ -2548,7 +2582,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), total_slot));
         self.emit(abi::store_u64(&scratch11, abi::RET[1], 0));
 

@@ -1226,21 +1226,28 @@ fn v128_bit_select_fma_convert() {
     // -1 for a negative lane. `pxor` (0F EF) therefore appears exactly ONCE for
     // k=64, and twice for the k=0 no-op that must clear the mask.
     let pxors = |b: &[u8]| b.windows(2).filter(|w| w == &[0x0F, 0xEF]).count();
-    let k64 = bytes("sshr_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")]);
+    let k64 = bytes(
+        "sshr_v",
+        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")],
+    );
     assert_eq!(pxors(&k64), 1, "k=64 keeps the sign mask: {k64:02x?}");
-    let k0 = bytes("sshr_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "0")]);
+    let k0 = bytes(
+        "sshr_v",
+        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "0")],
+    );
     assert_eq!(pxors(&k0), 2, "k=0 clears the sign mask");
     // The lane is shifted out by a `psrlq` (0F 73 /2, modrm reg field = 2) whose
     // immediate is 64 — an x86 count > 63 zeroes the lane by definition.
     assert!(
-        k64.windows(4).any(|w| w[0] == 0x0F
-            && w[1] == 0x73
-            && (w[2] >> 3) & 0x7 == 0x02
-            && w[3] == 64),
+        k64.windows(4)
+            .any(|w| w[0] == 0x0F && w[1] == 0x73 && (w[2] >> 3) & 0x7 == 0x02 && w[3] == 64),
         "psrlq dst,64 present: {k64:02x?}"
     );
     // ushr/shl by 64 zero the lane on both ISAs (an x86 count > 63 is defined to).
-    let _ = bytes("ushr_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")]);
+    let _ = bytes(
+        "ushr_v",
+        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")],
+    );
     // Past 64 the immediate is malformed and must be rejected, not truncated.
     for op in ["sshr_v", "ushr_v", "shl_v"] {
         let ins = CodeInstruction::new(op)
@@ -1928,12 +1935,21 @@ fn scalar_double_fma_family() {
     //   movsd  xmm15, xmm1        F2 44 0F 10 F9
     //   v...231sd xmm15, xmm2, xmm3   C4 62 E9 <op> FB   (op = B9/BB/BD/BF)
     //   movsd  xmm0, xmm15        F2 41 0F 10 C7
-    let fields = &[("dst", "xmm0"), ("addend", "xmm1"), ("lhs", "xmm2"), ("rhs", "xmm3")];
+    let fields = &[
+        ("dst", "xmm0"),
+        ("addend", "xmm1"),
+        ("lhs", "xmm2"),
+        ("rhs", "xmm3"),
+    ];
     let head = [0xF2u8, 0x44, 0x0F, 0x10, 0xF9];
     let tail = [0xF2u8, 0x41, 0x0F, 0x10, 0xC7];
     let mid = |op: u8| [0xC4u8, 0x62, 0xE9, op, 0xFB];
     let expect = |op: u8| -> Vec<u8> {
-        head.iter().chain(mid(op).iter()).chain(tail.iter()).copied().collect()
+        head.iter()
+            .chain(mid(op).iter())
+            .chain(tail.iter())
+            .copied()
+            .collect()
     };
     assert_eq!(bytes("fmadd_d", fields), expect(0xB9)); // vfmadd231sd
     assert_eq!(bytes("fmsub_d", fields), expect(0xBB)); // vfmsub231sd
@@ -2388,4 +2404,3 @@ fn encode_unresolved_call_and_label_error() {
     );
     assert!(super::encode(&plan).is_err());
 }
-

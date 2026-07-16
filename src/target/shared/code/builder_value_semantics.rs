@@ -105,7 +105,10 @@ impl CodeBuilder<'_> {
                     library: None,
                 });
                 let alloc_ok = self.label("default_resource_alloc_ok");
-                self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));

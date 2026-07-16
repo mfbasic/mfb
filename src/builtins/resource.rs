@@ -308,7 +308,10 @@ mod tests {
         // need a closed-flag review at the canonical offset 8).
         for (name, info) in builtin_resources() {
             assert_eq!(info.kind, ResourceKind::Builtin, "{name} must be Builtin");
-            assert!(!info.close_function.is_empty(), "{name} has an empty close op");
+            assert!(
+                !info.close_function.is_empty(),
+                "{name} has an empty close op"
+            );
         }
         // The full set of built-ins the closed-default must cover.
         let registry = ResourceRegistry::with_builtins();

@@ -2103,7 +2103,9 @@ mod checker_tests {
     use std::path::Path;
 
     fn fixture(name: &str) -> String {
-        crate::testutil::fixture_dir(name).to_string_lossy().into_owned()
+        crate::testutil::fixture_dir(name)
+            .to_string_lossy()
+            .into_owned()
     }
 
     // ---- check_function -----------------------------------------------------
@@ -2859,7 +2861,8 @@ mod checker_tests {
 
     #[test]
     fn self_referential_record_walks_cycle_arm() {
-        let src = "TYPE Node\n  child AS Node\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src =
+            "TYPE Node\n  child AS Node\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 

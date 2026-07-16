@@ -88,7 +88,11 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
     // A zero mantissa is zero at every exponent — fold it without shifting, so
     // `0e-1000000000` costs nothing.
     if !digits.is_empty() && digits.bytes().all(|digit| digit == b'0') {
-        return if negative { "-0".to_string() } else { "0".to_string() };
+        return if negative {
+            "-0".to_string()
+        } else {
+            "0".to_string()
+        };
     }
     // The decimal point starts after `int_part.len()` significant digits; the
     // exponent shifts it right by `exponent`. Compute in i64: `int_part.len() as
@@ -288,7 +292,10 @@ pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversi
         .get(FRAC_DIGITS)
         .map(|byte| byte - b'0')
         .unwrap_or(0);
-    if fractional.len() > FRAC_DIGITS && fractional.as_bytes()[FRAC_DIGITS..].iter().any(|b| *b != b'0')
+    if fractional.len() > FRAC_DIGITS
+        && fractional.as_bytes()[FRAC_DIGITS..]
+            .iter()
+            .any(|b| *b != b'0')
     {
         lost_precision = true;
     }
@@ -307,7 +314,10 @@ pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversi
     let raw = if negative { -raw } else { raw };
     let raw =
         i64::try_from(raw).map_err(|_| format!("Money constant `{value}` is out of range"))?;
-    Ok(MoneyConversion { raw, lost_precision })
+    Ok(MoneyConversion {
+        raw,
+        lost_precision,
+    })
 }
 
 pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
@@ -404,10 +414,7 @@ mod tests {
         assert_eq!(expand_scientific_notation("0.00e999999999"), "0");
         // Beyond the digit budget the text is returned unchanged: no multi-GB
         // string, and `point` is computed in i64 so `i32::MAX` cannot overflow.
-        assert_eq!(
-            expand_scientific_notation("1e-1000000000"),
-            "1e-1000000000"
-        );
+        assert_eq!(expand_scientific_notation("1e-1000000000"), "1e-1000000000");
         assert_eq!(expand_scientific_notation("1e2147483647"), "1e2147483647");
         assert_eq!(expand_scientific_notation("1e-2147483648"), "1e-2147483648");
         // The widest f64 literal still expands (325 characters).
@@ -689,12 +696,18 @@ mod tests {
 
     #[test]
     fn money_raw_from_decimal_covers_the_full_i64_range() {
-        assert_eq!(money_raw_from_decimal("92233720368547.75807").unwrap(), i64::MAX);
+        assert_eq!(
+            money_raw_from_decimal("92233720368547.75807").unwrap(),
+            i64::MAX
+        );
         assert!(money_raw_from_decimal("92233720368547.75808")
             .unwrap_err()
             .contains("is out of range"));
         // The min Money is representable only as a negated literal (bug-07 shape).
-        assert_eq!(money_raw_from_decimal("-92233720368547.75808").unwrap(), i64::MIN);
+        assert_eq!(
+            money_raw_from_decimal("-92233720368547.75808").unwrap(),
+            i64::MIN
+        );
         assert!(money_raw_from_decimal("-92233720368547.75809")
             .unwrap_err()
             .contains("is out of range"));
@@ -741,28 +754,59 @@ mod tests {
         let scalars = [TYPE_INTEGER, TYPE_BYTE, TYPE_FLOAT, TYPE_FIXED];
 
         // M , M
-        assert_eq!(binary_result_type("+", TYPE_MONEY, TYPE_MONEY), Some(TYPE_MONEY));
-        assert_eq!(binary_result_type("-", TYPE_MONEY, TYPE_MONEY), Some(TYPE_MONEY));
+        assert_eq!(
+            binary_result_type("+", TYPE_MONEY, TYPE_MONEY),
+            Some(TYPE_MONEY)
+        );
+        assert_eq!(
+            binary_result_type("-", TYPE_MONEY, TYPE_MONEY),
+            Some(TYPE_MONEY)
+        );
         assert_eq!(binary_result_type("*", TYPE_MONEY, TYPE_MONEY), None);
-        assert_eq!(binary_result_type("/", TYPE_MONEY, TYPE_MONEY), Some(TYPE_FLOAT));
-        assert_eq!(binary_result_type("DIV", TYPE_MONEY, TYPE_MONEY), Some(TYPE_FLOAT));
-        assert_eq!(binary_result_type("MOD", TYPE_MONEY, TYPE_MONEY), Some(TYPE_MONEY));
+        assert_eq!(
+            binary_result_type("/", TYPE_MONEY, TYPE_MONEY),
+            Some(TYPE_FLOAT)
+        );
+        assert_eq!(
+            binary_result_type("DIV", TYPE_MONEY, TYPE_MONEY),
+            Some(TYPE_FLOAT)
+        );
+        assert_eq!(
+            binary_result_type("MOD", TYPE_MONEY, TYPE_MONEY),
+            Some(TYPE_MONEY)
+        );
         assert_eq!(binary_result_type("^", TYPE_MONEY, TYPE_MONEY), None);
 
         for k in scalars {
             // M , k
             assert_eq!(binary_result_type("+", TYPE_MONEY, k), None, "M+{k}");
             assert_eq!(binary_result_type("-", TYPE_MONEY, k), None, "M-{k}");
-            assert_eq!(binary_result_type("*", TYPE_MONEY, k), Some(TYPE_MONEY), "M*{k}");
-            assert_eq!(binary_result_type("/", TYPE_MONEY, k), Some(TYPE_MONEY), "M/{k}");
-            assert_eq!(binary_result_type("DIV", TYPE_MONEY, k), Some(TYPE_FLOAT), "M DIV {k}");
+            assert_eq!(
+                binary_result_type("*", TYPE_MONEY, k),
+                Some(TYPE_MONEY),
+                "M*{k}"
+            );
+            assert_eq!(
+                binary_result_type("/", TYPE_MONEY, k),
+                Some(TYPE_MONEY),
+                "M/{k}"
+            );
+            assert_eq!(
+                binary_result_type("DIV", TYPE_MONEY, k),
+                Some(TYPE_FLOAT),
+                "M DIV {k}"
+            );
             assert_eq!(binary_result_type("MOD", TYPE_MONEY, k), None, "M MOD {k}");
             assert_eq!(binary_result_type("^", TYPE_MONEY, k), None, "M^{k}");
 
             // k , M
             assert_eq!(binary_result_type("+", k, TYPE_MONEY), None, "{k}+M");
             assert_eq!(binary_result_type("-", k, TYPE_MONEY), None, "{k}-M");
-            assert_eq!(binary_result_type("*", k, TYPE_MONEY), Some(TYPE_MONEY), "{k}*M");
+            assert_eq!(
+                binary_result_type("*", k, TYPE_MONEY),
+                Some(TYPE_MONEY),
+                "{k}*M"
+            );
             assert_eq!(binary_result_type("/", k, TYPE_MONEY), None, "{k}/M");
             assert_eq!(binary_result_type("DIV", k, TYPE_MONEY), None, "{k} DIV M");
             assert_eq!(binary_result_type("MOD", k, TYPE_MONEY), None, "{k} MOD M");
@@ -773,9 +817,21 @@ mod tests {
     #[test]
     fn non_money_lattice_is_unchanged_by_money_rules() {
         // The Money guard must not perturb any all-non-Money pairing.
-        assert_eq!(binary_result_type("+", TYPE_FIXED, TYPE_INTEGER), Some(TYPE_FIXED));
-        assert_eq!(binary_result_type("*", TYPE_FLOAT, TYPE_BYTE), Some(TYPE_FLOAT));
-        assert_eq!(binary_result_type("+", TYPE_BYTE, TYPE_BYTE), Some(TYPE_BYTE));
-        assert_eq!(binary_result_type("DIV", TYPE_INTEGER, TYPE_INTEGER), Some(TYPE_FLOAT));
+        assert_eq!(
+            binary_result_type("+", TYPE_FIXED, TYPE_INTEGER),
+            Some(TYPE_FIXED)
+        );
+        assert_eq!(
+            binary_result_type("*", TYPE_FLOAT, TYPE_BYTE),
+            Some(TYPE_FLOAT)
+        );
+        assert_eq!(
+            binary_result_type("+", TYPE_BYTE, TYPE_BYTE),
+            Some(TYPE_BYTE)
+        );
+        assert_eq!(
+            binary_result_type("DIV", TYPE_INTEGER, TYPE_INTEGER),
+            Some(TYPE_FLOAT)
+        );
     }
 }

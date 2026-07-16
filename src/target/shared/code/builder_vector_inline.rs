@@ -142,7 +142,11 @@ impl CodeBuilder<'_> {
 
     /// Register `lanes` as an in-flight register-native `type_` vector and return a
     /// `ValueResult` carrying its marker location (no allocation).
-    pub(super) fn make_vector_native(&mut self, type_: &str, lanes: Vec<ValueResult>) -> ValueResult {
+    pub(super) fn make_vector_native(
+        &mut self,
+        type_: &str,
+        lanes: Vec<ValueResult>,
+    ) -> ValueResult {
         let marker = format!("{VECTOR_NATIVE_MARKER}{}", self.next_vector_native);
         self.next_vector_native += 1;
         self.vector_natives.insert(marker.clone(), lanes);
@@ -290,8 +294,7 @@ impl CodeBuilder<'_> {
                 let lanes = fields
                     .iter()
                     .map(|f| {
-                        let delta =
-                            bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
+                        let delta = bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
                         bin("+", Self::vector_field(a, f), bin("*", delta, t.clone()))
                     })
                     .collect();
@@ -321,8 +324,7 @@ impl CodeBuilder<'_> {
                 let lanes = fields
                     .iter()
                     .map(|f| {
-                        let delta =
-                            bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
+                        let delta = bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
                         bin("+", Self::vector_field(a, f), bin("*", delta, clamped_t()))
                     })
                     .collect();
@@ -335,9 +337,21 @@ impl CodeBuilder<'_> {
                 let (a, b) = (&args[0], &args[1]);
                 let m = |v: &NirValue, f: &str| Self::vector_field(v, f);
                 let lanes = vec![
-                    bin("-", bin("*", m(a, "y"), m(b, "z")), bin("*", m(a, "z"), m(b, "y"))),
-                    bin("-", bin("*", m(a, "z"), m(b, "x")), bin("*", m(a, "x"), m(b, "z"))),
-                    bin("-", bin("*", m(a, "x"), m(b, "y")), bin("*", m(a, "y"), m(b, "x"))),
+                    bin(
+                        "-",
+                        bin("*", m(a, "y"), m(b, "z")),
+                        bin("*", m(a, "z"), m(b, "y")),
+                    ),
+                    bin(
+                        "-",
+                        bin("*", m(a, "z"), m(b, "x")),
+                        bin("*", m(a, "x"), m(b, "z")),
+                    ),
+                    bin(
+                        "-",
+                        bin("*", m(a, "x"), m(b, "y")),
+                        bin("*", m(a, "y"), m(b, "x")),
+                    ),
                 ];
                 build(self, lanes)?
             }

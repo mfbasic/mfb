@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::target::shared::abi;
 use crate::ir::{IrLinkExpr, IrLinkFunction};
+use crate::target::shared::abi;
 use crate::target::shared::nir::{self, link_thunk_symbol};
 
 /// The generated functions and data objects backing the program's `LINK`
@@ -427,7 +427,8 @@ fn lower_link_thunk(
             // a `CONST` pin is known at compile time, so an out-of-range value is
             // rejected here rather than silently truncated to its low 32 bits
             // (bug-66).
-            if slot.ctype == "CInt32" && (*value < i64::from(i32::MIN) || *value > i64::from(i32::MAX))
+            if slot.ctype == "CInt32"
+                && (*value < i64::from(i32::MIN) || *value > i64::from(i32::MAX))
             {
                 return Err(format!(
                     "LINK function '{}.{}' CONST pin '{} = {}' does not fit the signed 32-bit \

@@ -70,7 +70,10 @@ fn write_cert(root: &Path) -> (PathBuf, PathBuf) {
         .stderr(Stdio::null())
         .status()
         .expect("run openssl req");
-    assert!(status.success(), "openssl failed to generate a self-signed cert");
+    assert!(
+        status.success(),
+        "openssl failed to generate a self-signed cert"
+    );
     (cert, key)
 }
 

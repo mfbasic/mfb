@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::abi;
 use crate::binary_repr::{self};
 use crate::builtins;
 use crate::json_string;
 use crate::numeric;
+use crate::target::shared::abi;
 
 use super::nir::{
     self, NirFunction, NirMatchPattern, NirModule, NirOp, NirRecordUpdate, NirSourceLoc, NirValue,
@@ -693,7 +693,11 @@ pub(crate) fn lower_module_for_platform(
     // plan-35-C: `term::off` presents the final frame by calling the `term::sync`
     // helper, and the shutdown teardown frees the grid, so the present helper must
     // exist whenever `term::` is used even if the program never calls `sync`.
-    if uses_term && !runtime_symbols.iter().any(|s| s == "_mfb_rt_term_term_sync") {
+    if uses_term
+        && !runtime_symbols
+            .iter()
+            .any(|s| s == "_mfb_rt_term_term_sync")
+    {
         runtime_symbols.push("_mfb_rt_term_term_sync".to_string());
     }
     let term_state_offset = if uses_term {
@@ -925,7 +929,11 @@ pub(crate) fn lower_module_for_platform(
         });
     if uses_stdin {
         code_functions.push(lower_stdin_recompute_base(&platform_imports, platform)?);
-        code_functions.push(lower_stdin_next_byte(&platform_imports, platform, module.stdin_log_cap)?);
+        code_functions.push(lower_stdin_next_byte(
+            &platform_imports,
+            platform,
+            module.stdin_log_cap,
+        )?);
         code_functions.push(lower_stdin_subscribe(&platform_imports, platform)?);
         code_functions.push(lower_stdin_unsubscribe(&platform_imports, platform)?);
     }
@@ -969,7 +977,10 @@ pub(crate) fn lower_module_for_platform(
             )
         })
     {
-        code_functions.push(audio::lower_audio_output_callback(&platform_imports, platform)?);
+        code_functions.push(audio::lower_audio_output_callback(
+            &platform_imports,
+            platform,
+        )?);
     }
     if platform.target().contains("macos")
         && runtime_symbols.iter().any(|symbol| {
@@ -983,7 +994,10 @@ pub(crate) fn lower_module_for_platform(
             )
         })
     {
-        code_functions.push(audio::lower_audio_input_callback(&platform_imports, platform)?);
+        code_functions.push(audio::lower_audio_input_callback(
+            &platform_imports,
+            platform,
+        )?);
     }
     if runtime_symbols
         .iter()
@@ -2983,9 +2997,9 @@ mod error_constants;
 pub(crate) use error_constants::*;
 mod types;
 pub(crate) use types::*;
+mod entry_and_arena;
 #[cfg(test)]
 pub(crate) mod test_support;
-mod entry_and_arena;
 mod validation;
 pub(crate) use entry_and_arena::lower_program_entry;
 use entry_and_arena::*;
@@ -3016,6 +3030,7 @@ mod data_objects;
 use data_objects::*;
 mod module_analysis;
 use module_analysis::*;
+mod audio;
 mod builder_collection_compare;
 mod builder_collection_layout;
 mod builder_collection_mutate;
@@ -3042,7 +3057,6 @@ mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
 mod builder_vector_inline;
-mod audio;
 mod crypto;
 mod crypto_ec;
 mod datetime;
@@ -3057,8 +3071,8 @@ mod term_grid;
 mod tests;
 pub(crate) mod tls;
 mod type_utils;
-use type_utils::*;
 use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
+use type_utils::*;
 mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;

@@ -389,7 +389,11 @@ impl code::CodegenPlatform for Platform {
             instructions,
             relocations,
         )?;
-        instructions.push(abi::load_u64(abi::return_register(), abi::return_register(), 0));
+        instructions.push(abi::load_u64(
+            abi::return_register(),
+            abi::return_register(),
+            0,
+        ));
         Ok(())
     }
 

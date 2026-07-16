@@ -247,7 +247,10 @@ fn split_top_level_to_str(body: &str) -> Option<(&str, &str)> {
             // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
             // byte where `body[index..]` would panic (bug-169). A non-boundary
             // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0 && body.is_char_boundary(index) && body[index..].starts_with(" TO ") => {
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && body[index..].starts_with(" TO ") =>
+            {
                 if pending > 0 {
                     pending -= 1;
                     index += 4;
@@ -640,7 +643,10 @@ mod tests {
     fn nested_function_type_arguments_are_not_shredded() {
         assert_eq!(
             func_type_parts("FUNC(FUNC(Integer, String) AS Boolean, Integer) AS Nothing"),
-            Some((vec!["FUNC(Integer, String) AS Boolean", "Integer"], "Nothing"))
+            Some((
+                vec!["FUNC(Integer, String) AS Boolean", "Integer"],
+                "Nothing"
+            ))
         );
         assert_eq!(
             func_type_parts("ISOLATED FUNC(FUNC(A, B) AS C) AS D"),

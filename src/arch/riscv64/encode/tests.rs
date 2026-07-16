@@ -70,8 +70,14 @@ fn fp_min_max_d() {
     // OP-FP opcode 0x53. rd=fa0(10), rs1=fs1(9), rs2=fa7(17). These implement the
     // IEEE number semantics, matching AArch64 fminnm/fmaxnm (plan-02 §4).
     let w = words(&encode_text(vec![
-        ci("fminnm_d", &[("dst", "fa0"), ("lhs", "fs1"), ("rhs", "fa7")]),
-        ci("fmaxnm_d", &[("dst", "fa0"), ("lhs", "fs1"), ("rhs", "fa7")]),
+        ci(
+            "fminnm_d",
+            &[("dst", "fa0"), ("lhs", "fs1"), ("rhs", "fa7")],
+        ),
+        ci(
+            "fmaxnm_d",
+            &[("dst", "fa0"), ("lhs", "fs1"), ("rhs", "fa7")],
+        ),
         ci("ret", &[]),
     ]));
     assert_eq!(w[0], 0x2b14_8553); // fmin.d fa0, fs1, fa7
@@ -86,19 +92,39 @@ fn fma_family_d() {
     let w = words(&encode_text(vec![
         ci(
             "fmadd_d",
-            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+            &[
+                ("dst", "fa0"),
+                ("addend", "fa1"),
+                ("lhs", "fa2"),
+                ("rhs", "fa3"),
+            ],
         ),
         ci(
             "fmsub_d",
-            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+            &[
+                ("dst", "fa0"),
+                ("addend", "fa1"),
+                ("lhs", "fa2"),
+                ("rhs", "fa3"),
+            ],
         ),
         ci(
             "fnmsub_d",
-            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+            &[
+                ("dst", "fa0"),
+                ("addend", "fa1"),
+                ("lhs", "fa2"),
+                ("rhs", "fa3"),
+            ],
         ),
         ci(
             "fnmadd_d",
-            &[("dst", "fa0"), ("addend", "fa1"), ("lhs", "fa2"), ("rhs", "fa3")],
+            &[
+                ("dst", "fa0"),
+                ("addend", "fa1"),
+                ("lhs", "fa2"),
+                ("rhs", "fa3"),
+            ],
         ),
         ci("ret", &[]),
     ]));
@@ -135,7 +161,10 @@ fn li_thirty_two_bit_uses_lui_addi() {
 fn load_store_word_offsets() {
     let w = words(&encode_text(vec![
         ci("str_u64", &[("src", "a0"), ("base", "sp"), ("offset", "8")]),
-        ci("ldr_u64", &[("dst", "a1"), ("base", "sp"), ("offset", "16")]),
+        ci(
+            "ldr_u64",
+            &[("dst", "a1"), ("base", "sp"), ("offset", "16")],
+        ),
         ci("ret", &[]),
     ]));
     // sd a0, 8(sp): S-type, funct3=011, opcode 0x23.
@@ -150,20 +179,33 @@ fn large_offset_load_uses_rd_not_t0_as_address_scratch() {
     // sequence keeps live lanes in `t0`/`t1`, so the fallback materializes the
     // address in the destination register (overwritten by the load) instead.
     let w = words(&encode_text(vec![
-        ci("ldr_u64", &[("dst", "a1"), ("base", "sp"), ("offset", "7472")]),
+        ci(
+            "ldr_u64",
+            &[("dst", "a1"), ("base", "sp"), ("offset", "7472")],
+        ),
         ci("ret", &[]),
     ]));
     // li a1, 7472 ; add a1, sp, a1 ; ld a1, 0(a1) — no `t0` (x5) anywhere.
     let a1 = 11u32;
     // The `add` is R-type add a1, sp(x2), a1: funct7=0, rs2=a1, rs1=sp, f3=0.
     let add = (0 << 25) | (a1 << 20) | (2 << 15) | (0 << 12) | (a1 << 7) | 0x33;
-    assert_eq!(w[w.len() - 3], add, "address add targets rd, sourced from sp+rd");
+    assert_eq!(
+        w[w.len() - 3],
+        add,
+        "address add targets rd, sourced from sp+rd"
+    );
     // ld a1, 0(a1): I-type, imm 0, rs1=a1, funct3=011, rd=a1.
-    assert_eq!(w[w.len() - 2], (a1 << 15) | (0b011 << 12) | (a1 << 7) | 0x03);
+    assert_eq!(
+        w[w.len() - 2],
+        (a1 << 15) | (0b011 << 12) | (a1 << 7) | 0x03
+    );
     // No instruction reads or writes t0 (x5) as rd/rs1/rs2.
     for &word in &w[..w.len() - 1] {
         let (rd, rs1, rs2) = ((word >> 7) & 0x1f, (word >> 15) & 0x1f, (word >> 20) & 0x1f);
-        assert!(rd != 5 && rs1 != 5 && rs2 != 5, "t0 (x5) must not appear: {word:#010x}");
+        assert!(
+            rd != 5 && rs1 != 5 && rs2 != 5,
+            "t0 (x5) must not appear: {word:#010x}"
+        );
     }
 }
 
@@ -174,13 +216,20 @@ fn large_offset_load_with_rd_aliasing_base_stages_through_t0() {
     // `t0` in that one case. (`rd == base` never occurs inside a v128 lane
     // sequence — those load from the `t2` slot base — so `t0` is dead here.)
     let w = words(&encode_text(vec![
-        ci("ldr_u64", &[("dst", "a1"), ("base", "a1"), ("offset", "7472")]),
+        ci(
+            "ldr_u64",
+            &[("dst", "a1"), ("base", "a1"), ("offset", "7472")],
+        ),
         ci("ret", &[]),
     ]));
     let (a1, t0) = (11u32, 5u32);
     // li t0, 7472 (lui+addi or addi) ; add t0, a1, t0 ; ld a1, 0(t0)
     let add = (t0 << 20) | (a1 << 15) | (t0 << 7) | 0x33;
-    assert_eq!(w[w.len() - 3], add, "address add reads base before writing rd");
+    assert_eq!(
+        w[w.len() - 3],
+        add,
+        "address add reads base before writing rd"
+    );
     assert_eq!(
         w[w.len() - 2],
         (t0 << 15) | (0b011 << 12) | (a1 << 7) | 0x03,
@@ -198,7 +247,12 @@ fn conditional_branch_is_long_form() {
         ci("label", &[("name", "top")]),
         ci(
             "rv.br",
-            &[("lhs", "a0"), ("rhs", "a1"), ("cond", "lt"), ("target", "top")],
+            &[
+                ("lhs", "a0"),
+                ("rhs", "a1"),
+                ("cond", "lt"),
+                ("target", "top"),
+            ],
         ),
         ci("ret", &[]),
     ]));
@@ -209,7 +263,14 @@ fn conditional_branch_is_long_form() {
         let imm: u32 = 8;
         let b11 = (imm >> 11) & 1;
         let b4_1 = (imm >> 1) & 0xf;
-        (0 << 31) | (0 << 25) | (11 << 20) | (10 << 15) | (0b101 << 12) | (b4_1 << 8) | (b11 << 7) | 0x63
+        (0 << 31)
+            | (0 << 25)
+            | (11 << 20)
+            | (10 << 15)
+            | (0b101 << 12)
+            | (b4_1 << 8)
+            | (b11 << 7)
+            | 0x63
     };
     assert_eq!(w[0], expected_bge);
     // jal zero, -4 (back to top): opcode 0x6f, rd=0.
@@ -256,16 +317,32 @@ fn li_reconstructs_all_values() {
         }
         rd
     }
-    let mut cases: Vec<i64> = vec![0, 1, -1, 2047, 2048, -2048, -2049, 4095, i32::MAX as i64,
-        i32::MIN as i64, i64::MAX, i64::MIN, 0x400C_0000_0000_0000u64 as i64,
-        0x3FF8_0000_0000_0000, 0x4004_0000_0000_0000];
+    let mut cases: Vec<i64> = vec![
+        0,
+        1,
+        -1,
+        2047,
+        2048,
+        -2048,
+        -2049,
+        4095,
+        i32::MAX as i64,
+        i32::MIN as i64,
+        i64::MAX,
+        i64::MIN,
+        0x400C_0000_0000_0000u64 as i64,
+        0x3FF8_0000_0000_0000,
+        0x4004_0000_0000_0000,
+    ];
     let mut p: i64 = 1;
-    for _ in 0..19 { cases.push(p); p = p.wrapping_mul(10); }
+    for _ in 0..19 {
+        cases.push(p);
+        p = p.wrapping_mul(10);
+    }
     for v in cases {
         assert_eq!(simulate(v), v, "li mismatch for {v} ({v:#018x})");
     }
 }
-
 
 // --- Shared plan builders for the broader op/error coverage below --------------
 
@@ -310,15 +387,46 @@ fn try_encode(instructions: Vec<CodeInstruction>) -> Result<Vec<u8>, String> {
 #[test]
 fn integer_register_names_decode_to_numbers() {
     let table: &[(&str, u8)] = &[
-        ("zero", 0), ("ra", 1), ("sp", 2), ("gp", 3), ("tp", 4),
-        ("t0", 5), ("t1", 6), ("t2", 7), ("s0", 8), ("fp", 8), ("s1", 9),
-        ("a0", 10), ("a1", 11), ("a2", 12), ("a3", 13), ("a4", 14), ("a5", 15),
-        ("a6", 16), ("a7", 17), ("s2", 18), ("s3", 19), ("s4", 20), ("s5", 21),
-        ("s6", 22), ("s7", 23), ("s8", 24), ("s9", 25), ("s10", 26), ("s11", 27),
-        ("t3", 28), ("t4", 29), ("t5", 30), ("t6", 31),
+        ("zero", 0),
+        ("ra", 1),
+        ("sp", 2),
+        ("gp", 3),
+        ("tp", 4),
+        ("t0", 5),
+        ("t1", 6),
+        ("t2", 7),
+        ("s0", 8),
+        ("fp", 8),
+        ("s1", 9),
+        ("a0", 10),
+        ("a1", 11),
+        ("a2", 12),
+        ("a3", 13),
+        ("a4", 14),
+        ("a5", 15),
+        ("a6", 16),
+        ("a7", 17),
+        ("s2", 18),
+        ("s3", 19),
+        ("s4", 20),
+        ("s5", 21),
+        ("s6", 22),
+        ("s7", 23),
+        ("s8", 24),
+        ("s9", 25),
+        ("s10", 26),
+        ("s11", 27),
+        ("t3", 28),
+        ("t4", 29),
+        ("t5", 30),
+        ("t6", 31),
     ];
     for &(name, num) in table {
-        assert_eq!(super::operand::reg(name.to_string()).unwrap(), num, "reg {name}");
+        assert_eq!(
+            super::operand::reg(name.to_string()).unwrap(),
+            num,
+            "reg {name}"
+        );
     }
     assert!(super::operand::reg("x99".to_string())
         .unwrap_err()
@@ -328,15 +436,45 @@ fn integer_register_names_decode_to_numbers() {
 #[test]
 fn fp_register_names_decode_to_numbers() {
     let table: &[(&str, u8)] = &[
-        ("ft0", 0), ("ft1", 1), ("ft2", 2), ("ft3", 3), ("ft4", 4), ("ft5", 5),
-        ("ft6", 6), ("ft7", 7), ("fs0", 8), ("fs1", 9), ("fa0", 10), ("fa1", 11),
-        ("fa2", 12), ("fa3", 13), ("fa4", 14), ("fa5", 15), ("fa6", 16), ("fa7", 17),
-        ("fs2", 18), ("fs3", 19), ("fs4", 20), ("fs5", 21), ("fs6", 22), ("fs7", 23),
-        ("fs8", 24), ("fs9", 25), ("fs10", 26), ("fs11", 27), ("ft8", 28), ("ft9", 29),
-        ("ft10", 30), ("ft11", 31),
+        ("ft0", 0),
+        ("ft1", 1),
+        ("ft2", 2),
+        ("ft3", 3),
+        ("ft4", 4),
+        ("ft5", 5),
+        ("ft6", 6),
+        ("ft7", 7),
+        ("fs0", 8),
+        ("fs1", 9),
+        ("fa0", 10),
+        ("fa1", 11),
+        ("fa2", 12),
+        ("fa3", 13),
+        ("fa4", 14),
+        ("fa5", 15),
+        ("fa6", 16),
+        ("fa7", 17),
+        ("fs2", 18),
+        ("fs3", 19),
+        ("fs4", 20),
+        ("fs5", 21),
+        ("fs6", 22),
+        ("fs7", 23),
+        ("fs8", 24),
+        ("fs9", 25),
+        ("fs10", 26),
+        ("fs11", 27),
+        ("ft8", 28),
+        ("ft9", 29),
+        ("ft10", 30),
+        ("ft11", 31),
     ];
     for &(name, num) in table {
-        assert_eq!(super::operand::freg(name.to_string()).unwrap(), num, "freg {name}");
+        assert_eq!(
+            super::operand::freg(name.to_string()).unwrap(),
+            num,
+            "freg {name}"
+        );
     }
     assert!(super::operand::freg("fx".to_string())
         .unwrap_err()
@@ -402,7 +540,10 @@ fn data_objects_string_and_raw_encode_and_symbolize() {
     // The string object padded to its own align (8) occupies 16 bytes, so the
     // raw object begins at offset 16.
     let raw_start = 16;
-    assert_eq!(&image.data[raw_start..raw_start + 4], &[0xde, 0xad, 0xbe, 0xef]);
+    assert_eq!(
+        &image.data[raw_start..raw_start + 4],
+        &[0xde, 0xad, 0xbe, 0xef]
+    );
     // Both data symbols are recorded.
     assert!(image.symbols.iter().any(|s| s.name == "greeting"));
     assert!(image.symbols.iter().any(|s| s.name == "blob"));
@@ -419,10 +560,16 @@ fn raw_data_object_rejects_malformed_hex() {
         size: 1,
         value: "abc".to_string(), // odd digit count
     }];
-    assert!(encode(&plan).map(|_| ()).unwrap_err().contains("even digit count"));
+    assert!(encode(&plan)
+        .map(|_| ())
+        .unwrap_err()
+        .contains("even digit count"));
 
     plan.data_objects[0].value = "zz".to_string(); // even, but non-hex
-    assert!(encode(&plan).map(|_| ()).unwrap_err().contains("non-hex digit"));
+    assert!(encode(&plan)
+        .map(|_| ())
+        .unwrap_err()
+        .contains("non-hex digit"));
 }
 
 // --- mod.rs / emitter.rs: relocations, symbol resolution, labels ---------------
@@ -465,7 +612,10 @@ fn call_and_data_reference_to_import_and_internal_data() {
 fn adrp_pageoff_to_import_uses_got_binding() {
     let mut plan = plan_of(vec![
         ci("adrp", &[("dst", "a0"), ("symbol", "errno_location")]),
-        ci("add_pageoff", &[("dst", "a0"), ("symbol", "errno_location")]),
+        ci(
+            "add_pageoff",
+            &[("dst", "a0"), ("symbol", "errno_location")],
+        ),
         ci("ret", &[]),
     ]);
     plan.imports = vec![CodeImport {
@@ -522,7 +672,10 @@ fn branch_to_unknown_label_errors() {
 fn missing_entry_symbol_errors() {
     let mut plan = plan_of(vec![ci("ret", &[])]);
     plan.entry_symbol = None;
-    assert!(encode(&plan).map(|_| ()).unwrap_err().contains("entry symbol"));
+    assert!(encode(&plan)
+        .map(|_| ())
+        .unwrap_err()
+        .contains("entry symbol"));
 }
 
 // --- emitter.rs: the scalar op vocabulary --------------------------------------
@@ -530,8 +683,8 @@ fn missing_entry_symbol_errors() {
 #[test]
 fn integer_alu_and_logic_ops_encode_as_op() {
     for op in [
-        "and", "orr", "eor", "mul", "smulh", "umulh", "sdiv", "udiv", "rv.slt", "rv.sltu",
-        "lslv", "lsrv", "asrv",
+        "and", "orr", "eor", "mul", "smulh", "umulh", "sdiv", "udiv", "rv.slt", "rv.sltu", "lslv",
+        "lsrv", "asrv",
     ] {
         let w = words(&encode_text(vec![
             ci(op, &[("dst", "a0"), ("lhs", "a1"), ("rhs", "a2")]),
@@ -568,7 +721,12 @@ fn unary_and_muladd_ops_encode() {
     let w = words(&encode_text(vec![
         ci(
             "msub",
-            &[("dst", "a0"), ("lhs", "a1"), ("rhs", "a2"), ("minuend", "a3")],
+            &[
+                ("dst", "a0"),
+                ("lhs", "a1"),
+                ("rhs", "a2"),
+                ("minuend", "a3"),
+            ],
         ),
         ci("ret", &[]),
     ]));
@@ -638,7 +796,10 @@ fn load_store_variants_and_large_offsets() {
     }
     // Large store offset -> li + add + store.
     let w = words(&encode_text(vec![
-        ci("str_u64", &[("src", "a0"), ("base", "sp"), ("offset", "5000")]),
+        ci(
+            "str_u64",
+            &[("src", "a0"), ("base", "sp"), ("offset", "5000")],
+        ),
         ci("ret", &[]),
     ]));
     assert!(w.len() >= 4);
@@ -651,8 +812,14 @@ fn load_store_variants_and_large_offsets() {
     assert_eq!(w[0] & 0x7f, 0x07, "ldr_d is LOAD-FP");
     assert_eq!(w[1] & 0x7f, 0x27, "str_d is STORE-FP");
     let w = words(&encode_text(vec![
-        ci("ldr_d", &[("dst", "fa0"), ("base", "sp"), ("offset", "5000")]),
-        ci("str_d", &[("src", "fa0"), ("base", "sp"), ("offset", "5000")]),
+        ci(
+            "ldr_d",
+            &[("dst", "fa0"), ("base", "sp"), ("offset", "5000")],
+        ),
+        ci(
+            "str_d",
+            &[("src", "fa0"), ("base", "sp"), ("offset", "5000")],
+        ),
         ci("ret", &[]),
     ]));
     assert!(w.len() > 3, "large fp offsets materialize the address");
@@ -684,7 +851,10 @@ fn explicit_carry_ops_are_fixed_length() {
         ci(
             "add_carry",
             &[
-                ("dst", "a0"), ("carry_out", "a1"), ("lhs", "a2"), ("rhs", "a3"),
+                ("dst", "a0"),
+                ("carry_out", "a1"),
+                ("lhs", "a2"),
+                ("rhs", "a3"),
                 ("carry_in", "a4"),
             ],
         ),
@@ -695,7 +865,10 @@ fn explicit_carry_ops_are_fixed_length() {
         ci(
             "sub_borrow",
             &[
-                ("dst", "a0"), ("borrow_out", "a1"), ("lhs", "a2"), ("rhs", "a3"),
+                ("dst", "a0"),
+                ("borrow_out", "a1"),
+                ("lhs", "a2"),
+                ("rhs", "a3"),
                 ("borrow_in", "a4"),
             ],
         ),
@@ -731,7 +904,10 @@ fn scalar_fp_ops_encode_as_op_fp() {
         assert_eq!(w[i] & 0x7f, 0x53, "fp move/convert {i} is OP-FP");
     }
     for op in [
-        "fcvtzs_x_from_d", "fcvtms_x_from_d", "fcvtps_x_from_d", "fcvtas_x_from_d",
+        "fcvtzs_x_from_d",
+        "fcvtms_x_from_d",
+        "fcvtps_x_from_d",
+        "fcvtas_x_from_d",
     ] {
         let w = words(&encode_text(vec![
             ci(op, &[("dst", "a0"), ("src", "fa1")]),
@@ -765,7 +941,11 @@ fn immediate_materialization_true_and_wide_values() {
         ci("mov_imm", &[("dst", "a0"), ("value", "4294967297")]), // 2^32 + 1
         ci("ret", &[]),
     ]));
-    assert!(w.len() >= 4, "wide immediate needs a multi-step li: {}", w.len());
+    assert!(
+        w.len() >= 4,
+        "wide immediate needs a multi-step li: {}",
+        w.len()
+    );
 }
 
 #[test]
@@ -780,7 +960,12 @@ fn emitter_rejects_bad_operands() {
     // Unknown branch condition.
     assert!(try_encode(vec![ci(
         "rv.br",
-        &[("lhs", "a0"), ("rhs", "a1"), ("cond", "zz"), ("target", "x")],
+        &[
+            ("lhs", "a0"),
+            ("rhs", "a1"),
+            ("cond", "zz"),
+            ("target", "x")
+        ],
     )])
     .unwrap_err()
     .contains("branch condition"));

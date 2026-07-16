@@ -145,7 +145,11 @@ pub(super) fn lower_fs_create_temp_file_helper(
     instructions.extend([
         abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &path),
-        abi::move_immediate(abi::ARG[1], "Integer", temp_file_open_flags(platform.target())),
+        abi::move_immediate(
+            abi::ARG[1],
+            "Integer",
+            temp_file_open_flags(platform.target()),
+        ),
         abi::move_immediate(abi::ARG[2], "Integer", "384"),
     ]);
     platform.emit_open_file(
@@ -218,7 +222,13 @@ pub(super) fn lower_fs_create_temp_file_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -691,7 +701,12 @@ pub(super) fn lower_fs_atomic_write_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
-    platform.emit_open_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_open_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     normalize_c_int_result(&mut instructions);
     instructions.extend([
         // Directory fsync is best-effort: the atomic rename already succeeded, so a
@@ -701,9 +716,19 @@ pub(super) fn lower_fs_atomic_write_helper(
         abi::branch_lt(&dir_done),
         abi::move_register(abi::return_register(), &dir_fd),
     ]);
-    platform.emit_sync_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_sync_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::move_register(abi::return_register(), &dir_fd));
-    platform.emit_close_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_close_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&dir_done),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -747,7 +772,13 @@ pub(super) fn lower_fs_atomic_write_helper(
     // `emit_errno_error_mapping` branches to `done` in every case (including its
     // generic `err_output` tail), so this mkstemps/rename errno path already
     // terminates and cannot fall through into the write/sync close tail below.
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&write_error),
         abi::label(&sync_error),
@@ -1020,7 +1051,13 @@ pub(super) fn lower_fs_write_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1218,7 +1255,12 @@ pub(super) fn lower_fs_read_text_path_helper(
         // (bug-201 — it would otherwise close an unassigned fd vreg).
         abi::move_register(abi::return_register(), &fd),
     ]);
-    platform.emit_close_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_close_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
@@ -1552,7 +1594,13 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),

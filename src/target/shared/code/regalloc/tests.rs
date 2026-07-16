@@ -200,7 +200,10 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
     );
     // v0 spilled (a slot was allocated), and the callee-saved register borrowed
     // as its reload scratch is in the frame's save set.
-    assert!(!outcome.spill_slots.is_empty(), "v0 must spill across the call");
+    assert!(
+        !outcome.spill_slots.is_empty(),
+        "v0 must spill across the call"
+    );
     assert!(
         outcome.extra_callee_saved.contains(&"x21".to_string()),
         "callee-saved reload scratch x21 must be saved by the frame, got {:?}",
@@ -269,7 +272,10 @@ fn linear_scan_records_callee_saved_reload_scratch_fp() {
         0,
         &[],
     );
-    assert!(!outcome.spill_slots.is_empty(), "f200 must spill under full FP pressure");
+    assert!(
+        !outcome.spill_slots.is_empty(),
+        "f200 must spill under full FP pressure"
+    );
     assert!(
         outcome.extra_callee_saved.contains(&"d8".to_string()),
         "callee-saved reload scratch d8 must be saved by the frame, got {:?}",
@@ -344,9 +350,15 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
         0,
         &[],
     );
-    assert!(outcome.spill_slots.is_empty(), "no FP pressure — %f0 must color");
+    assert!(
+        outcome.spill_slots.is_empty(),
+        "no FP pressure — %f0 must color"
+    );
     let colored = instructions[1].get("dst").unwrap().to_string();
-    assert!(colored.starts_with('d'), "%f0 must color to a d register, got {colored}");
+    assert!(
+        colored.starts_with('d'),
+        "%f0 must color to a d register, got {colored}"
+    );
     assert_ne!(colored, "d0", "%f0 is live across %fscratch0 (realizes d0)");
     // The token itself is never rewritten by coloring.
     assert_eq!(instructions[2].get("dst"), Some(abi::FP_SCRATCH[0]));
@@ -362,9 +374,13 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
 #[test]
 fn find_physical_operand_catches_every_class_and_passes_tokens() {
     use crate::target::shared::abi;
-    let physical = ["x9", "w3", "d3", "v0", "q7", "s2", "rsi", "r10", "xmm4", "a0", "t3", "fa1", "zero", "ra"];
+    let physical = [
+        "x9", "w3", "d3", "v0", "q7", "s2", "rsi", "r10", "xmm4", "a0", "t3", "fa1", "zero", "ra",
+    ];
     for reg in physical {
-        let stream = [CodeInstruction::new("mov").field("dst", reg).field("src", "sp")];
+        let stream = [CodeInstruction::new("mov")
+            .field("dst", reg)
+            .field("src", "sp")];
         let hit = find_physical_operand(&stream);
         assert!(
             hit.as_deref().is_some_and(|h| h.contains(reg)),
@@ -394,7 +410,9 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
             .field("dst", crate::target::shared::code::mir::ARENA_BASE)
             .field("type", "Integer")
             .field("value", "7"),
-        CodeInstruction::new("str_u64").field("src", abi::ZERO).field("base", "sp"),
+        CodeInstruction::new("str_u64")
+            .field("src", abi::ZERO)
+            .field("base", "sp"),
         CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
     ];
     assert_eq!(find_physical_operand(&clean), None);

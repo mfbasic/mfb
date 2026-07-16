@@ -208,9 +208,25 @@ pub(crate) const CURRENT_THREAD: &str = "%thread";
 /// indices as scratch; the trampoline confines its scratch to the low indices,
 /// distinct from the current-thread register it pins.
 pub(crate) const SCRATCH: [&str; 19] = [
-    "%scratch0", "%scratch1", "%scratch2", "%scratch3", "%scratch4", "%scratch5", "%scratch6",
-    "%scratch7", "%scratch8", "%scratch9", "%scratch10", "%scratch11", "%scratch12", "%scratch13",
-    "%scratch14", "%scratch15", "%scratch16", "%scratch17", "%scratch18",
+    "%scratch0",
+    "%scratch1",
+    "%scratch2",
+    "%scratch3",
+    "%scratch4",
+    "%scratch5",
+    "%scratch6",
+    "%scratch7",
+    "%scratch8",
+    "%scratch9",
+    "%scratch10",
+    "%scratch11",
+    "%scratch12",
+    "%scratch13",
+    "%scratch14",
+    "%scratch15",
+    "%scratch16",
+    "%scratch17",
+    "%scratch18",
 ];
 
 /// Floating-point scratch register tokens — the FP counterpart of [`SCRATCH`]
@@ -229,8 +245,14 @@ pub(crate) const SCRATCH: [&str; 19] = [
 /// (`regalloc::analysis::fp_physical_index`) — a live `%fN` is never colored
 /// onto a busy `FP_SCRATCH` realization.
 pub(crate) const FP_SCRATCH: [&str; 8] = [
-    "%fscratch0", "%fscratch1", "%fscratch2", "%fscratch3", "%fscratch4", "%fscratch5",
-    "%fscratch6", "%fscratch7",
+    "%fscratch0",
+    "%fscratch1",
+    "%fscratch2",
+    "%fscratch3",
+    "%fscratch4",
+    "%fscratch5",
+    "%fscratch6",
+    "%fscratch7",
 ];
 
 /// Vector (NEON lane-view) scratch register tokens — the 128-bit view of the
@@ -244,8 +266,14 @@ pub(crate) const FP_SCRATCH: [&str; 8] = [
 /// occupy the same allocator index (`regalloc::analysis::fp_physical_index`),
 /// mirroring today's `v{i}`/`d{i}` aliasing.
 pub(crate) const VEC_SCRATCH: [&str; 8] = [
-    "%vscratch0", "%vscratch1", "%vscratch2", "%vscratch3", "%vscratch4", "%vscratch5",
-    "%vscratch6", "%vscratch7",
+    "%vscratch0",
+    "%vscratch1",
+    "%vscratch2",
+    "%vscratch3",
+    "%vscratch4",
+    "%vscratch5",
+    "%vscratch6",
+    "%vscratch7",
 ];
 
 /// The SIMD math-kernel constant-pool base — the register
@@ -1109,12 +1137,22 @@ fn float_fma_op(mnemonic: &str, dst: &str, addend: &str, lhs: &str, rhs: &str) -
 }
 
 /// `dst = addend + lhs*rhs`, rounded once.
-pub(crate) fn float_multiply_add_d(dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+pub(crate) fn float_multiply_add_d(
+    dst: &str,
+    addend: &str,
+    lhs: &str,
+    rhs: &str,
+) -> CodeInstruction {
     float_fma_op("fmadd_d", dst, addend, lhs, rhs)
 }
 
 /// `dst = lhs*rhs - addend`, rounded once.
-pub(crate) fn float_multiply_sub_d(dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+pub(crate) fn float_multiply_sub_d(
+    dst: &str,
+    addend: &str,
+    lhs: &str,
+    rhs: &str,
+) -> CodeInstruction {
     float_fma_op("fmsub_d", dst, addend, lhs, rhs)
 }
 

@@ -309,7 +309,11 @@ impl ToNirJson for NirFunction {
             let entries = owners
                 .iter()
                 .map(|(name, owner)| {
-                    format!("{{ \"name\": {}, \"owner\": {} }}", json_string(name), res_owner_json(owner))
+                    format!(
+                        "{{ \"name\": {}, \"owner\": {} }}",
+                        json_string(name),
+                        res_owner_json(owner)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -359,7 +363,10 @@ fn res_owner_json(owner: &crate::escape::ResOwner) -> String {
     match owner {
         crate::escape::ResOwner::Local => "{ \"kind\": \"local\" }".to_string(),
         crate::escape::ResOwner::Float(scope) => {
-            format!("{{ \"kind\": \"float\", \"scope\": {} }}", json_string(scope))
+            format!(
+                "{{ \"kind\": \"float\", \"scope\": {} }}",
+                json_string(scope)
+            )
         }
     }
 }
@@ -372,7 +379,11 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
         .params
         .iter()
         .map(|(name, type_)| {
-            format!("{{ \"name\": {}, \"type\": {} }}", json_string(name), json_string(type_))
+            format!(
+                "{{ \"name\": {}, \"type\": {} }}",
+                json_string(name),
+                json_string(type_)
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -392,7 +403,13 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
     let consts = function
         .consts
         .iter()
-        .map(|(slot, value)| format!("{{ \"slot\": {}, \"value\": {} }}", json_string(slot), value))
+        .map(|(slot, value)| {
+            format!(
+                "{{ \"slot\": {}, \"value\": {} }}",
+                json_string(slot),
+                value
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let success_on = function
@@ -464,7 +481,10 @@ fn link_expr_json(expr: &crate::ir::IrLinkExpr) -> String {
             link_expr_json(rhs)
         ),
         crate::ir::IrLinkExpr::Not(operand) => {
-            format!("{{ \"kind\": \"not\", \"operand\": {} }}", link_expr_json(operand))
+            format!(
+                "{{ \"kind\": \"not\", \"operand\": {} }}",
+                link_expr_json(operand)
+            )
         }
     }
 }

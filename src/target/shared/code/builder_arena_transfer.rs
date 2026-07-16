@@ -53,7 +53,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // tag @0, size @8.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), tag_slot));
         self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
@@ -71,7 +75,11 @@ impl CodeBuilder<'_> {
             self.emit_copy_bytes(&scratch10, &scratch11, &scratch12, "result_payload_copy");
         } else {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), payload_slot));
-            self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+            self.emit(abi::load_u64(
+                abi::RET[1],
+                abi::stack_pointer(),
+                result_slot,
+            ));
             self.emit(abi::store_u64(&scratch9, abi::RET[1], 16));
         }
         let result = self.allocate_register()?;
@@ -315,7 +323,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::store_u64(&scratch10, abi::RET[1], 0));
@@ -330,15 +342,31 @@ impl CodeBuilder<'_> {
         // same opt-in trade-off as the crash caveat). For non-File resources these
         // words are inert.
         self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::RET[1],
+            FILE_OFFSET_BUF_FILLED,
+        ));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::RET[1],
+            FILE_OFFSET_BUF_ENABLED,
+        ));
         // The transparent read buffer (plan-14-C) is a cache, not copied: a moved
         // handle starts with an empty cache. These words are inert for non-File
         // resources.
         self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR));
         self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::RET[1],
+            FILE_OFFSET_READ_FILL,
+        ));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::RET[1],
+            FILE_OFFSET_READ_AT_EOF,
+        ));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
@@ -412,9 +440,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), size_slot));
         self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch13, "thread_copy_union_raw");
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
@@ -506,7 +542,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
         self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch10, "thread_copy_collection");
@@ -600,7 +640,11 @@ impl CodeBuilder<'_> {
         // scrubbed, so bounding at `capacity` deep-copied any spare entry whose
         // garbage flags byte happened to equal USED — a wild pointer walk
         // (bug-146).
-        self.emit(abi::load_u64(&scratch10, &scratch9, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::compare_registers(&scratch8, &scratch10));
         self.emit(abi::branch_ge(&done_label));
 

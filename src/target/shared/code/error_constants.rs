@@ -65,7 +65,8 @@ pub(crate) const ERR_OUTPUT_CODE: &str = "77020002";
 pub(crate) const ERR_OUTPUT_MESSAGE: &str = "Write or flush operation failed.";
 pub(crate) const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
 pub(crate) const ERR_EOF_CODE: &str = "77020003";
-pub(crate) const ERR_EOF_MESSAGE: &str = "Read operation reached end of file where a value was required.";
+pub(crate) const ERR_EOF_MESSAGE: &str =
+    "Read operation reached end of file where a value was required.";
 pub(crate) const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
 pub(crate) const ERR_ENCODING_CODE: &str = "77020004";
 pub(crate) const ERR_ENCODING_MESSAGE: &str = "Text encoding or decoding failed.";
@@ -79,7 +80,8 @@ pub(crate) const ERR_PATH_NOT_FOUND_CODE: &str = "77030001";
 pub(crate) const ERR_PATH_NOT_FOUND_MESSAGE: &str = "Filesystem path does not exist.";
 pub(crate) const ERR_PATH_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_path_not_found";
 pub(crate) const ERR_INVALID_PATH_CODE: &str = "77030002";
-pub(crate) const ERR_INVALID_PATH_MESSAGE: &str = "Filesystem path string is invalid for the host platform.";
+pub(crate) const ERR_INVALID_PATH_MESSAGE: &str =
+    "Filesystem path string is invalid for the host platform.";
 pub(crate) const ERR_INVALID_PATH_SYMBOL: &str = "_mfb_str_error_invalid_path";
 pub(crate) const ERR_ACCESS_DENIED_CODE: &str = "77030003";
 pub(crate) const ERR_ACCESS_DENIED_MESSAGE: &str = "Filesystem access was denied.";
@@ -88,7 +90,8 @@ pub(crate) const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
 pub(crate) const ERR_RESOURCE_CLOSED_MESSAGE: &str = "Resource handle is already closed.";
 pub(crate) const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
 pub(crate) const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str = "Resource is unavailable, locked, busy, or not in the required empty state.";
+pub(crate) const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str =
+    "Resource is unavailable, locked, busy, or not in the required empty state.";
 pub(crate) const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
 pub(crate) const ERR_CLOSE_FAILED_CODE: &str = "77030006";
 pub(crate) const ERR_CLOSE_FAILED_MESSAGE: &str = "Resource close operation failed.";
@@ -98,7 +101,8 @@ pub(crate) const ERR_NATIVE_LINK_LOAD_MESSAGE: &str =
     "Native `LINK` binding library or symbol could not be loaded at startup (`dlopen`/`dlsym` failed).";
 pub(crate) const ERR_NATIVE_LINK_LOAD_SYMBOL: &str = "_mfb_str_error_native_link_load";
 pub(crate) const ERR_NATIVE_LINK_CALL_CODE: &str = "77030008";
-pub(crate) const ERR_NATIVE_LINK_CALL_MESSAGE: &str = "Native `LINK` binding call failed its `SUCCESS_ON` gate.";
+pub(crate) const ERR_NATIVE_LINK_CALL_MESSAGE: &str =
+    "Native `LINK` binding call failed its `SUCCESS_ON` gate.";
 pub(crate) const ERR_NATIVE_LINK_CALL_SYMBOL: &str = "_mfb_str_error_native_link_call";
 
 // -- General runtime (7705) -------------------------------------------------
@@ -106,22 +110,28 @@ pub(crate) const ERR_UNKNOWN_CODE: &str = "77050000";
 pub(crate) const ERR_UNKNOWN_MESSAGE: &str = "Unclassified standard-package failure.";
 pub(crate) const ERR_UNKNOWN_SYMBOL: &str = "_mfb_str_error_unknown";
 pub(crate) const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "77050001";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str = "List or string index/range is outside valid bounds.";
+pub(crate) const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str =
+    "List or string index/range is outside valid bounds.";
 pub(crate) const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
 pub(crate) const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
-pub(crate) const ERR_INVALID_ARGUMENT_MESSAGE: &str = "Argument value is not valid for the requested operation.";
+pub(crate) const ERR_INVALID_ARGUMENT_MESSAGE: &str =
+    "Argument value is not valid for the requested operation.";
 pub(crate) const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
 pub(crate) const ERR_INVALID_FORMAT_CODE: &str = "77050003";
-pub(crate) const ERR_INVALID_FORMAT_MESSAGE: &str = "Text parse or non-finite numeric representation conversion failed.";
+pub(crate) const ERR_INVALID_FORMAT_MESSAGE: &str =
+    "Text parse or non-finite numeric representation conversion failed.";
 pub(crate) const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
 pub(crate) const ERR_NOT_FOUND_CODE: &str = "77050004";
-pub(crate) const ERR_NOT_FOUND_MESSAGE: &str = "Requested item, key, file, or resource was not found.";
+pub(crate) const ERR_NOT_FOUND_MESSAGE: &str =
+    "Requested item, key, file, or resource was not found.";
 pub(crate) const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
 pub(crate) const ERR_ALREADY_EXISTS_CODE: &str = "77050005";
-pub(crate) const ERR_ALREADY_EXISTS_MESSAGE: &str = "Create operation conflicts with an existing item.";
+pub(crate) const ERR_ALREADY_EXISTS_MESSAGE: &str =
+    "Create operation conflicts with an existing item.";
 pub(crate) const ERR_ALREADY_EXISTS_SYMBOL: &str = "_mfb_str_error_already_exists";
 pub(crate) const ERR_UNSUPPORTED_CODE: &str = "77050007";
-pub(crate) const ERR_UNSUPPORTED_MESSAGE: &str = "Operation is not supported by the implementation or platform.";
+pub(crate) const ERR_UNSUPPORTED_MESSAGE: &str =
+    "Operation is not supported by the implementation or platform.";
 pub(crate) const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 pub(crate) const ERR_TIMEOUT_CODE: &str = "77050008";
 pub(crate) const ERR_TIMEOUT_MESSAGE: &str = "Operation did not complete before its deadline.";
@@ -130,7 +140,8 @@ pub(crate) const ERR_INTERRUPTED_CODE: &str = "77050009";
 pub(crate) const ERR_INTERRUPTED_MESSAGE: &str = "Operation was interrupted before completion.";
 pub(crate) const ERR_INTERRUPTED_SYMBOL: &str = "_mfb_str_error_interrupted";
 pub(crate) const ERR_OVERFLOW_CODE: &str = "77050010";
-pub(crate) const ERR_OVERFLOW_MESSAGE: &str = "Arithmetic overflow or numeric conversion outside the destination range.";
+pub(crate) const ERR_OVERFLOW_MESSAGE: &str =
+    "Arithmetic overflow or numeric conversion outside the destination range.";
 pub(crate) const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
 pub(crate) const ERR_UNDERFLOW_CODE: &str = "77050011";
 pub(crate) const ERR_UNDERFLOW_MESSAGE: &str = "Arithmetic underflow below the destination range.";
@@ -146,10 +157,12 @@ pub(crate) const ERR_FLOAT_NAN_CODE: &str = "77050013";
 pub(crate) const ERR_FLOAT_NAN_MESSAGE: &str = "Floating-point operation produced a NaN result.";
 pub(crate) const ERR_FLOAT_NAN_SYMBOL: &str = "_mfb_str_error_float_nan";
 pub(crate) const ERR_FLOAT_INF_CODE: &str = "77050014";
-pub(crate) const ERR_FLOAT_INF_MESSAGE: &str = "Floating-point operation produced an infinity result.";
+pub(crate) const ERR_FLOAT_INF_MESSAGE: &str =
+    "Floating-point operation produced an infinity result.";
 pub(crate) const ERR_FLOAT_INF_SYMBOL: &str = "_mfb_str_error_float_inf";
 pub(crate) const ERR_FLOAT_OVERFLOW_CODE: &str = "77050015";
-pub(crate) const ERR_FLOAT_OVERFLOW_MESSAGE: &str = "Floating-point arithmetic overflowed to infinity.";
+pub(crate) const ERR_FLOAT_OVERFLOW_MESSAGE: &str =
+    "Floating-point arithmetic overflowed to infinity.";
 pub(crate) const ERR_FLOAT_OVERFLOW_SYMBOL: &str = "_mfb_str_error_float_overflow";
 // Audio (plan-33-A §7). Raised by the plan-33-B/C backend helper bodies; the
 // registry rows in `02_error-codes.md` land with plan-33-A so `errorCode::`
@@ -158,7 +171,8 @@ pub(crate) const ERR_AUDIO_UNAVAILABLE_CODE: &str = "77050017";
 pub(crate) const ERR_AUDIO_UNAVAILABLE_MESSAGE: &str = "Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied).";
 pub(crate) const ERR_AUDIO_UNAVAILABLE_SYMBOL: &str = "_mfb_str_error_audio_unavailable";
 pub(crate) const ERR_AUDIO_DEVICE_CODE: &str = "77050018";
-pub(crate) const ERR_AUDIO_DEVICE_MESSAGE: &str = "Audio device open, configuration, or stream operation failed.";
+pub(crate) const ERR_AUDIO_DEVICE_MESSAGE: &str =
+    "Audio device open, configuration, or stream operation failed.";
 pub(crate) const ERR_AUDIO_DEVICE_SYMBOL: &str = "_mfb_str_error_audio_device";
 // Invalid context (plan-15 D1): a thread that has not called `thread::openStdIn`
 // tried to read stdin (the compiler-inserted main subscription exempts a normal
@@ -172,13 +186,16 @@ pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";
 pub(crate) const ERR_ADDRESS_INVALID_MESSAGE: &str = "Network host, address, or port is invalid.";
 pub(crate) const ERR_ADDRESS_INVALID_SYMBOL: &str = "_mfb_str_error_address_invalid";
 pub(crate) const ERR_ADDRESS_NOT_FOUND_CODE: &str = "77070002";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_MESSAGE: &str = "Network host name or address could not be resolved.";
+pub(crate) const ERR_ADDRESS_NOT_FOUND_MESSAGE: &str =
+    "Network host name or address could not be resolved.";
 pub(crate) const ERR_ADDRESS_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_address_not_found";
 pub(crate) const ERR_NETWORK_FAILED_CODE: &str = "77070003";
-pub(crate) const ERR_NETWORK_FAILED_MESSAGE: &str = "Network operation failed before a connection was established.";
+pub(crate) const ERR_NETWORK_FAILED_MESSAGE: &str =
+    "Network operation failed before a connection was established.";
 pub(crate) const ERR_NETWORK_FAILED_SYMBOL: &str = "_mfb_str_error_network_failed";
 pub(crate) const ERR_CONNECTION_CLOSED_CODE: &str = "77070004";
-pub(crate) const ERR_CONNECTION_CLOSED_MESSAGE: &str = "Socket peer closed the connection or the connection is no longer usable.";
+pub(crate) const ERR_CONNECTION_CLOSED_MESSAGE: &str =
+    "Socket peer closed the connection or the connection is no longer usable.";
 pub(crate) const ERR_CONNECTION_CLOSED_SYMBOL: &str = "_mfb_str_error_connection_closed";
 pub(crate) const ERR_READ_TIMEOUT_CODE: &str = "77070005";
 pub(crate) const ERR_READ_TIMEOUT_MESSAGE: &str = "Socket read operation timed out.";
@@ -187,10 +204,12 @@ pub(crate) const ERR_WRITE_TIMEOUT_CODE: &str = "77070006";
 pub(crate) const ERR_WRITE_TIMEOUT_MESSAGE: &str = "Socket write operation timed out.";
 pub(crate) const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
 pub(crate) const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
-pub(crate) const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str = "Datagram or message exceeds the requested or supported size.";
+pub(crate) const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str =
+    "Datagram or message exceeds the requested or supported size.";
 pub(crate) const ERR_MESSAGE_TOO_LARGE_SYMBOL: &str = "_mfb_str_error_message_too_large";
 pub(crate) const ERR_TLS_FAILED_CODE: &str = "77070008";
-pub(crate) const ERR_TLS_FAILED_MESSAGE: &str = "TLS handshake, certificate validation, SNI validation, or protocol operation failed.";
+pub(crate) const ERR_TLS_FAILED_MESSAGE: &str =
+    "TLS handshake, certificate validation, SNI validation, or protocol operation failed.";
 pub(crate) const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
 
 // ===========================================================================
@@ -424,7 +443,8 @@ pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
 /// accesses compute the address in a register rather than using a fixed offset.
 /// Zero-initialized by the same whole-`ARENA_STATE_SIZE` clear the entry and
 /// thread-spawn paths already run.
-pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
+pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize =
+    ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
 /// Per-thread stdin broadcast staging (plan-15 §4.2), four `u64` words appended
 /// after the current-error slot. All zero-initialized by the whole-`ARENA_STATE_SIZE`
 /// clear the entry and thread-spawn paths run, so NULL/zero is the correct "not set

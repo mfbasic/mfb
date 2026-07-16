@@ -1268,7 +1268,13 @@ pub(super) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1473,7 +1479,13 @@ pub(super) fn lower_fs_canonical_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -1739,7 +1751,13 @@ pub(super) fn lower_fs_is_within_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &errno_reg, &mut instructions, &mut relocations, &done);
+    emit_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),

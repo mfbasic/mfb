@@ -684,7 +684,8 @@ END TESTING
     fn private_shadowing_a_public_of_the_same_name_warns() {
         // A PUBLIC `shared` FUNC and a PRIVATE `shared` binding in one file: the
         // private declaration shadows the public within the file (with a warning).
-        let src = "FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n\nPRIVATE LET shared AS Integer = 2\n";
+        let src =
+            "FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n\nPRIVATE LET shared AS Integer = 2\n";
         let mut project = project_from_src(src);
         let diagnostics = scope_privates(&mut project);
         assert!(

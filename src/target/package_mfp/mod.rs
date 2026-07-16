@@ -460,7 +460,10 @@ mod tests {
             .expect("read project dir")
             .next()
             .is_some();
-        assert!(!wrote_anything, "no package file should be written on rejection");
+        assert!(
+            !wrote_anything,
+            "no package file should be written on rejection"
+        );
     }
 
     #[test]

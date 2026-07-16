@@ -190,7 +190,14 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
             abi::return_(),
         ]);
     } else {
-        emit_validate_utf8(symbol, abi::ARG[0], abi::ARG[1], &invalid, &mut instructions, &mut vregs);
+        emit_validate_utf8(
+            symbol,
+            abi::ARG[0],
+            abi::ARG[1],
+            &invalid,
+            &mut instructions,
+            &mut vregs,
+        );
         instructions.extend([
             abi::move_immediate(abi::RET[0], "Integer", "0"),
             abi::return_(),
@@ -429,7 +436,10 @@ pub(super) fn finalize_frame(
     let mut prologue = Vec::new();
     prologue.push(abi::subtract_stack(total_stack_size));
     for (index, register) in callee_saved.iter().enumerate() {
-        prologue.push(save_callee_saved(register, outgoing_bytes + callee_offsets[index]));
+        prologue.push(save_callee_saved(
+            register,
+            outgoing_bytes + callee_offsets[index],
+        ));
     }
 
     let insert_at = if instructions
@@ -446,7 +456,10 @@ pub(super) fn finalize_frame(
     for instruction in instructions.drain(..) {
         if instruction.op == CodeOp::Ret {
             for (index, register) in callee_saved.iter().enumerate().rev() {
-                rewritten.push(restore_callee_saved(register, outgoing_bytes + callee_offsets[index]));
+                rewritten.push(restore_callee_saved(
+                    register,
+                    outgoing_bytes + callee_offsets[index],
+                ));
             }
             rewritten.push(abi::add_stack(total_stack_size));
             rewritten.push(instruction);

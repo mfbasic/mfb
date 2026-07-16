@@ -167,11 +167,7 @@ impl CodeBuilder<'_> {
                                 } else {
                                     let block = self.vector_value_as_block(result)?;
                                     self.claim_pending_temp(&block);
-                                    self.store_value_at(
-                                        &block,
-                                        abi::stack_pointer(),
-                                        stack_offset,
-                                    );
+                                    self.store_value_at(&block, abi::stack_pointer(), stack_offset);
                                     self.active_cleanups.push(ActiveCleanup::OwnedValue(
                                         OwnedValueCleanup {
                                             type_: type_.clone(),
@@ -338,33 +334,23 @@ impl CodeBuilder<'_> {
                         // so the new block never aliases the freed one — the free is
                         // sound and once-only.
                         if self.is_freeable_flat_value(&value_type) {
-                            let new_slot =
-                                self.allocate_stack_object("store_global_new", 8);
+                            let new_slot = self.allocate_stack_object("store_global_new", 8);
                             self.emit(abi::store_u64(
                                 &result.location,
                                 abi::stack_pointer(),
                                 new_slot,
                             ));
-                            let old_slot =
-                                self.allocate_stack_object("store_global_old", 8);
+                            let old_slot = self.allocate_stack_object("store_global_old", 8);
                             let address = self.load_global_address(name)?;
                             let old_ptr = self.allocate_register()?;
                             self.emit(abi::load_u64(&old_ptr, &address, 0));
-                            self.emit(abi::store_u64(
-                                &old_ptr,
-                                abi::stack_pointer(),
-                                old_slot,
-                            ));
+                            self.emit(abi::store_u64(&old_ptr, abi::stack_pointer(), old_slot));
                             self.emit_owned_value_drop(&OwnedValueCleanup {
                                 type_: value_type.clone(),
                                 stack_offset: old_slot,
                             })?;
                             let new_ptr = self.allocate_register()?;
-                            self.emit(abi::load_u64(
-                                &new_ptr,
-                                abi::stack_pointer(),
-                                new_slot,
-                            ));
+                            self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
                             let stored = ValueResult {
                                 type_: result.type_.clone(),
                                 location: new_ptr,
@@ -744,12 +730,10 @@ impl CodeBuilder<'_> {
                         // the guarded local from the raw condition before it is
                         // lowered/shadowed, and mark it for the body below.
                         let strict_upper_name = match condition {
-                            NirValue::Binary { op, left, .. } if op == "<" => {
-                                match left.as_ref() {
-                                    NirValue::Local(n) => Some(n.clone()),
-                                    _ => None,
-                                }
-                            }
+                            NirValue::Binary { op, left, .. } if op == "<" => match left.as_ref() {
+                                NirValue::Local(n) => Some(n.clone()),
+                                _ => None,
+                            },
                             _ => None,
                         };
                         let promoted = self.begin_loop_promotion(body, None)?;
@@ -838,9 +822,7 @@ impl CodeBuilder<'_> {
                         let (label, trap_name, trap_offset) = self
                             .trap
                             .as_ref()
-                            .map(|trap| {
-                                (trap.label.clone(), trap.name.clone(), trap.stack_offset)
-                            })
+                            .map(|trap| (trap.label.clone(), trap.name.clone(), trap.stack_offset))
                             .expect("trap op requires trap state");
                         // Re-pin the trap error local to its function-level slot: an
                         // inline `TRAP(e)` in the body reuses the shared name `e` and
@@ -875,15 +857,13 @@ impl CodeBuilder<'_> {
                         // before the cleanup frees the original.
                         let handler_scope_start = self.active_cleanups.len();
                         self.cleanup_scope_starts.push(handler_scope_start);
-                        self.active_cleanups.push(ActiveCleanup::OwnedValue(
-                            OwnedValueCleanup {
+                        self.active_cleanups
+                            .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                                 type_: "Error".to_string(),
                                 stack_offset: trap_offset,
-                            },
-                        ));
+                            }));
                         self.owned_value_slots.push(trap_offset);
-                        let handler_result =
-                            self.lower_ops_inner(body, handler_scope_start);
+                        let handler_result = self.lower_ops_inner(body, handler_scope_start);
                         self.cleanup_scope_starts.pop();
                         handler_result?;
                         if let Some(trap) = &mut self.trap {
@@ -1502,9 +1482,7 @@ pub(super) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
         NirValue::Call { args, .. }
         | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. } => {
-            args.iter().any(|v| nir_value_reads_local(v, name))
-        }
+        | NirValue::Constructor { args, .. } => args.iter().any(|v| nir_value_reads_local(v, name)),
         NirValue::UnionWrap { value, .. }
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }

@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const SOURCE: &str = "IMPORT io\n\nFUNC main AS Integer\n  io::print(\"pie\")\n  RETURN 0\nEND FUNC\n";
+const SOURCE: &str =
+    "IMPORT io\n\nFUNC main AS Integer\n  io::print(\"pie\")\n  RETURN 0\nEND FUNC\n";
 
 const PT_GNU_STACK: u32 = 0x6474_e551;
 
@@ -81,14 +82,21 @@ fn assert_pie(target: &str) {
     let bytes = build_linux_elf(&project, target, &name);
     assert_eq!(&bytes[0..4], b"\x7fELF", "{target}: not an ELF image");
     // e_type == ET_DYN (3): a position-independent executable.
-    assert_eq!(u16le(&bytes, 16), 3, "{target}: e_type must be ET_DYN (PIE)");
+    assert_eq!(
+        u16le(&bytes, 16),
+        3,
+        "{target}: e_type must be ET_DYN (PIE)"
+    );
     // Base 0: the entry point is a small file-relative address, not 0x400000+.
     let entry = u64le(&bytes, 24);
     assert!(
         entry < 0x10_000,
         "{target}: entry {entry:#x} is not base-0 (PIE)",
     );
-    assert!(has_gnu_stack(&bytes), "{target}: PT_GNU_STACK must be present");
+    assert!(
+        has_gnu_stack(&bytes),
+        "{target}: PT_GNU_STACK must be present"
+    );
     let _ = fs::remove_dir_all(&project);
 }
 

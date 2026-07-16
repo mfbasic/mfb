@@ -1057,7 +1057,7 @@ END FUNC
         "\x1b[48;2;0;0;0m",   // setBackground(0,0,0)
         "\x1b[1m",            // setBold(TRUE)
         "\x1b[4m",            // setUnderline(TRUE)
-        "HELLO",             // the glyph run, drawn with the pen above
+        "HELLO",              // the glyph run, drawn with the pen above
         "\x1b[?25l",          // hideCursor(), presented as the frame's cursor state
         "\x1b[?1049l",        // off(): leave the alternate screen
     ] {

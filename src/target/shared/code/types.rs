@@ -132,8 +132,10 @@ const DATA_PAGE_SIZE: usize = 0x1000;
 pub(crate) fn layout_data_objects(
     objects: &[CodeDataObject],
 ) -> Result<(Vec<u8>, usize, Vec<(String, usize)>), String> {
-    let mut ordered: Vec<&CodeDataObject> =
-        objects.iter().filter(|object| object.kind == "constant").collect();
+    let mut ordered: Vec<&CodeDataObject> = objects
+        .iter()
+        .filter(|object| object.kind == "constant")
+        .collect();
     let const_count = ordered.len();
     ordered.extend(objects.iter().filter(|object| object.kind != "constant"));
 
@@ -701,7 +703,10 @@ mod data_layout_tests {
         // page-aligned boundary.
         assert_eq!(str_off, 0);
         assert!(rodata_size > 0 && rodata_size % DATA_PAGE_SIZE == 0);
-        assert!(arena_off >= rodata_size, "arena must be in the writable region");
+        assert!(
+            arena_off >= rodata_size,
+            "arena must be in the writable region"
+        );
         // The constant's bytes (u64 len prefix + "hi" + NUL) sit at offset 0.
         assert_eq!(&bytes[0..8], &2u64.to_le_bytes());
         assert_eq!(&bytes[8..10], b"hi");

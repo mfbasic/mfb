@@ -1311,7 +1311,8 @@ impl Resolver<'_> {
         // Split at the depth-0 `) AS ` so a parameter that is itself a
         // `FUNC(...) AS …` (or any parenthesized/nested type) does not split at
         // an inner `) AS ` and produce garbage names (bug-106).
-        let Some((params, return_type)) = crate::builtins::split_func_params_and_return(rest) else {
+        let Some((params, return_type)) = crate::builtins::split_func_params_and_return(rest)
+        else {
             self.report(
                 "SYMBOL_UNKNOWN_TYPE",
                 &format!("Function type `FUNC({rest}` is malformed."),
@@ -1402,7 +1403,10 @@ fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
             // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
             // byte where `body[index..]` would panic (bug-169). A non-boundary
             // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0 && body.is_char_boundary(index) && body[index..].starts_with(" TO ") => {
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && body[index..].starts_with(" TO ") =>
+            {
                 if pending > 0 {
                     pending -= 1;
                     index += 4;

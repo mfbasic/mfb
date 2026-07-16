@@ -282,10 +282,10 @@ END TESTING
         assert!(lowering.entry.is_none());
         assert!(lowering.cov_slots.is_empty());
         // No `TESTING` item survives, and no driver/case SUB was generated.
-        assert!(!ast
-            .files
+        assert!(!ast.files.iter().any(|file| file
+            .items
             .iter()
-            .any(|file| file.items.iter().any(|item| matches!(item, Item::Testing(_)))));
+            .any(|item| matches!(item, Item::Testing(_)))));
         assert!(driver(&ast).is_none());
         assert!(!function_names(&ast)
             .iter()
@@ -295,10 +295,16 @@ END TESTING
     #[test]
     fn test_mode_desugars_cases_and_appends_the_driver() {
         let mut ast = crate::testutil::project_from_src(SOURCE);
-        let lowering =
-            lower_testing_blocks(&mut ast, CompileMode::Test { coverage: false }, Path::new("/tmp"));
+        let lowering = lower_testing_blocks(
+            &mut ast,
+            CompileMode::Test { coverage: false },
+            Path::new("/tmp"),
+        );
         assert_eq!(lowering.entry.as_deref(), Some(DRIVER_NAME));
-        assert!(lowering.cov_slots.is_empty(), "no coverage without --coverage");
+        assert!(
+            lowering.cov_slots.is_empty(),
+            "no coverage without --coverage"
+        );
 
         // The two real cases became sequentially-numbered SUBs; the case-less group
         // produced none.
@@ -311,20 +317,26 @@ END TESTING
         // import for its `io.print` calls.
         let driver = driver(&ast).expect("driver present");
         assert_eq!(driver.return_type.as_deref(), Some("Integer"));
-        assert!(ast.files[0].imports.iter().any(|import| import.module == "io"));
+        assert!(ast.files[0]
+            .imports
+            .iter()
+            .any(|import| import.module == "io"));
 
         // No `TESTING` item survives the lowering.
-        assert!(!ast
-            .files
+        assert!(!ast.files.iter().any(|file| file
+            .items
             .iter()
-            .any(|file| file.items.iter().any(|item| matches!(item, Item::Testing(_)))));
+            .any(|item| matches!(item, Item::Testing(_)))));
     }
 
     #[test]
     fn coverage_mode_instruments_statements_and_adds_runtime_helpers() {
         let mut ast = crate::testutil::project_from_src(SOURCE);
-        let lowering =
-            lower_testing_blocks(&mut ast, CompileMode::Test { coverage: true }, Path::new("/tmp"));
+        let lowering = lower_testing_blocks(
+            &mut ast,
+            CompileMode::Test { coverage: true },
+            Path::new("/tmp"),
+        );
         assert_eq!(lowering.entry.as_deref(), Some(DRIVER_NAME));
         // The instrumented case bodies each contribute at least one slot.
         assert!(
@@ -339,7 +351,10 @@ END TESTING
             .imports
             .iter()
             .any(|import| import.module == "collections"));
-        assert!(ast.files[0].imports.iter().any(|import| import.module == "fs"));
+        assert!(ast.files[0]
+            .imports
+            .iter()
+            .any(|import| import.module == "fs"));
     }
 
     #[test]
@@ -416,7 +431,10 @@ END TESTING
         assert_eq!(index, 1);
         // The header is indented by `depth * 2`; the case by `(depth + 1) * 2`.
         match &steps[0] {
-            desugar::DriverStep::Group { indent, description } => {
+            desugar::DriverStep::Group {
+                indent,
+                description,
+            } => {
                 assert_eq!(*indent, 2);
                 assert_eq!(description, "grp");
             }

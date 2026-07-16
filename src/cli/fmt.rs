@@ -72,9 +72,9 @@ pub(crate) fn run_fmt_command(args: &[String]) -> i32 {
 const MAX_INDENT: usize = 256;
 
 fn parse_indent(value: &str) -> Result<usize, String> {
-    let width = value.parse::<usize>().map_err(|_| {
-        format!("mfb fmt --indent requires a non-negative integer (got `{value}`)")
-    })?;
+    let width = value
+        .parse::<usize>()
+        .map_err(|_| format!("mfb fmt --indent requires a non-negative integer (got `{value}`)"))?;
     if width > MAX_INDENT {
         return Err(format!(
             "mfb fmt --indent must be between 0 and {MAX_INDENT} (got `{value}`)"

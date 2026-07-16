@@ -47,13 +47,22 @@ async fn s3_stage_promote_get_and_abort_roundtrip() {
     let hash = sha256_hex(&payload);
 
     // Fresh hash: absent before we stage it.
-    assert!(!store.exists(&hash).await.unwrap(), "blob should not exist yet");
-    assert!(store.get(&hash).await.unwrap().is_none(), "get should be 404-equivalent");
+    assert!(
+        !store.exists(&hash).await.unwrap(),
+        "blob should not exist yet"
+    );
+    assert!(
+        store.get(&hash).await.unwrap().is_none(),
+        "get should be 404-equivalent"
+    );
 
     // stage -> promote makes it servable.
     let staged = store.stage(&hash, payload.clone()).await.expect("stage");
     store.promote(staged).await.expect("promote");
-    assert!(store.exists(&hash).await.unwrap(), "blob should exist after promote");
+    assert!(
+        store.exists(&hash).await.unwrap(),
+        "blob should exist after promote"
+    );
 
     // get() yields a presigned redirect that actually serves the bytes.
     match store.get(&hash).await.unwrap() {
@@ -76,5 +85,8 @@ async fn s3_stage_promote_get_and_abort_roundtrip() {
     let hash2 = sha256_hex(&payload2);
     let staged2 = store.stage(&hash2, payload2).await.expect("stage 2");
     store.abort(staged2).await;
-    assert!(!store.exists(&hash2).await.unwrap(), "aborted blob should be gone");
+    assert!(
+        !store.exists(&hash2).await.unwrap(),
+        "aborted blob should be gone"
+    );
 }

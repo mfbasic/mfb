@@ -158,7 +158,11 @@ fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
     if !constants.is_empty() {
         println!("CONSTANTS{colon}");
         for constant in &constants {
-            println!("  {:<18} {}", constant.name, render::plain(constant.summary));
+            println!(
+                "  {:<18} {}",
+                constant.name,
+                render::plain(constant.summary)
+            );
         }
         printed = true;
     }
@@ -168,7 +172,11 @@ fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
         }
         println!("{}{colon}", man_entry_heading(package));
         for function in &functions {
-            println!("  {:<18} {}", function.name, render::plain(function.summary));
+            println!(
+                "  {:<18} {}",
+                function.name,
+                render::plain(function.summary)
+            );
         }
     }
 

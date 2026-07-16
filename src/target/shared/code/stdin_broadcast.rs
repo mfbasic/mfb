@@ -73,7 +73,12 @@ pub(super) fn push_log_address(
 /// Materialize `base_register + offset` into `dst`. The stdin arena fields sit past
 /// rv64's 12-bit `addi` immediate, so their address is computed in a register rather
 /// than used as a load/store displacement (mirrors `current_error_slot_address`).
-pub(super) fn field_addr(dst: &str, base_register: &str, offset: usize, instructions: &mut Vec<CodeInstruction>) {
+pub(super) fn field_addr(
+    dst: &str,
+    base_register: &str,
+    offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
     instructions.push(abi::move_immediate(dst, "Integer", &offset.to_string()));
     instructions.push(abi::add_registers(dst, base_register, dst));
 }
@@ -149,16 +154,31 @@ pub(super) fn emit_stdin_poll_ready_check(
 ) -> Result<(), String> {
     let l = |s: &str| format!("{symbol}_stdin_poll_{s}");
     // Local fast path: pos < filled => a byte is staged.
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_POS_OFFSET, instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_POS_OFFSET,
+        instructions,
+    );
     instructions.push(abi::load_u64("%v84", "%v52", 0));
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_FILLED_OFFSET, instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_FILLED_OFFSET,
+        instructions,
+    );
     instructions.extend([
         abi::load_u64("%v71", "%v52", 0),
         abi::compare_registers("%v71", "%v84"),
         abi::branch_hi(ready_label),
     ]);
     // Not subscribed => defer to the OS poll (byte-identical to pre-plan-15).
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_SUBSCRIBER_OFFSET, instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::compare_immediate("%v89", "0"),
@@ -166,9 +186,21 @@ pub(super) fn emit_stdin_poll_ready_check(
     ]);
     push_log_address(symbol, "%v78", instructions, relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_lock", platform_imports, platform, instructions, relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     push_log_address(symbol, "%v78", instructions, relocations);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_SUBSCRIBER_OFFSET, instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::load_u64("%v64", "%v89", STDIN_SUBSCRIBER_CURSOR_OFFSET),
@@ -183,12 +215,26 @@ pub(super) fn emit_stdin_poll_ready_check(
         // Nothing in the log for us: unlock and defer to the OS poll.
         abi::move_register(abi::ARG[0], "%v78"),
     ]);
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, instructions, relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::branch(fallthrough_label));
     instructions.push(abi::label(&l("ready_unlock")));
     push_log_address(symbol, "%v78", instructions, relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, instructions, relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::branch(ready_label));
     Ok(())
 }
@@ -221,15 +267,30 @@ pub(super) fn lower_stdin_next_byte(
         abi::move_register("%v65", abi::ARG[1]),
     ]);
     // Fast path: subscribed and local buffer has an unread byte — no lock.
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_SUBSCRIBER_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::compare_immediate("%v89", "0"),
         abi::branch_eq(&l("slow")),
     ]);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_POS_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_POS_OFFSET,
+        &mut instructions,
+    );
     instructions.push(abi::load_u64("%v84", "%v52", 0));
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_FILLED_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_FILLED_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v71", "%v52", 0),
         // pos >= filled (unsigned) => need the slow path. No `branch_hs`; test the
@@ -237,7 +298,12 @@ pub(super) fn lower_stdin_next_byte(
         abi::compare_registers("%v71", "%v84"),
         abi::branch_ls(&l("slow")),
     ]);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_BUF_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_BUF_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v76", "%v52", 0),
         abi::add_registers("%v83", "%v76", "%v84"),
@@ -245,7 +311,12 @@ pub(super) fn lower_stdin_next_byte(
         abi::store_u8("%v60", "%v65", 0),
         abi::add_immediate("%v84", "%v84", 1),
     ]);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_POS_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_POS_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::store_u64("%v84", "%v52", 0),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
@@ -256,12 +327,24 @@ pub(super) fn lower_stdin_next_byte(
     instructions.push(abi::label(&l("slow")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_lock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
 
     instructions.push(abi::label(&l("loop")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     // sub (reload — may be an unsubscribed race, and needed after the lock call).
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_SUBSCRIBER_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::compare_immediate("%v89", "0"),
@@ -295,10 +378,24 @@ pub(super) fn lower_stdin_next_byte(
         abi::store_u64("%v1", "%v78", STDIN_LOG_READER_BUSY_OFFSET),
         abi::move_register(abi::ARG[0], "%v78"),
     ]);
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Allocate a fresh block (unlocked) and read a chunk into it (blocking, no lock).
     instructions.push(abi::move_immediate(abi::ARG[0], "Integer", &block_bytes));
-    emit_libc(symbol, "malloc", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "malloc",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register("%v58", abi::return_register()),
         abi::compare_immediate("%v58", "0"),
@@ -307,12 +404,24 @@ pub(super) fn lower_stdin_next_byte(
         abi::add_immediate(abi::ARG[1], "%v58", STDIN_BLOCK_DATA_OFFSET),
         abi::move_immediate(abi::ARG[2], "Integer", &chunk),
     ]);
-    platform.emit_read_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_read_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::move_register("%v81", abi::return_register()));
     // Re-lock.
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_lock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.extend([
         // Clear reader-busy first, then classify the read result.
@@ -337,32 +446,66 @@ pub(super) fn lower_stdin_next_byte(
         abi::store_u64("%v70", "%v78", STDIN_LOG_FILL_OFFSET),
         abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET),
     ]);
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::branch(&l("loop")));
 
     // n == 0: EOF. Free the unused block, record eofOffset = fill, broadcast, reloop.
     instructions.push(abi::label(&l("read_eof0")));
     instructions.push(abi::move_register(abi::ARG[0], "%v58"));
-    emit_libc(symbol, "free", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "free",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.extend([
         abi::load_u64("%v70", "%v78", STDIN_LOG_FILL_OFFSET),
         abi::store_u64("%v70", "%v78", STDIN_LOG_EOF_OFFSET),
         abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET),
     ]);
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::branch(&l("loop")));
 
     // n < 0: EINTR (retry, unless shutting down) or genuine error.
     instructions.push(abi::label(&l("read_neg")));
-    platform.emit_errno(symbol, "%v69", platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        "%v69",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("%v69", STDIN_EINTR_ERRNO),
         abi::branch_ne(&l("read_hard_err")),
         // EINTR: free the block; if shutting down, EOF; else broadcast + retry.
         abi::move_register(abi::ARG[0], "%v58"),
     ]);
-    emit_libc(symbol, "free", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "free",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.extend([
         abi::load_u64("%v87", "%v78", STDIN_LOG_SHUTTING_DOWN_OFFSET),
@@ -370,18 +513,46 @@ pub(super) fn lower_stdin_next_byte(
         abi::branch_ne(&l("eof_unlock")),
         abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET),
     ]);
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::branch(&l("loop")));
 
     instructions.push(abi::label(&l("read_hard_err")));
     instructions.push(abi::move_register(abi::ARG[0], "%v58"));
-    emit_libc(symbol, "free", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "free",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET));
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
@@ -392,16 +563,37 @@ pub(super) fn lower_stdin_next_byte(
     instructions.push(abi::label(&l("malloc_failed")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_lock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.extend([
         abi::store_u64(abi::ZERO, "%v78", STDIN_LOG_READER_BUSY_OFFSET),
         abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET),
     ]);
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
@@ -414,7 +606,14 @@ pub(super) fn lower_stdin_next_byte(
         abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET),
         abi::move_register(abi::ARG[1], "%v78"),
     ]);
-    emit_libc(symbol, "pthread_cond_wait", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_wait",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::branch(&l("loop")));
 
     // Bytes available: copy min(fill - cursor, LOCAL_CAP) into the arena-local buffer.
@@ -431,12 +630,21 @@ pub(super) fn lower_stdin_next_byte(
         abi::label(&l("have_take")),
     ]);
     // Ensure the local buffer is allocated.
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_BUF_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_BUF_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v76", "%v52", 0),
         abi::compare_immediate("%v76", "0"),
         abi::branch_ne(&l("have_lbuf")),
-        abi::move_immediate(abi::return_register(), "Integer", &STDIN_LOCAL_BUFFER_CAPACITY.to_string()),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &STDIN_LOCAL_BUFFER_CAPACITY.to_string(),
+        ),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -446,12 +654,22 @@ pub(super) fn lower_stdin_next_byte(
         abi::branch_ne(&l("err_unlock")),
         abi::move_register("%v76", abi::RET[1]),
     ]);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_BUF_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_BUF_OFFSET,
+        &mut instructions,
+    );
     instructions.push(abi::store_u64("%v76", "%v52", 0));
     instructions.push(abi::label(&l("have_lbuf")));
     // Reload the log + cursor (arena_alloc may have run above and clobbered scratch).
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_SUBSCRIBER_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::load_u64("%v64", "%v89", STDIN_SUBSCRIBER_CURSOR_OFFSET),
@@ -498,29 +716,63 @@ pub(super) fn lower_stdin_next_byte(
         // cursor += take (abs now == cursor + take); LOCAL_FILLED = take, POS = 0.
         abi::store_u64("%v50", "%v89", STDIN_SUBSCRIBER_CURSOR_OFFSET),
     ]);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_FILLED_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_FILLED_OFFSET,
+        &mut instructions,
+    );
     instructions.push(abi::store_u64("%v91", "%v52", 0));
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_POS_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_POS_OFFSET,
+        &mut instructions,
+    );
     instructions.push(abi::store_u64(abi::ZERO, "%v52", 0));
     // Recompute base + reclaim fully-consumed blocks, then broadcast.
     instructions.push(abi::branch_link(STDIN_RECOMPUTE_BASE_SYMBOL));
     relocations.push(internal_branch(symbol, STDIN_RECOMPUTE_BASE_SYMBOL));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET));
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Serve the first byte from the freshly filled local buffer.
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_BUF_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_BUF_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v76", "%v52", 0),
         abi::load_u8("%v60", "%v76", 0),
         abi::store_u8("%v60", "%v65", 0),
         abi::move_immediate("%v1", "Integer", "1"),
     ]);
-    field_addr("%v52", ARENA_STATE_REGISTER, ARENA_STDIN_LOCAL_POS_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        ARENA_STATE_REGISTER,
+        ARENA_STDIN_LOCAL_POS_OFFSET,
+        &mut instructions,
+    );
     instructions.push(abi::store_u64("%v1", "%v52", 0));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::return_(),
@@ -530,7 +782,14 @@ pub(super) fn lower_stdin_next_byte(
     instructions.push(abi::label(&l("eof_unlock")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::return_(),
@@ -540,7 +799,14 @@ pub(super) fn lower_stdin_next_byte(
     instructions.push(abi::label(&l("err_unlock")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
@@ -551,14 +817,27 @@ pub(super) fn lower_stdin_next_byte(
     instructions.push(abi::label(&l("invalid_unlock")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::subtract_immediate(abi::return_register(), abi::return_register(), 2),
         abi::return_(),
     ]);
 
-    Ok(finalize_vreg_helper("runtime.stdin.next_byte", symbol, "Integer", instructions, relocations))
+    Ok(finalize_vreg_helper(
+        "runtime.stdin.next_byte",
+        symbol,
+        "Integer",
+        instructions,
+        relocations,
+    ))
 }
 
 /// `_mfb_rt_stdin_recompute_base` — recompute `base = min(cursor over active
@@ -622,11 +901,24 @@ pub(super) fn lower_stdin_recompute_base(
         abi::label(&l("has_next")),
         abi::move_register(abi::ARG[0], "%v73"),
     ]);
-    emit_libc(symbol, "free", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "free",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::branch(&l("reclaim")));
     instructions.push(abi::label(&l("reclaim_done")));
     instructions.push(abi::return_());
-    Ok(finalize_vreg_helper("runtime.stdin.recompute_base", symbol, "Nothing", instructions, relocations))
+    Ok(finalize_vreg_helper(
+        "runtime.stdin.recompute_base",
+        symbol,
+        "Nothing",
+        instructions,
+        relocations,
+    ))
 }
 
 /// `_mfb_rt_stdin_subscribe` — lazily initialize the global log and subscribe the
@@ -652,13 +944,27 @@ pub(super) fn lower_stdin_subscribe(
         abi::move_register(abi::ARG[0], "%v78"),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    emit_libc(symbol, "pthread_mutex_init", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_init",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.extend([
         abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    emit_libc(symbol, "pthread_cond_init", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_init",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.extend([
         abi::move_immediate("%v79", "Integer", U64_MAX_DECIMAL),
@@ -670,9 +976,21 @@ pub(super) fn lower_stdin_subscribe(
     // Lock, register the thread if not already subscribed.
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_lock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
-    field_addr("%v52", "%v53", ARENA_STDIN_SUBSCRIBER_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        "%v53",
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::compare_immediate("%v89", "0"),
@@ -704,14 +1022,32 @@ pub(super) fn lower_stdin_subscribe(
         abi::load_u64("%v70", "%v78", STDIN_LOG_FILL_OFFSET),
         abi::store_u64("%v70", "%v67", STDIN_SUBSCRIBER_CURSOR_OFFSET),
     ]);
-    field_addr("%v52", "%v53", ARENA_STDIN_SUBSCRIBER_OFFSET, &mut instructions);
+    field_addr(
+        "%v52",
+        "%v53",
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        &mut instructions,
+    );
     instructions.push(abi::store_u64("%v67", "%v52", 0));
     instructions.push(abi::label(&l("unlock")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::return_());
-    Ok(finalize_vreg_helper("runtime.stdin.subscribe", symbol, "Nothing", instructions, relocations))
+    Ok(finalize_vreg_helper(
+        "runtime.stdin.subscribe",
+        symbol,
+        "Nothing",
+        instructions,
+        relocations,
+    ))
 }
 
 /// `_mfb_rt_stdin_unsubscribe` — release the target thread's registry entry, clear
@@ -734,8 +1070,20 @@ pub(super) fn lower_stdin_unsubscribe(
         abi::branch_eq(&l("done")),
         abi::move_register(abi::ARG[0], "%v78"),
     ]);
-    emit_libc(symbol, "pthread_mutex_lock", platform_imports, platform, &mut instructions, &mut relocations)?;
-    field_addr("%v52", "%v53", ARENA_STDIN_SUBSCRIBER_OFFSET, &mut instructions);
+    emit_libc(
+        symbol,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    field_addr(
+        "%v52",
+        "%v53",
+        ARENA_STDIN_SUBSCRIBER_OFFSET,
+        &mut instructions,
+    );
     instructions.extend([
         abi::load_u64("%v89", "%v52", 0),
         abi::compare_immediate("%v89", "0"),
@@ -747,12 +1095,32 @@ pub(super) fn lower_stdin_unsubscribe(
     relocations.push(internal_branch(symbol, STDIN_RECOMPUTE_BASE_SYMBOL));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::add_immediate(abi::ARG[0], "%v78", STDIN_LOG_CV_OFFSET));
-    emit_libc(symbol, "pthread_cond_broadcast", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_cond_broadcast",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&l("unlock")));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
-    emit_libc(symbol, "pthread_mutex_unlock", platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_libc(
+        symbol,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&l("done")));
     instructions.push(abi::return_());
-    Ok(finalize_vreg_helper("runtime.stdin.unsubscribe", symbol, "Nothing", instructions, relocations))
+    Ok(finalize_vreg_helper(
+        "runtime.stdin.unsubscribe",
+        symbol,
+        "Nothing",
+        instructions,
+        relocations,
+    ))
 }

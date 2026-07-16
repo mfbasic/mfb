@@ -146,8 +146,7 @@ fn string_size_arith_has_overflow_guards() {
     // The list-replace `count * ENTRY_SIZE` multiply is guarded by a high-half
     // check (`umulh` then a branch to the overflow label).
     let has_umulh_guard = ncode.lines().collect::<Vec<_>>().windows(3).any(|w| {
-        w[0].contains("\"op\": \"umulh\"")
-            && w.iter().any(|l| l.contains("replace_list_overflow"))
+        w[0].contains("\"op\": \"umulh\"") && w.iter().any(|l| l.contains("replace_list_overflow"))
     });
     assert!(
         has_umulh_guard,
@@ -246,7 +245,11 @@ fn thread_queue_limit_in_range_accepted() {
     let root = thread_project("bug60_thread_accept", "1", "3");
     let exe = build_executable(&root).expect("build executable");
     let result = run_allow_failure(&exe);
-    assert!(result.success, "in-range limit was rejected:\n{}", result.stdout);
+    assert!(
+        result.success,
+        "in-range limit was rejected:\n{}",
+        result.stdout
+    );
     assert_eq!(result.stdout, "one\n");
     fs::remove_dir_all(&root).ok();
 }

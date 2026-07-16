@@ -82,7 +82,13 @@ fn emit_env_lock(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, abi::ARG[0], instructions, relocations);
+    push_symbol_address(
+        symbol,
+        OS_ENV_LOCK_SYMBOL,
+        abi::ARG[0],
+        instructions,
+        relocations,
+    );
     platform.emit_libc_call(
         "pthread_mutex_lock",
         symbol,
@@ -115,7 +121,13 @@ fn emit_env_unlock_return(
         abi::move_register(&saved_message, RESULT_ERROR_MESSAGE_REGISTER),
         abi::move_register(&saved_source, RESULT_ERROR_SOURCE_REGISTER),
     ]);
-    push_symbol_address(symbol, OS_ENV_LOCK_SYMBOL, abi::ARG[0], instructions, relocations);
+    push_symbol_address(
+        symbol,
+        OS_ENV_LOCK_SYMBOL,
+        abi::ARG[0],
+        instructions,
+        relocations,
+    );
     platform.emit_libc_call(
         "pthread_mutex_unlock",
         symbol,
@@ -361,7 +373,13 @@ fn lower_get_env(
     let mut relocations = Vec::new();
     // Serialize the whole `getenv` + marshal-into-arena against a concurrent
     // `os::setEnv` relocating/freeing `environ` (bug-64).
-    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_env_lock(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     marshal_cstring(
         symbol,
         &name,
@@ -373,7 +391,13 @@ fn lower_get_env(
         &mut relocations,
     );
     instructions.push(abi::move_register(abi::ARG[0], &cname));
-    platform.emit_libc_call("getenv", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "getenv",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register(&value, abi::return_register()),
         abi::compare_immediate(&value, "0"),
@@ -438,7 +462,12 @@ fn lower_get_env(
             abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
-        push_error_message_address(symbol, ERR_NOT_FOUND_SYMBOL, &mut instructions, &mut relocations);
+        push_error_message_address(
+            symbol,
+            ERR_NOT_FOUND_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.push(abi::branch(&done));
     }
     instructions.push(abi::label(&alloc_error));
@@ -481,7 +510,13 @@ fn lower_has_env(
     let mut relocations = Vec::new();
     // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
     // `environ` (bug-64).
-    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_env_lock(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     marshal_cstring(
         symbol,
         &name,
@@ -493,7 +528,13 @@ fn lower_has_env(
         &mut relocations,
     );
     instructions.push(abi::move_register(abi::ARG[0], &cname));
-    platform.emit_libc_call("getenv", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "getenv",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&present),
@@ -554,7 +595,13 @@ fn lower_set_env(
     let mut relocations = Vec::new();
     // Hold the lock across `setenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).
-    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_env_lock(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     marshal_cstring(
         symbol,
         &name,
@@ -580,7 +627,13 @@ fn lower_set_env(
         abi::move_register(abi::ARG[1], &cvalue),
         abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_libc_call("setenv", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "setenv",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&fail),
@@ -592,7 +645,13 @@ fn lower_set_env(
     ]);
     // Distinguish ENOMEM (→ ErrOutOfMemory) from every other errno (→
     // ErrInvalidArgument: empty name, or a name containing '=').
-    platform.emit_errno(symbol, &errno, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        &errno,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(&errno, ERRNO_ENOMEM),
         abi::branch_eq(&oom),
@@ -646,7 +705,13 @@ fn lower_unset_env(
     let mut relocations = Vec::new();
     // Hold the lock across `unsetenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).
-    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_env_lock(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     marshal_cstring(
         symbol,
         &name,
@@ -748,8 +813,19 @@ fn lower_environ(
     // Hold the lock across the whole two-pass `environ` walk and the marshal into
     // the arena `Map`, so a concurrent `os::setEnv` cannot relocate/free the array
     // or its strings mid-walk (bug-64).
-    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
-    platform.emit_environ_pointer(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    emit_env_lock(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    platform.emit_environ_pointer(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register(&envp, abi::return_register()),
         // Pass 1: count entries and data bytes.
@@ -847,7 +923,11 @@ fn lower_environ(
         // Entry: FLAGS=used, KEY_OFFSET=data_offset, KEY_LENGTH=key_len.
         abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
         abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(&data_offset, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(
+            &data_offset,
+            &entry_cursor,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ),
         abi::store_u64(&key_len, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         // Copy key bytes [entry_ptr .. entry_ptr+key_len) into the data region.
         abi::move_register(&src, &entry_ptr),
@@ -881,8 +961,16 @@ fn lower_environ(
         abi::branch(&val_len_loop),
         abi::label(&val_store),
         // VALUE_OFFSET / VALUE_LENGTH.
-        abi::store_u64(&data_offset, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::store_u64(&val_len, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::store_u64(
+            &data_offset,
+            &entry_cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ),
+        abi::store_u64(
+            &val_len,
+            &entry_cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ),
         abi::move_register(&src, &val_ptr),
         abi::move_immediate(&scratch, "Integer", "0"),
         abi::label(&val_copy_loop),
@@ -1055,7 +1143,13 @@ fn lower_pid(
 > {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("getpid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "getpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register(RESULT_VALUE_REGISTER, abi::return_register()),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1093,7 +1187,13 @@ fn lower_cpu_count(
         abi::move_immediate(abi::ARG[0], "Integer", sc_nprocessors_onln),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("sysconf", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "sysconf",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register(&count, abi::return_register()),
         // sysconf returns -1 (or 0) on failure or an indeterminate answer: clamp
@@ -1139,7 +1239,13 @@ fn lower_host_name(
         abi::move_immediate(abi::ARG[1], "Integer", &BUF.to_string()),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("gethostname", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "gethostname",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&ok),
@@ -1163,7 +1269,12 @@ fn lower_host_name(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_UNSUPPORTED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -1199,9 +1310,27 @@ fn lower_user_name(
     // Hold the lock across `getpwuid` and the copy of its static `passwd`/`pw_name`
     // buffer, so a concurrent `getpwuid`/`getpwnam` cannot overwrite it mid-copy.
     // The env lock doubles as the process-global pwd lock (bug-64).
-    emit_env_lock(symbol, platform_imports, platform, &mut instructions, &mut relocations)?;
-    platform.emit_libc_call("getuid", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    platform.emit_libc_call("getpwuid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    emit_env_lock(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    platform.emit_libc_call(
+        "getuid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    platform.emit_libc_call(
+        "getpwuid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&have_pwd),
@@ -1227,7 +1356,12 @@ fn lower_user_name(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_UNSUPPORTED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
@@ -1315,7 +1449,13 @@ fn lower_executable_path(
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 16),
             abi::move_immediate(abi::ARG[2], "Integer", &BUF.to_string()),
         ]);
-        platform.emit_libc_call("readlink", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "readlink",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::move_register(&count, abi::return_register()),
             abi::compare_immediate(&count, "0"),
@@ -1340,7 +1480,12 @@ fn lower_executable_path(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_UNSUPPORTED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -1395,9 +1540,21 @@ fn lower_args(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    push_symbol_address(symbol, OS_ARGC_GLOBAL_SYMBOL, &argc, &mut instructions, &mut relocations);
+    push_symbol_address(
+        symbol,
+        OS_ARGC_GLOBAL_SYMBOL,
+        &argc,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::load_u64(&argc, &argc, 0));
-    push_symbol_address(symbol, OS_ARGV_GLOBAL_SYMBOL, &argv, &mut instructions, &mut relocations);
+    push_symbol_address(
+        symbol,
+        OS_ARGV_GLOBAL_SYMBOL,
+        &argv,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::load_u64(&argv, &argv, 0));
     instructions.extend([
         // Pass 1: count args (from index 1) and their total byte length.
@@ -1476,8 +1633,16 @@ fn lower_args(
         abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
         abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64(&data_offset, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::store_u64(&arg_len, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::store_u64(
+            &data_offset,
+            &entry_cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ),
+        abi::store_u64(
+            &arg_len,
+            &entry_cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ),
         abi::move_register(&src, &arg_ptr),
         abi::move_immediate(&scratch, "Integer", "0"),
         abi::label(&str_copy),

@@ -363,7 +363,9 @@ fn stmt_references_seam(stmt: &crate::ast::Statement) -> bool {
             expression, cases, ..
         } => {
             expr_references_seam(expression)
-                || cases.iter().any(|case| case.body.iter().any(stmt_references_seam))
+                || cases
+                    .iter()
+                    .any(|case| case.body.iter().any(stmt_references_seam))
         }
         Statement::For {
             start,
@@ -377,9 +379,9 @@ fn stmt_references_seam(stmt: &crate::ast::Statement) -> bool {
                 || step.as_ref().is_some_and(expr_references_seam)
                 || body(b)
         }
-        Statement::ForEach { iterable, body: b, .. } => {
-            expr_references_seam(iterable) || body(b)
-        }
+        Statement::ForEach {
+            iterable, body: b, ..
+        } => expr_references_seam(iterable) || body(b),
         Statement::While {
             condition, body: b, ..
         }
@@ -410,8 +412,7 @@ fn expr_references_seam(expr: &crate::ast::Expression) -> bool {
             }
         }),
         Expression::WithUpdate { target, updates } => {
-            expr_references_seam(target)
-                || updates.iter().any(|u| expr_references_seam(&u.value))
+            expr_references_seam(target) || updates.iter().any(|u| expr_references_seam(&u.value))
         }
         Expression::ListLiteral(values) => values.iter().any(expr_references_seam),
         Expression::MapLiteral { entries, .. } => entries

@@ -46,11 +46,7 @@ pub(crate) fn lower_module_for_platform(
     let mut functions = Vec::new();
 
     for function in &module.functions {
-        functions.push(lower_function(
-            function,
-            &function_symbols,
-            &type_storage,
-        )?);
+        functions.push(lower_function(function, &function_symbols, &type_storage)?);
     }
 
     Ok(NativePlan {

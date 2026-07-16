@@ -1014,14 +1014,20 @@ mod tests {
         bytes[at..at + 8].copy_from_slice(&0x1_0000_0000u64.to_le_bytes());
         let (_dir, path) = write_temp(&bytes);
         let err = header_err(&path);
-        assert!(err.contains("invalid .mfp binary representation length"), "{err}");
+        assert!(
+            err.contains("invalid .mfp binary representation length"),
+            "{err}"
+        );
 
         // The maximum u64 cannot describe any body on any target.
         let mut bytes = build_mfp("p", "1");
         bytes[at..at + 8].copy_from_slice(&u64::MAX.to_le_bytes());
         let (_dir, path) = write_temp(&bytes);
         let err = header_err(&path);
-        assert!(err.contains("invalid .mfp binary representation length"), "{err}");
+        assert!(
+            err.contains("invalid .mfp binary representation length"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -1399,7 +1405,9 @@ mod tests {
         let pkgs = json_field_name_position(src2, "packages").unwrap();
         // The located position is the key, so a `:` (after optional whitespace)
         // follows its closing quote.
-        assert!(src2[pkgs + "\"packages\"".len()..].trim_start().starts_with(':'));
+        assert!(src2[pkgs + "\"packages\"".len()..]
+            .trim_start()
+            .starts_with(':'));
         // Array bounds around "b".
         let (start, end) = json_array_bounds(src, "b").unwrap();
         assert_eq!(src.as_bytes()[start], b'[');

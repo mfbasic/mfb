@@ -456,7 +456,11 @@ fn zero_guarded(
     ]);
     match len_off {
         Some(off) => ins.push(abi::load_u64("%v10", abi::stack_pointer(), off)),
-        None => ins.push(abi::move_immediate("%v10", "Integer", &len_const.to_string())),
+        None => ins.push(abi::move_immediate(
+            "%v10",
+            "Integer",
+            &len_const.to_string(),
+        )),
     }
     ins.extend([
         abi::move_immediate("%v11", "Integer", "0"),
@@ -889,7 +893,14 @@ fn generate(
             ins,
             rel,
         )?;
-        zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, &format!("{tag}sec1"), ins);
+        zero_guarded(
+            symbol,
+            SEC1PTR,
+            Some(SEC1LEN),
+            0,
+            &format!("{tag}sec1"),
+            ins,
+        );
         // bug-136: scrub RAWBUF (raw private scalar) on the post-populate
         // alloc_fail path too.
         zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, &format!("{tag}raw"), ins);
@@ -1756,9 +1767,18 @@ mod error_path_release_tests {
         let imports = HashMap::new();
         let (_f, ins, rel, _s) =
             generate(Curve::P256, "g", &imports, &TestPlatform).expect("lower generate");
-        assert!(has_label(&ins, "g_raw_fail"), "generate needs a raw_fail terminal");
-        assert!(reloc_has(&rel, "EC_KEY_free"), "gen_fail must EC_KEY_free the eckey");
-        assert!(reloc_has(&rel, "EVP_PKEY_free"), "gen_fail must EVP_PKEY_free the pkey");
+        assert!(
+            has_label(&ins, "g_raw_fail"),
+            "generate needs a raw_fail terminal"
+        );
+        assert!(
+            reloc_has(&rel, "EC_KEY_free"),
+            "gen_fail must EC_KEY_free the eckey"
+        );
+        assert!(
+            reloc_has(&rel, "EVP_PKEY_free"),
+            "gen_fail must EVP_PKEY_free the pkey"
+        );
         // The EVP_PKEY_assign result gates a branch to gen_fail (the eckey is
         // cleared on success) — the have_pkey/gen_fail labels both exist.
         assert!(has_label(&ins, "g_gen_fail"));

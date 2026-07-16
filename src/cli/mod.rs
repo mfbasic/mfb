@@ -31,10 +31,7 @@ pub(crate) fn stage_package_blob(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    let staged = packages_dir.join(format!(
-        ".{name}.mfp.{}.{nanos}.part",
-        std::process::id()
-    ));
+    let staged = packages_dir.join(format!(".{name}.mfp.{}.{nanos}.part", std::process::id()));
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

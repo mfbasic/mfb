@@ -1538,8 +1538,8 @@ mod tests {
     fn apostrophe_comment_swallows_backticks_inertly() {
         // A `'` line comment containing backticks must not start a scalar literal;
         // the whole line is a comment and only the Newline/Eof remain.
-        let tokens = lex(Path::new("main.mfb"), "' a `A` and `\\u{1F600}` here\n")
-            .expect("lex source");
+        let tokens =
+            lex(Path::new("main.mfb"), "' a `A` and `\\u{1F600}` here\n").expect("lex source");
         assert_eq!(
             tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
             vec![&TokenKind::Newline, &TokenKind::Eof]
@@ -1586,7 +1586,11 @@ mod tests {
 
     #[test]
     fn digit_separators_are_stripped() {
-        for (source, expected) in [("1_000", "1000"), ("1_2_3", "123"), ("1_000_000", "1000000")] {
+        for (source, expected) in [
+            ("1_000", "1000"),
+            ("1_2_3", "123"),
+            ("1_000_000", "1000000"),
+        ] {
             let tokens = lex(Path::new("main.mfb"), &format!("{source}\n")).expect("lex source");
             assert_eq!(tokens[0].kind, TokenKind::Number(expected.to_string()));
         }
@@ -1595,7 +1599,12 @@ mod tests {
     #[test]
     fn malformed_numbers_are_errors() {
         for source in [
-            "0x\n", "0b2\n", "0o8\n", "0xG\n", "1__2\n", "0x_1\n",
+            "0x\n",
+            "0b2\n",
+            "0o8\n",
+            "0xG\n",
+            "1__2\n",
+            "0x_1\n",
             "0xFFFFFFFFFFFFFFFFF\n",
         ] {
             assert!(
@@ -1661,7 +1670,10 @@ mod tests {
         // identifier-continue char follows.
         let tokens = lex(Path::new("main.mfb"), "1motorcar\n").expect("lex source");
         assert_eq!(tokens[0].kind, TokenKind::Number("1".to_string()));
-        assert_eq!(tokens[1].kind, TokenKind::Identifier("motorcar".to_string()));
+        assert_eq!(
+            tokens[1].kind,
+            TokenKind::Identifier("motorcar".to_string())
+        );
     }
 
     #[test]

@@ -553,8 +553,12 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         // Secure-randomness surface: the entropy-drawing crypto builtins (the
         // rest of `crypto` is pure computation over caller-supplied bytes).
         "crypto" => match callee {
-            "crypto.randomBytes" | "crypto.randomInt" | "crypto.uuid4"
-            | "crypto.generateEd25519" | "crypto.generateP256" | "crypto.generateP384"
+            "crypto.randomBytes"
+            | "crypto.randomInt"
+            | "crypto.uuid4"
+            | "crypto.generateEd25519"
+            | "crypto.generateP256"
+            | "crypto.generateP384"
             | "crypto.generateP521" => Some("randomness"),
             _ => None,
         },
@@ -746,7 +750,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("no function declared at line {line}"))
         };
         assert!(!at(1).fallible, "the Integer overload is pure");
-        assert!(at(4).fallible, "the String overload calls a fallible builtin");
+        assert!(
+            at(4).fallible,
+            "the String overload calls a fallible builtin"
+        );
         assert!(at(7).fallible, "main calls the fallible overload");
     }
 

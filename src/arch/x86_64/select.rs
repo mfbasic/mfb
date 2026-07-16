@@ -109,8 +109,12 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     // return address — so drop the frame's LR save/restore entirely. Shared code
     // now spells it with the neutral `abi::LR` token (`"lr"`); the `"x30"`
     // spelling is still accepted from any non-shared producer (plan-34-A).
-    instructions
-        .retain(|inst| !inst.fields.iter().any(|(_, value)| value == "x30" || value == "lr"));
+    instructions.retain(|inst| {
+        !inst
+            .fields
+            .iter()
+            .any(|(_, value)| value == "x30" || value == "lr")
+    });
 
     let count = instructions.len();
     // The boundary each register's value flows into, resolved along CONTROL FLOW
@@ -663,7 +667,8 @@ pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction
                     .find(|(k, _)| *k == "target")
                     .map(|(_, v)| v.clone())
                     .expect("float compare branch carries a target");
-                for inst in x86_float_branch(&instruction.fields[split].1, &target, float_branch_site)
+                for inst in
+                    x86_float_branch(&instruction.fields[split].1, &target, float_branch_site)
                 {
                     out.push(inst);
                 }
@@ -946,7 +951,11 @@ mod tests {
             .filter(|i| i.op == CodeOp::Label)
             .map(|i| i.fields[0].1.clone())
             .collect();
-        assert_eq!(labels.len(), 3, "two skip labels + the shared target: {labels:?}");
+        assert_eq!(
+            labels.len(),
+            3,
+            "two skip labels + the shared target: {labels:?}"
+        );
         let skips: Vec<&String> = labels.iter().filter(|n| n.contains("__x86ford")).collect();
         assert_eq!(skips.len(), 2);
         assert_ne!(skips[0], skips[1], "skip labels collide: {skips:?}");

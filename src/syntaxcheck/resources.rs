@@ -601,7 +601,9 @@ mod resources_tests {
     // ---- thread.start / thread.transfer boundary via package fixtures ------
 
     fn fixture(name: &str) -> String {
-        crate::testutil::fixture_dir(name).to_string_lossy().into_owned()
+        crate::testutil::fixture_dir(name)
+            .to_string_lossy()
+            .into_owned()
     }
 
     #[test]
@@ -674,7 +676,10 @@ mod resources_tests {
         // which stays silent here (bug-43). The real rejection
         // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`) is guarded in `ir::verify::tests`.
         let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF RES File = [fs::openFile(\"x\")]\n  RETURN 0\nEND FUNC\n";
-        assert!(accepts(src), "owner-only storage is an ir::verify rule, not syntaxcheck");
+        assert!(
+            accepts(src),
+            "owner-only storage is an ir::verify rule, not syntaxcheck"
+        );
     }
 
     // ---- copyability / sendability recursion arms over nested shapes -------

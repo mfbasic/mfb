@@ -153,12 +153,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_orr(neg_mask, neg_mask, mask));
 
         // nhi=v1=src, nlo=v2=0, res=v3=0, rem=v4=0.
-        self.emit(abi::vector_orr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // nhi = src
-        self.emit(abi::vector_eor(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2])); // nlo = 0
-        self.emit(abi::vector_eor(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3])); // res = 0
-        self.emit(abi::vector_eor(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4])); // rem = 0
-        // digit counter (48 fractional bits) — an allocator-placed vreg
-        // (plan-34-B Phase 3); the vector state stays in physical `v1..v7`.
+        self.emit(abi::vector_orr(
+            abi::VEC_SCRATCH[1],
+            abi::VEC_SCRATCH[0],
+            abi::VEC_SCRATCH[0],
+        )); // nhi = src
+        self.emit(abi::vector_eor(
+            abi::VEC_SCRATCH[2],
+            abi::VEC_SCRATCH[2],
+            abi::VEC_SCRATCH[2],
+        )); // nlo = 0
+        self.emit(abi::vector_eor(
+            abi::VEC_SCRATCH[3],
+            abi::VEC_SCRATCH[3],
+            abi::VEC_SCRATCH[3],
+        )); // res = 0
+        self.emit(abi::vector_eor(
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[4],
+        )); // rem = 0
+            // digit counter (48 fractional bits) — an allocator-placed vreg
+            // (plan-34-B Phase 3); the vector state stays in physical `v1..v7`.
         let digit = self.allocate_register()?;
         self.emit(abi::move_immediate(&digit, "Integer", "48"));
 
@@ -168,33 +184,73 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&digit, "0"));
         self.emit(abi::branch_eq(&loop_done));
         // digit = nhi >> 62 (logical, top two bits).
-        self.emit(abi::vector_ushr(abi::VEC_SCRATCH[5], abi::VEC_SCRATCH[1], 62));
+        self.emit(abi::vector_ushr(
+            abi::VEC_SCRATCH[5],
+            abi::VEC_SCRATCH[1],
+            62,
+        ));
         // 128-bit radicand <<= 2: nhi = (nhi<<2)|(nlo>>62); nlo <<= 2.
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], 2));
-        self.emit(abi::vector_ushr(abi::VEC_SCRATCH[6], abi::VEC_SCRATCH[2], 62));
-        self.emit(abi::vector_orr(abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[1], abi::VEC_SCRATCH[6]));
+        self.emit(abi::vector_ushr(
+            abi::VEC_SCRATCH[6],
+            abi::VEC_SCRATCH[2],
+            62,
+        ));
+        self.emit(abi::vector_orr(
+            abi::VEC_SCRATCH[1],
+            abi::VEC_SCRATCH[1],
+            abi::VEC_SCRATCH[6],
+        ));
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[2], abi::VEC_SCRATCH[2], 2));
         // rem = rem*4 + digit; res *= 2.
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], 2));
-        self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[5]));
+        self.emit(abi::vector_orr(
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[5],
+        ));
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], 1));
         // trial = 2*res + 1.
         self.emit(abi::vector_shl(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[3], 1));
-        self.emit(abi::vector_add(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7], one));
+        self.emit(abi::vector_add(
+            abi::VEC_SCRATCH[7],
+            abi::VEC_SCRATCH[7],
+            one,
+        ));
         // Per-lane: if rem >= trial { rem -= trial; res += 1 }.
-        self.emit(abi::vector_cmge(mask, abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[7]));
+        self.emit(abi::vector_cmge(
+            mask,
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[7],
+        ));
         self.emit(abi::vector_and(sel, abi::VEC_SCRATCH[7], mask));
-        self.emit(abi::vector_sub(abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[4], sel));
+        self.emit(abi::vector_sub(
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[4],
+            sel,
+        ));
         self.emit(abi::vector_and(sel, one, mask));
-        self.emit(abi::vector_add(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], sel));
+        self.emit(abi::vector_add(
+            abi::VEC_SCRATCH[3],
+            abi::VEC_SCRATCH[3],
+            sel,
+        ));
         self.emit(abi::subtract_immediate(&digit, &digit, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
         // Round to nearest: if rem > res { res += 1 }.
-        self.emit(abi::vector_cmgt(mask, abi::VEC_SCRATCH[4], abi::VEC_SCRATCH[3]));
+        self.emit(abi::vector_cmgt(
+            mask,
+            abi::VEC_SCRATCH[4],
+            abi::VEC_SCRATCH[3],
+        ));
         self.emit(abi::vector_and(sel, one, mask));
-        self.emit(abi::vector_add(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[3], sel));
+        self.emit(abi::vector_add(
+            abi::VEC_SCRATCH[3],
+            abi::VEC_SCRATCH[3],
+            sel,
+        ));
         Ok(())
     }
 

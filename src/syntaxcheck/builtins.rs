@@ -1057,8 +1057,10 @@ impl<'a> SyntaxChecker<'a> {
             .collect::<Vec<_>>();
 
         let mut mismatch = false;
-        for ((expected_name, actual), argument) in
-            param_types.iter().zip(arg_types.iter()).zip(arguments.iter())
+        for ((expected_name, actual), argument) in param_types
+            .iter()
+            .zip(arg_types.iter())
+            .zip(arguments.iter())
         {
             let expected = self.parse_type(expected_name);
             if !self.expression_compatible(&expected, actual, Some(argument)) {
@@ -1919,10 +1921,11 @@ impl<'a> SyntaxChecker<'a> {
                 return fallback();
             }
         }
-        if let Some((name, _, named_line)) = named
-            .iter()
-            .find(|(name, _, _)| !overloads.iter().any(|params| params.contains(&name.as_str())))
-        {
+        if let Some((name, _, named_line)) = named.iter().find(|(name, _, _)| {
+            !overloads
+                .iter()
+                .any(|params| params.contains(&name.as_str()))
+        }) {
             self.report(
                 "TYPE_UNKNOWN_ARGUMENT_NAME",
                 &format!("Call to `{display_callee}` does not have a parameter named `{name}`."),
@@ -3039,7 +3042,10 @@ mod builtins_tests {
     #[test]
     fn overloaded_named_duplicate_argument_rejected() {
         assert!(rejects_with(
-            &wrap_import("datetime", "  LET z = datetime::fixedOffset(hours := 1, hours := 2)"),
+            &wrap_import(
+                "datetime",
+                "  LET z = datetime::fixedOffset(hours := 1, hours := 2)"
+            ),
             "TYPE_DUPLICATE_ARGUMENT_NAME"
         ));
     }

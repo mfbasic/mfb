@@ -5,10 +5,10 @@
 pub(crate) mod abi;
 pub(crate) mod code;
 pub(crate) mod lower;
+pub(crate) mod nir;
+pub(crate) mod plan;
 /// The ISA-neutral `RegisterModel` trait + `RegClass`, hoisted out of
 /// `arch::aarch64::regmodel` (plan-34-B Phase 2); each backend implements it.
 pub(crate) mod regmodel;
-pub(crate) mod nir;
-pub(crate) mod plan;
 pub(crate) mod runtime;
 pub(crate) mod validate;

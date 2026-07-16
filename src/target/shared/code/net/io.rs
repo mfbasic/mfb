@@ -1049,9 +1049,9 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     const FD_OFFSET: usize = 32;
     const CSTR_OFFSET: usize = 40;
     const HINTS_OFFSET: usize = 48; // 48..96
-    // getaddrinfo `service`: NULL for a resolved host, the "0" C string below for
-    // a NULL/bind-all host (getaddrinfo rejects node==service==NULL; the real
-    // port is patched into sin_port afterward). bug-113.
+                                    // getaddrinfo `service`: NULL for a resolved host, the "0" C string below for
+                                    // a NULL/bind-all host (getaddrinfo rejects node==service==NULL; the real
+                                    // port is patched into sin_port afterward). bug-113.
     const SERVICE_OFFSET: usize = 96;
     const SERVICE_STR_OFFSET: usize = 104; // holds the bytes "0\0…"
 
@@ -1071,7 +1071,11 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     ]);
     emit_hints(HINTS_OFFSET, true, SOCK_DGRAM, &mut instructions);
     // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
-    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE_OFFSET));
+    instructions.push(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        SERVICE_OFFSET,
+    ));
     // Empty host binds all interfaces (NULL host + AI_PASSIVE).
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
@@ -1365,7 +1369,11 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         &alloc_fail,
         &addr_fail,
     )?;
-    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), ADDRPTR_OFFSET));
+    instructions.push(abi::store_u64(
+        abi::RET[1],
+        abi::stack_pointer(),
+        ADDRPTR_OFFSET,
+    ));
     if text {
         // Build a String: [u64 len][bytes][nul], validate UTF-8.
         instructions.extend([

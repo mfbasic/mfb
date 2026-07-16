@@ -509,7 +509,10 @@ impl CodeBuilder<'_> {
                 // Hardware `fabs` clears the sign bit in the FP domain (plan-02
                 // §4). Bit-identical to the old GPR sign-mask AND for every finite
                 // MFBASIC `Float`, but a single hardware instruction.
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
+                self.emit(abi::float_move_d_from_x(
+                    abi::FP_SCRATCH[0],
+                    &value.location,
+                ));
                 self.emit(abi::float_abs_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
                 self.emit(abi::float_move_x_from_d(&dst, abi::FP_SCRATCH[0]));
             }
@@ -701,9 +704,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &lhs));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &rhs));
                 if function == "min" {
-                    self.emit(abi::float_min_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                    self.emit(abi::float_min_d(
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[1],
+                    ));
                 } else {
-                    self.emit(abi::float_max_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                    self.emit(abi::float_max_d(
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[0],
+                        abi::FP_SCRATCH[1],
+                    ));
                 }
                 self.emit(abi::float_move_x_from_d(&dst, abi::FP_SCRATCH[0]));
             }
@@ -783,18 +794,30 @@ impl CodeBuilder<'_> {
                 let done = self.label("math_clamp_float_done");
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &low_reg));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &high_reg));
-                self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_subtract_d(
+                    abi::FP_SCRATCH[2],
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[1],
+                ));
                 self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_le(&bounds_valid));
                 self.emit_invalid_argument_return()?;
                 self.emit(abi::label(&bounds_valid));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value_reg));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &low_reg));
-                self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_subtract_d(
+                    abi::FP_SCRATCH[2],
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[1],
+                ));
                 self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_lt(&take_low));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &high_reg));
-                self.emit(abi::float_subtract_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
+                self.emit(abi::float_subtract_d(
+                    abi::FP_SCRATCH[2],
+                    abi::FP_SCRATCH[0],
+                    abi::FP_SCRATCH[1],
+                ));
                 self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_gt(&take_high));
                 self.emit(abi::move_register(&dst, &value_reg));
@@ -825,7 +848,10 @@ impl CodeBuilder<'_> {
         let dst = self.allocate_register()?;
         match value.type_.as_str() {
             "Float" => {
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value.location));
+                self.emit(abi::float_move_d_from_x(
+                    abi::FP_SCRATCH[0],
+                    &value.location,
+                ));
                 self.emit_float_rounding_integer_range_check(&value.location)?;
                 match function {
                     "floor" => self.emit(abi::float_floor_to_signed_x(&dst, abi::FP_SCRATCH[0])),
@@ -869,7 +895,9 @@ impl CodeBuilder<'_> {
         let remainder = self.allocate_register()?;
         self.emit(abi::move_immediate(&scale, "Integer", "100000"));
         self.emit(abi::signed_divide_registers(&quotient, raw, &scale));
-        self.emit(abi::multiply_subtract_registers(&remainder, &quotient, &scale, raw));
+        self.emit(abi::multiply_subtract_registers(
+            &remainder, &quotient, &scale, raw,
+        ));
         self.emit(abi::move_register(dst, &quotient));
         let done = self.label("math_money_round_done");
         match function {
@@ -1048,12 +1076,13 @@ impl CodeBuilder<'_> {
             &quotient, &neg_span, &range_reg,
         ));
         self.emit(abi::multiply_subtract_registers(
-            &threshold,
-            &quotient,
-            &range_reg,
-            &neg_span,
+            &threshold, &quotient, &range_reg, &neg_span,
         ));
-        self.emit(abi::store_u64(&threshold, abi::stack_pointer(), threshold_slot));
+        self.emit(abi::store_u64(
+            &threshold,
+            abi::stack_pointer(),
+            threshold_slot,
+        ));
 
         // draw: raw = _mfb_rng_next(); hi = umulh(raw, span); lo = raw * span.
         // Accept when lo >= span (no draw could then fall in the tail); when

@@ -177,8 +177,7 @@ fn is_raw_syscall(op: &Value) -> bool {
 
 /// A call (`bl`/`call`/`jal`/`jalr`) to the shared stdin-broadcast reader.
 fn is_stdin_next_byte_call(op: &Value) -> bool {
-    matches!(op_name(op), "bl" | "call" | "jal" | "jalr")
-        && target_field(op) == STDIN_NEXT_BYTE
+    matches!(op_name(op), "bl" | "call" | "jal" | "jalr") && target_field(op) == STDIN_NEXT_BYTE
 }
 
 /// An equality conditional branch to `target` (aarch64/x86 `b.eq`, riscv fused

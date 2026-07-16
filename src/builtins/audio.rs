@@ -101,7 +101,11 @@ pub(crate) fn is_audio_runtime_call(name: &str) -> bool {
     is_audio_call(name)
         || matches!(
             name,
-            OPEN_INPUT_DEVICE | OPEN_OUTPUT_DEVICE | READ_TIMEOUT | POLL_TIMEOUT | CLOSE_INPUT
+            OPEN_INPUT_DEVICE
+                | OPEN_OUTPUT_DEVICE
+                | READ_TIMEOUT
+                | POLL_TIMEOUT
+                | CLOSE_INPUT
                 | CLOSE_OUTPUT
         )
 }
@@ -178,10 +182,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 /// bodies in `audio_package.mfb`). `play` picks its single- vs multi-track body
 /// from the second argument's type. Native calls return `None` and stay runtime
 /// helpers. The result is internalized by IR lowering (it is a source function).
-pub(crate) fn source_implementation_name(
-    name: &str,
-    arg_types: &[String],
-) -> Option<&'static str> {
+pub(crate) fn source_implementation_name(name: &str, arg_types: &[String]) -> Option<&'static str> {
     match name {
         RENDER => Some(INTERNAL_RENDER),
         PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF String"]) => {
@@ -238,7 +239,11 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
 pub(crate) fn is_audio_internal_call(name: &str) -> bool {
     matches!(
         name,
-        OPEN_INPUT_DEVICE | OPEN_OUTPUT_DEVICE | READ_TIMEOUT | POLL_TIMEOUT | CLOSE_INPUT
+        OPEN_INPUT_DEVICE
+            | OPEN_OUTPUT_DEVICE
+            | READ_TIMEOUT
+            | POLL_TIMEOUT
+            | CLOSE_INPUT
             | CLOSE_OUTPUT
     )
 }
@@ -304,7 +309,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed("Integer")
         }
-        CLOSE if exact(arg_types, &[AUDIO_INPUT_TYPE]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE]) => {
+        CLOSE
+            if exact(arg_types, &[AUDIO_INPUT_TYPE]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE]) =>
+        {
             Cow::Borrowed("Nothing")
         }
         RENDER if exact(arg_types, &[AUDIO_NOTE_TYPE]) => Cow::Borrowed("List OF Byte"),
@@ -379,7 +386,9 @@ pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<&'
         }
         READ if arg_types.len() == 3 => Some(READ_TIMEOUT),
         POLL if arg_types.len() == 2 => Some(POLL_TIMEOUT),
-        CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_INPUT_TYPE) => Some(CLOSE_INPUT),
+        CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_INPUT_TYPE) => {
+            Some(CLOSE_INPUT)
+        }
         CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_OUTPUT_TYPE) => {
             Some(CLOSE_OUTPUT)
         }
@@ -427,7 +436,16 @@ mod tests {
         // internal names must be excluded so `audio::readTimeout()` in source draws
         // an unknown-function diagnostic; `is_audio_runtime_call` accepts both.
         for n in [
-            DEVICES, OPEN_INPUT, OPEN_OUTPUT, READ, WRITE, POLL, AVAILABLE, XRUNS, CLOSE, RENDER,
+            DEVICES,
+            OPEN_INPUT,
+            OPEN_OUTPUT,
+            READ,
+            WRITE,
+            POLL,
+            AVAILABLE,
+            XRUNS,
+            CLOSE,
+            RENDER,
             PLAY,
         ] {
             assert!(is_audio_call(n), "{n}");
@@ -441,7 +459,10 @@ mod tests {
             CLOSE_INPUT,
             CLOSE_OUTPUT,
         ] {
-            assert!(!is_audio_call(n), "internal name must not be user-facing: {n}");
+            assert!(
+                !is_audio_call(n),
+                "internal name must not be user-facing: {n}"
+            );
             assert!(is_audio_internal_call(n), "{n}");
             assert!(is_audio_runtime_call(n), "{n}");
             // call_return_type_name MUST still know them (IR lowering queries the
@@ -551,7 +572,10 @@ mod tests {
     #[test]
     fn implementation_name_rewrites() {
         // Default-device opens keep their surface name.
-        assert_eq!(impl_name(OPEN_INPUT, &["Integer", "Integer", "Integer"]), None);
+        assert_eq!(
+            impl_name(OPEN_INPUT, &["Integer", "Integer", "Integer"]),
+            None
+        );
         assert_eq!(
             impl_name(OPEN_OUTPUT, &["Integer", "Integer", "Integer"]),
             None
@@ -690,7 +714,10 @@ mod tests {
         assert_eq!(rt(PLAY, &["String", "String"]), None);
 
         // Source dispatch selects the matching companion body by argument type.
-        assert_eq!(source_name(RENDER, &[AUDIO_NOTE_TYPE]), Some(INTERNAL_RENDER));
+        assert_eq!(
+            source_name(RENDER, &[AUDIO_NOTE_TYPE]),
+            Some(INTERNAL_RENDER)
+        );
         assert_eq!(
             source_name(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
             Some(INTERNAL_PLAY)
@@ -728,4 +755,3 @@ mod tests {
         assert_eq!(resource_close_function(AUDIO_NOTE_TYPE), None);
     }
 }
-

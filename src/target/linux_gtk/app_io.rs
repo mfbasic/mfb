@@ -50,7 +50,11 @@ fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Cod
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     emit_gtk_term_active_gate(&mut asm, "sync_inactive"); // no-op present while off
     asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
@@ -105,8 +109,15 @@ fn emit_app_term_terminal_size(
     asm.push(abi::branch("ts_err"));
     asm.push(abi::label("ts_unsupported"));
     asm.push(abi::move_immediate("x0", "Integer", code::RESULT_ERR_TAG));
-    asm.push(abi::move_immediate("x1", "Integer", code::ERR_UNSUPPORTED_CODE));
-    asm.local_address(code::RESULT_ERROR_MESSAGE_REGISTER, code::ERR_UNSUPPORTED_SYMBOL);
+    asm.push(abi::move_immediate(
+        "x1",
+        "Integer",
+        code::ERR_UNSUPPORTED_CODE,
+    ));
+    asm.local_address(
+        code::RESULT_ERROR_MESSAGE_REGISTER,
+        code::ERR_UNSUPPORTED_SYMBOL,
+    );
     asm.push(abi::label("ts_err"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -319,9 +330,9 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
         0,
     ));
     emit_gtk_term_active_gate(&mut asm, "clr_inactive"); // §4.2.1 no-op gate (bug-111)
-    // Blank the whole backing store (chars/fg/bg = 0). chars clears to 0 rather
-    // than ' ': cells are u32 since bug-203, and `memset` writes whole bytes, so
-    // ' ' would pack four spaces per cell. The draw renders 0 as blank.
+                                                         // Blank the whole backing store (chars/fg/bg = 0). chars clears to 0 rather
+                                                         // than ' ': cells are u32 since bug-203, and `memset` writes whole bytes, so
+                                                         // ' ' would pack four spaces per cell. The draw renders 0 as blank.
     asm.state_array("x0", ST_TERM_CHARS);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.push(abi::move_immediate(
@@ -366,7 +377,7 @@ fn emit_app_term_move_to(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "mt_inactive"); // §4.2.1 no-op gate (bug-111)
-    // row = clamp(x0, 0, rows-1)
+                                                        // row = clamp(x0, 0, rows-1)
     asm.push(abi::compare_immediate("x0", "0"));
     asm.push(abi::branch_ge("mt_row_lo"));
     asm.push(abi::move_immediate("x0", "Integer", "0"));
@@ -461,9 +472,9 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::add_immediate("x0", "x20", prefix_len + 17)); // 16 hdr + prefix + text + nl
     asm.call_external("malloc");
     asm.push(abi::move_register("x21", "x0")); // heap chunk
-    // On allocation failure the memcpy below would fault on the worker thread
-    // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
-    // output still reaches the user rather than killing the program.
+                                               // On allocation failure the memcpy below would fault on the worker thread
+                                               // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
+                                               // output still reaches the user rather than killing the program.
     asm.push(abi::compare_immediate("x21", "0"));
     asm.push(abi::branch_eq("fd_path"));
     if stderr {
@@ -537,7 +548,11 @@ pub(crate) fn emit_app_io_flush_helper(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     emit_gtk_term_active_gate(&mut asm, "flush_inactive"); // present only while TUI on
     asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));

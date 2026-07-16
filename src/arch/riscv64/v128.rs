@@ -60,14 +60,52 @@ pub(crate) fn is_v128(op: CodeOp) -> bool {
     matches!(
         op,
         LdrQ | StrQ
-            | FAddV | FSubV | FMulV | FDivV | FMlaV | FMlsV | FMinV | FMaxV
-            | FCmGtV | FCmGeV | FCmEqV | FAbsV | FNegV | FSqrtV
-            | FRintpV | FRintmV | FRintaV | FRintnV | FRintzV
-            | FCvtzsV | FCvtasV | ScvtfV
-            | FCmGtZeroV | FCmGeZeroV | FCmEqZeroV | FCmLtZeroV | FCmLeZeroV
-            | AddV | SubV | CmGtV | CmGeV | CmEqV | SshlV | UshlV | NegV | AbsV
-            | AndV | OrrV | EorV | BslV | BitV | ShlV | SshrV | UshrV
-            | DupVFromX | UmovXFromV
+            | FAddV
+            | FSubV
+            | FMulV
+            | FDivV
+            | FMlaV
+            | FMlsV
+            | FMinV
+            | FMaxV
+            | FCmGtV
+            | FCmGeV
+            | FCmEqV
+            | FAbsV
+            | FNegV
+            | FSqrtV
+            | FRintpV
+            | FRintmV
+            | FRintaV
+            | FRintnV
+            | FRintzV
+            | FCvtzsV
+            | FCvtasV
+            | ScvtfV
+            | FCmGtZeroV
+            | FCmGeZeroV
+            | FCmEqZeroV
+            | FCmLtZeroV
+            | FCmLeZeroV
+            | AddV
+            | SubV
+            | CmGtV
+            | CmGeV
+            | CmEqV
+            | SshlV
+            | UshlV
+            | NegV
+            | AbsV
+            | AndV
+            | OrrV
+            | EorV
+            | BslV
+            | BitV
+            | ShlV
+            | SshrV
+            | UshrV
+            | DupVFromX
+            | UmovXFromV
     )
 }
 
@@ -258,16 +296,28 @@ pub(crate) fn scalarize_v128(
         (idx * 16 + half as usize * 8).to_string()
     };
     let fld = |o: &mut Vec<CodeInstruction>, dst: &str, name: &str, half: u8| {
-        o.push(ci("ldr_d", &[("dst", dst), ("base", T2), ("offset", &off(name, half))]));
+        o.push(ci(
+            "ldr_d",
+            &[("dst", dst), ("base", T2), ("offset", &off(name, half))],
+        ));
     };
     let fsd = |o: &mut Vec<CodeInstruction>, src: &str, name: &str, half: u8| {
-        o.push(ci("str_d", &[("src", src), ("base", T2), ("offset", &off(name, half))]));
+        o.push(ci(
+            "str_d",
+            &[("src", src), ("base", T2), ("offset", &off(name, half))],
+        ));
     };
     let ild = |o: &mut Vec<CodeInstruction>, dst: &str, name: &str, half: u8| {
-        o.push(ci("ldr_u64", &[("dst", dst), ("base", T2), ("offset", &off(name, half))]));
+        o.push(ci(
+            "ldr_u64",
+            &[("dst", dst), ("base", T2), ("offset", &off(name, half))],
+        ));
     };
     let isd = |o: &mut Vec<CodeInstruction>, src: &str, name: &str, half: u8| {
-        o.push(ci("str_u64", &[("src", src), ("base", T2), ("offset", &off(name, half))]));
+        o.push(ci(
+            "str_u64",
+            &[("src", src), ("base", T2), ("offset", &off(name, half))],
+        ));
     };
 
     use CodeOp::*;
@@ -278,18 +328,30 @@ pub(crate) fn scalarize_v128(
             let o8 = (o.parse::<u64>().unwrap_or(0) + 8).to_string();
             // Value in T1: a large `base` offset makes the encoder use T0 as the
             // address scratch, which would clobber the value if it were in T0.
-            out.push(ci("ldr_u64", &[("dst", T1), ("base", &base), ("offset", &o)]));
+            out.push(ci(
+                "ldr_u64",
+                &[("dst", T1), ("base", &base), ("offset", &o)],
+            ));
             isd(&mut out, T1, &dst, 0);
-            out.push(ci("ldr_u64", &[("dst", T1), ("base", &base), ("offset", &o8)]));
+            out.push(ci(
+                "ldr_u64",
+                &[("dst", T1), ("base", &base), ("offset", &o8)],
+            ));
             isd(&mut out, T1, &dst, 1);
         }
         StrQ => {
             let (src, base, o) = (f(fields, "src"), f(fields, "base"), f(fields, "offset"));
             let o8 = (o.parse::<u64>().unwrap_or(0) + 8).to_string();
             ild(&mut out, T1, &src, 0);
-            out.push(ci("str_u64", &[("src", T1), ("base", &base), ("offset", &o)]));
+            out.push(ci(
+                "str_u64",
+                &[("src", T1), ("base", &base), ("offset", &o)],
+            ));
             ild(&mut out, T1, &src, 1);
-            out.push(ci("str_u64", &[("src", T1), ("base", &base), ("offset", &o8)]));
+            out.push(ci(
+                "str_u64",
+                &[("src", T1), ("base", &base), ("offset", &o8)],
+            ));
         }
         // --- FP three-same `.2d` ----------------------------------------------
         FAddV | FSubV | FMulV | FDivV => {
@@ -393,7 +455,7 @@ pub(crate) fn scalarize_v128(
             let (d, s) = (f(fields, "dst"), f(fields, "src"));
             for h in 0..2 {
                 fld(&mut out, FT0, &s, h); // ft0 = x (preserved through the select)
-                // converted (ft1) = round(x) in the requested mode.
+                                           // converted (ft1) = round(x) in the requested mode.
                 if op == FRintnV {
                     // Nearest-ties-even via the 2^52 magic number, then restore
                     // x's sign so ±0 and small negatives round to the right zero.
@@ -407,7 +469,8 @@ pub(crate) fn scalarize_v128(
                     out.push(ci("lsr_imm", &[("dst", T1), ("src", T1), ("shift", "63")])); // signbit
                     out.push(ci("lsl_imm", &[("dst", T1), ("src", T1), ("shift", "63")])); // sign mask
                     out.push(ci("orr", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // apply sign
-                    out.push(ci("fmov_d_from_x", &[("dst", FT1), ("src", T0)])); // ft1 = converted
+                    out.push(ci("fmov_d_from_x", &[("dst", FT1), ("src", T0)]));
+                // ft1 = converted
                 } else {
                     let cvt = match op {
                         FRintmV => "fcvtms_x_from_d", // toward -inf
@@ -416,7 +479,8 @@ pub(crate) fn scalarize_v128(
                         _ => "fcvtas_x_from_d",       // FRintaV: nearest ties away
                     };
                     out.push(ci(cvt, &[("dst", T0), ("src", FT0)]));
-                    out.push(ci("scvtf_d_from_x", &[("dst", FT1), ("src", T0)])); // ft1 = converted
+                    out.push(ci("scvtf_d_from_x", &[("dst", FT1), ("src", T0)]));
+                    // ft1 = converted
                 }
                 // mask (t1) = all-ones iff |x| < 2^52 (a lane with a fractional
                 // part), else 0. Unsigned bit compare: |bits| of any finite
@@ -427,7 +491,7 @@ pub(crate) fn scalarize_v128(
                 out.push(ci("mov_imm", &[("dst", T0), ("value", TWO52_BITS)]));
                 out.push(ci("rv.sltu", &[("dst", T1), ("lhs", T1), ("rhs", T0)])); // |bits| < 2^52 ?
                 out.push(ci("sub", &[("dst", T1), ("lhs", ZERO), ("rhs", T1)])); // 0/1 → 0/all-ones
-                // result (ft0) = (converted & mask) | (x & ~mask).
+                                                                                 // result (ft0) = (converted & mask) | (x & ~mask).
                 out.push(ci("fmov_x_from_d", &[("dst", T0), ("src", FT1)])); // converted bits
                 out.push(ci("and", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // converted & mask
                 out.push(ci("fmov_d_from_x", &[("dst", FT1), ("src", T0)])); // park in ft1
@@ -442,7 +506,11 @@ pub(crate) fn scalarize_v128(
         }
         // Lane f64→i64 conversions (result is an i64 in the slot).
         FCvtzsV | FCvtasV => {
-            let cvt = if op == FCvtzsV { "fcvtzs_x_from_d" } else { "fcvtas_x_from_d" };
+            let cvt = if op == FCvtzsV {
+                "fcvtzs_x_from_d"
+            } else {
+                "fcvtas_x_from_d"
+            };
             let (d, s) = (f(fields, "dst"), f(fields, "src"));
             for h in 0..2 {
                 fld(&mut out, FT0, &s, h);
@@ -470,7 +538,10 @@ pub(crate) fn scalarize_v128(
                     FCmGeV => (FT1, FT0, "le"),
                     _ => (FT0, FT1, "eq"),
                 };
-                out.push(ci("rv.fcmp", &[("dst", T0), ("lhs", l), ("rhs", r), ("cmp", cmp)]));
+                out.push(ci(
+                    "rv.fcmp",
+                    &[("dst", T0), ("lhs", l), ("rhs", r), ("cmp", cmp)],
+                ));
                 out.push(ci("sub", &[("dst", T0), ("lhs", ZERO), ("rhs", T0)])); // mask = -bool
                 isd(&mut out, T0, &d, h);
             }
@@ -488,7 +559,10 @@ pub(crate) fn scalarize_v128(
                     FCmLtZeroV => (FT0, FT1, "lt"), // a < 0
                     _ => (FT0, FT1, "le"),          // a <= 0
                 };
-                out.push(ci("rv.fcmp", &[("dst", T0), ("lhs", l), ("rhs", r), ("cmp", cmp)]));
+                out.push(ci(
+                    "rv.fcmp",
+                    &[("dst", T0), ("lhs", l), ("rhs", r), ("cmp", cmp)],
+                ));
                 out.push(ci("sub", &[("dst", T0), ("lhs", ZERO), ("rhs", T0)]));
                 isd(&mut out, T0, &d, h);
             }
@@ -517,12 +591,14 @@ pub(crate) fn scalarize_v128(
                     }
                     CmGeV => {
                         out.push(ci("rv.slt", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // a<b
-                        out.push(ci("sub_imm", &[("dst", T0), ("src", T0), ("imm", "1")])); // (a<b)?0:-1
+                        out.push(ci("sub_imm", &[("dst", T0), ("src", T0), ("imm", "1")]));
+                        // (a<b)?0:-1
                     }
                     _ => {
                         out.push(ci("eor", &[("dst", T0), ("lhs", T0), ("rhs", T1)])); // a^b
                         out.push(ci("rv.sltu", &[("dst", T0), ("lhs", ZERO), ("rhs", T0)])); // !=0
-                        out.push(ci("sub_imm", &[("dst", T0), ("src", T0), ("imm", "1")])); // ==0 ? -1 : 0
+                        out.push(ci("sub_imm", &[("dst", T0), ("src", T0), ("imm", "1")]));
+                        // ==0 ? -1 : 0
                     }
                 }
                 isd(&mut out, T0, &d, h);
@@ -627,13 +703,22 @@ pub(crate) fn scalarize_v128(
         // --- Lane broadcast / extract -----------------------------------------
         DupVFromX => {
             let (d, src) = (f(fields, "dst"), f(fields, "src"));
-            out.push(ci("str_u64", &[("src", &src), ("base", T2), ("offset", &off(&d, 0))]));
-            out.push(ci("str_u64", &[("src", &src), ("base", T2), ("offset", &off(&d, 1))]));
+            out.push(ci(
+                "str_u64",
+                &[("src", &src), ("base", T2), ("offset", &off(&d, 0))],
+            ));
+            out.push(ci(
+                "str_u64",
+                &[("src", &src), ("base", T2), ("offset", &off(&d, 1))],
+            ));
         }
         UmovXFromV => {
             let (dst, src, idx) = (f(fields, "dst"), f(fields, "src"), f(fields, "index"));
             let half = idx.parse::<u8>().unwrap_or(0);
-            out.push(ci("ldr_u64", &[("dst", &dst), ("base", T2), ("offset", &off(&src, half))]));
+            out.push(ci(
+                "ldr_u64",
+                &[("dst", &dst), ("base", T2), ("offset", &off(&src, half))],
+            ));
         }
         other => panic!("rv64 v128: op {} not yet scalarized", other.mnemonic()),
     }
@@ -672,10 +757,12 @@ mod tests {
         assert_eq!(out.len(), 9);
         assert_eq!(out[0].op.mnemonic(), "add_imm");
         assert_eq!(out[0].get("src"), Some("s11"));
-        let expected_offset =
-            crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string();
+        let expected_offset = crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string();
         assert_eq!(out[0].get("imm"), Some(expected_offset.as_str()));
-        assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(), 2);
+        assert_eq!(
+            out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(),
+            2
+        );
         // %f7 (slot 1) low lane reads offset 16.
         assert!(out.iter().any(|i| i.get("offset") == Some("16")));
     }
@@ -728,7 +815,10 @@ mod tests {
         );
     }
 
-    fn mir(op: crate::target::shared::code::mir::MirOp, fields: &[(&'static str, &str)]) -> MirInstruction {
+    fn mir(
+        op: crate::target::shared::code::mir::MirOp,
+        fields: &[(&'static str, &str)],
+    ) -> MirInstruction {
         MirInstruction {
             op,
             fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect(),
@@ -746,8 +836,14 @@ mod tests {
         // recycle the first op's slots (their ranges do not overlap), so six
         // distinct values need only three concurrent slots.
         let inst = vec![
-            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
-            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")],
+            ),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")],
+            ),
         ];
         let slots = build_slot_map(&inst);
         assert_eq!(slots.len(), 6, "all six values are mapped");
@@ -763,13 +859,26 @@ mod tests {
         // otherwise a loop-carried value would be silently clobbered.
         let inst = vec![
             mir(MirOp::Label, &[("name", "top")]),
-            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
-            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
-            mir(MirOp::BranchEq, &[("lhs", "a0"), ("rhs", "a1"), ("target", "top")]),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")],
+            ),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")],
+            ),
+            mir(
+                MirOp::BranchEq,
+                &[("lhs", "a0"), ("rhs", "a1"), ("target", "top")],
+            ),
         ];
         let slots = build_slot_map(&inst);
         assert_eq!(slots.len(), 6);
-        assert_eq!(peak(&slots), 6, "loop extension keeps all six values distinct");
+        assert_eq!(
+            peak(&slots),
+            6,
+            "loop extension keeps all six values distinct"
+        );
     }
 
     #[test]
@@ -777,7 +886,10 @@ mod tests {
         let fields = vec![("dst", "v3".to_string()), ("src", "a0".to_string())];
         let slots = map(&[("v3", 0)]);
         let out = scalarize_v128(CodeOp::DupVFromX, &fields, &slots);
-        assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "str_u64").count(), 2);
+        assert_eq!(
+            out.iter().filter(|i| i.op.mnemonic() == "str_u64").count(),
+            2
+        );
         // src (a0, a GPR) passes through unslotted.
         assert!(out.iter().any(|i| i.get("src") == Some("a0")));
     }
@@ -828,8 +940,14 @@ mod tests {
     #[test]
     fn fp_min_max_use_number_semantics() {
         let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
-        assert_eq!(count(&scalarize_v128(CodeOp::FMinV, &fields, &big()), "fminnm_d"), 2);
-        assert_eq!(count(&scalarize_v128(CodeOp::FMaxV, &fields, &big()), "fmaxnm_d"), 2);
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::FMinV, &fields, &big()), "fminnm_d"),
+            2
+        );
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::FMaxV, &fields, &big()), "fmaxnm_d"),
+            2
+        );
     }
 
     #[test]
@@ -883,15 +1001,24 @@ mod tests {
     fn float_to_int_and_int_to_float_lane_converts() {
         let fields = fl(&[("dst", "v0"), ("src", "v1")]);
         assert_eq!(
-            count(&scalarize_v128(CodeOp::FCvtzsV, &fields, &big()), "fcvtzs_x_from_d"),
+            count(
+                &scalarize_v128(CodeOp::FCvtzsV, &fields, &big()),
+                "fcvtzs_x_from_d"
+            ),
             2
         );
         assert_eq!(
-            count(&scalarize_v128(CodeOp::FCvtasV, &fields, &big()), "fcvtas_x_from_d"),
+            count(
+                &scalarize_v128(CodeOp::FCvtasV, &fields, &big()),
+                "fcvtas_x_from_d"
+            ),
             2
         );
         assert_eq!(
-            count(&scalarize_v128(CodeOp::ScvtfV, &fields, &big()), "scvtf_d_from_x"),
+            count(
+                &scalarize_v128(CodeOp::ScvtfV, &fields, &big()),
+                "scvtf_d_from_x"
+            ),
             2
         );
     }
@@ -926,8 +1053,14 @@ mod tests {
     #[test]
     fn integer_add_sub_lanes() {
         let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
-        assert_eq!(count(&scalarize_v128(CodeOp::AddV, &fields, &big()), "add"), 2);
-        assert_eq!(count(&scalarize_v128(CodeOp::SubV, &fields, &big()), "sub"), 2);
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::AddV, &fields, &big()), "add"),
+            2
+        );
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::SubV, &fields, &big()), "sub"),
+            2
+        );
     }
 
     #[test]
@@ -946,7 +1079,10 @@ mod tests {
     #[test]
     fn integer_neg_and_abs() {
         let fields = fl(&[("dst", "v0"), ("src", "v1")]);
-        assert_eq!(count(&scalarize_v128(CodeOp::NegV, &fields, &big()), "sub"), 2);
+        assert_eq!(
+            count(&scalarize_v128(CodeOp::NegV, &fields, &big()), "sub"),
+            2
+        );
         let abs = scalarize_v128(CodeOp::AbsV, &fields, &big());
         assert_eq!(count(&abs, "asr_imm"), 2);
         assert_eq!(count(&abs, "eor"), 2);
@@ -960,7 +1096,12 @@ mod tests {
             (CodeOp::OrrV, "orr"),
             (CodeOp::EorV, "eor"),
         ] {
-            assert_eq!(count(&scalarize_v128(op, &fields, &big()), mn), 2, "{}", op.mnemonic());
+            assert_eq!(
+                count(&scalarize_v128(op, &fields, &big()), mn),
+                2,
+                "{}",
+                op.mnemonic()
+            );
         }
     }
 

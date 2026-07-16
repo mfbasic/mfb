@@ -129,7 +129,13 @@ fn append_decimal(
 
 /// Append the three decimal channels of a packed `r|g<<8|b<<16` colour separated
 /// by `;` (the tail of an SGR truecolor sequence, without the leading prefix).
-fn append_rgb(buf: &str, packed: &str, tmp_end: usize, tag: &str, instrs: &mut Vec<CodeInstruction>) {
+fn append_rgb(
+    buf: &str,
+    packed: &str,
+    tmp_end: usize,
+    tag: &str,
+    instrs: &mut Vec<CodeInstruction>,
+) {
     let ch = "%v247";
     let m = "%v248";
     instrs.push(abi::move_immediate(m, "Integer", "255"));
@@ -341,7 +347,11 @@ pub(super) fn emit_grid_alloc(
         abi::store_u64(colsv, gp, H_COLS),
         abi::move_immediate(one, "Integer", "1"),
         abi::store_u64(one, gp, H_DIRTY),
-        abi::store_u64(gp, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::store_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
     ]);
     Ok(())
 }
@@ -362,7 +372,11 @@ pub(super) fn emit_grid_free(
     let zero = "%v455";
     let skip = format!("{symbol}_gf_skip");
     instrs.extend([
-        abi::load_u64(gp, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::compare_immediate(gp, "0"),
         abi::branch_eq(&skip),
         abi::load_u64(rowsv, gp, H_ROWS),
@@ -378,7 +392,11 @@ pub(super) fn emit_grid_free(
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
     instrs.extend([
         abi::move_immediate(zero, "Integer", "0"),
-        abi::store_u64(zero, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::store_u64(
+            zero,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::label(&skip),
     ]);
 }
@@ -428,7 +446,11 @@ pub(super) fn emit_grid_write(
     let nl_ok = format!("{symbol}_gw_nlok");
 
     instrs.extend([
-        abi::load_u64(gp, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::compare_immediate(gp, "0"),
         abi::branch_eq(&done),
         abi::add_immediate(back, gp, HDR_SIZE),
@@ -436,10 +458,26 @@ pub(super) fn emit_grid_write(
         abi::load_u64(cols, gp, H_COLS),
         abi::load_u64(row, gp, H_CUR_ROW),
         abi::load_u64(col, gp, H_CUR_COL),
-        abi::load_u64(fg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_FG_OFFSET),
-        abi::load_u64(bg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_BG_OFFSET),
-        abi::load_u64(bold, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_BOLD_OFFSET),
-        abi::load_u64(un, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_UNDERLINE_OFFSET),
+        abi::load_u64(
+            fg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_FG_OFFSET,
+        ),
+        abi::load_u64(
+            bg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BG_OFFSET,
+        ),
+        abi::load_u64(
+            bold,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BOLD_OFFSET,
+        ),
+        abi::load_u64(
+            un,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_UNDERLINE_OFFSET,
+        ),
         abi::add_immediate(ptr, strobj, 8),
         abi::load_u64(rem, strobj, 0),
         abi::label(&loop_top),
@@ -645,7 +683,11 @@ pub(super) fn emit_grid_resize(
         abi::branch_eq(&skip),
         abi::compare_immediate(newc, "0"),
         abi::branch_eq(&skip),
-        abi::load_u64(gp, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::compare_immediate(gp, "0"),
         abi::branch_eq(&skip),
         abi::load_u64(oldr, gp, H_ROWS),
@@ -757,7 +799,11 @@ pub(super) fn emit_grid_resize(
         abi::branch(&rloop),
         abi::label(&rdone),
         // Publish the new block, then free the old one.
-        abi::store_u64(ng, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::store_u64(
+            ng,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::load_u64(oldr, sp, S_OLDR),
         abi::load_u64(oldc, sp, S_OLDC),
         abi::load_u64(gp, sp, S_OLDGP),
@@ -839,7 +885,11 @@ pub(super) fn emit_grid_present(
     let cur_after = format!("{symbol}_pr_curafter");
 
     instrs.extend([
-        abi::load_u64(gp, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::compare_immediate(gp, "0"),
         abi::branch_eq(&done_ok),
     ]);
@@ -855,7 +905,11 @@ pub(super) fn emit_grid_present(
         relocations,
     )?;
     instrs.extend([
-        abi::load_u64(gp, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
         abi::load_u64(rows, gp, H_ROWS),
         abi::load_u64(cols, gp, H_COLS),
         abi::load_u64(dirty, gp, H_DIRTY),

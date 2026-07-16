@@ -424,7 +424,8 @@ impl CodeBuilder<'_> {
             // the list branch's frees. Without this every non-in-place map `set`
             // leaked one whole-map-sized block plus a singleton per call (bug-145).
             let result = self.lower_map_concat(without_slot, singleton_slot, &collection.type_)?;
-            let result = self.free_intermediate_collection(without_slot, &collection.type_, result)?;
+            let result =
+                self.free_intermediate_collection(without_slot, &collection.type_, result)?;
             return self.free_intermediate_collection(singleton_slot, &collection.type_, result);
         }
 
@@ -602,7 +603,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
 
@@ -730,8 +735,8 @@ impl CodeBuilder<'_> {
             // even when B is not packed in entry order, unlike a per-entry re-pack.
             // The copy advances `scratch17` to dst.table[i+count_B], where the tail
             // copy below resumes.
-        // bug-175 E: shift B's valueOffsets by the padded A data length so they
-        // match the aligned destination of B's copied data region above.
+            // bug-175 E: shift B's valueOffsets by the padded A data length so they
+            // match the aligned destination of B's copied data region above.
         if value_alignment > 1 {
             let align_scratch = self.temporary_vreg();
             self.emit_align_offset_register(&scratch14, value_alignment, &align_scratch);
@@ -990,7 +995,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            new_buf_slot,
+        ));
 
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
@@ -1367,7 +1376,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            new_buf_slot,
+        ));
 
         // Header: old count / old dataLength, new capacity / new data capacity.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), buffer_slot));
@@ -1462,8 +1475,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&s20, &s10, COLLECTION_HEADER_SIZE)); // rhs entry base
         self.emit(abi::load_u64(&s11, &s10, COLLECTION_OFFSET_COUNT)); // count(rhs)
         self.emit(abi::load_u64(&s12, &s8, COLLECTION_OFFSET_DATA_LENGTH)); // shift = dataLength(self)
-        // bug-175 E: shift rhs valueOffsets by the padded self data length to match
-        // the aligned destination of rhs's copied data region above.
+                                                                            // bug-175 E: shift rhs valueOffsets by the padded self data length to match
+                                                                            // the aligned destination of rhs's copied data region above.
         if value_alignment > 1 {
             let align_scratch = self.temporary_vreg();
             self.emit_align_offset_register(&s12, value_alignment, &align_scratch);
@@ -1698,7 +1711,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            new_buf_slot,
+        ));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2480,7 +2497,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&valloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            new_buf_slot,
+        ));
         // Header: old count / old dataLength, same capacity, new data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2797,7 +2818,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            new_buf_slot,
+        ));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -3010,7 +3035,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&skip_put));
         self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(abi::ARG[1], abi::ARG[0], COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            abi::ARG[1],
+            abi::ARG[0],
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 1)); // new entry index
         self.emit(abi::branch_link(MAP_BUCKET_PUT_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -3152,7 +3181,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(
@@ -3207,8 +3240,8 @@ impl CodeBuilder<'_> {
         )); // src.entry[0]
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
-                                                                                 // Prefix [0..index): index*ENTRY bytes. Advances scratch17 -> dst.entry[index]
-                                                                                 // and scratch12 -> src.entry[index] (the removed entry).
+                                                                                // Prefix [0..index): index*ENTRY bytes. Advances scratch17 -> dst.entry[index]
+                                                                                // and scratch12 -> src.entry[index] (the removed entry).
         self.emit(abi::multiply_registers(&scratch15, &scratch10, &scratch16));
         self.emit_block_copy_advance(
             &scratch17,
@@ -3243,8 +3276,8 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer(&scratch20, &scratch8); // src data base (capacity-based)
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit_collection_data_pointer(&scratch21, &nb); // dst data base (tight)
-                                                             // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
-                                                             // and scratch20 -> src.data[holeOffset].
+                                                            // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
+                                                            // and scratch20 -> src.data[holeOffset].
         self.emit(abi::move_register(&scratch15, &scratch23)); // holeOffset (copy consumes it)
         self.emit_block_copy_advance(
             &scratch21,
@@ -3591,7 +3624,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         // Header: count = 0, capacity, dataLength = 0, dataCapacity.
@@ -3874,7 +3911,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
 
@@ -4227,7 +4268,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let nb = self.temporary_vreg();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), count_slot));

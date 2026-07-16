@@ -106,7 +106,10 @@ END FUNC
     let project = temp_project("bug135_float_pow", source);
     let exe = build_project(&project);
     let (status, stdout) = run_bounded(&exe, Duration::from_secs(15));
-    assert!(status.success(), "program exited unsuccessfully: {status:?}");
+    assert!(
+        status.success(),
+        "program exited unsuccessfully: {status:?}"
+    );
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines.first().copied(), Some("8.00"), "2.0^3.0");
     assert_eq!(lines.get(1).copied(), Some("1024.00"), "2.0^10.0");
@@ -116,6 +119,10 @@ END FUNC
         Some("ERR:77050015"),
         "2.0^1e18 must trap ErrFloatOverflow, not hang"
     );
-    assert_eq!(lines.get(3).copied(), Some("0.00"), "0.5^1e18 underflows to 0");
+    assert_eq!(
+        lines.get(3).copied(),
+        Some("0.00"),
+        "0.5^1e18 underflows to 0"
+    );
     let _ = fs::remove_dir_all(&project);
 }

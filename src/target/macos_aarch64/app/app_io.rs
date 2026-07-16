@@ -41,8 +41,8 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 56)); // string arg
     asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 48)); // pool token
-    // While TUI mode is active, route to the TermView surface (x19 is the pinned
-    // arena-state base on entry, before it is reused for the string object).
+                                                              // While TUI mode is active, route to the TermView surface (x19 is the pinned
+                                                              // arena-state base on entry, before it is reused for the string object).
     if let Some(off) = term_state_offset {
         asm.push(abi::load_u64(
             "x9",
@@ -218,7 +218,11 @@ pub(crate) fn emit_app_io_flush_helper(
     let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     emit_present_needs_display(&mut asm, "flush_done");
@@ -312,7 +316,6 @@ pub(crate) fn emit_app_io_is_terminal_helper(
         asm.rel,
     )
 }
-
 
 /// Store an immediate into a term-state-global slot reached off the pinned
 /// arena-state register (plan-01-term.md §6.2).
@@ -651,7 +654,11 @@ fn emit_app_term_sync(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     emit_term_active_gate(&mut asm, term_state_offset, &done);

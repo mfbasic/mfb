@@ -72,7 +72,9 @@ pub(super) fn emit_eintr_retry_or_error(
     // `ret` (the syscall return) is dead once we branch to retry/error here, so
     // reuse it as the errno scratch instead of naming a physical register
     // (plan-34-C): the retry edge reloads its cursor/remaining from spill slots.
-    let eintr = EINTR_ERRNO.parse::<usize>().expect("EINTR_ERRNO is numeric");
+    let eintr = EINTR_ERRNO
+        .parse::<usize>()
+        .expect("EINTR_ERRNO is numeric");
     if raw_return {
         // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
         // `ret + EINTR == 0`.
@@ -641,9 +643,33 @@ pub(super) fn lower_fs_open_helper(
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64(&mode_len, &mode, 0),
     ]);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"r", &read, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"read", &read, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"w", &write, symbol);
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        &mode_byte,
+        b"r",
+        &read,
+        symbol,
+    );
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        &mode_byte,
+        b"read",
+        &read,
+        symbol,
+    );
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        &mode_byte,
+        b"w",
+        &write,
+        symbol,
+    );
     emit_branch_if_ascii_literal(
         &mut instructions,
         &mode,
@@ -671,7 +697,15 @@ pub(super) fn lower_fs_open_helper(
         &read_write,
         symbol,
     );
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, &mode_byte, b"a", &append, symbol);
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        &mode_byte,
+        b"a",
+        &append,
+        symbol,
+    );
     emit_branch_if_ascii_literal(
         &mut instructions,
         &mode,
@@ -1859,7 +1893,7 @@ fn emit_reconcile_read_buffer(
         abi::load_u64("%v62", file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), "%v62"),
         abi::subtract_registers(abi::ARG[1], abi::ZERO, "%v61"), // -unconsumed
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),    // SEEK_CUR
+        abi::move_immediate(abi::ARG[2], "Integer", "1"),        // SEEK_CUR
     ]);
     platform.emit_seek_file(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([

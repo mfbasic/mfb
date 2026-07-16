@@ -77,7 +77,12 @@ fn encode_unsigned_mach_o(
     put_u32(&mut bytes, 2);
     put_u32(
         &mut bytes,
-        load_command_count(libraries, signing_metadata.is_some(), has_init, has_writable),
+        load_command_count(
+            libraries,
+            signing_metadata.is_some(),
+            has_init,
+            has_writable,
+        ),
     );
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
@@ -149,7 +154,11 @@ fn encode_unsigned_mach_o(
     linkedit_data(&mut bytes, 0x29, linkedit.data_in_code_offset, 0);
     // The `MFBasic\0` provenance marker (plan-43), before `LC_CODE_SIGNATURE` so
     // its payload is inside the signed prefix.
-    note_command(&mut bytes, layout.note_file_offset, MFB_NOTE_DESCRIPTOR_SIZE);
+    note_command(
+        &mut bytes,
+        layout.note_file_offset,
+        MFB_NOTE_DESCRIPTOR_SIZE,
+    );
     linkedit_data(&mut bytes, 0x1d, signature_offset, signature_size);
 
     bytes.resize(code_offset, 0);

@@ -185,9 +185,8 @@ impl NativePlanPlatform for Platform {
                 self.libc_import("ioctl", spec.symbol),
             ],
             "term.off" => vec![self.libc_import("tcsetattr", spec.symbol)],
-            "term.setForeground" | "term.setBackground"
-            | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
-            | "term.clear" | "term.moveTo" => Vec::new(),
+            "term.setForeground" | "term.setBackground" | "term.setBold" | "term.setUnderline"
+            | "term.showCursor" | "term.hideCursor" | "term.clear" | "term.moveTo" => Vec::new(),
             // `term::sync`'s present writes via the raw `write` syscall (no import),
             // but the resize check reads the terminal size via libc ioctl.
             "term.sync" => vec![self.libc_import("ioctl", spec.symbol)],
@@ -273,10 +272,21 @@ impl NativePlanPlatform for Platform {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-            | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-            | "thread.emit" | "thread.isCancelled" | "thread.transferResource"
-            | "thread.acceptResource" | "thread.emitResource" | "thread.readResource" => [
+            "thread.start"
+            | "thread.isRunning"
+            | "thread.waitFor"
+            | "thread.cancel"
+            | "thread.drop"
+            | "thread.send"
+            | "thread.poll"
+            | "thread.read"
+            | "thread.receive"
+            | "thread.emit"
+            | "thread.isCancelled"
+            | "thread.transferResource"
+            | "thread.acceptResource"
+            | "thread.emitResource"
+            | "thread.readResource" => [
                 "pthread_create",
                 "pthread_attr_init",
                 "pthread_attr_setstacksize",
@@ -304,17 +314,10 @@ impl NativePlanPlatform for Platform {
                 // binary that mentions `audio` still execs where alsa-lib is
                 // absent. `free` releases device-hint strings; `clock_gettime`
                 // bounds a timed read; the state page is mmap/munmap'd.
-                [
-                    "dlopen",
-                    "dlsym",
-                    "free",
-                    "clock_gettime",
-                    "mmap",
-                    "munmap",
-                ]
-                .into_iter()
-                .map(|symbol| self.libc_import(symbol, spec.symbol))
-                .collect()
+                ["dlopen", "dlsym", "free", "clock_gettime", "mmap", "munmap"]
+                    .into_iter()
+                    .map(|symbol| self.libc_import(symbol, spec.symbol))
+                    .collect()
             }
             call if crate::builtins::net::is_net_call(call) => {
                 let mut imports = plan::net_libc_symbols(call)
@@ -464,8 +467,8 @@ mod tests {
     /// dead `fsync`/`__errno_location`.
     #[test]
     fn io_flush_imports_nothing() {
-        let spec = crate::target::shared::runtime::spec_for_call("io.flush")
-            .expect("io.flush spec");
+        let spec =
+            crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
         assert!(platform().runtime_imports(spec).is_empty());
     }
 
@@ -502,8 +505,8 @@ mod tests {
     /// The io.print family raw-syscalls `write`, so its import arm is empty.
     #[test]
     fn io_print_imports_nothing() {
-        let spec = crate::target::shared::runtime::spec_for_call("io.print")
-            .expect("io.print spec");
+        let spec =
+            crate::target::shared::runtime::spec_for_call("io.print").expect("io.print spec");
         assert!(platform().runtime_imports(spec).is_empty());
     }
 }

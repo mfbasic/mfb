@@ -69,10 +69,8 @@ pub(super) fn external_function_metadata(
             let global_function_id = next_function_id
                 .checked_add(export.function_id)
                 .ok_or_else(|| "merged binary representation has too many functions".to_string())?;
-            external_function_ids.insert(
-                format!("{package_name}.{export_name}"),
-                global_function_id,
-            );
+            external_function_ids
+                .insert(format!("{package_name}.{export_name}"), global_function_id);
             external_function_returns.insert(
                 format!("{package_name}.{export_name}"),
                 type_name(&type_names, function.return_type)?.to_string(),

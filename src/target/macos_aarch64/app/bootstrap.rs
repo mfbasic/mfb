@@ -829,12 +829,12 @@ pub(super) fn emit_finish_helper(uses_term: bool) -> CodeFunction {
 fn emit_format_exit_code(asm: &mut Asm, _frame: usize) {
     // h = code/100; rem = code%100; t = rem/10; o = rem%10.
     asm.push(abi::move_register("x9", "x19")); // n
-    // Mask to the low 8 bits: `_exit(status)` (the headless path) delivers only
-    // `status & 0xFF` to the parent, so the GUI transcript must show that same
-    // truncated value — never the raw code. Without this, a code > 255 (e.g.
-    // 300 or 1000) formatted garbage digits (`'0' + 10 = ':'`) since only
-    // hundreds/tens/ones are computed (bug-70). Masking bounds n to 0..255, so
-    // hundreds <= 2 and every digit is valid.
+                                               // Mask to the low 8 bits: `_exit(status)` (the headless path) delivers only
+                                               // `status & 0xFF` to the parent, so the GUI transcript must show that same
+                                               // truncated value — never the raw code. Without this, a code > 255 (e.g.
+                                               // 300 or 1000) formatted garbage digits (`'0' + 10 = ':'`) since only
+                                               // hundreds/tens/ones are computed (bug-70). Masking bounds n to 0..255, so
+                                               // hundreds <= 2 and every digit is valid.
     asm.push(abi::move_immediate("x11", "Integer", "255"));
     asm.push(abi::and_registers("x9", "x9", "x11"));
     asm.push(abi::move_immediate("x11", "Integer", "100"));

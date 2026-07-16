@@ -296,7 +296,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         let dst_base = self.temporary_vreg();
         self.emit(abi::load_u64(&dst_base, abi::stack_pointer(), result_slot));
@@ -386,7 +390,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
 
         // Tight header: capacity == count, dataCapacity == dataLength.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
@@ -397,12 +405,24 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         let block_base = self.temporary_vreg();
-        self.emit(abi::load_u64(&block_base, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            &block_base,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit_write_list_header_from_registers(&layout, &block_base, &scratch9, &scratch10);
 
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
-        self.emit(abi::load_u64(&block_base, abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, &block_base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            &block_base,
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch17,
+            &block_base,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -427,7 +447,11 @@ impl CodeBuilder<'_> {
         // Copy the data region verbatim (dataLength bytes). Source base is
         // capacity-based (it may have headroom); destination base is count-based
         // (tight) — both resolve through emit_collection_data_pointer.
-        self.emit(abi::load_u64(&block_base, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            &block_base,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit_collection_data_pointer(&scratch17, &block_base);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
@@ -704,7 +728,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // tag@0, size@8.
         self.emit(abi::move_immediate(&scratch9, "UnionTag", &tag.to_string()));
         self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
@@ -875,7 +903,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
 
         // Pass 2: write slots; inline each flat sub-block into the data region.
         self.emit(abi::move_immediate(
@@ -983,7 +1015,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&alloc_ok));
             self.emit_allocation_error_return()?;
             self.emit(abi::label(&alloc_ok));
-            self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+            self.emit(abi::store_u64(
+                abi::RET[1],
+                abi::stack_pointer(),
+                result_slot,
+            ));
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
             let dst_base = self.temporary_vreg();
             self.emit(abi::load_u64(&dst_base, abi::stack_pointer(), result_slot));
@@ -1021,14 +1057,23 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
             &size.to_string(),
         ));
-        self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch13, "inline_value_arena_copy");
+        self.emit_copy_bytes(
+            abi::RET[1],
+            &scratch9,
+            &scratch13,
+            "inline_value_arena_copy",
+        );
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
@@ -1256,7 +1301,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), collection_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            collection_slot,
+        ));
 
         self.emit_write_collection_header(&layout, count, data_len_slot);
 
@@ -1296,19 +1345,31 @@ impl CodeBuilder<'_> {
             "Byte",
             &layout.kind.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch8, abi::RET[1], COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(
+            &scratch8,
+            abi::RET[1],
+            COLLECTION_OFFSET_KIND,
+        ));
         self.emit(abi::move_immediate(
             &scratch8,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch8, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(
+            &scratch8,
+            abi::RET[1],
+            COLLECTION_OFFSET_KEY_TYPE,
+        ));
         self.emit(abi::move_immediate(
             &scratch8,
             "Byte",
             &layout.value_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch8, abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::store_u8(
+            &scratch8,
+            abi::RET[1],
+            COLLECTION_OFFSET_VALUE_TYPE,
+        ));
         self.emit(abi::move_immediate(&scratch8, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch8,
@@ -1327,8 +1388,16 @@ impl CodeBuilder<'_> {
             "Integer",
             &count.to_string(),
         ));
-        self.emit(abi::store_u64(&scratch8, abi::RET[1], COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&scratch8, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::RET[1],
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::RET[1],
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::load_u64(
             &scratch8,
             abi::stack_pointer(),
@@ -1820,10 +1889,7 @@ impl CodeBuilder<'_> {
     /// scope end, but deliberately skips `String` assuming it is already fresh)
     /// double-frees the caller's default and corrupts the arena free-list, which
     /// only surfaces as a trap on a *later* allocation. See [[scope-drop-frees]].
-    pub(super) fn emit_copy_owned_string(
-        &mut self,
-        source_ptr: &str,
-    ) -> Result<String, String> {
+    pub(super) fn emit_copy_owned_string(&mut self, source_ptr: &str) -> Result<String, String> {
         let length = self.allocate_register()?;
         self.emit(abi::load_u64(&length, source_ptr, 0));
         let bytes = self.allocate_register()?;
@@ -1866,7 +1932,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), length_slot));
         self.emit(abi::store_u64(&scratch12, abi::RET[1], 0));
         self.emit(abi::add_immediate(&scratch13, abi::RET[1], 8));

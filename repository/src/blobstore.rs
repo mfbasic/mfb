@@ -38,9 +38,14 @@ pub enum BlobFetch {
 /// A staged-but-not-yet-servable blob returned by [`BlobStore::stage`] and
 /// consumed by [`BlobStore::promote`] or [`BlobStore::abort`].
 pub enum StagedBlob {
-    Local { temp: PathBuf, final_path: PathBuf },
+    Local {
+        temp: PathBuf,
+        final_path: PathBuf,
+    },
     #[cfg(feature = "s3")]
-    S3 { key: String },
+    S3 {
+        key: String,
+    },
 }
 
 /// Parsed `--datapath` backend selection, produced before any async setup so
@@ -162,7 +167,11 @@ impl BlobStore {
     /// `package_blobs.path` column. Informational only — serving is by hash.
     pub fn blob_ref(&self, hash: &str) -> String {
         match self {
-            BlobStore::Local(local) => local.dir.join(blob_name(hash)).to_string_lossy().into_owned(),
+            BlobStore::Local(local) => local
+                .dir
+                .join(blob_name(hash))
+                .to_string_lossy()
+                .into_owned(),
             #[cfg(feature = "s3")]
             BlobStore::S3(s3) => format!("s3://{}/{}{}", s3.bucket, s3.prefix, blob_name(hash)),
         }
@@ -312,10 +321,17 @@ mod s3_impl {
             {
                 Ok(_) => Ok(true),
                 Err(err) => {
-                    if err.as_service_error().map(|e| e.is_not_found()).unwrap_or(false) {
+                    if err
+                        .as_service_error()
+                        .map(|e| e.is_not_found())
+                        .unwrap_or(false)
+                    {
                         Ok(false)
                     } else {
-                        Err(format!("failed to query S3 blob: {}", service_message(&err)))
+                        Err(format!(
+                            "failed to query S3 blob: {}",
+                            service_message(&err)
+                        ))
                     }
                 }
             }
@@ -331,7 +347,9 @@ mod s3_impl {
                 .content_type("application/octet-stream")
                 .send()
                 .await
-                .map_err(|err| format!("failed to upload package blob: {}", service_message(&err)))?;
+                .map_err(|err| {
+                    format!("failed to upload package blob: {}", service_message(&err))
+                })?;
             Ok(StagedBlob::S3 { key })
         }
 
@@ -433,8 +451,11 @@ mod tests {
     #[test]
     fn parse_s3_carries_endpoint() {
         assert_eq!(
-            BlobBackend::parse("s3://bucket/pkgs", Some("https://minio.example:9000".to_string()))
-                .unwrap(),
+            BlobBackend::parse(
+                "s3://bucket/pkgs",
+                Some("https://minio.example:9000".to_string())
+            )
+            .unwrap(),
             BlobBackend::S3 {
                 bucket: "bucket".to_string(),
                 prefix: "pkgs/".to_string(),
@@ -452,7 +473,9 @@ mod tests {
 
     #[test]
     fn parse_rejects_bucketless_s3() {
-        assert!(BlobBackend::parse("s3://", None).unwrap_err().contains("must name a bucket"));
+        assert!(BlobBackend::parse("s3://", None)
+            .unwrap_err()
+            .contains("must name a bucket"));
         assert!(BlobBackend::parse("s3:///prefix", None)
             .unwrap_err()
             .contains("must name a bucket"));

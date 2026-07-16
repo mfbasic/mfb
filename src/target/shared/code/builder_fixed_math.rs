@@ -318,7 +318,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::exclusive_or_registers(&mag_y, &vy, &mag_y));
         self.emit(abi::or_registers(&mag, &mag_x, &mag_y));
         // 2^61: post-scale headroom keeps 1.6468·sqrt(2)·2^61 well under 2^63.
-        self.emit(abi::move_immediate(&mag_threshold, "Integer", "2305843009213693952"));
+        self.emit(abi::move_immediate(
+            &mag_threshold,
+            "Integer",
+            "2305843009213693952",
+        ));
         self.emit(abi::compare_registers(&mag, &mag_threshold));
         self.emit(abi::branch_lt(&no_scale));
         self.emit(abi::arithmetic_shift_right_immediate(&vx, &vx, 3));
@@ -810,12 +814,16 @@ impl CodeBuilder<'_> {
         // fail to encode (bug-74). `result` already holds `FIXED_ONE`.
         let fixed_neg_one = -(FIXED_ONE as i64) as u64;
         let neg_one_reg = self.allocate_register()?;
-        self.emit(abi::move_immediate(&neg_one_reg, "Fixed", &fixed_neg_one.to_string()));
+        self.emit(abi::move_immediate(
+            &neg_one_reg,
+            "Fixed",
+            &fixed_neg_one.to_string(),
+        ));
         self.emit(abi::compare_registers(&base_reg, &result));
         self.emit(abi::branch_eq(&mul_done)); // 1.0^n == 1.0 (result already 1.0).
         self.emit(abi::compare_registers(&base_reg, &neg_one_reg));
         self.emit(abi::branch_ne(&mul_loop)); // |base| != 1.0: run the loop.
-        // base == -1.0: 1.0 for an even |exponent|, -1.0 for an odd one.
+                                              // base == -1.0: 1.0 for an even |exponent|, -1.0 for an odd one.
         let parity = self.allocate_register()?;
         let one_bit = self.allocate_register()?;
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));

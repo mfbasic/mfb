@@ -3816,7 +3816,10 @@ mod encoding_error_release_tests {
         // The fix adds a second dlsym(dispatch_release); the whole helper now
         // resolves that data symbol on both the success and the error path
         // (each resolution emits a hi/lo relocation pair).
-        let release_relocs = rel.iter().filter(|r| r.to.contains("dispatch_release")).count();
+        let release_relocs = rel
+            .iter()
+            .filter(|r| r.to.contains("dispatch_release"))
+            .count();
         assert!(
             release_relocs >= 4,
             "expected dispatch_release resolved on both exits, got {release_relocs}"
@@ -3834,9 +3837,9 @@ mod encoding_error_release_tests {
         // readBytes has no UTF-8 validation, so it never emits an encoding_error
         // label — confirming the bug-52 fix is scoped to the text path only.
         assert!(
-            !ins
-                .iter()
-                .any(|i| i.op == CodeOp::Label && i.get("name") == Some("t_readbytes_encoding_error")),
+            !ins.iter()
+                .any(|i| i.op == CodeOp::Label
+                    && i.get("name") == Some("t_readbytes_encoding_error")),
             "tls::read (bytes) must not have an encoding_error exit"
         );
     }

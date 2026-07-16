@@ -79,13 +79,13 @@ fn int_branch<'a>(cond: &str, lhs: &'a str, rhs: &'a str) -> (&'a str, &'a str, 
     match cond {
         "b.eq" => (lhs, rhs, "eq"),
         "b.ne" => (lhs, rhs, "ne"),
-        "b.ge" => (lhs, rhs, "ge"),  // signed lhs >= rhs
-        "b.lt" => (lhs, rhs, "lt"),  // signed lhs <  rhs
-        "b.gt" => (rhs, lhs, "lt"),  // signed lhs >  rhs  ⇔ rhs < lhs
-        "b.le" => (rhs, lhs, "ge"),  // signed lhs <= rhs  ⇔ rhs >= lhs
-        "b.hi" => (rhs, lhs, "ltu"), // unsigned lhs >  rhs ⇔ rhs <u lhs
-        "b.lo" => (lhs, rhs, "ltu"), // unsigned lhs <  rhs
-        "b.ls" => (rhs, lhs, "geu"), // unsigned lhs <= rhs ⇔ rhs >=u lhs
+        "b.ge" => (lhs, rhs, "ge"),           // signed lhs >= rhs
+        "b.lt" => (lhs, rhs, "lt"),           // signed lhs <  rhs
+        "b.gt" => (rhs, lhs, "lt"),           // signed lhs >  rhs  ⇔ rhs < lhs
+        "b.le" => (rhs, lhs, "ge"),           // signed lhs <= rhs  ⇔ rhs >= lhs
+        "b.hi" => (rhs, lhs, "ltu"),          // unsigned lhs >  rhs ⇔ rhs <u lhs
+        "b.lo" => (lhs, rhs, "ltu"),          // unsigned lhs <  rhs
+        "b.ls" => (rhs, lhs, "geu"),          // unsigned lhs <= rhs ⇔ rhs >=u lhs
         "b.hs" | "b.cs" => (lhs, rhs, "geu"), // unsigned lhs >= rhs
         other => panic!("rv64: unmapped integer compare-branch condition '{other}'"),
     }
@@ -110,7 +110,12 @@ fn float_branch(cond: &str, lhs: &str, rhs: &str, target: &str) -> Vec<CodeInstr
     let br = |a: &str, bcond: &str| {
         ci(
             "rv.br",
-            &[("lhs", a), ("rhs", ZERO), ("cond", bcond), ("target", target)],
+            &[
+                ("lhs", a),
+                ("rhs", ZERO),
+                ("cond", bcond),
+                ("target", target),
+            ],
         )
     };
     match cond {
@@ -168,7 +173,11 @@ fn is_shared(fields: &[(&'static str, String)]) -> bool {
 /// Expand one fused MIR op into RISC-V machine ops (plan-99). `setter_op` is the
 /// AArch64 flag-setter the fusion recorded; the fields are
 /// `[<setter operands>, cond, <branch fields>]`.
-fn expand_fused(op: MirOp, setter_op: CodeOp, fields: &[(&'static str, String)]) -> Vec<CodeInstruction> {
+fn expand_fused(
+    op: MirOp,
+    setter_op: CodeOp,
+    fields: &[(&'static str, String)],
+) -> Vec<CodeInstruction> {
     let get = |name: &str| -> String {
         fields
             .iter()
@@ -185,7 +194,12 @@ fn expand_fused(op: MirOp, setter_op: CodeOp, fields: &[(&'static str, String)])
             let (a, b, rvcond) = int_branch(&cond, &lhs, &rhs);
             vec![ci(
                 "rv.br",
-                &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                &[
+                    ("lhs", a),
+                    ("rhs", b),
+                    ("cond", rvcond),
+                    ("target", &target),
+                ],
             )]
         }
         // Integer register-immediate compare-and-branch. RISC-V branches take
@@ -203,7 +217,12 @@ fn expand_fused(op: MirOp, setter_op: CodeOp, fields: &[(&'static str, String)])
             let (a, b, rvcond) = int_branch(&cond, &lhs, imm_reg);
             out.push(ci(
                 "rv.br",
-                &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                &[
+                    ("lhs", a),
+                    ("rhs", b),
+                    ("cond", rvcond),
+                    ("target", &target),
+                ],
             ));
             out
         }
@@ -217,10 +236,7 @@ fn expand_fused(op: MirOp, setter_op: CodeOp, fields: &[(&'static str, String)])
         // then the same compare-and-branch against it.
         CodeOp::FCmpZeroD => {
             let src = get("src");
-            let mut out = vec![ci(
-                "fmov_d_from_x",
-                &[("dst", FT1), ("src", ZERO)],
-            )];
+            let mut out = vec![ci("fmov_d_from_x", &[("dst", FT1), ("src", ZERO)])];
             out.extend(float_branch(&cond, &src, FT1, &target));
             out
         }
@@ -246,7 +262,12 @@ fn expand_fused(op: MirOp, setter_op: CodeOp, fields: &[(&'static str, String)])
                 ci("mov", &[("dst", &dst), ("src", T0)]),
                 ci(
                     "rv.br",
-                    &[("lhs", T1), ("rhs", ZERO), ("cond", branch_cond), ("target", &target)],
+                    &[
+                        ("lhs", T1),
+                        ("rhs", ZERO),
+                        ("cond", branch_cond),
+                        ("target", &target),
+                    ],
                 ),
             ]
         }
@@ -267,7 +288,12 @@ fn expand_fused(op: MirOp, setter_op: CodeOp, fields: &[(&'static str, String)])
                 ci("mov", &[("dst", &dst), ("src", T0)]),
                 ci(
                     "rv.br",
-                    &[("lhs", T1), ("rhs", ZERO), ("cond", branch_cond), ("target", &target)],
+                    &[
+                        ("lhs", T1),
+                        ("rhs", ZERO),
+                        ("cond", branch_cond),
+                        ("target", &target),
+                    ],
                 ),
             ]
         }
@@ -342,7 +368,11 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 let lhs = field_value(&instruction.fields, "lhs");
                 let rhs = field_value(&instruction.fields, "rhs");
                 out.push(ci("mov", &[("dst", GP), ("src", &lhs)]));
-                pending = Some(if rhs == "0" { FlagRhs::Zero } else { FlagRhs::Imm(rhs) });
+                pending = Some(if rhs == "0" {
+                    FlagRhs::Zero
+                } else {
+                    FlagRhs::Imm(rhs)
+                });
                 continue;
             }
             Some(
@@ -368,7 +398,12 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                         let (a, b, rvcond) = int_branch(cond, GP, ZERO);
                         out.push(ci(
                             "rv.br",
-                            &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                            &[
+                                ("lhs", a),
+                                ("rhs", b),
+                                ("cond", rvcond),
+                                ("target", &target),
+                            ],
                         ));
                     }
                     FlagRhs::Imm(v) => {
@@ -376,14 +411,24 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                         let (a, b, rvcond) = int_branch(cond, GP, T0);
                         out.push(ci(
                             "rv.br",
-                            &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                            &[
+                                ("lhs", a),
+                                ("rhs", b),
+                                ("cond", rvcond),
+                                ("target", &target),
+                            ],
                         ));
                     }
                     FlagRhs::Reg(r) => {
                         let (a, b, rvcond) = int_branch(cond, GP, r);
                         out.push(ci(
                             "rv.br",
-                            &[("lhs", a), ("rhs", b), ("cond", rvcond), ("target", &target)],
+                            &[
+                                ("lhs", a),
+                                ("rhs", b),
+                                ("cond", rvcond),
+                                ("target", &target),
+                            ],
                         ));
                     }
                 }
@@ -444,9 +489,7 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             // No builder emits a shared arithmetic setter today; fail loud rather
             // than silently miscompile if one ever does (the correct handling would
             // materialize the result + overflow word once and reuse them).
-            if is_shared(&instruction.fields)
-                && matches!(setter_op, CodeOp::Adds | CodeOp::Subs)
-            {
+            if is_shared(&instruction.fields) && matches!(setter_op, CodeOp::Adds | CodeOp::Subs) {
                 panic!(
                     "rv64: shared fused arithmetic setter '{}' would re-apply its \
                      add/subtract for the second branch; the flag-less RISC-V \
@@ -598,7 +641,10 @@ fn remap_register(value: &str) -> Option<String> {
         });
     }
     // FP `dN` (the AArch64 scalar-double physical bank).
-    if let Some(n) = value.strip_prefix('d').and_then(|rest| rest.parse::<usize>().ok()) {
+    if let Some(n) = value
+        .strip_prefix('d')
+        .and_then(|rest| rest.parse::<usize>().ok())
+    {
         return Some(map_fp_register(n));
     }
     None
@@ -685,7 +731,9 @@ mod tests {
             build("ret", &[]),
         ]);
         // A non-zero immediate is materialized into t0.
-        assert!(out.iter().any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+        assert!(out
+            .iter()
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -735,7 +783,10 @@ mod tests {
     fn addr_of_expands_to_auipc_addi_pair() {
         let out = sel(&[
             build("adrp", &[("dst", "x9"), ("symbol", "g")]),
-            build("add_pageoff", &[("dst", "x9"), ("src", "x9"), ("symbol", "g")]),
+            build(
+                "add_pageoff",
+                &[("dst", "x9"), ("src", "x9"), ("symbol", "g")],
+            ),
         ]);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].op, CodeOp::Adrp);
@@ -746,7 +797,10 @@ mod tests {
     fn arena_base_realizes_to_s11() {
         let realization = crate::target::shared::code::mir::arena_base_realization();
         let out = sel(&[
-            build("ldr_u64", &[("dst", "x9"), ("base", realization), ("offset", "0")]),
+            build(
+                "ldr_u64",
+                &[("dst", "x9"), ("base", realization), ("offset", "0")],
+            ),
             build("ret", &[]),
         ]);
         assert!(values(&out).iter().any(|v| v == "s11"));
@@ -853,7 +907,9 @@ mod tests {
         );
         assert!(out.iter().any(|i| i.op.mnemonic() == "sub"));
         // dst is written before the branch (see the Adds/Subs comments).
-        assert!(out.iter().any(|i| i.op.mnemonic() == "mov" && i.get("dst") == Some("x9")));
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "mov" && i.get("dst") == Some("x9")));
         let br = out.iter().find(|i| i.op.mnemonic() == "rv.br").unwrap();
         assert_eq!(br.get("cond"), Some("lt")); // b.vs = overflow = word < 0
     }
@@ -903,7 +959,9 @@ mod tests {
             build("ret", &[]),
         ]);
         // lhs saved into the flag register gp.
-        assert!(out.iter().any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+        assert!(out
+            .iter()
+            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
         assert_eq!(br.get("lhs"), Some("gp"));
         assert_eq!(br.get("cond"), Some("lt"));
@@ -932,7 +990,9 @@ mod tests {
             build("ret", &[]),
         ]);
         // The immediate is re-materialized into t0 at the branch.
-        assert!(out.iter().any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+        assert!(out
+            .iter()
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -945,7 +1005,9 @@ mod tests {
             build("label", &[("name", "mid")]),
             build("ret", &[]),
         ]);
-        assert!(out.iter().any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+        assert!(out
+            .iter()
+            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
 
         // A redefinition of the compare's rhs register likewise invalidates it.
         let out = sel(&[
@@ -953,7 +1015,9 @@ mod tests {
             build("mov", &[("dst", "x10"), ("src", "x11")]),
             build("ret", &[]),
         ]);
-        assert!(out.iter().any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+        assert!(out
+            .iter()
+            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
     }
 
     // ---------- v128 scalarization through selection ----------
@@ -966,7 +1030,10 @@ mod tests {
         ]);
         // Scalarized to the per-thread slot base plus two lane fadd_d.
         assert!(out.iter().any(|i| i.op.mnemonic() == "add_imm"));
-        assert_eq!(out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(), 2);
+        assert_eq!(
+            out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(),
+            2
+        );
     }
 
     // ---------- residual physical-register remapping ----------
@@ -1021,11 +1088,11 @@ mod tests {
         assert_eq!(remap_register("x8").as_deref(), Some("a7")); // syscall number reg
         assert_eq!(remap_register("x9").as_deref(), Some("t3"));
         assert_eq!(remap_register("w5").as_deref(), Some("a5")); // wN alias
-        // n >= 30: a stray physical is mapped to an invalid `aN` the encoder rejects.
+                                                                 // n >= 30: a stray physical is mapped to an invalid `aN` the encoder rejects.
         assert_eq!(remap_register("x30").as_deref(), Some("a30"));
         assert_eq!(remap_register("d0").as_deref(), Some("fa0"));
         assert_eq!(remap_register("d16").as_deref(), Some("ft3")); // bug-218
-        // Non-physical operands pass through unchanged.
+                                                                   // Non-physical operands pass through unchanged.
         assert_eq!(remap_register("a0"), None);
         assert_eq!(remap_register("%f3"), None);
         assert_eq!(remap_register("t0"), None);

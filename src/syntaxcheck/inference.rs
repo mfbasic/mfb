@@ -173,7 +173,13 @@ impl<'a> SyntaxChecker<'a> {
                 let left_type = self.infer_expression(file, left, locals, line, ExprMode::Read);
                 let right_type = self.infer_expression(file, right, locals, line, ExprMode::Read);
                 self.warn_money_bare_float_literal(
-                    file, operator, left, right, &left_type, &right_type, line,
+                    file,
+                    operator,
+                    left,
+                    right,
+                    &left_type,
+                    &right_type,
+                    line,
                 );
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
@@ -1020,9 +1026,7 @@ impl<'a> SyntaxChecker<'a> {
                 // check that needs no `toString`.
                 Some(want) => {
                     for operand in [&left, &right] {
-                        if !matches!(operand, Type::Unknown)
-                            && self.type_name(operand) != want
-                        {
+                        if !matches!(operand, Type::Unknown) && self.type_name(operand) != want {
                             self.report(
                                 "TESTING_EXPECT_TYPE_MISMATCH",
                                 &format!(
@@ -1039,8 +1043,10 @@ impl<'a> SyntaxChecker<'a> {
                 // printable operands (reusing the language `=` acceptance; `Unknown`
                 // means not equality-comparable and neither operand was Unknown).
                 None => {
-                    let comparable =
-                        matches!(self.infer_binary(file, "=", &left, &right, line), Type::Boolean);
+                    let comparable = matches!(
+                        self.infer_binary(file, "=", &left, &right, line),
+                        Type::Boolean
+                    );
                     if !comparable
                         && !matches!(left, Type::Unknown)
                         && !matches!(right, Type::Unknown)
@@ -1130,7 +1136,9 @@ impl<'a> SyntaxChecker<'a> {
         if builtins::is_package_constant(&canonical) {
             self.report(
                 "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
-                &format!("`{callee}` requires a call to trap-guard; a package constant is not a call."),
+                &format!(
+                    "`{callee}` requires a call to trap-guard; a package constant is not a call."
+                ),
                 file,
                 line,
             );
@@ -1474,7 +1482,10 @@ fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
             // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
             // byte where `body[index..]` would panic (bug-169). A non-boundary
             // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0 && body.is_char_boundary(index) && body[index..].starts_with(" TO ") => {
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && body[index..].starts_with(" TO ") =>
+            {
                 if pending > 0 {
                     pending -= 1;
                     index += 4;
@@ -1529,7 +1540,10 @@ fn is_bare_decimal_float(expr: &Expression) -> bool {
                 && !text.ends_with('F')
                 && !text.ends_with('m')
                 && !text.ends_with('M')
-                && matches!(numeric::classify_literal(text).1, numeric::LiteralType::Float)
+                && matches!(
+                    numeric::classify_literal(text).1,
+                    numeric::LiteralType::Float
+                )
         }
         Expression::Unary {
             operator, operand, ..
@@ -2584,7 +2598,8 @@ mod tests {
 
     #[test]
     fn read_only_error_record_constructor_rejected() {
-        let src = "FUNC main AS Integer\n  LET e AS Error = Error[1, \"m\"]\n  RETURN 0\nEND FUNC\n";
+        let src =
+            "FUNC main AS Integer\n  LET e AS Error = Error[1, \"m\"]\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"));
     }
 

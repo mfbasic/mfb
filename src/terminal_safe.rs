@@ -76,7 +76,10 @@ mod tests {
     #[test]
     fn escapes_bidi_and_format_overrides() {
         // bug-210: RLO visually reverses the run that follows it.
-        assert_eq!(safe("legit\u{202e}drowssap.mfp"), "legit\\u{202e}drowssap.mfp");
+        assert_eq!(
+            safe("legit\u{202e}drowssap.mfp"),
+            "legit\\u{202e}drowssap.mfp"
+        );
         assert_eq!(safe("a\u{200e}b"), "a\\u{200e}b");
         assert_eq!(safe("a\u{2066}b\u{2069}"), "a\\u{2066}b\\u{2069}");
         assert_eq!(safe("a\u{061c}b"), "a\\u{061c}b");

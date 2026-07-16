@@ -152,9 +152,7 @@ async fn main() {
 }
 // coverage:on
 
-fn parse_reanchor_args(
-    args: Vec<String>,
-) -> Result<(PathBuf, PathBuf, String, String), String> {
+fn parse_reanchor_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, String), String> {
     let mut dbpath = None;
     let mut datapath = None;
     let mut owner = None;
@@ -162,10 +160,20 @@ fn parse_reanchor_args(
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--dbpath" => dbpath = Some(PathBuf::from(iter.next().ok_or("--dbpath requires <db_path>")?)),
-            "--datapath" => datapath = Some(PathBuf::from(iter.next().ok_or("--datapath requires <data_path>")?)),
+            "--dbpath" => {
+                dbpath = Some(PathBuf::from(
+                    iter.next().ok_or("--dbpath requires <db_path>")?,
+                ))
+            }
+            "--datapath" => {
+                datapath = Some(PathBuf::from(
+                    iter.next().ok_or("--datapath requires <data_path>")?,
+                ))
+            }
             "--owner" => owner = Some(iter.next().ok_or("--owner requires <owner>")?),
-            "--ident-key" => ident_key = Some(iter.next().ok_or("--ident-key requires <base64url>")?),
+            "--ident-key" => {
+                ident_key = Some(iter.next().ok_or("--ident-key requires <base64url>")?)
+            }
             _ => return Err(format!("unknown option '{arg}'")),
         }
     }
@@ -185,9 +193,19 @@ fn parse_init_root_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, 
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--dbpath" => dbpath = Some(PathBuf::from(iter.next().ok_or("--dbpath requires <db_path>")?)),
-            "--datapath" => datapath = Some(PathBuf::from(iter.next().ok_or("--datapath requires <data_path>")?)),
-            "--registry-id" => registry_id = Some(iter.next().ok_or("--registry-id requires <id>")?),
+            "--dbpath" => {
+                dbpath = Some(PathBuf::from(
+                    iter.next().ok_or("--dbpath requires <db_path>")?,
+                ))
+            }
+            "--datapath" => {
+                datapath = Some(PathBuf::from(
+                    iter.next().ok_or("--datapath requires <data_path>")?,
+                ))
+            }
+            "--registry-id" => {
+                registry_id = Some(iter.next().ok_or("--registry-id requires <id>")?)
+            }
             "--expires-days" => {
                 expires_days = iter
                     .next()
@@ -293,8 +311,7 @@ mod tests {
 
     #[test]
     fn parse_args_reads_space_and_equals_forms_and_defaults_listen() {
-        let options =
-            parse_args(args(&["--dbpath", "/db", "--datapath", "/data"])).unwrap();
+        let options = parse_args(args(&["--dbpath", "/db", "--datapath", "/data"])).unwrap();
         assert_eq!(options.dbpath, PathBuf::from("/db"));
         assert_eq!(options.datapath, PathBuf::from("/data"));
         assert_eq!(options.listen.to_string(), "127.0.0.1:7777");
@@ -311,7 +328,12 @@ mod tests {
 
         // The space form of --listen parses too.
         let options = parse_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--listen", "127.0.0.1:1234",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--listen",
+            "127.0.0.1:1234",
         ]))
         .unwrap();
         assert_eq!(options.listen.to_string(), "127.0.0.1:1234");
@@ -319,39 +341,56 @@ mod tests {
 
     #[test]
     fn parse_args_rejects_missing_values_bad_listen_and_unknown_options() {
-        assert!(parse_args(args(&["--dbpath"])).unwrap_err().contains("--dbpath requires"));
+        assert!(parse_args(args(&["--dbpath"]))
+            .unwrap_err()
+            .contains("--dbpath requires"));
         assert!(parse_args(args(&["--dbpath", "/db", "--datapath"]))
             .unwrap_err()
             .contains("--datapath requires"));
         assert!(parse_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--listen",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--listen",
         ]))
         .unwrap_err()
         .contains("--listen requires"));
         assert!(parse_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--listen", "not-an-addr",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--listen",
+            "not-an-addr",
         ]))
         .unwrap_err()
         .contains("invalid listen address"));
-        assert!(parse_args(args(&[
-            "--dbpath=/db", "--datapath=/data", "--listen=bad",
-        ]))
-        .unwrap_err()
-        .contains("invalid listen address"));
+        assert!(
+            parse_args(args(&["--dbpath=/db", "--datapath=/data", "--listen=bad",]))
+                .unwrap_err()
+                .contains("invalid listen address")
+        );
         assert!(parse_args(args(&["--datapath", "/data"]))
             .unwrap_err()
             .contains("--dbpath is required"));
         assert!(parse_args(args(&["--dbpath", "/db"]))
             .unwrap_err()
             .contains("--datapath is required"));
-        assert!(parse_args(args(&["--bogus"])).unwrap_err().contains("unknown option"));
+        assert!(parse_args(args(&["--bogus"]))
+            .unwrap_err()
+            .contains("unknown option"));
     }
 
     #[test]
     fn parse_args_reads_s3_datapath_and_endpoint() {
         let options = parse_args(args(&[
-            "--dbpath", "/db", "--datapath", "s3://my-bucket/packages",
-            "--s3-endpoint", "https://minio.example:9000",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "s3://my-bucket/packages",
+            "--s3-endpoint",
+            "https://minio.example:9000",
         ]))
         .unwrap();
         assert_eq!(
@@ -364,10 +403,7 @@ mod tests {
         );
 
         // Real-AWS form: s3:// with no endpoint is valid.
-        let options = parse_args(args(&[
-            "--dbpath=/db", "--datapath=s3://my-bucket",
-        ]))
-        .unwrap();
+        let options = parse_args(args(&["--dbpath=/db", "--datapath=s3://my-bucket"])).unwrap();
         assert_eq!(
             options.blob_backend,
             BlobBackend::S3 {
@@ -381,21 +417,38 @@ mod tests {
     #[test]
     fn parse_args_rejects_s3_endpoint_without_s3_datapath() {
         let err = parse_args(args(&[
-            "--dbpath", "/db", "--datapath", "/local/data",
-            "--s3-endpoint", "https://minio.example",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/local/data",
+            "--s3-endpoint",
+            "https://minio.example",
         ]))
         .unwrap_err();
         assert!(err.contains("--s3-endpoint requires an s3://"));
 
-        assert!(parse_args(args(&["--dbpath", "/db", "--datapath", "/d", "--s3-endpoint"]))
-            .unwrap_err()
-            .contains("--s3-endpoint requires <url>"));
+        assert!(parse_args(args(&[
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/d",
+            "--s3-endpoint"
+        ]))
+        .unwrap_err()
+        .contains("--s3-endpoint requires <url>"));
     }
 
     #[test]
     fn parse_reanchor_args_reads_all_fields_and_reports_missing() {
         let (dbpath, datapath, owner, ident_key) = parse_reanchor_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--owner", "alice", "--ident-key", "KEY",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--owner",
+            "alice",
+            "--ident-key",
+            "KEY",
         ]))
         .unwrap();
         assert_eq!(dbpath, PathBuf::from("/db"));
@@ -417,7 +470,12 @@ mod tests {
     #[test]
     fn parse_init_root_args_reads_fields_defaults_and_validates_expiry() {
         let (dbpath, datapath, registry_id, expires_days) = parse_init_root_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--registry-id", "reg-1",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--registry-id",
+            "reg-1",
         ]))
         .unwrap();
         assert_eq!(dbpath, PathBuf::from("/db"));
@@ -426,15 +484,27 @@ mod tests {
         assert_eq!(expires_days, 365); // default
 
         let (_d, _p, _r, expires_days) = parse_init_root_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--registry-id", "reg-1",
-            "--expires-days", "30",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--registry-id",
+            "reg-1",
+            "--expires-days",
+            "30",
         ]))
         .unwrap();
         assert_eq!(expires_days, 30);
 
         assert!(parse_init_root_args(args(&[
-            "--dbpath", "/db", "--datapath", "/data", "--registry-id", "reg-1",
-            "--expires-days", "notnum",
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--registry-id",
+            "reg-1",
+            "--expires-days",
+            "notnum",
         ]))
         .unwrap_err()
         .contains("--expires-days must be an integer"));
@@ -454,11 +524,9 @@ mod tests {
     #[test]
     fn reanchor_operation_binds_a_fresh_ident() {
         let temp = tempfile::tempdir().unwrap();
-        let opened = Store::open_repository(
-            &temp.path().join("meta.db"),
-            &temp.path().join("data"),
-        )
-        .unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
         // Register alice with proofs so an ident key exists to re-anchor.
         let (auth_public, auth_private) = mfb_repository::crypto::generate_keypair();
         let (ident_public, ident_private) = mfb_repository::crypto::generate_keypair();
@@ -475,7 +543,13 @@ mod tests {
         .unwrap();
         opened
             .store
-            .register_owner("alice", &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .register_owner(
+                "alice",
+                &auth_public,
+                &auth_proof,
+                &ident_public,
+                &ident_proof,
+            )
             .unwrap();
 
         let (fresh_public, _fresh_private) = crypto::generate_keypair();
@@ -490,13 +564,14 @@ mod tests {
     #[test]
     fn init_root_operation_creates_config_and_returns_root_private_key() {
         let temp = tempfile::tempdir().unwrap();
-        let opened = Store::open_repository(
-            &temp.path().join("meta.db"),
-            &temp.path().join("data"),
-        )
-        .unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
         let expires_at = mfb_repository::store::now_unix() + 365 * 24 * 3600;
-        let root_private = opened.store.init_registry_root("reg-1", expires_at).unwrap();
+        let root_private = opened
+            .store
+            .init_registry_root("reg-1", expires_at)
+            .unwrap();
         assert_eq!(root_private.len(), mfb_repository::crypto::PRIVATE_KEY_LEN);
         let config = opened.store.registry_config().unwrap().unwrap();
         assert_eq!(config.registry_id, "reg-1");

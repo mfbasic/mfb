@@ -52,9 +52,9 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // argc
     asm.push(abi::store_u64("x1", abi::stack_pointer(), 16)); // argv
-    // Publish argc/argv for the worker shim: it runs an arg-accepting language
-    // entry but is created from the transient `activate` callback, which cannot
-    // reach these locals (bug-240).
+                                                              // Publish argc/argv for the worker shim: it runs an arg-accepting language
+                                                              // entry but is created from the transient `activate` callback, which cannot
+                                                              // reach these locals (bug-240).
     asm.store_state("x0", ST_ARGC);
     asm.store_state("x1", ST_ARGV);
 
@@ -531,9 +531,9 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate("x0", "Integer", "64")); // 16 hdr + prefix + 3 digits + nl
     asm.call_external("malloc");
     asm.push(abi::move_register("x20", "x0")); // chunk
-    // On allocation failure the memcpy below would fault on the worker thread
-    // (bug-240). Skip the status line and park: the window stays up and the main
-    // loop still owns shutdown, so only the cosmetic exit-code line is lost.
+                                               // On allocation failure the memcpy below would fault on the worker thread
+                                               // (bug-240). Skip the status line and park: the window stays up and the main
+                                               // loop still owns shutdown, so only the cosmetic exit-code line is lost.
     asm.push(abi::compare_immediate("x20", "0"));
     asm.push(abi::branch_eq("park"));
     asm.push(abi::add_immediate("x0", "x20", 16)); // memcpy(chunk+16, prefix, prefix_len)
@@ -572,11 +572,11 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
 fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
     // h = code/100; rem = code%100; t = rem/10; o = rem%10.
     asm.push(abi::move_register("x9", code)); // n
-    // Mask to the low 8 bits, matching macOS (bug-70): `_exit(status)` delivers
-    // only `status & 0xFF` to the parent, so the GUI transcript must show that
-    // truncated value. Without the mask a code >= 1000 makes hundreds >= 10 and
-    // emits `'0'+10 = ':'` garbage, and a negative (u64-wrapped) code garbles all
-    // three digits — diverging from macOS and console (bug-110).
+                                              // Mask to the low 8 bits, matching macOS (bug-70): `_exit(status)` delivers
+                                              // only `status & 0xFF` to the parent, so the GUI transcript must show that
+                                              // truncated value. Without the mask a code >= 1000 makes hundreds >= 10 and
+                                              // emits `'0'+10 = ':'` garbage, and a negative (u64-wrapped) code garbles all
+                                              // three digits — diverging from macOS and console (bug-110).
     asm.push(abi::move_immediate("x11", "Integer", "255"));
     asm.push(abi::and_registers("x9", "x9", "x11"));
     asm.push(abi::move_immediate("x11", "Integer", "100"));
@@ -748,7 +748,11 @@ mod tests {
         // must be the instruction pair immediately preceding the compare, so we are
         // bounding the actual line length, not a stale value.
         let ldr = &ins[guard - 1];
-        assert_eq!(ldr.op, CodeOp::LdrU64, "guard must follow the ST_LINE_LEN load");
+        assert_eq!(
+            ldr.op,
+            CodeOp::LdrU64,
+            "guard must follow the ST_LINE_LEN load"
+        );
         assert_eq!(ldr.get("dst"), Some("x9"));
         assert_eq!(ldr.get("offset"), Some(ST_LINE_LEN.to_string().as_str()));
 
@@ -799,7 +803,11 @@ mod tests {
         // The instruction immediately before `bl close` reloads the read fd from
         // the pipe-fds stack slot at offset 16.
         let load = &ins[close - 1];
-        assert_eq!(load.op, CodeOp::LdrU32, "close's fd must be a fresh stack load");
+        assert_eq!(
+            load.op,
+            CodeOp::LdrU32,
+            "close's fd must be a fresh stack load"
+        );
         assert_eq!(load.get("dst"), Some("x0"));
         assert_eq!(load.get("base"), Some("sp"));
         assert_eq!(

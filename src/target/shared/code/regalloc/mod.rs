@@ -260,7 +260,8 @@ pub(crate) fn allocate(
             // rv64's caller-saved set lives at different physical indices than
             // AArch64/x86, so the call-clobber masks are ISA-specific (plan-99).
             // The arena-base register identifies the ISA (`s11` on rv64).
-            let is_riscv = model.arena_base() == crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER;
+            let is_riscv =
+                model.arena_base() == crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER;
             // The `%scratch`/`%sysnr` occupancy indices in `int_physical_index` are
             // AArch64 realizations; on x86/riscv those tokens realize elsewhere (and
             // are lowered to concrete names before allocation), so pick the variant
@@ -330,11 +331,15 @@ pub(crate) fn allocate(
             // field fails loudly here in debug builds instead of silently emitting a
             // bogus operand.
             debug_assert!(
-                !instructions.iter().any(|instruction| instruction
-                    .fields
+                !instructions
                     .iter()
-                    .any(|(_, value)| parse_vreg(value).is_some()
-                        || parse_fp_vreg(value).is_some())),
+                    .any(
+                        |instruction| instruction
+                            .fields
+                            .iter()
+                            .any(|(_, value)| parse_vreg(value).is_some()
+                                || parse_fp_vreg(value).is_some())
+                    ),
                 "regalloc left an uncolored vreg/fp-vreg sentinel in an operand field \
                  (a register-valued field not covered by DEF_FIELDS/USE_FIELDS?)"
             );

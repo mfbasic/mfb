@@ -41,10 +41,8 @@ fn swap_level_words(mask: u64) -> usize {
 
 /// `rev_x` (64-bit byte reverse): swap adjacent bytes, then adjacent 16-bit
 /// halves, then the two 32-bit halves.
-pub(super) const REV_X_LEVELS: &[(u32, u64)] = &[
-    (8, 0x00FF_00FF_00FF_00FF),
-    (16, 0x0000_FFFF_0000_FFFF),
-];
+pub(super) const REV_X_LEVELS: &[(u32, u64)] =
+    &[(8, 0x00FF_00FF_00FF_00FF), (16, 0x0000_FFFF_0000_FFFF)];
 
 /// `rbit` (64-bit bit reverse): the six granularity levels (1,2,4,8,16 masked,
 /// then the 32-bit half swap).
@@ -70,11 +68,19 @@ pub(super) const CLZ_POPCOUNT_MASKS: [u64; 4] = [
 
 pub(super) fn rev_x_words() -> usize {
     // mv + levels + (srli; slli; or) for the 32-bit half swap.
-    1 + REV_X_LEVELS.iter().map(|&(_, m)| swap_level_words(m)).sum::<usize>() + 3
+    1 + REV_X_LEVELS
+        .iter()
+        .map(|&(_, m)| swap_level_words(m))
+        .sum::<usize>()
+        + 3
 }
 
 pub(super) fn rbit_words() -> usize {
-    1 + RBIT_LEVELS.iter().map(|&(_, m)| swap_level_words(m)).sum::<usize>() + 3
+    1 + RBIT_LEVELS
+        .iter()
+        .map(|&(_, m)| swap_level_words(m))
+        .sum::<usize>()
+        + 3
 }
 
 pub(super) fn rev_w_words() -> usize {
@@ -98,10 +104,10 @@ fn build_li(value: i64, steps: &mut Vec<LiStep>) {
         return;
     }
     let lo12 = ((value & 0xfff) as i32) << 20 >> 20; // sign-extend from bit 11
-    // `wrapping_sub` is correct here: `li` materializes the exact 64-bit pattern,
-    // so wrap-around at the i64 extremes (e.g. MAX with lo12 = -1) reconstructs
-    // the same bits after the `slli 12; addi lo12` — and it avoids a debug panic
-    // on float bit patterns that sit near i64::MAX/MIN.
+                                                     // `wrapping_sub` is correct here: `li` materializes the exact 64-bit pattern,
+                                                     // so wrap-around at the i64 extremes (e.g. MAX with lo12 = -1) reconstructs
+                                                     // the same bits after the `slli 12; addi lo12` — and it avoids a debug panic
+                                                     // on float bit patterns that sit near i64::MAX/MIN.
     let hi = value.wrapping_sub(lo12 as i64) >> 12;
     // Fast path `lui hi; addi lo` — valid only when `hi` fits the signed 20-bit
     // `lui` field. `lui` sign-extends bit 19, so a `hi` at/above 2^19 (e.g.

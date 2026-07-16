@@ -213,7 +213,10 @@ mod tests {
             Some("Nothing".to_string())
         );
         assert_eq!(ret(SET_ENV, &["String", "Integer"]), None);
-        assert_eq!(ret(ENVIRON, &[]), Some("Map OF String TO String".to_string()));
+        assert_eq!(
+            ret(ENVIRON, &[]),
+            Some("Map OF String TO String".to_string())
+        );
         assert_eq!(ret(ENVIRON, &["String"]), None);
     }
 

@@ -152,10 +152,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     }
     // `os::hostName`/`userName`/`executablePath` raise ErrUnsupported when the
     // host lookup fails (no passwd entry, unreadable /proc/self/exe, …).
-    if module_uses_any_call(
-        module,
-        &["os.hostName", "os.userName", "os.executablePath"],
-    ) {
+    if module_uses_any_call(module, &["os.hostName", "os.userName", "os.executablePath"]) {
         push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
     }
     if module_uses_any_call(

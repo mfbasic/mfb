@@ -208,8 +208,9 @@ mod tests {
         assert!(!m.allocatable(RegClass::Int).contains(&"t0"));
         assert!(!m.allocatable(RegClass::Fp).contains(&"ft0"));
         for reg in m.allocatable(RegClass::Int) {
-            assert!(!["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "sp", "ra", "zero"]
-                .contains(reg));
+            assert!(
+                !["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "sp", "ra", "zero"].contains(reg)
+            );
         }
     }
 
@@ -227,8 +228,14 @@ mod tests {
         assert_eq!(sp.op.mnemonic(), "str_u64");
         assert_eq!(sp.get("base"), Some("sp"));
         assert_eq!(m.emit_spill(RegClass::Fp, "fs0", 16).op.mnemonic(), "str_d");
-        assert_eq!(m.emit_reload(RegClass::Int, "s1", 16).op.mnemonic(), "ldr_u64");
-        assert_eq!(m.emit_reload(RegClass::Fp, "fs0", 16).op.mnemonic(), "ldr_d");
+        assert_eq!(
+            m.emit_reload(RegClass::Int, "s1", 16).op.mnemonic(),
+            "ldr_u64"
+        );
+        assert_eq!(
+            m.emit_reload(RegClass::Fp, "fs0", 16).op.mnemonic(),
+            "ldr_d"
+        );
         assert_eq!(m.emit_move("s1", "s2").op.mnemonic(), "mov");
     }
 

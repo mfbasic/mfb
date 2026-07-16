@@ -500,9 +500,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&len, &ptr, 0)); // len
         self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot)); // spare
         self.emit(abi::add_registers(&right_ptr, &len, &spare)); // current payload capacity
-        // bug-77: oldsize = payload_capacity + 9 ([len:8][bytes][NUL]). The
-        // headroom is tracked only in the shadow slot, so a tight len+9 free
-        // would under-free; capture the real size now before it is clobbered.
+                                                                 // bug-77: oldsize = payload_capacity + 9 ([len:8][bytes][NUL]). The
+                                                                 // headroom is tracked only in the shadow slot, so a tight len+9 free
+                                                                 // would under-free; capture the real size now before it is clobbered.
         self.emit(abi::add_immediate(&oldsize, &right_ptr, 9));
         self.emit(abi::store_u64(&oldsize, abi::stack_pointer(), oldsize_slot));
         self.emit_geometric_step(
@@ -539,7 +539,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), newbuf_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            newbuf_slot,
+        ));
         // newbuf[0] = newlen.
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
         self.emit(abi::store_u64(&newlen, abi::RET[1], 0));
@@ -567,7 +571,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             name_slot,
         ));
-        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), oldsize_slot));
+        self.emit(abi::load_u64(
+            abi::ARG[1],
+            abi::stack_pointer(),
+            oldsize_slot,
+        ));
         self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -577,7 +585,11 @@ impl CodeBuilder<'_> {
             library: None,
         });
         // Install new buffer; spare = newcap_payload - newlen.
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), newbuf_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            newbuf_slot,
+        ));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));

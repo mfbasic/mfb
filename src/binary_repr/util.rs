@@ -235,7 +235,8 @@ pub(super) fn checked_u64_at(bytes: &[u8], offset: usize) -> Result<u64, String>
 /// checks downstream would then pass on a length that does not describe the real
 /// body.
 pub(super) fn checked_usize(value: u64, field: &str) -> Result<usize, String> {
-    usize::try_from(value).map_err(|_| format!("invalid {field}: {value} exceeds the address space"))
+    usize::try_from(value)
+        .map_err(|_| format!("invalid {field}: {value} exceeds the address space"))
 }
 
 impl Section {

@@ -223,7 +223,8 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
         || matches!(
             native_builtin_target(target),
             Some(
-                "get" | "set"
+                "get"
+                    | "set"
                     | "insert"
                     | "removeAt"
                     | "find"
@@ -571,7 +572,10 @@ mod tests {
         // bug-98: the member type must belong to the named package. A valid
         // pairing resolves to the bare type; a cross pairing (right type, wrong
         // package) must not.
-        assert_eq!(qualified_builtin_type("net.Url"), Some(net::URL_TYPE.to_string()));
+        assert_eq!(
+            qualified_builtin_type("net.Url"),
+            Some(net::URL_TYPE.to_string())
+        );
         // `Url` is a net type, not an io/csv type — these must be rejected.
         assert_eq!(qualified_builtin_type("io.Url"), None);
         assert_eq!(qualified_builtin_type("crypto.Url"), None);
@@ -595,9 +599,7 @@ mod tests {
             };
             for (index, aliases) in groups.iter().enumerate() {
                 for alias in *aliases {
-                    let earlier = groups[..index]
-                        .iter()
-                        .any(|group| group.contains(alias));
+                    let earlier = groups[..index].iter().any(|group| group.contains(alias));
                     assert!(
                         !earlier,
                         "`{name}` lists the argument name `{alias}` at two positions; \
@@ -724,7 +726,10 @@ mod tests {
             "collections.filter",
             "collections.reduce",
         ] {
-            assert!(inline_builtin_raw_supported(c), "expected raw-supported: {c}");
+            assert!(
+                inline_builtin_raw_supported(c),
+                "expected raw-supported: {c}"
+            );
             assert!(
                 !inline_trap_unsupported(c),
                 "raw-supported must not be unsupported: {c}"
@@ -920,17 +925,17 @@ mod tests {
         // unsupported` (the codegen backstop for a future un-lowered builtin) is
         // false for all of them.
         for target in [
-            "bits.sl",            // raw-supported fallible bits shift
-            "bits.band",          // infallible bits op
-            "len",                // infallible general builtin
-            "toString",           // infallible general builtin
-            "typeName",           // infallible general builtin
-            "collections.contains", // infallible collection query
+            "bits.sl",               // raw-supported fallible bits shift
+            "bits.band",             // infallible bits op
+            "len",                   // infallible general builtin
+            "toString",              // infallible general builtin
+            "typeName",              // infallible general builtin
+            "collections.contains",  // infallible collection query
             "collections.transform", // raw-supported callback member (plan-26-B)
             "collections.forEach",   // raw-supported callback member (plan-26-B)
             "collections.get",       // raw-supported index member (plan-21-B)
-            "toInt",              // conversion builtin (own raw lowering)
-            "nope",               // not a builtin at all
+            "toInt",                 // conversion builtin (own raw lowering)
+            "nope",                  // not a builtin at all
         ] {
             assert!(
                 !inline_trap_unsupported(target),

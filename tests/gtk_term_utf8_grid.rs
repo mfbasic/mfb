@@ -119,10 +119,7 @@ fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
 fn gtk_term_write_decodes_a_code_point_per_cell() {
     let plan = build_ncode("gtk_term_write");
     let write = instructions(&plan, "_mfb_gtkapp_term_write");
-    let names: Vec<&str> = write
-        .iter()
-        .filter_map(|i| i["name"].as_str())
-        .collect();
+    let names: Vec<&str> = write.iter().filter_map(|i| i["name"].as_str()).collect();
     for label in ["u8_len_done", "u8_len_ok", "u8_pack_done"] {
         assert!(
             names.contains(&label),

@@ -259,10 +259,21 @@ impl plan::NativePlanPlatform for Platform {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-            | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-            | "thread.emit" | "thread.isCancelled" | "thread.transferResource"
-            | "thread.acceptResource" | "thread.emitResource" | "thread.readResource" => [
+            "thread.start"
+            | "thread.isRunning"
+            | "thread.waitFor"
+            | "thread.cancel"
+            | "thread.drop"
+            | "thread.send"
+            | "thread.poll"
+            | "thread.read"
+            | "thread.receive"
+            | "thread.emit"
+            | "thread.isCancelled"
+            | "thread.transferResource"
+            | "thread.acceptResource"
+            | "thread.emitResource"
+            | "thread.readResource" => [
                 "pthread_create",
                 "pthread_attr_init",
                 "pthread_attr_setstacksize",
@@ -290,17 +301,10 @@ impl plan::NativePlanPlatform for Platform {
                 // binary that mentions `audio` still execs where alsa-lib is
                 // absent. `free` releases device-hint strings; `clock_gettime`
                 // bounds a timed read; the state page is mmap/munmap'd.
-                [
-                    "dlopen",
-                    "dlsym",
-                    "free",
-                    "clock_gettime",
-                    "mmap",
-                    "munmap",
-                ]
-                .into_iter()
-                .map(|symbol| self.libc_import(symbol, spec.symbol))
-                .collect()
+                ["dlopen", "dlsym", "free", "clock_gettime", "mmap", "munmap"]
+                    .into_iter()
+                    .map(|symbol| self.libc_import(symbol, spec.symbol))
+                    .collect()
             }
             call if crate::builtins::net::is_net_call(call) => {
                 let mut imports = plan::net_libc_symbols(call)
@@ -439,8 +443,8 @@ mod tests {
     /// dead `fsync`/`__errno_location` symbols.
     #[test]
     fn io_flush_imports_nothing() {
-        let spec = crate::target::shared::runtime::spec_for_call("io.flush")
-            .expect("io.flush spec");
+        let spec =
+            crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
         for flavor in [LinuxFlavor::Glibc, LinuxFlavor::Musl] {
             let platform = Platform { flavor };
             assert!(

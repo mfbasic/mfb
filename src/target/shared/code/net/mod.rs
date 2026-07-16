@@ -310,9 +310,9 @@ fn lower_net_endpoint_helper(
     const POLLFD_OFFSET: usize = 120; // pollfd { fd; events; revents }
     const SOERR_OFFSET: usize = 128; // getsockopt SO_ERROR output
     const SOLEN_OFFSET: usize = 136; // getsockopt option length
-    // getaddrinfo `service` pointer (NULL for a resolved host; the `"0"` C string
-    // below for a NULL/bind-all host, since getaddrinfo rejects node==service==NULL
-    // — the real port is patched into sin_port afterward). bug-113.
+                                     // getaddrinfo `service` pointer (NULL for a resolved host; the `"0"` C string
+                                     // below for a NULL/bind-all host, since getaddrinfo rejects node==service==NULL
+                                     // — the real port is patched into sin_port afterward). bug-113.
     const SERVICE_OFFSET: usize = 144;
     const SERVICE_STR_OFFSET: usize = 152; // holds the bytes "0\0…"
 
@@ -352,7 +352,11 @@ fn lower_net_endpoint_helper(
     }
     emit_hints(HINTS_OFFSET, listen, SOCK_STREAM, &mut instructions);
     // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
-    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE_OFFSET));
+    instructions.push(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        SERVICE_OFFSET,
+    ));
     // Choose host C string. An empty host on a listener binds all interfaces
     // (NULL host + AI_PASSIVE).
     instructions.extend([

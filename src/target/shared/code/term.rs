@@ -253,18 +253,12 @@ pub(super) fn lower_term_helper(
             term_state_offset + TERM_STATE_UNDERLINE_OFFSET,
             &mut instructions,
         ),
-        "term.showCursor" => emit_set_cursor_visible(
-            symbol,
-            term_state_offset,
-            "1",
-            &mut instructions,
-        ),
-        "term.hideCursor" => emit_set_cursor_visible(
-            symbol,
-            term_state_offset,
-            "0",
-            &mut instructions,
-        ),
+        "term.showCursor" => {
+            emit_set_cursor_visible(symbol, term_state_offset, "1", &mut instructions)
+        }
+        "term.hideCursor" => {
+            emit_set_cursor_visible(symbol, term_state_offset, "0", &mut instructions)
+        }
         "term.clear" => emit_clear_grid(symbol, term_state_offset, &mut instructions),
         "term.sync" => {
             // plan-35-C: present the frame — diff the back buffer against the
@@ -499,7 +493,13 @@ fn emit_off(
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
     ));
-    platform.emit_libc_call("tcsetattr", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "tcsetattr",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::move_immediate("%v9", "Integer", "0"));
     instructions.push(abi::store_u64(
         "%v9",
@@ -635,7 +635,11 @@ fn emit_clear_grid(
     let clr_done = format!("{symbol}_clr_done");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::load_u64("%v9", ARENA_STATE_REGISTER, term_state_offset + term_grid::TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            "%v9",
+            ARENA_STATE_REGISTER,
+            term_state_offset + term_grid::TERM_STATE_GRID_OFFSET,
+        ),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&inactive),
         // words = rows*cols*CELL_SIZE/8 = rows*cols*2 ; back = gp + HDR_SIZE
@@ -668,11 +672,7 @@ fn emit_clear_grid(
 /// `term::moveTo(row, column)` (plan-35-B): set the shadow cursor in the grid
 /// header, clamping negatives to 0 and high values to the last valid cell. Emits
 /// no ANSI; the cursor is honoured by the next glyph write and by the present.
-fn emit_move_to(
-    symbol: &str,
-    term_state_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-) {
+fn emit_move_to(symbol: &str, term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
     let inactive = format!("{symbol}_inactive");
     let row_lo = format!("{symbol}_row_lo");
     let col_lo = format!("{symbol}_col_lo");
@@ -680,7 +680,11 @@ fn emit_move_to(
     let col_hi = format!("{symbol}_col_hi");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::load_u64("%v9", ARENA_STATE_REGISTER, term_state_offset + term_grid::TERM_STATE_GRID_OFFSET),
+        abi::load_u64(
+            "%v9",
+            ARENA_STATE_REGISTER,
+            term_state_offset + term_grid::TERM_STATE_GRID_OFFSET,
+        ),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&inactive),
         abi::load_u64("%v10", "%v9", 0), // rows

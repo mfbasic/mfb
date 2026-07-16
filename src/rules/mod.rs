@@ -163,7 +163,9 @@ mod tests {
         // The old dead rule name was renamed onto slot 2-201-0001; nothing should
         // reference it any longer.
         assert!(
-            !RULES.iter().any(|rule| rule.name == "IMPORT_MISSING_PACKAGE"),
+            !RULES
+                .iter()
+                .any(|rule| rule.name == "IMPORT_MISSING_PACKAGE"),
             "IMPORT_MISSING_PACKAGE was renamed to IMPORT_PACKAGE_INVALID (bug-40)"
         );
     }
@@ -241,7 +243,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("src.mfb");
         std::fs::write(&file, "only one line\n").expect("write source");
-        show_diagnostic("IMPORT_PACKAGE_INVALID", "clamped-with-pos", &file, 42, 3, 7);
+        show_diagnostic(
+            "IMPORT_PACKAGE_INVALID",
+            "clamped-with-pos",
+            &file,
+            42,
+            3,
+            7,
+        );
     }
 
     #[test]

@@ -130,7 +130,7 @@ fn cfg_invoke_function() -> CodeFunction {
         // Balance the copy fn's +1 retain: nw_release(sec_options). The setter
         // is getter-style config and does not consume the ref (bug-116).
         abi::load_u64("x0", abi::stack_pointer(), 24), // sec_options
-        abi::load_u64("x9", abi::stack_pointer(), 32),  // nw_release
+        abi::load_u64("x9", abi::stack_pointer(), 32), // nw_release
         abi::branch_link_register("x9"),
         abi::load_u64("x20", abi::stack_pointer(), 16),
         abi::load_u64("x19", abi::stack_pointer(), 8),

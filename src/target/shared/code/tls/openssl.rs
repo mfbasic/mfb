@@ -1195,7 +1195,12 @@ pub(crate) fn lower_tls_listen_helper(
     // and the CTX slot is not live for them (the bug-201 class) — so route to a
     // dedicated ctx-freeing OOM exit that falls into it. connect/accept already do
     // full SSL/CTX/fd cleanup on this same OOM class (bug-55).
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail_ctx_fd);
+    emit_alloc(
+        symbol,
+        &mut instructions,
+        &mut relocations,
+        &alloc_fail_ctx_fd,
+    );
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::RET[1], TLS_LISTENER_OFFSET_FD),
@@ -1756,7 +1761,11 @@ pub(crate) fn lower_tls_read_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET));
+    instructions.push(abi::store_u64(
+        abi::RET[1],
+        abi::stack_pointer(),
+        BUF_OFFSET,
+    ));
     emit_dlopen_libssl(
         symbol,
         HANDLE_OFFSET,
@@ -2398,13 +2407,27 @@ mod error_path_release_tests {
         let imports = HashMap::new();
         let (_f, ins, rel, _s) =
             lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
-        for label in ["c_af_skip_ssl", "c_af_skip_ctx", "c_af_skip_fd", "c_alloc_fail_raw"] {
-            assert!(has_label(&ins, label), "missing alloc_fail cleanup label {label}");
+        for label in [
+            "c_af_skip_ssl",
+            "c_af_skip_ctx",
+            "c_af_skip_fd",
+            "c_alloc_fail_raw",
+        ] {
+            assert!(
+                has_label(&ins, label),
+                "missing alloc_fail cleanup label {label}"
+            );
         }
         // alloc_fail resolves SSL_free and SSL_CTX_free (neither was referenced by
         // connect before the fix — SSL_CTX_free was close-only).
-        assert!(reloc_count(&rel, "sym_SSL_free") >= 1, "connect must free the SSL on OOM");
-        assert!(reloc_count(&rel, "sym_SSL_CTX_free") >= 1, "connect must free the SSL_CTX on OOM");
+        assert!(
+            reloc_count(&rel, "sym_SSL_free") >= 1,
+            "connect must free the SSL on OOM"
+        );
+        assert!(
+            reloc_count(&rel, "sym_SSL_CTX_free") >= 1,
+            "connect must free the SSL_CTX on OOM"
+        );
     }
 
     #[test]

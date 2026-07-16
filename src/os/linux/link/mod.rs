@@ -297,11 +297,8 @@ fn patch_relocations(
             }
             "data" if relocation.kind == "riscv_pcrel_lo12" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let auipc_offset = paired_auipc_offset(
-                    &image.relocations,
-                    relocation,
-                    "riscv_pcrel_hi20",
-                )?;
+                let auipc_offset =
+                    paired_auipc_offset(&image.relocations, relocation, "riscv_pcrel_hi20")?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64)?;
                 patch_riscv_itype_imm(text, relocation.offset, lo12)?;
@@ -329,11 +326,8 @@ fn patch_relocations(
                         relocation.library.as_deref().unwrap_or("<unknown library>")
                     ));
                 };
-                let auipc_offset = paired_auipc_offset(
-                    &image.relocations,
-                    relocation,
-                    "riscv_got_hi20",
-                )?;
+                let auipc_offset =
+                    paired_auipc_offset(&image.relocations, relocation, "riscv_got_hi20")?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64)?;
                 patch_riscv_itype_imm(text, relocation.offset, lo12)?;

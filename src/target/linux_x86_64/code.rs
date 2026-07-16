@@ -171,7 +171,11 @@ impl code::CodegenPlatform for Platform {
         // instruction. So the code is already in rdi — only the syscall number is
         // needed (`x8`→rax). A prior `mov rdi,rax` here wrongly overwrote the code
         // with the leaked variadic `al`=8 (rax) left by the pre-shutdown call.
-        instructions.push(abi::move_immediate(abi::syscall_register(), "Integer", SYS_EXIT_GROUP));
+        instructions.push(abi::move_immediate(
+            abi::syscall_register(),
+            "Integer",
+            SYS_EXIT_GROUP,
+        ));
         instructions.push(abi::syscall());
         instructions.push(abi::branch_self());
         // Unreachable, but every function the validator sees needs a return op

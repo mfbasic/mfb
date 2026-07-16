@@ -152,10 +152,7 @@ fn expand_trap(
             line,
         ));
     }
-    handler.push(Statement::Recover {
-        value: None,
-        line,
-    });
+    handler.push(Statement::Recover { value: None, line });
     statements.push(trap_stmt(expression, &error_binding, handler, line));
 
     match expected_code {
@@ -246,7 +243,10 @@ pub(crate) fn build_driver(steps: &[DriverStep], coverage: bool) -> Function {
     let mut total = 0i64;
     for step in steps {
         match step {
-            DriverStep::Group { indent, description } => {
+            DriverStep::Group {
+                indent,
+                description,
+            } => {
                 let pad = " ".repeat(*indent);
                 body.push(print_line(str_lit(format!("{pad}* {description}"))));
             }
@@ -1039,12 +1039,7 @@ fn if_else(
 }
 
 /// `<inner> TRAP(binding) …handler… END TRAP` as a bare expression statement.
-fn trap_stmt(
-    inner: Expression,
-    binding: &str,
-    handler: Vec<Statement>,
-    line: usize,
-) -> Statement {
+fn trap_stmt(inner: Expression, binding: &str, handler: Vec<Statement>, line: usize) -> Statement {
     Statement::Expression {
         expression: Expression::Trapped {
             expression: Box::new(inner),
@@ -1164,14 +1159,14 @@ mod tests {
         let mut slots: Vec<CovSlot> = Vec::new();
         instrument_block(&mut block, "app.mfb", &mut slots);
         assert!(
-            slots.iter().any(|slot| slot.line == 42 && slot.file == "app.mfb"),
+            slots
+                .iter()
+                .any(|slot| slot.line == 42 && slot.file == "app.mfb"),
             "expected a CovSlot for the inline-TRAP handler line, got {slots:?}"
         );
     }
 
-    use crate::builtins::testing::{
-        EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP,
-    };
+    use crate::builtins::testing::{EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP};
 
     /// Positional call arguments from a list of expressions.
     fn pos(values: Vec<Expression>) -> Vec<CallArg> {

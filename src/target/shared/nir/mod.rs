@@ -372,6 +372,9 @@ mod link_thunk_symbol_tests {
 
     #[test]
     fn plain_alnum_parts_are_unescaped_except_separator() {
-        assert_eq!(link_thunk_symbol("printf", "libc"), "_mfb_linker_printf_libc");
+        assert_eq!(
+            link_thunk_symbol("printf", "libc"),
+            "_mfb_linker_printf_libc"
+        );
     }
 }

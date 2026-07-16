@@ -583,9 +583,18 @@ impl plan::NativePlanPlatform for Platform {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-            | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-            | "thread.emit" | "thread.isCancelled" | "thread.transferResource"
+            "thread.start"
+            | "thread.isRunning"
+            | "thread.waitFor"
+            | "thread.cancel"
+            | "thread.drop"
+            | "thread.send"
+            | "thread.poll"
+            | "thread.read"
+            | "thread.receive"
+            | "thread.emit"
+            | "thread.isCancelled"
+            | "thread.transferResource"
             | "thread.acceptResource" => [
                 "_pthread_create",
                 "_pthread_attr_init",
@@ -834,8 +843,8 @@ mod tests {
     /// `_fsync`/`___error` libSystem symbols.
     #[test]
     fn io_flush_imports_nothing() {
-        let spec = crate::target::shared::runtime::spec_for_call("io.flush")
-            .expect("io.flush spec");
+        let spec =
+            crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
         assert!(Platform.runtime_imports(spec).is_empty());
     }
 }

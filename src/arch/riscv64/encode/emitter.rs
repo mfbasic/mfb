@@ -78,7 +78,14 @@ fn b_type(imm: i32, rs2: u32, rs1: u32, funct3: u32, opcode: u32) -> u32 {
     let b11 = (imm >> 11) & 0x1;
     let b10_5 = (imm >> 5) & 0x3f;
     let b4_1 = (imm >> 1) & 0xf;
-    (b12 << 31) | (b10_5 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (b4_1 << 8) | (b11 << 7) | opcode
+    (b12 << 31)
+        | (b10_5 << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (funct3 << 12)
+        | (b4_1 << 8)
+        | (b11 << 7)
+        | opcode
 }
 
 fn u_type(imm20: u32, rd: u32, opcode: u32) -> u32 {
@@ -330,8 +337,18 @@ impl Encoder {
         }
     }
 
-    fn emit_r(&mut self, opcode: u32, funct3: u32, funct7: u32, rd: u8, rs1: u8, rs2: u8) -> Result<(), String> {
-        self.emit_word(r_type(funct7, rs2 as u32, rs1 as u32, funct3, rd as u32, opcode))
+    fn emit_r(
+        &mut self,
+        opcode: u32,
+        funct3: u32,
+        funct7: u32,
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    ) -> Result<(), String> {
+        self.emit_word(r_type(
+            funct7, rs2 as u32, rs1 as u32, funct3, rd as u32, opcode,
+        ))
     }
 
     /// `slli`/`srli rd, rs, shift` (logical shift by a constant).
@@ -522,7 +539,13 @@ impl Encoder {
 
     fn emit_store(&mut self, funct3: u32, src: u8, base: u8, offset: u64) -> Result<(), String> {
         if offset <= 2047 {
-            return self.emit_word(s_type(offset as i32, src as u32, base as u32, funct3, STORE));
+            return self.emit_word(s_type(
+                offset as i32,
+                src as u32,
+                base as u32,
+                funct3,
+                STORE,
+            ));
         }
         self.emit_li(T0, offset)?;
         self.emit_r(OP, 0b000, 0, T0, base, T0)?;
@@ -531,7 +554,13 @@ impl Encoder {
 
     fn emit_load_fp(&mut self, funct3: u32, rd: u8, base: u8, offset: u64) -> Result<(), String> {
         if offset <= 2047 {
-            return self.emit_word(i_type(offset as i32, base as u32, funct3, rd as u32, LOAD_FP));
+            return self.emit_word(i_type(
+                offset as i32,
+                base as u32,
+                funct3,
+                rd as u32,
+                LOAD_FP,
+            ));
         }
         self.emit_li(T0, offset)?;
         self.emit_r(OP, 0b000, 0, T0, base, T0)?;
@@ -540,7 +569,13 @@ impl Encoder {
 
     fn emit_store_fp(&mut self, funct3: u32, src: u8, base: u8, offset: u64) -> Result<(), String> {
         if offset <= 2047 {
-            return self.emit_word(s_type(offset as i32, src as u32, base as u32, funct3, STORE_FP));
+            return self.emit_word(s_type(
+                offset as i32,
+                src as u32,
+                base as u32,
+                funct3,
+                STORE_FP,
+            ));
         }
         self.emit_li(T0, offset)?;
         self.emit_r(OP, 0b000, 0, T0, base, T0)?;
@@ -558,10 +593,10 @@ impl Encoder {
         // Inverted-condition funct3 (so the short branch skips the jal when the
         // real condition is false).
         let inv_funct3 = match cond.as_str() {
-            "eq" => 0b001, // bne
-            "ne" => 0b000, // beq
-            "lt" => 0b101, // bge
-            "ge" => 0b100, // blt
+            "eq" => 0b001,  // bne
+            "ne" => 0b000,  // beq
+            "lt" => 0b101,  // bge
+            "ge" => 0b100,  // blt
             "ltu" => 0b111, // bgeu
             "geu" => 0b110, // bltu
             other => return Err(format!("rv64 unknown branch condition '{other}'")),
@@ -606,7 +641,9 @@ impl Encoder {
                 library: Some(library.clone()),
             });
         } else {
-            return Err(format!("rv64 call target symbol '{target}' does not resolve"));
+            return Err(format!(
+                "rv64 call target symbol '{target}' does not resolve"
+            ));
         }
         Ok(())
     }
@@ -670,7 +707,10 @@ impl Encoder {
     pub(super) fn patch_labels(&mut self) -> Result<(), String> {
         for patch in &self.patches {
             let Some(&target) = self.labels.get(&patch.target) else {
-                return Err(format!("rv64 branch target label '{}' does not resolve", patch.target));
+                return Err(format!(
+                    "rv64 branch target label '{}' does not resolve",
+                    patch.target
+                ));
             };
             let delta = target as i64 - patch.offset as i64;
             if delta < -(1 << 20) || delta >= (1 << 20) {

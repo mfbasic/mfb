@@ -1474,7 +1474,10 @@ fn function_header_and_body_errors() {
 fn trap_header_errors() {
     // Bare TRAP (no `(ident)` binding) is a valid function-level trap: plan-37
     // makes the error binding optional. It parses at the AST level.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN 0\n  TRAP\n    RETURN 1\n  END TRAP\nEND FUNC\n").is_ok());
+    assert!(try_parse(
+        "FUNC f AS Integer\n  RETURN 0\n  TRAP\n    RETURN 1\n  END TRAP\nEND FUNC\n"
+    )
+    .is_ok());
     // TRAP with an empty binding `()` is still an error (an identifier is
     // required once the `(` is present).
     assert!(try_parse("FUNC f AS Integer\n  RETURN 0\n  TRAP()\n  END TRAP\nEND FUNC\n").is_err());
@@ -2546,14 +2549,17 @@ fn doc_example_dedent_handles_multibyte_whitespace() {
     // a one-byte space with a two-byte NBSP (U+00A0) put the minimum (1) inside
     // the NBSP line's first char and panicked "byte index 1 is not a char
     // boundary", aborting the whole compile. Indentation is now a CHAR prefix.
-    let src = "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n";
+    let src =
+        "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n";
     let json = project_json(src);
     // One char stripped from each line: " a" -> "a", "\u{a0}\u{a0}b" -> "\u{a0}b".
     assert!(json.contains("\"example\""), "doc block parsed: {json}");
     assert!(json.contains("a\\n\u{a0}b"), "dedent by one char: {json}");
 
     // All-ASCII indentation is unchanged (the overwhelmingly common case).
-    let ascii = project_json("DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n");
+    let ascii = project_json(
+        "DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n",
+    );
     assert!(ascii.contains("a\\n  b"), "ascii dedent: {ascii}");
 }
 
@@ -2611,10 +2617,7 @@ fn parse_testing_rejects_a_non_group_member() {
 #[test]
 fn parse_tgroup_rejects_a_non_case_member() {
     // A TGROUP may contain only TCASE cases and nested TGROUP groups.
-    assert!(try_parse(
-        "TESTING\n  TGROUP \"g\"\n    x = 1\n  END TGROUP\nEND TESTING\n"
-    )
-    .is_err());
+    assert!(try_parse("TESTING\n  TGROUP \"g\"\n    x = 1\n  END TGROUP\nEND TESTING\n").is_err());
 }
 
 #[test]

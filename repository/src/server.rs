@@ -615,7 +615,11 @@ const MAX_VERSIONS_PER_OWNER: i64 = 10_000;
 // unit test. The individual route handlers it wires up are tested directly by
 // constructing AppState and calling them, which is where the request/response
 // logic lives.
-pub async fn serve(store: Store, blob_store: BlobStore, listen: SocketAddr) -> Result<SocketAddr, String> {
+pub async fn serve(
+    store: Store,
+    blob_store: BlobStore,
+    listen: SocketAddr,
+) -> Result<SocketAddr, String> {
     let state = AppState {
         store,
         blob_store,
@@ -710,18 +714,27 @@ async fn register(
     if !state
         .rate_limiter
         .allow(&format!("register:{}", peer.ip()), REGISTER_PER_IP_MAX, 60)
-        || !state.rate_limiter.allow("register", AUTH_GLOBAL_CEILING, 60)
+        || !state
+            .rate_limiter
+            .allow("register", AUTH_GLOBAL_CEILING, 60)
     {
         return Err(too_many_requests());
     }
     let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
     let ident_key = crypto::decode_bytes(&request.ident_key, "identKey").map_err(bad_request)?;
-    let auth_proof = crypto::decode_bytes(&request.proofs.auth, "auth proof").map_err(bad_request)?;
+    let auth_proof =
+        crypto::decode_bytes(&request.proofs.auth, "auth proof").map_err(bad_request)?;
     let ident_proof =
         crypto::decode_bytes(&request.proofs.ident, "ident proof").map_err(bad_request)?;
     let (owner, auth, ident) = state
         .store
-        .register_owner(&request.owner, &auth_key, &auth_proof, &ident_key, &ident_proof)
+        .register_owner(
+            &request.owner,
+            &auth_key,
+            &auth_proof,
+            &ident_key,
+            &ident_proof,
+        )
         .map_err(conflict_or_bad_request)?;
     Ok(Json(RegisterResponse {
         owner: owner.owner_display,
@@ -734,7 +747,10 @@ async fn challenge(
     State(state): State<AppState>,
     Json(request): Json<ChallengeRequest>,
 ) -> Result<Json<ChallengeResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if !state.rate_limiter.allow(&format!("challenge:{}", request.owner), 20, 60) {
+    if !state
+        .rate_limiter
+        .allow(&format!("challenge:{}", request.owner), 20, 60)
+    {
         return Err(too_many_requests());
     }
     // Owner existence first, so a missing-key client probe (empty
@@ -790,7 +806,9 @@ async fn log_inclusion_proof(
     let leaves = state.store.log_leaf_hashes(query.size).map_err(internal)?;
     let size = leaves.len() as i64;
     if index < 0 || index >= size {
-        return Err(bad_request("log entry index is outside the tree".to_string()));
+        return Err(bad_request(
+            "log entry index is outside the tree".to_string(),
+        ));
     }
     let path = crate::log::inclusion_path(index as usize, &leaves)
         .into_iter()
@@ -817,7 +835,9 @@ async fn log_consistency_proof(
     let leaves = state.store.log_leaf_hashes(query.to).map_err(internal)?;
     let to = leaves.len() as i64;
     if query.from < 0 || query.from > to {
-        return Err(bad_request("consistency proof sizes are invalid".to_string()));
+        return Err(bad_request(
+            "consistency proof sizes are invalid".to_string(),
+        ));
     }
     let path = crate::log::consistency_path(query.from as usize, &leaves)
         .into_iter()
@@ -845,7 +865,9 @@ async fn log_publish_entry(
         .publish_log_entry(&query.ident, &query.version)
         .map_err(internal)?
     else {
-        return Err(bad_request("no publish log entry for that package".to_string()));
+        return Err(bad_request(
+            "no publish log entry for that package".to_string(),
+        ));
     };
     Ok(Json(LogEntry {
         index: entry.index,
@@ -873,7 +895,11 @@ async fn package_index(
         return Err(bad_request("unknown owner".to_string()));
     };
     let mut versions = Vec::new();
-    for row in state.store.list_package_versions(&ident).map_err(internal)? {
+    for row in state
+        .store
+        .list_package_versions(&ident)
+        .map_err(internal)?
+    {
         let log_entry = state
             .store
             .publish_log_entry(&ident, &row.version)
@@ -882,7 +908,8 @@ async fn package_index(
                 index: entry.index,
                 leaf_hash: hex::encode(entry.leaf_hash),
             });
-        let abi_index = serde_json::from_str(&row.abi_index).unwrap_or_else(|_| serde_json::json!({}));
+        let abi_index =
+            serde_json::from_str(&row.abi_index).unwrap_or_else(|_| serde_json::json!({}));
         versions.push(IndexVersion {
             version: row.version,
             hash: row.hash,
@@ -925,19 +952,26 @@ fn session_and_ident(
 ) -> Result<(crate::store::OwnerRecord, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
     let claims = verify_session_token(&state.store, session_token).map_err(bad_request)?;
     if claims.sub != owner {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     let Some((owner_record, _key)) = state
         .store
         .owner_auth_key_by_fingerprint(owner, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        return Err(bad_request("session key is not a current auth key".to_string()));
+        return Err(bad_request(
+            "session key is not a current auth key".to_string(),
+        ));
     };
     if owner_record.id != claims.owner_id {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
-    let Some((_owner, ident_key)) = state.store.owner_with_ident_key(owner).map_err(internal)? else {
+    let Some((_owner, ident_key)) = state.store.owner_with_ident_key(owner).map_err(internal)?
+    else {
         return Err(bad_request("owner has no current ident key".to_string()));
     };
     Ok((owner_record, ident_key.public_key))
@@ -1028,7 +1062,13 @@ async fn issue_token(
     }
     let (owner, key, expires_at) = state
         .store
-        .issue_publish_token(&request.owner, &token_public, &proof, &request.scope, request.ttl_seconds)
+        .issue_publish_token(
+            &request.owner,
+            &token_public,
+            &proof,
+            &request.scope,
+            request.ttl_seconds,
+        )
         .map_err(bad_request)?;
     Ok(Json(TokenIssueResponse {
         owner: owner.owner_display,
@@ -1058,7 +1098,9 @@ async fn revoke_token(
         .revoke_publish_token(&request.owner, &request.token_fingerprint)
         .map_err(bad_request)?;
     if !revoked {
-        return Err(bad_request("no active token with that fingerprint".to_string()));
+        return Err(bad_request(
+            "no active token with that fingerprint".to_string(),
+        ));
     }
     Ok(Json(TokenRevokeResponse {
         owner: request.owner,
@@ -1073,7 +1115,8 @@ async fn transfer_offer(
     State(state): State<AppState>,
     Json(request): Json<TransferOfferRequest>,
 ) -> Result<Json<TransferResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (_owner, ident_public) = session_and_ident(&state, &request.from_owner, &request.session_token)?;
+    let (_owner, ident_public) =
+        session_and_ident(&state, &request.from_owner, &request.session_token)?;
     let signature =
         crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
     crypto::verify(
@@ -1099,7 +1142,8 @@ async fn transfer_accept(
     State(state): State<AppState>,
     Json(request): Json<TransferAcceptRequest>,
 ) -> Result<Json<TransferResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (_owner, ident_public) = session_and_ident(&state, &request.to_owner, &request.session_token)?;
+    let (_owner, ident_public) =
+        session_and_ident(&state, &request.to_owner, &request.session_token)?;
     let signature =
         crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
     crypto::verify(
@@ -1244,20 +1288,29 @@ async fn release_state(
 ) -> Result<Json<ReleaseStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
     if claims.sub != request.owner {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     let Some((owner, _key)) = state
         .store
         .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        return Err(bad_request("session key is not a current auth key".to_string()));
+        return Err(bad_request(
+            "session key is not a current auth key".to_string(),
+        ));
     };
     if owner.id != claims.owner_id {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     // Maintainer states only — blocked/legal-tombstoned are operator states.
-    if !matches!(request.state.as_str(), "available" | "deprecated" | "yanked") {
+    if !matches!(
+        request.state.as_str(),
+        "available" | "deprecated" | "yanked"
+    ) {
         return Err(bad_request(
             "state must be one of available, deprecated, or yanked".to_string(),
         ));
@@ -1269,7 +1322,9 @@ async fn release_state(
         || crate::validation::fold_owner(ident_owner)
             != crate::validation::fold_owner(&request.owner)
     {
-        return Err(bad_request("ident owner does not match session owner".to_string()));
+        return Err(bad_request(
+            "ident owner does not match session owner".to_string(),
+        ));
     }
     // Authority is the ident key: verify its signature over the exact change.
     let Some((_owner, ident_key)) = state
@@ -1318,7 +1373,9 @@ async fn package_blob(
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
     {
-        return Err(bad_request("blob hash must be 64 lowercase hex characters".to_string()));
+        return Err(bad_request(
+            "blob hash must be 64 lowercase hex characters".to_string(),
+        ));
     }
     let fetch = match state.blob_store.get(&hash).await.map_err(internal)? {
         Some(fetch) => fetch,
@@ -1341,7 +1398,10 @@ async fn package_blob(
             axum::response::Response::builder()
                 .status(StatusCode::OK)
                 .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
-                .header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+                .header(
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=31536000, immutable",
+                )
                 .body(axum::body::Body::from(bytes))
                 .map_err(|err| internal(format!("failed to build blob response: {err}")))
         }
@@ -1360,17 +1420,23 @@ async fn rotate_ident(
 ) -> Result<Json<RotateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
     if claims.sub != request.owner {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     let Some((owner, _key)) = state
         .store
         .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        return Err(bad_request("session key is not a current auth key".to_string()));
+        return Err(bad_request(
+            "session key is not a current auth key".to_string(),
+        ));
     };
     if owner.id != claims.owner_id {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     let new_public =
         crypto::decode_bytes(&request.new_ident_key, "newIdentKey").map_err(bad_request)?;
@@ -1380,7 +1446,12 @@ async fn rotate_ident(
         crypto::decode_bytes(&request.possession_proof, "possessionProof").map_err(bad_request)?;
     let (owner, new_key) = state
         .store
-        .rotate_ident(&request.owner, &new_public, &chain_signature, &possession_proof)
+        .rotate_ident(
+            &request.owner,
+            &new_public,
+            &chain_signature,
+            &possession_proof,
+        )
         .map_err(conflict_or_bad_request)?;
     Ok(Json(RotateResponse {
         owner: owner.owner_display,
@@ -1392,10 +1463,8 @@ async fn ident_chain(
     State(state): State<AppState>,
     axum::extract::Path(owner): axum::extract::Path<String>,
 ) -> Result<Json<IdentChainResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let Some((owner_record, ident_key)) = state
-        .store
-        .owner_with_ident_key(&owner)
-        .map_err(internal)?
+    let Some((owner_record, ident_key)) =
+        state.store.owner_with_ident_key(&owner).map_err(internal)?
     else {
         return Err(bad_request("unknown owner".to_string()));
     };
@@ -1428,17 +1497,23 @@ async fn link_start(
 ) -> Result<Json<LinkStartResponse>, (StatusCode, Json<ErrorResponse>)> {
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
     if claims.sub != request.owner {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     let Some((owner, _key)) = state
         .store
         .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        return Err(bad_request("session key is not a current auth key".to_string()));
+        return Err(bad_request(
+            "session key is not a current auth key".to_string(),
+        ));
     };
     if owner.id != claims.owner_id {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     if request.lookup.len() != 64
         || !request
@@ -1481,11 +1556,8 @@ async fn link_fetch(
     else {
         return Err(bad_request("unknown owner".to_string()));
     };
-    let message = crypto::registration_message(
-        crypto::ROLE_AUTH,
-        &owner_record.owner_display,
-        &auth_key,
-    );
+    let message =
+        crypto::registration_message(crypto::ROLE_AUTH, &owner_record.owner_display, &auth_key);
     crypto::verify(&auth_key, &message, &proof)
         .map_err(|_| bad_request("invalid auth proof-of-possession signature".to_string()))?;
     let Some((blob, salt)) = state
@@ -1535,11 +1607,7 @@ async fn revoke_machine(
         crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
     let (owner, _ident_key) = state
         .store
-        .complete_revocation_challenge(
-            &request.challenge_id,
-            &signature,
-            &request.auth_fingerprint,
-        )
+        .complete_revocation_challenge(&request.challenge_id, &signature, &request.auth_fingerprint)
         .map_err(conflict_or_bad_request)?;
     let revoked = state
         .store
@@ -1644,12 +1712,17 @@ async fn signing(
     State(state): State<AppState>,
     Json(request): Json<SigningRequest>,
 ) -> Result<Json<SigningResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if !state.rate_limiter.allow(&format!("signing:{}", request.owner), 60, 60) {
+    if !state
+        .rate_limiter
+        .allow(&format!("signing:{}", request.owner), 60, 60)
+    {
         return Err(too_many_requests());
     }
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
     if claims.sub != request.owner {
-        return Err(bad_request("session owner does not match requested owner".to_string()));
+        return Err(bad_request(
+            "session owner does not match requested owner".to_string(),
+        ));
     }
     let Some((owner, key)) = state
         .store
@@ -1667,8 +1740,10 @@ async fn signing(
     }
     // If the session's auth key is a scoped publish token (plan-10-D1), it may
     // only attest packages within its scope, and only until it expires.
-    if let Some((scope, expires_at, revoked_at)) =
-        state.store.publish_token_for_key(key.id).map_err(internal)?
+    if let Some((scope, expires_at, revoked_at)) = state
+        .store
+        .publish_token_for_key(key.id)
+        .map_err(internal)?
     {
         if revoked_at.is_some() {
             return Err(bad_request("publish token is revoked".to_string()));
@@ -1688,9 +1763,10 @@ async fn signing(
     let Some((ident_owner, package_part)) = request.ident.split_once('#') else {
         return Err(bad_request("ident must use <owner>#<package>".to_string()));
     };
-    if crate::validation::fold_owner(ident_owner) != crate::validation::fold_owner(&request.owner)
-    {
-        return Err(bad_request("ident owner does not match session owner".to_string()));
+    if crate::validation::fold_owner(ident_owner) != crate::validation::fold_owner(&request.owner) {
+        return Err(bad_request(
+            "ident owner does not match session owner".to_string(),
+        ));
     }
     if package_part.is_empty() || request.ident.len() > 255 {
         return Err(bad_request("malformed ident".to_string()));
@@ -1791,9 +1867,7 @@ async fn publish_package(
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
             Json(ErrorResponse {
-                error: format!(
-                    "per-owner version quota of {MAX_VERSIONS_PER_OWNER} reached"
-                ),
+                error: format!("per-owner version quota of {MAX_VERSIONS_PER_OWNER} reached"),
             }),
         ));
     }
@@ -1852,7 +1926,10 @@ async fn publish_package(
         .unwrap_or_default()
         .into_iter()
         .map(|existing| {
-            format!("published `{}` is one edit away from existing `{existing}`", published.ident)
+            format!(
+                "published `{}` is one edit away from existing `{existing}`",
+                published.ident
+            )
         })
         .collect();
     Ok(Json(PublishPackageResponse {
@@ -1965,7 +2042,11 @@ async fn validate_package_request(
 
     // §3.4 step 5 — the attestation must match the server's CURRENT
     // name↔ident binding; a stale attestation (pre-rotation) is refused.
-    match state.store.owner_with_ident_key(owner_part).map_err(internal)? {
+    match state
+        .store
+        .owner_with_ident_key(owner_part)
+        .map_err(internal)?
+    {
         Some((_ident_owner, ident_key)) => {
             if header_ident_fingerprint != ident_key.fingerprint {
                 diagnostics.push(
@@ -2033,12 +2114,8 @@ pub fn verify_session_token(store: &Store, token: &str) -> Result<SessionClaims,
     let secret = store.server_secret()?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
-    let decoded = decode::<SessionClaims>(
-        token,
-        &DecodingKey::from_secret(&secret),
-        &validation,
-    )
-    .map_err(|_| "expired or malformed session token".to_string())?;
+    let decoded = decode::<SessionClaims>(token, &DecodingKey::from_secret(&secret), &validation)
+        .map_err(|_| "expired or malformed session token".to_string())?;
     if !store.session_exists(&decoded.claims.jti)? {
         return Err("unknown session token".to_string());
     }
@@ -2046,7 +2123,10 @@ pub fn verify_session_token(store: &Store, token: &str) -> Result<SessionClaims,
 }
 
 fn bad_request(message: String) -> (StatusCode, Json<ErrorResponse>) {
-    (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: message }))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse { error: message }),
+    )
 }
 
 fn conflict_or_bad_request(message: String) -> (StatusCode, Json<ErrorResponse>) {
@@ -2091,7 +2171,13 @@ mod tests {
         )
         .unwrap();
         store
-            .register_owner(owner, &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .register_owner(
+                owner,
+                &auth_public,
+                &auth_proof,
+                &ident_public,
+                &ident_proof,
+            )
             .unwrap();
         TestOwnerKeys {
             auth_private,
@@ -2232,7 +2318,11 @@ mod tests {
         )
         .await;
         let (_status, body) = refused.err().expect("mismatched ident owner refused");
-        assert!(body.error.contains("ident owner does not match"), "{}", body.error);
+        assert!(
+            body.error.contains("ident owner does not match"),
+            "{}",
+            body.error
+        );
 
         // A session for alice cannot pose as bob either.
         let refused = signing(
@@ -2247,7 +2337,11 @@ mod tests {
         )
         .await;
         let (_status, body) = refused.err().expect("mismatched session owner refused");
-        assert!(body.error.contains("session owner does not match"), "{}", body.error);
+        assert!(
+            body.error.contains("session owner does not match"),
+            "{}",
+            body.error
+        );
 
         // The happy path issues an attestation that verifies under the
         // server key and pins the exact package, version, and keys.
@@ -2276,13 +2370,19 @@ mod tests {
         assert_eq!(attestation["owner"], "alice");
         assert_eq!(attestation["ident"], "alice#toolbox");
         assert_eq!(attestation["version"], "1.2.3");
-        assert_eq!(attestation["signingFingerprint"], signing_fingerprint.as_str());
+        assert_eq!(
+            attestation["signingFingerprint"],
+            signing_fingerprint.as_str()
+        );
         assert_eq!(
             attestation["repoFingerprint"],
             crypto::fingerprint(&server_public).as_str()
         );
         let (_owner, ident_key) = store.owner_with_ident_key("alice").unwrap().unwrap();
-        assert_eq!(attestation["identFingerprint"], ident_key.fingerprint.as_str());
+        assert_eq!(
+            attestation["identFingerprint"],
+            ident_key.fingerprint.as_str()
+        );
         assert!(attestation["issued"].is_i64());
     }
 
@@ -2361,8 +2461,7 @@ mod tests {
         .await
         .expect("attestation issued")
         .0;
-        let signature =
-            crypto::decode_bytes(&response.attestation_signature, "signature").unwrap();
+        let signature = crypto::decode_bytes(&response.attestation_signature, "signature").unwrap();
         (response.attestation, signature)
     }
 
@@ -2429,7 +2528,10 @@ mod tests {
             signing_fingerprint: parsed.signing_fingerprint().unwrap(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &valid_request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report =
+            validate_package_request(&state, &valid_request, "validate", VALIDATE_PER_OWNER_MAX)
+                .await
+                .unwrap();
         assert!(
             report.valid,
             "fully chained package must validate: {:?}",
@@ -2465,7 +2567,9 @@ mod tests {
             },
             &token,
         );
-        let report = validate_package_request(&state, &forged, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &forged, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2498,7 +2602,9 @@ mod tests {
             },
             &token,
         );
-        let report = validate_package_request(&state, &forged, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &forged, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2523,7 +2629,9 @@ mod tests {
             },
             &token,
         );
-        let report = validate_package_request(&state, &reused, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &reused, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2546,7 +2654,9 @@ mod tests {
             signing_fingerprint: valid_request.signing_fingerprint.clone(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(!report.valid);
         assert!(
             report
@@ -2574,9 +2684,11 @@ mod tests {
         let proof = format!(
             "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
         );
-        let proof_sig =
-            crypto::sign(&keys.ident_private, &crypto::proof_signing_input(proof.as_bytes()))
-                .unwrap();
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
         let artifact = package::test_support::serialize(
             &package::test_support::TestPackage {
                 name: "toolbox".to_string(),
@@ -2637,20 +2749,18 @@ mod tests {
         assert_eq!(body.as_ref(), artifact.as_slice());
 
         // An unknown hash is a 404; a malformed hash is a 400.
-        let missing = package_blob(
+        let missing = package_blob(State(state.clone()), axum::extract::Path("0".repeat(64))).await;
+        assert_eq!(missing.err().unwrap().0, StatusCode::NOT_FOUND);
+        let malformed = package_blob(
             State(state.clone()),
-            axum::extract::Path("0".repeat(64)),
+            axum::extract::Path("nothex".to_string()),
         )
         .await;
-        assert_eq!(missing.err().unwrap().0, StatusCode::NOT_FOUND);
-        let malformed =
-            package_blob(State(state.clone()), axum::extract::Path("nothex".to_string())).await;
         assert_eq!(malformed.err().unwrap().0, StatusCode::BAD_REQUEST);
 
         // A corrupted stored blob is refused (blob-store corruption defense).
         std::fs::write(opened.packages_dir.join(format!("{hash}.mfp")), b"corrupt").unwrap();
-        let corrupted =
-            package_blob(State(state.clone()), axum::extract::Path(hash.clone())).await;
+        let corrupted = package_blob(State(state.clone()), axum::extract::Path(hash.clone())).await;
         assert_eq!(
             corrupted.err().unwrap().0,
             StatusCode::INTERNAL_SERVER_ERROR
@@ -2696,7 +2806,12 @@ mod tests {
 
     /// Open a session bound to a specific auth key (by fingerprint), so a
     /// publish-token session can be exercised.
-    fn open_session_for_key(store: &Store, owner: &str, private: &[u8], fingerprint: &str) -> String {
+    fn open_session_for_key(
+        store: &Store,
+        owner: &str,
+        private: &[u8],
+        fingerprint: &str,
+    ) -> String {
         let challenge = store.create_auth_challenge(owner, fingerprint).unwrap();
         let message = crypto::challenge_message(&challenge.id, &challenge.nonce);
         let signature = crypto::sign(private, &message).unwrap();
@@ -2852,9 +2967,18 @@ mod tests {
         };
 
         // The org bootstraps its first member.
-        org_members(State(state.clone()), Json(grant("acme", &org.ident_private, &org_token, "alice", "admin")))
-            .await
-            .expect("org grants first member");
+        org_members(
+            State(state.clone()),
+            Json(grant(
+                "acme",
+                &org.ident_private,
+                &org_token,
+                "alice",
+                "admin",
+            )),
+        )
+        .await
+        .expect("org grants first member");
         assert_eq!(
             store.org_member_role("acme", "alice").unwrap().as_deref(),
             Some("admin")
@@ -2863,7 +2987,13 @@ mod tests {
         // A non-member cannot grant roles even with a valid ident signature.
         let refused = org_members(
             State(state.clone()),
-            Json(grant("mallory", &mallory.ident_private, &mallory_token, "mallory", "owner")),
+            Json(grant(
+                "mallory",
+                &mallory.ident_private,
+                &mallory_token,
+                "mallory",
+                "owner",
+            )),
         )
         .await;
         assert!(refused.is_err());
@@ -2877,10 +3007,16 @@ mod tests {
             action: "remove".to_string(),
             session_token: org_token.clone(),
             ident_signature: crypto::encode_bytes(
-                &crypto::sign(&org.ident_private, &crypto::org_role_message("acme", "alice", "removed")).unwrap(),
+                &crypto::sign(
+                    &org.ident_private,
+                    &crypto::org_role_message("acme", "alice", "removed"),
+                )
+                .unwrap(),
             ),
         };
-        org_members(State(state.clone()), Json(remove)).await.expect("removal");
+        org_members(State(state.clone()), Json(remove))
+            .await
+            .expect("removal");
         assert!(store.org_member_role("acme", "alice").unwrap().is_none());
     }
 
@@ -2922,10 +3058,13 @@ mod tests {
                 .unwrap(),
             ),
         };
-        issue_token(State(state.clone()), Json(issue)).await.expect("token issued");
+        issue_token(State(state.clone()), Json(issue))
+            .await
+            .expect("token issued");
 
         // The token opens its own session and can attest within scope...
-        let token_session = open_session_for_key(&store, "alice", &token_private, &token_fingerprint);
+        let token_session =
+            open_session_for_key(&store, "alice", &token_private, &token_fingerprint);
         let (in_scope_public, _) = crypto::generate_keypair();
         signing(
             State(state.clone()),
@@ -3012,10 +3151,16 @@ mod tests {
             to_owner: "bob".to_string(),
             session_token: alice_token.clone(),
             ident_signature: crypto::encode_bytes(
-                &crypto::sign(&bob.ident_private, &crypto::transfer_offer_message("alice#toolbox", "alice", "bob")).unwrap(),
+                &crypto::sign(
+                    &bob.ident_private,
+                    &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
+                )
+                .unwrap(),
             ),
         };
-        assert!(transfer_offer(State(state.clone()), Json(bad_offer)).await.is_err());
+        assert!(transfer_offer(State(state.clone()), Json(bad_offer))
+            .await
+            .is_err());
 
         // A correctly signed offer, then a bob-signed acceptance, re-binds it.
         let offer = TransferOfferRequest {
@@ -3024,26 +3169,45 @@ mod tests {
             to_owner: "bob".to_string(),
             session_token: alice_token.clone(),
             ident_signature: crypto::encode_bytes(
-                &crypto::sign(&alice.ident_private, &crypto::transfer_offer_message("alice#toolbox", "alice", "bob")).unwrap(),
+                &crypto::sign(
+                    &alice.ident_private,
+                    &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
+                )
+                .unwrap(),
             ),
         };
-        transfer_offer(State(state.clone()), Json(offer)).await.expect("offer");
+        transfer_offer(State(state.clone()), Json(offer))
+            .await
+            .expect("offer");
         let accept = TransferAcceptRequest {
             ident: "alice#toolbox".to_string(),
             to_owner: "bob".to_string(),
             session_token: bob_token.clone(),
             ident_signature: crypto::encode_bytes(
-                &crypto::sign(&bob.ident_private, &crypto::transfer_accept_message("alice#toolbox", "bob")).unwrap(),
+                &crypto::sign(
+                    &bob.ident_private,
+                    &crypto::transfer_accept_message("alice#toolbox", "bob"),
+                )
+                .unwrap(),
             ),
         };
-        transfer_accept(State(state.clone()), Json(accept)).await.expect("accept");
+        transfer_accept(State(state.clone()), Json(accept))
+            .await
+            .expect("accept");
 
         // The package is re-bound to bob; the already-published version persists.
         assert_eq!(
-            store.package_owner("alice#toolbox").unwrap().unwrap().owner_display,
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
             "bob"
         );
-        assert_eq!(store.list_package_versions("alice#toolbox").unwrap().len(), 1);
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -3197,7 +3361,9 @@ mod tests {
             signing_fingerprint: parsed.signing_fingerprint().unwrap(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(report.valid, "{:?}", report.diagnostics);
 
         // Rotate the ident through the handler.
@@ -3229,11 +3395,16 @@ mod tests {
 
         // §3.4 step 5 is now reachable: the same pre-rotation package (its
         // attestation names the PAST ident) is refused as stale.
-        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(!report.valid);
         assert!(
-            report.diagnostics.iter().any(|diagnostic| diagnostic
-                .contains("does not match the owner's current ident key")),
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .contains("does not match the owner's current ident key")),
             "{:?}",
             report.diagnostics
         );
@@ -3279,21 +3450,25 @@ mod tests {
             signing_fingerprint: reparsed.signing_fingerprint().unwrap(),
             session_token: token.clone(),
         };
-        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX).await.unwrap();
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
         assert!(report.valid, "{:?}", report.diagnostics);
 
         // The chain endpoint serves the verifiable link, and a client can
         // follow it from the old pin to the new key.
-        let chain = ident_chain(State(state.clone()), axum::extract::Path("alice".to_string()))
-            .await
-            .expect("chain served")
-            .0;
+        let chain = ident_chain(
+            State(state.clone()),
+            axum::extract::Path("alice".to_string()),
+        )
+        .await
+        .expect("chain served")
+        .0;
         assert_eq!(chain.ident_fingerprint, crypto::fingerprint(&new_public));
         assert_eq!(chain.chain.len(), 1);
-        let followed =
-            crate::client::follow_ident_chain("alice", &keys.ident_public, &chain.chain)
-                .unwrap()
-                .expect("chain reaches a successor");
+        let followed = crate::client::follow_ident_chain("alice", &keys.ident_public, &chain.chain)
+            .unwrap()
+            .expect("chain reaches a successor");
         assert_eq!(followed, new_public);
 
         // A re-anchor records NO chain link: following from the (rotated)
@@ -3330,8 +3505,13 @@ mod tests {
         // Grow the log: register (1) + three attestations (4 total).
         for version in ["1.0.0", "1.1.0", "1.2.0"] {
             let (signing_public, _signing_private) = crypto::generate_keypair();
-            real_attestation(&state, &token, version, &crypto::fingerprint(&signing_public))
-                .await;
+            real_attestation(
+                &state,
+                &token,
+                version,
+                &crypto::fingerprint(&signing_public),
+            )
+            .await;
         }
         let checkpoint_small = log_checkpoint(State(state.clone())).await.unwrap().0;
         assert_eq!(checkpoint_small.size, 4);
@@ -3386,7 +3566,13 @@ mod tests {
 
         // Append more entries; the consistency proof ties old head to new.
         let (signing_public, _signing_private) = crypto::generate_keypair();
-        real_attestation(&state, &token, "2.0.0", &crypto::fingerprint(&signing_public)).await;
+        real_attestation(
+            &state,
+            &token,
+            "2.0.0",
+            &crypto::fingerprint(&signing_public),
+        )
+        .await;
         let checkpoint_big = log_checkpoint(State(state.clone())).await.unwrap().0;
         assert_eq!(checkpoint_big.size, 5);
         let proof = log_consistency_proof(
