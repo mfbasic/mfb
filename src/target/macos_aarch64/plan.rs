@@ -571,7 +571,8 @@ impl plan::NativePlanPlatform for Platform {
             }
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-            | "thread.emit" | "thread.isCancelled" => [
+            | "thread.emit" | "thread.isCancelled" | "thread.transferResource"
+            | "thread.acceptResource" => [
                 "_pthread_create",
                 "_pthread_attr_init",
                 "_pthread_attr_setstacksize",

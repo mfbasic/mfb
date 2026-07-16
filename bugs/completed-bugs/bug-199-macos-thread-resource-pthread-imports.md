@@ -5,8 +5,12 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: correctness (platform: macos-aarch64)
 
-Status: Open
-Regression Test: tests/ (macOS program using thread resource transfer without thread.start links)
+Status: Fixed (2026-07-15) — the macOS `runtime_imports` thread arm now includes
+`thread.transferResource`/`thread.acceptResource`, so those resource-plane helpers
+declare the same `_pthread_*` imports as `thread.start`, mirroring the Linux plans.
+Regression Test: verified on macOS host — `func_thread_transfer_valid` builds,
+links, and runs (`20`); the pthread imports are now declared for the
+resource-transfer helpers even when `thread.start` is not co-emitted.
 
 The macOS `runtime_imports` thread match arm omits
 `thread.transferResource`/`thread.acceptResource`, so those helpers declare no
