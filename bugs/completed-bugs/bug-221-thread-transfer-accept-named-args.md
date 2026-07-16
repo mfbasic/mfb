@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun
 
-Status: Open
+Status: Fixed (2026-07-15) — added TRANSFER, ACCEPT, and OPEN_STD_IN/CLOSE_STD_IN rows to thread::call_param_names (t/thread, res/resource, timeoutMs), so named arguments bind for these calls exactly as they do for the structurally identical send/receive. Build verified.
 
 `thread::transfer`/`thread::accept` expose no parameter-name table, so named
 arguments silently fail to bind even though their mirror calls `send`/`receive`

@@ -84,6 +84,12 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         SEND => Some(&[&["t", "thread"], &["data", "value"], &["timeoutMs"]]),
         POLL => Some(&[&["t", "thread"], &["ms"]]),
         RECEIVE => Some(&[&["t", "thread"], &["timeoutMs"]]),
+        // The resource-plane mirrors of send/receive and the stdin wrappers expose
+        // no parameter names, so named arguments silently failed to bind even
+        // though the man pages document them (bug-221).
+        TRANSFER => Some(&[&["t", "thread"], &["res", "resource"], &["timeoutMs"]]),
+        ACCEPT => Some(&[&["t", "thread"], &["timeoutMs"]]),
+        OPEN_STD_IN | CLOSE_STD_IN => Some(&[&["t", "thread"]]),
         _ => None,
     }
 }
