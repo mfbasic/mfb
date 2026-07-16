@@ -536,7 +536,13 @@ mod tests {
         assert_eq!(call_param_names(SEND).unwrap().len(), 3);
         assert_eq!(call_param_names(POLL).unwrap().len(), 2);
         assert_eq!(call_param_names(RECEIVE).unwrap().len(), 2);
-        assert!(call_param_names(TRANSFER).is_none());
+        // bug-221 gave the resource-plane mirrors and the stdin wrappers their
+        // parameter names; before that, named arguments silently failed to bind
+        // even though the man pages documented them.
+        assert_eq!(call_param_names(TRANSFER).unwrap().len(), 3);
+        assert_eq!(call_param_names(ACCEPT).unwrap().len(), 2);
+        assert_eq!(call_param_names(OPEN_STD_IN).unwrap().len(), 1);
+        assert_eq!(call_param_names(CLOSE_STD_IN).unwrap().len(), 1);
         assert!(call_param_names("thread.nope").is_none());
     }
 

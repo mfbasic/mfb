@@ -995,14 +995,19 @@ mod tests {
         assert_eq!(map_fp_register(7), "fa7");
         assert_eq!(map_fp_register(8), "fs0");
         assert_eq!(map_fp_register(15), "fs7");
-        assert_eq!(map_fp_register(16), "ft2"); // skips reserved ft0/ft1
-        assert_eq!(map_fp_register(25), "ft11");
+        // bug-218 narrowed this to d16..d24 → ft3..ft11 so d16 stops aliasing
+        // ft2, which the regmodel reserves alongside ft0/ft1.
+        assert_eq!(map_fp_register(16), "ft3"); // skips reserved ft0/ft1/ft2
+        assert_eq!(map_fp_register(24), "ft11");
     }
 
     #[test]
     #[should_panic(expected = "unexpected physical FP register")]
     fn fp_register_out_of_range_panics() {
-        map_fp_register(26);
+        // d24 is the last mapped register since bug-218, so d25 is the first
+        // out-of-range one — testing the boundary itself, rather than a number
+        // safely past it, is what catches the range widening back over ft2.
+        map_fp_register(25);
     }
 
     #[test]
@@ -1019,7 +1024,7 @@ mod tests {
         // n >= 30: a stray physical is mapped to an invalid `aN` the encoder rejects.
         assert_eq!(remap_register("x30").as_deref(), Some("a30"));
         assert_eq!(remap_register("d0").as_deref(), Some("fa0"));
-        assert_eq!(remap_register("d16").as_deref(), Some("ft2"));
+        assert_eq!(remap_register("d16").as_deref(), Some("ft3")); // bug-218
         // Non-physical operands pass through unchanged.
         assert_eq!(remap_register("a0"), None);
         assert_eq!(remap_register("%f3"), None);
