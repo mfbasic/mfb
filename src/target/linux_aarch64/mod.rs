@@ -199,10 +199,13 @@ impl NativeBackend for Backend {
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
+        app_version: Option<&str>,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
         // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
         let _ = app_icon;
+        // Bundle version keys are macOS-only (bug-248); Linux has no bundle.
+        let _ = app_version;
         write_executable(
             project_dir,
             ir,

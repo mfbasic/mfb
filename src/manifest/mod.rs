@@ -402,6 +402,17 @@ pub(crate) fn icon_path(manifest: &HashMap<String, JsonValue>) -> Option<&str> {
         .map(String::as_str)
 }
 
+/// The `version` string, which the macOS app-mode bundle publishes as
+/// `CFBundleShortVersionString`/`CFBundleVersion` (bug-248). Always present for a
+/// manifest that passed `validate_project_manifest` — `version` is required and
+/// validated non-empty there.
+pub(crate) fn project_version(manifest: &HashMap<String, JsonValue>) -> Option<&str> {
+    manifest
+        .get("version")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+}
+
 /// The stdin broadcast-log backpressure cap in bytes from the `project.json`
 /// `"config"` section's `stdinLogCap` (plan-15 D3), baked into the executable.
 /// Returns `None` (the runtime bakes `STDIN_LOG_CAP_DEFAULT` = 4 MiB) when the

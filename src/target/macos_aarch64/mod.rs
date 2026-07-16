@@ -199,6 +199,7 @@ impl NativeBackend for Backend {
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
+        app_version: Option<&str>,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
@@ -209,6 +210,7 @@ impl NativeBackend for Backend {
             signing_metadata,
             build_mode,
             app_icon,
+            app_version,
             stdin_log_cap,
         )
     }
@@ -273,6 +275,7 @@ fn write_executable(
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
+    app_version: Option<&str>,
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
@@ -291,13 +294,16 @@ fn write_executable(
         // App mode (plan-04-macos-app.md §5.2) emits a `.app` bundle whose AppKit
         // `_main` bootstrap targets a window; console mode emits a plain `.out`.
         // The optional `app_icon` (plan-22-A/B) renders into `AppIcon.icns`.
-        NativeBuildMode::MacApp => os::macos::write_linked_app_bundle(
-            project_dir,
-            &ir.name,
-            &image,
-            app_icon,
-        )
-        .map(|path| vec![path]),
+        // `app_version` fills the bundle's mandatory version keys (bug-248); the
+        // manifest requires a non-empty `version`, so `None` is a caller bug
+        // rather than a bundle we may silently version for the user.
+        NativeBuildMode::MacApp => {
+            let app_version = app_version.ok_or_else(|| {
+                "internal error: app mode requires the project version".to_string()
+            })?;
+            os::macos::write_linked_app_bundle(project_dir, &ir.name, &image, app_icon, app_version)
+                .map(|path| vec![path])
+        }
         NativeBuildMode::Console => {
             os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
         }

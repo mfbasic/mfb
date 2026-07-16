@@ -108,6 +108,10 @@ pub(crate) trait NativeBackend: Sync {
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
+        // bug-248: the manifest `version`, published as the macOS app bundle's
+        // `CFBundleShortVersionString`/`CFBundleVersion`. Required in app mode;
+        // ignored by console builds and by backends without a bundle format.
+        app_version: Option<&str>,
         // plan-15 D3: stdin broadcast-log backpressure cap from the manifest
         // `"config"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
         stdin_log_cap: Option<u64>,
@@ -190,6 +194,7 @@ pub fn write_executable(
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
+    app_version: Option<&str>,
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
@@ -207,6 +212,7 @@ pub fn write_executable(
         signing_metadata,
         build_mode,
         app_icon,
+        app_version,
         stdin_log_cap,
     )
 }

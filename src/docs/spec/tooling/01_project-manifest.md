@@ -27,7 +27,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | field | type | required | meaning |
 | --- | --- | --- | --- |
 | `name` | string | yes | project name; non-empty after trim |
-| `version` | string | yes | project version; non-empty after trim |
+| `version` | string | yes | project version; non-empty after trim. A macOS app build publishes it as the bundle's `CFBundleShortVersionString`/`CFBundleVersion` (./mfb spec linker macos-aarch64) |
 | `mfb` | string | yes | toolchain/manifest schema version (`"1.0"`); non-empty after trim |
 | `sources` | array of objects | yes | source roots (see *Source Entries*); non-empty |
 | `kind` | string | yes¹ | `"executable"` or `"package"` |

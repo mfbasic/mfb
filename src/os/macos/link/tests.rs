@@ -727,7 +727,7 @@ fn dylib_path_resolves_app_mode_frameworks() {
 
 #[test]
 fn app_info_plist_has_required_bundle_keys() {
-    let plist = app_info_plist("hello");
+    let plist = app_info_plist("hello", "0.1.0");
     assert!(plist.contains("<key>CFBundleExecutable</key>\n  <string>hello</string>"));
     assert!(plist.contains("<key>CFBundleName</key>\n  <string>hello</string>"));
     assert!(plist.contains("<string>dev.mfbasic.hello</string>"));
@@ -735,11 +735,28 @@ fn app_info_plist_has_required_bundle_keys() {
     assert!(plist.contains("<key>NSPrincipalClass</key>\n  <string>NSApplication</string>"));
 }
 
+// bug-248: App Store upload validation (`altool`) rejects a bundle whose
+// Info.plist omits CFBundleVersion or CFBundleShortVersionString. Both carry the
+// manifest `version`.
+#[test]
+fn app_info_plist_publishes_manifest_version() {
+    let plist = app_info_plist("hello", "0.1.0");
+    assert!(plist.contains("<key>CFBundleShortVersionString</key>\n  <string>0.1.0</string>"));
+    assert!(plist.contains("<key>CFBundleVersion</key>\n  <string>0.1.0</string>"));
+}
+
 #[test]
 fn app_info_plist_escapes_xml_metacharacters() {
-    let plist = app_info_plist("a<b&c");
+    let plist = app_info_plist("a<b&c", "1.0");
     assert!(plist.contains("<string>a&lt;b&amp;c</string>"));
     assert!(!plist.contains("a<b&c"));
+}
+
+#[test]
+fn app_info_plist_escapes_xml_metacharacters_in_version() {
+    let plist = app_info_plist("hello", "1.0<beta&2");
+    assert!(plist.contains("<key>CFBundleVersion</key>\n  <string>1.0&lt;beta&amp;2</string>"));
+    assert!(!plist.contains("1.0<beta&2"));
 }
 
 // End-to-end Phase 2 (plan-04-macos-app.md §5.2): a hand-built program that
@@ -776,7 +793,8 @@ fn writes_and_launches_app_bundle() {
     let dir = std::env::temp_dir().join(format!("mfb_appbundle_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
 
-    let bundle = write_app_bundle(&dir, "windowed", &image, None).expect("write app bundle");
+    let bundle =
+        write_app_bundle(&dir, "windowed", &image, None, "0.1.0").expect("write app bundle");
     assert_eq!(bundle, dir.join("windowed.app"));
     let exe = bundle.join("Contents/MacOS/windowed");
     let plist = bundle.join("Contents/Info.plist");
@@ -883,7 +901,8 @@ fn links_and_launches_app_bundle_importing_libobjc() {
     };
     let dir = std::env::temp_dir().join(format!("mfb_objclink_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let bundle = write_app_bundle(&dir, "objcapp", &image, None).expect("write libobjc app bundle");
+    let bundle = write_app_bundle(&dir, "objcapp", &image, None, "0.1.0")
+        .expect("write libobjc app bundle");
     let exe = bundle.join("Contents/MacOS/objcapp");
     let status = std::process::Command::new(&exe)
         .status()
@@ -1012,7 +1031,8 @@ fn write_app_bundle_creates_layout_and_plist_host_neutral() {
         signing_metadata: None,
     };
     let dir = tempfile::tempdir().unwrap();
-    let bundle = write_app_bundle(dir.path(), "demo", &image, None).expect("write app bundle");
+    let bundle =
+        write_app_bundle(dir.path(), "demo", &image, None, "2.3.4").expect("write app bundle");
     assert_eq!(bundle, dir.path().join("demo.app"));
 
     let exe = bundle.join("Contents/MacOS/demo");

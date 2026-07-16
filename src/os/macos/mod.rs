@@ -37,13 +37,16 @@ pub(crate) fn write_linked_executable(
 /// `Contents/MacOS/<name>` + `Contents/Resources/AppIcon.icns`), returning the
 /// path to the `.app` directory. `app_icon` is the resolved project `icon` source
 /// (plan-22-A); `None` uses the compiler's embedded default icon (plan-22-B).
+/// `app_version` is the manifest `version`, published as the bundle's
+/// `CFBundleShortVersionString`/`CFBundleVersion` (bug-248).
 pub(crate) fn write_linked_app_bundle(
     project_dir: &Path,
     project_name: &str,
     image: &EncodedImage,
     app_icon: Option<&Path>,
+    app_version: &str,
 ) -> Result<PathBuf, String> {
-    link::write_app_bundle(project_dir, project_name, image, app_icon)
+    link::write_app_bundle(project_dir, project_name, image, app_icon, app_version)
 }
 
 #[cfg(test)]
@@ -138,8 +141,8 @@ mod tests {
     #[test]
     fn writes_linked_app_bundle_layout() {
         let dir = tempfile::tempdir().unwrap();
-        let bundle =
-            write_linked_app_bundle(dir.path(), "windowed", &image(), None).expect("bundle");
+        let bundle = write_linked_app_bundle(dir.path(), "windowed", &image(), None, "0.1.0")
+            .expect("bundle");
         assert_eq!(bundle, dir.path().join("windowed.app"));
         assert!(bundle.join("Contents/MacOS/windowed").is_file());
         assert!(bundle.join("Contents/Info.plist").is_file());

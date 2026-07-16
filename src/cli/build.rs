@@ -469,6 +469,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     .map(|signing| signing.executable_metadata.as_slice()),
                 build_mode,
                 app_icon.as_deref(),
+                // bug-248: the macOS `.app` bundle publishes the manifest `version`
+                // as CFBundleShortVersionString/CFBundleVersion; App Store upload
+                // validation rejects a bundle missing either key.
+                crate::manifest::project_version(&manifest),
                 // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
                 crate::manifest::stdin_log_cap(&manifest),
             )

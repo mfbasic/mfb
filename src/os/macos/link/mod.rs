@@ -46,6 +46,7 @@ pub(crate) fn write_app_bundle(
     project_name: &str,
     image: &EncodedImage,
     app_icon: Option<&Path>,
+    app_version: &str,
 ) -> Result<PathBuf, String> {
     let bytes = encode_executable_bytes(project_name, image)?;
     let bundle_path = project_dir.join(format!("{project_name}.app"));
@@ -68,7 +69,7 @@ pub(crate) fn write_app_bundle(
         .map_err(|err| format!("failed to write '{}': {err}", icns_path.display()))?;
 
     let plist_path = contents_dir.join("Info.plist");
-    fs::write(&plist_path, app_info_plist(project_name))
+    fs::write(&plist_path, app_info_plist(project_name, app_version))
         .map_err(|err| format!("failed to write '{}': {err}", plist_path.display()))?;
 
     Ok(bundle_path)
@@ -173,7 +174,12 @@ fn write_executable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// `CFBundleExecutable`/`CFBundleName` use the project name; the bundle id is
 /// namespaced under `dev.mfbasic.<name>`. The principal class is `NSApplication`
 /// so Launch Services treats the bundle as a regular AppKit application.
-fn app_info_plist(project_name: &str) -> String {
+///
+/// `app_version` is the manifest `version` and publishes as both
+/// `CFBundleShortVersionString` (marketing version) and `CFBundleVersion` (build
+/// version). Both keys are mandatory for App Store submission: `altool` rejects a
+/// bundle missing either one (bug-248).
+fn app_info_plist(project_name: &str, app_version: &str) -> String {
     format!(
         concat!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
@@ -189,6 +195,10 @@ fn app_info_plist(project_name: &str) -> String {
             "  <string>dev.mfbasic.{name}</string>\n",
             "  <key>CFBundlePackageType</key>\n",
             "  <string>APPL</string>\n",
+            "  <key>CFBundleShortVersionString</key>\n",
+            "  <string>{version}</string>\n",
+            "  <key>CFBundleVersion</key>\n",
+            "  <string>{version}</string>\n",
             "  <key>CFBundleIconFile</key>\n",
             "  <string>AppIcon</string>\n",
             "  <key>NSPrincipalClass</key>\n",
@@ -196,7 +206,8 @@ fn app_info_plist(project_name: &str) -> String {
             "</dict>\n",
             "</plist>\n"
         ),
-        name = plist_escape(project_name)
+        name = plist_escape(project_name),
+        version = plist_escape(app_version)
     )
 }
 

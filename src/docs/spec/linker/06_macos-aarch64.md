@@ -111,12 +111,24 @@ carries MFBASIC's own executable signing metadata when the build supplies it.
 ```
 
 `Info.plist` sets `CFBundleName`, `CFBundleExecutable`, `CFBundleIdentifier`
-(`dev.mfbasic.<project>`), `CFBundlePackageType` `APPL`, `CFBundleIconFile`
-(`AppIcon`), and `NSPrincipalClass` `NSApplication`. In app mode `_main` is an
-AppKit bootstrap that creates the window and spawns a worker thread running the
-language entry; console mode uses `_main` as the ordinary program entry. The
-worker bootstrap's runtime mechanics are owned by ./mfb spec threading
-os-integration.
+(`dev.mfbasic.<project>`), `CFBundlePackageType` `APPL`,
+`CFBundleShortVersionString` and `CFBundleVersion` (both the manifest `version`),
+`CFBundleIconFile` (`AppIcon`), and `NSPrincipalClass` `NSApplication`. In app
+mode `_main` is an AppKit bootstrap that creates the window and spawns a worker
+thread running the language entry; console mode uses `_main` as the ordinary
+program entry. The worker bootstrap's runtime mechanics are owned by ./mfb spec
+threading os-integration.
+
+### Bundle version
+
+`CFBundleShortVersionString` (the release version users see) and `CFBundleVersion`
+(the build version) both carry the manifest's required `version` field verbatim.
+Both keys are mandatory: App Store upload validation (`altool`) rejects a bundle
+missing either one, and Launch Services reports an unversioned app. The manifest
+validates `version` as a required non-empty string
+(`./mfb spec tooling project-manifest`), so app mode always has one to publish;
+the backend rejects an app build with no version rather than inventing a default.
+A version carrying XML metacharacters is escaped like the project name.
 
 ### App icon
 
@@ -145,9 +157,10 @@ permissions, not marked executable).
 
 The project name is substituted into every `Info.plist` string field
 (`CFBundleName`, `CFBundleExecutable`, and the `dev.mfbasic.<project>`
-identifier) after XML-escaping. The escaper replaces the five XML predefined
-entities — `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&apos;` — so a
-project name containing metacharacters produces a well-formed plist.
+identifier) after XML-escaping, as is the version (`CFBundleShortVersionString`,
+`CFBundleVersion`). The escaper replaces the five XML predefined entities —
+`&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&apos;` — so a project
+name or version containing metacharacters produces a well-formed plist.
 [[src/os/macos/link/mod.rs:plist_escape]]
 
 ## See Also
