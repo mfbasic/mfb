@@ -5,8 +5,15 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: memory-safety
 
-Status: Open
-Regression Test: tests/rt-behavior/ (buffered stdout, partial write then error, then another print)
+Status: Fixed (2026-07-15) — `lower_stdout_drain` captures the buffer base in a
+dedicated vreg and, on the partial-write error path, slides the unflushed tail
+back down to the base (keeping `OUT_PTR` = base) instead of advancing `OUT_PTR`
+into the middle of the buffer. The append path's "`OUT_PTR` is the fixed 4 KiB
+base" invariant now holds, so a subsequent buffered write can no longer copy past
+the buffer end. A retried flush still resumes correctly (bug-97 preserved).
+Regression Test: normal buffered stdout verified at runtime (5000-byte output
+crossing the 4 KiB buffer is emitted correctly). The partial-write-then-error
+path is not directly runtime-triggerable (needs a stalled/ENOSPC fd mid-drain).
 
 After a partial-write-then-error drain, `lower_stdout_drain` advances
 `ARENA_OUT_PTR` to a resume cursor, but `emit_append_to_stdout_buffer` treats

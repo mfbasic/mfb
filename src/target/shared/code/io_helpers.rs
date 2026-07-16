@@ -19,6 +19,8 @@ pub(super) fn lower_stdout_drain(
     let drain_loop = format!("{symbol}_loop");
     let advance = format!("{symbol}_advance");
     let err = format!("{symbol}_err");
+    let slide_loop = format!("{symbol}_slide_loop");
+    let slide_done = format!("{symbol}_slide_done");
     let mut instructions = vec![
         abi::label("entry"),
         abi::load_u64("%v0", ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
@@ -28,6 +30,10 @@ pub(super) fn lower_stdout_drain(
         abi::compare_immediate("%v1", "0"),
         abi::branch_eq(&ok),
         abi::load_u64("%v2", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
+        // Keep the buffer base in %v4 (never advanced) so a partial-write error can
+        // slide the unflushed tail back to the base (bug-208). The platform emit_*
+        // helpers operate on physical arg/return registers, so %v4 survives them.
+        abi::move_register("%v4", "%v2"),
         abi::label(&drain_loop),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::move_register(abi::string_data_register(), "%v2"),
@@ -78,13 +84,28 @@ pub(super) fn lower_stdout_drain(
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::return_(),
         abi::label(&err),
-        // bug-97: persist the advanced window before erroring out. Partial
-        // writes advance the cursor (`%v2`) and remaining count (`%v1`); if we
-        // returned without writing them back, a retried flush would re-read the
-        // original OUT_PTR/OUT_FILLED and re-send the already-written prefix.
-        // The drain reads these two fields as its live window, so a retry
-        // correctly resumes from here.
-        abi::store_u64("%v2", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
+        // bug-97: persist the unflushed window before erroring out so a retried
+        // flush resumes from here instead of re-sending the already-written prefix.
+        // A partial write left `%v1` bytes at cursor `%v2` (= base + k). bug-208:
+        // rather than advancing OUT_PTR into the middle of the buffer — which the
+        // append path (which treats OUT_PTR as the fixed 4 KiB base) would then
+        // overrun — slide the `%v1` unflushed bytes from `%v2` back down to the
+        // base (`%v4`) and keep OUT_PTR = base. dst (base) < src (cursor), so a
+        // forward byte copy is overlap-safe.
+        abi::move_register("%v5", "%v4"), // dst = base
+        abi::move_register("%v6", "%v2"), // src = base + k
+        abi::move_register("%v7", "%v1"), // count = remaining
+        abi::label(&slide_loop),
+        abi::compare_immediate("%v7", "0"),
+        abi::branch_eq(&slide_done),
+        abi::load_u8("%v8", "%v6", 0),
+        abi::store_u8("%v8", "%v5", 0),
+        abi::add_immediate("%v5", "%v5", 1),
+        abi::add_immediate("%v6", "%v6", 1),
+        abi::subtract_immediate("%v7", "%v7", 1),
+        abi::branch(&slide_loop),
+        abi::label(&slide_done),
+        abi::store_u64("%v4", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
         abi::store_u64("%v1", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::return_(),
