@@ -189,8 +189,10 @@ pub(crate) fn is_markdown_page(page: &str) -> bool {
         .is_some_and(|line| line.starts_with('#'))
 }
 
-/// The first non-blank, non-heading line of a Markdown overview, used as its
-/// one-line summary in the `mfb man` index — mirroring `mfb spec`.
+/// The first non-blank, non-heading line of a Markdown overview, returned as raw
+/// Markdown. The `mfb man` display sites run it through `render::plain` to strip
+/// inline markup (backticks/bold/citations) before printing, matching `mfb spec`
+/// (bug-214). This returns the raw slice so it can stay `&'static str`.
 fn markdown_summary(page: &'static str) -> &'static str {
     page.lines()
         .map(str::trim)

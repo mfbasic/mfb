@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — the `mfb man` package/constant/function one-line summary print sites now run the summary through render::plain (stripping backticks/bold/citations), matching the `mfb spec` path; markdown_summary's doc comment corrected to say it returns raw Markdown that the display sites strip. Verified: `mfb man datetime between` prints "The signed Duration span between two instants." without literal backticks.
 
 Man-page one-line summaries are extracted as raw Markdown and never stripped of
 inline markup, so backticks/bold/citations leak verbatim into `mfb man` listings

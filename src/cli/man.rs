@@ -134,7 +134,7 @@ fn print_package_man(package: &man::PackageDoc) {
 
     println!("Package: {}", package.name);
     println!();
-    println!("{}", package.summary);
+    println!("{}", render::plain(package.summary));
     println!();
     println!("Usage:");
     println!("  {}", package.usage);
@@ -158,7 +158,7 @@ fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
     if !constants.is_empty() {
         println!("CONSTANTS{colon}");
         for constant in &constants {
-            println!("  {:<18} {}", constant.name, constant.summary);
+            println!("  {:<18} {}", constant.name, render::plain(constant.summary));
         }
         printed = true;
     }
@@ -168,7 +168,7 @@ fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
         }
         println!("{}{colon}", man_entry_heading(package));
         for function in &functions {
-            println!("  {:<18} {}", function.name, function.summary);
+            println!("  {:<18} {}", function.name, render::plain(function.summary));
         }
     }
 
@@ -223,7 +223,7 @@ fn print_man_page(page: &str) {
 fn print_function_man(package: &man::PackageDoc, function: &man::FunctionDoc) {
     println!("{} {}", package.name, function.name);
     println!();
-    println!("{}", function.summary);
+    println!("{}", render::plain(function.summary));
     println!();
     println!("Signature:");
     println!("  {}", function.signature);
