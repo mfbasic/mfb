@@ -196,14 +196,21 @@ fn encode_static_elf_x86_emits_two_pt_load_segments() {
         u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
         IMAGE_BASE + TEXT_FILE_OFFSET as u64
     );
-    // e_phnum = 2 (text + data).
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 2);
+    // e_phnum = 3 (text + data + GNU_STACK, bug-224).
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 3);
     // First program header at offset 64: PT_LOAD (1), R+X (5).
     assert_eq!(u32::from_le_bytes(bytes[64..68].try_into().unwrap()), 1);
     assert_eq!(u32::from_le_bytes(bytes[68..72].try_into().unwrap()), 5);
     // Second program header at offset 64+56=120: PT_LOAD (1), R+W (6).
     assert_eq!(u32::from_le_bytes(bytes[120..124].try_into().unwrap()), 1);
     assert_eq!(u32::from_le_bytes(bytes[124..128].try_into().unwrap()), 6);
+    // Third program header at 64+2*56=176: PT_GNU_STACK (0x6474e551), R+W (6),
+    // marking the stack non-executable (bug-224).
+    assert_eq!(
+        u32::from_le_bytes(bytes[176..180].try_into().unwrap()),
+        0x6474_e551
+    );
+    assert_eq!(u32::from_le_bytes(bytes[180..184].try_into().unwrap()), 6);
     // The data segment's p_filesz (header 2 base 120 + 32) equals data length.
     assert_eq!(
         u64::from_le_bytes(bytes[152..160].try_into().unwrap()),
@@ -229,10 +236,16 @@ fn encode_static_elf_places_data_where_relocations_expect_it() {
         assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
         // e_machine follows the target ISA (this path serves both).
         assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), machine);
-        // e_phnum = 2: text R+X, and a data segment the entry can write.
-        assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 2);
+        // e_phnum = 3: text R+X, a writable data segment, and GNU_STACK (bug-224).
+        assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 3);
         assert_eq!(u32::from_le_bytes(bytes[120..124].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(bytes[124..128].try_into().unwrap()), 6);
+        // PT_GNU_STACK (0x6474e551), R+W (6) — non-executable stack.
+        assert_eq!(
+            u32::from_le_bytes(bytes[176..180].try_into().unwrap()),
+            0x6474_e551
+        );
+        assert_eq!(u32::from_le_bytes(bytes[180..184].try_into().unwrap()), 6);
 
         // The address `write_executable` patches a data relocation to.
         let data_offset = align(TEXT_FILE_OFFSET + image.text.len(), PAGE_SIZE);

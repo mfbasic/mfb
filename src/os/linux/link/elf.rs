@@ -36,7 +36,7 @@ pub(super) fn encode_static_elf(
     put_u32(&mut bytes, 0); // e_flags
     put_u16(&mut bytes, 64); // e_ehsize
     put_u16(&mut bytes, 56); // e_phentsize
-    put_u16(&mut bytes, 2); // e_phnum (text + data)
+    put_u16(&mut bytes, 3); // e_phnum (text + data + GNU_STACK)
     put_u16(&mut bytes, 0); // e_shentsize
     put_u16(&mut bytes, 0); // e_shnum
     put_u16(&mut bytes, 0); // e_shstrndx
@@ -60,6 +60,11 @@ pub(super) fn encode_static_elf(
     put_u64(&mut bytes, data.len() as u64); // p_filesz
     put_u64(&mut bytes, data.len() as u64); // p_memsz
     put_u64(&mut bytes, 0x1000); // p_align
+
+    // PT_GNU_STACK: mark the stack non-executable (R+W, no X) so the loader does
+    // not fall back to an executable (RWX) stack for this static executable
+    // (bug-224). All sizes 0 — it is a marker, not a loaded segment.
+    program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
 
     bytes.resize(text_offset, 0);
     bytes.extend_from_slice(text);
@@ -104,7 +109,7 @@ pub(super) fn encode_static_elf_x86(
     put_u32(&mut bytes, 0); // e_flags
     put_u16(&mut bytes, 64); // e_ehsize
     put_u16(&mut bytes, 56); // e_phentsize
-    put_u16(&mut bytes, 2); // e_phnum (text + data)
+    put_u16(&mut bytes, 3); // e_phnum (text + data + GNU_STACK)
     put_u16(&mut bytes, 0); // e_shentsize
     put_u16(&mut bytes, 0); // e_shnum
     put_u16(&mut bytes, 0); // e_shstrndx
@@ -128,6 +133,11 @@ pub(super) fn encode_static_elf_x86(
     put_u64(&mut bytes, data.len() as u64); // p_filesz
     put_u64(&mut bytes, data.len() as u64); // p_memsz
     put_u64(&mut bytes, 0x1000); // p_align
+
+    // PT_GNU_STACK: mark the stack non-executable (R+W, no X) so the loader does
+    // not fall back to an executable (RWX) stack for this static executable
+    // (bug-224). All sizes 0 — it is a marker, not a loaded segment.
+    program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
 
     bytes.resize(text_offset, 0);
     bytes.extend_from_slice(text);

@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: security (defense-in-depth)
 
-Status: Open
+Status: Fixed (2026-07-15) — both static Linux ELF encoders (encode_static_elf for aarch64/riscv64 and encode_static_elf_x86) now emit a PT_GNU_STACK program header (type 0x6474e551, flags R|W=6, all sizes 0) and bump e_phnum 2->3, so the loader no longer falls back to an executable (RWX) stack. The dynamic encoder already emitted it (bug-186/LNK-02). Regression Test: the encode_static_elf_x86 and encode_static_elf unit tests now assert the PT_GNU_STACK phdr; all 29 linux link tests pass.
 
 The ELF encoder emits no `PT_GNU_STACK` program header, so the loader falls back
 to an executable stack (RWX) for every `mfb build` Linux binary.
