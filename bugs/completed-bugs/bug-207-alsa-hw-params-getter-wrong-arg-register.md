@@ -5,7 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: correctness (platform: linux ALSA, runtime-gated)
 
-Status: Open
+Status: Fixed (2026-07-15) — the snd_pcm_hw_params_get_rate / get_channels getters now load `params` into ARG[0] directly (mirroring hw_params_free) instead of calling the ARG[1]-targeting `params` closure and then clobbering ARG[1], so `params` reaches the getter's first argument and the readback rate/channels are correct.
+Regression Test: verified on HW — `audio::openOutput(44100, 2, 1024)` opens successfully on Ubuntu x86_64 (VM 2228); previously the getter read a garbage rate (leftover dlsym fn-ptr in ARG[0]) and the rate==requested verification failed with ErrAudioDevice.
 Regression Test: tests/rt-behavior/ (linux audio.openOutput succeeds)
 
 In `emit_configure_hw_params`, the `snd_pcm_hw_params_get_rate` /

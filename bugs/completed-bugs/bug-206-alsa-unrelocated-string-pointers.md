@@ -5,7 +5,8 @@ Effort: medium (2h–4h)
 Severity: HIGH
 Class: memory-safety (platform: linux ALSA, runtime-gated)
 
-Status: Open
+Status: Fixed (2026-07-15) — the emit_alsa_call `stage` closure now also receives the function's real `relocations` vec, so `lower_devices`'s `emit_data_address` for the "pcm"/"NAME"/"DESC" C-strings records its adrp/add (data_pc32 on x86) relocation instead of dropping it into a throwaway `&mut Vec::new()`. HW verification also surfaced and fixed a second devices-path crash: `emit_call_fnptr` unconditionally sign-extended every libasound return to 32 bits, truncating the `char*` returned by `snd_device_name_get_hint` (SIGSEGV on x86-64 where the image base is > 4 GiB) — a `returns_pointer` flag now skips the sign-extension for that call.
+Regression Test: verified on HW — `audio::devices()` returns "15 devices" on Ubuntu x86_64 (libasound present, VM 2228) without crashing, and degrades cleanly to ErrAudioDevice on Alpine (no libasound, VM 2227).
 Regression Test: tests/rt-behavior/ (linux audio.devices returns without crashing)
 
 In `lower_devices`, `emit_data_address` for the `"pcm"`, `"NAME"`, and `"DESC"`

@@ -263,13 +263,23 @@ pub(super) fn lower_audio_alsa(
 }
 
 /// Call the fn-ptr currently in `FNPTR_OFF` (args already staged), leaving its
-/// return in the return register (sign-extended to 64 bits).
-fn emit_call_fnptr(instructions: &mut Vec<CodeInstruction>) {
+/// return in the return register. An `int`-returning libasound call is
+/// sign-extended to 64 bits (for the signed error-code comparisons); a
+/// pointer-returning call (`snd_device_name_get_hint` → `char*`) must NOT be
+/// sign-extended, or its 64-bit pointer is truncated to its low 32 bits and the
+/// subsequent cstr copy dereferences garbage (SIGSEGV on x86-64, where the image
+/// base is above 4 GiB).
+fn emit_call_fnptr(instructions: &mut Vec<CodeInstruction>, returns_pointer: bool) {
     instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), FNPTR_OFF),
         abi::branch_link_register("%v8"),
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
     ]);
+    if !returns_pointer {
+        instructions.push(abi::sign_extend_word(
+            abi::return_register(),
+            abi::return_register(),
+        ));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -299,11 +309,17 @@ fn emit_alsa_call(
     platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-    stage: impl Fn(&mut Vec<CodeInstruction>),
+    // `returns_pointer` is true for a libasound call whose result is a `char*`
+    // (only `snd_device_name_get_hint`): its return must not be sign-extended.
+    returns_pointer: bool,
+    // The stage closure also receives the function's real `relocations` vec so a
+    // staged `emit_data_address` (a string-pointer load) records its adrp/add
+    // relocation instead of dropping it into a throwaway Vec (bug-206).
+    stage: impl Fn(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>),
 ) -> Result<(), String> {
     emit_dlsym(symbol, name, unavailable, platform, platform_imports, instructions, relocations)?;
-    stage(instructions);
-    emit_call_fnptr(instructions);
+    stage(instructions, relocations);
+    emit_call_fnptr(instructions, returns_pointer);
     Ok(())
 }
 
@@ -470,7 +486,7 @@ fn lower_open(
         instructions.push(abi::store_u64("%v9", abi::stack_pointer(), NAME_OFF));
     }
     // snd_pcm_open(&state->osobject, name, stream, 0)
-    emit_alsa_call(symbol, "snd_pcm_open", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_open", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
             abi::add_immediate(abi::return_register(), "%v9", S_OSOBJECT),
@@ -485,7 +501,7 @@ fn lower_open(
     ]);
     emit_configure_hw_params(symbol, &unavailable, &dev_fail, input, platform, platform_imports, &mut instructions, &mut relocations)?;
     // snd_pcm_prepare(pcm)
-    emit_alsa_call(symbol, "snd_pcm_prepare", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_prepare", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
             abi::load_u64(abi::return_register(), "%v9", S_OSOBJECT),
@@ -520,7 +536,7 @@ fn lower_open(
             abi::compare_immediate("%v9", "0"),
             abi::branch_eq(&cleanup_munmap),
         ]);
-        emit_alsa_call(symbol, "snd_pcm_close", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+        emit_alsa_call(symbol, "snd_pcm_close", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
             ins.extend([
                 abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
                 abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
@@ -573,32 +589,32 @@ fn emit_configure_hw_params(
         ]);
     };
     // snd_pcm_hw_params_malloc(&params)
-    emit_alsa_call(symbol, "snd_pcm_hw_params_malloc", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_malloc", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         ins.push(abi::add_immediate(abi::return_register(), abi::stack_pointer(), PARAMS_OFF));
     })?;
     check(instructions, dev_fail);
     // any
-    emit_alsa_call(symbol, "snd_pcm_hw_params_any", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_any", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
     })?;
     check(instructions, dev_fail);
     // set_access(INTERLEAVED)
-    emit_alsa_call(symbol, "snd_pcm_hw_params_set_access", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_set_access", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
         ins.push(abi::move_immediate(abi::ARG[2], "Integer", ACCESS_RW_INTERLEAVED));
     })?;
     check(instructions, dev_fail);
     // set_format(S16_LE)
-    emit_alsa_call(symbol, "snd_pcm_hw_params_set_format", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_set_format", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
         ins.push(abi::move_immediate(abi::ARG[2], "Integer", FORMAT_S16_LE));
     })?;
     check(instructions, dev_fail);
     // set_channels(channels)
-    emit_alsa_call(symbol, "snd_pcm_hw_params_set_channels", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_set_channels", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
         ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), CH_OFF));
@@ -610,7 +626,7 @@ fn emit_configure_hw_params(
         abi::store_u32("%v9", abi::stack_pointer(), RATE_OFF),
         abi::store_u32(abi::ZERO, abi::stack_pointer(), DIR_OFF),
     ]);
-    emit_alsa_call(symbol, "snd_pcm_hw_params_set_rate_near", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_set_rate_near", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
         ins.push(abi::add_immediate(abi::ARG[2], abi::stack_pointer(), RATE_OFF));
@@ -623,7 +639,7 @@ fn emit_configure_hw_params(
         abi::store_u64("%v9", abi::stack_pointer(), PERIOD_OFF),
         abi::store_u32(abi::ZERO, abi::stack_pointer(), DIR_OFF),
     ]);
-    emit_alsa_call(symbol, "snd_pcm_hw_params_set_period_size_near", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_set_period_size_near", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
         ins.push(abi::add_immediate(abi::ARG[2], abi::stack_pointer(), PERIOD_OFF));
@@ -637,26 +653,31 @@ fn emit_configure_hw_params(
         abi::multiply_registers("%v9", "%v9", "%v10"),
         abi::store_u64("%v9", abi::stack_pointer(), BUFSZ_OFF),
     ]);
-    emit_alsa_call(symbol, "snd_pcm_hw_params_set_buffer_size_near", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_set_buffer_size_near", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
         ins.push(abi::add_immediate(abi::ARG[2], abi::stack_pointer(), BUFSZ_OFF));
     })?;
     check(instructions, dev_fail);
     // commit
-    emit_alsa_call(symbol, "snd_pcm_hw_params", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         pcm(ins);
         params(ins);
     })?;
     check(instructions, dev_fail);
     // get_rate(&rate) and get_channels(&chans); verify == request (§3.3).
-    emit_alsa_call(symbol, "snd_pcm_hw_params_get_rate", unavailable, platform, platform_imports, instructions, relocations, |ins| {
-        params(ins);
+    // The getters take `params` as their FIRST argument (unlike the setters, which
+    // take `pcm` in ARG[0] and `params` in ARG[1]). Load `params` into ARG[0]
+    // directly — calling the ARG[1]-targeting `params` closure and then overwriting
+    // ARG[1] with `&rate`/`&chans` left ARG[0] holding the leftover dlsym fn-ptr, so
+    // the getter read garbage and open failed the rate/channel verification (bug-207).
+    emit_alsa_call(symbol, "snd_pcm_hw_params_get_rate", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
+        ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS_OFF));
         ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), RATE_OFF));
         ins.push(abi::add_immediate(abi::ARG[2], abi::stack_pointer(), DIR_OFF));
     })?;
-    emit_alsa_call(symbol, "snd_pcm_hw_params_get_channels", unavailable, platform, platform_imports, instructions, relocations, |ins| {
-        params(ins);
+    emit_alsa_call(symbol, "snd_pcm_hw_params_get_channels", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
+        ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS_OFF));
         ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CHANS_OFF));
     })?;
     instructions.extend([
@@ -670,7 +691,7 @@ fn emit_configure_hw_params(
         abi::branch_ne(dev_fail),
     ]);
     // free the hw_params object.
-    emit_alsa_call(symbol, "snd_pcm_hw_params_free", unavailable, platform, platform_imports, instructions, relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_hw_params_free", unavailable, platform, platform_imports, instructions, relocations, false, |ins, _relocs| {
         ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS_OFF));
     })?;
     Ok(())
@@ -1180,7 +1201,7 @@ fn lower_query(
         }
         Query::Available | Query::Poll => {
             emit_dlopen(symbol, &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
-            emit_alsa_call(symbol, "snd_pcm_avail_update", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+            emit_alsa_call(symbol, "snd_pcm_avail_update", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
                 ins.extend([
                     abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
                     abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
@@ -1209,7 +1230,7 @@ fn lower_query(
         }
         Query::PollTimeout => {
             emit_dlopen(symbol, &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
-            emit_alsa_call(symbol, "snd_pcm_wait", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+            emit_alsa_call(symbol, "snd_pcm_wait", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
                 ins.extend([
                     abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
                     abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
@@ -1267,13 +1288,13 @@ fn lower_close(
     emit_dlopen(symbol, &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
     // snd_pcm_drain (playback) / snd_pcm_drop (capture); failure is reported but
     // must not skip close.
-    emit_alsa_call(symbol, if input { "snd_pcm_drop" } else { "snd_pcm_drain" }, &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, if input { "snd_pcm_drop" } else { "snd_pcm_drain" }, &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
         ins.extend([
             abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
             abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         ]);
     })?;
-    emit_alsa_call(symbol, "snd_pcm_close", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_pcm_close", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
         ins.extend([
             abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
             abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
@@ -1376,9 +1397,9 @@ fn lower_devices(
     let mut relocations = Vec::new();
     emit_dlopen(symbol, &unavailable, platform, platform_imports, &mut instructions, &mut relocations)?;
     // snd_device_name_hint(-1, "pcm", &hints)
-    emit_alsa_call(symbol, "snd_device_name_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_device_name_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
         ins.push(abi::bitwise_not(abi::return_register(), abi::ZERO)); // -1
-        emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_pcm", ins, &mut Vec::new());
+        emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_pcm", ins, _relocs);
         ins.push(abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFF));
     })?;
     instructions.extend([
@@ -1446,9 +1467,9 @@ fn lower_devices(
         abi::store_u64("%v10", abi::stack_pointer(), N_OFF), // current hint
     ]);
     // id = get_hint(hint, "NAME")
-    emit_alsa_call(symbol, "snd_device_name_get_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_device_name_get_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, true, |ins, _relocs| {
         ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), N_OFF));
-        emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_hint_name", ins, &mut Vec::new());
+        emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_hint_name", ins, _relocs);
     })?;
     instructions.push(abi::move_register("%v9", abi::return_register()));
     emit_string_from_cstr(symbol, "id", DEVID_OFF, &alloc_fail, &mut instructions, &mut relocations);
@@ -1456,7 +1477,7 @@ fn lower_devices(
     instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RC_OFF));
     platform.emit_libc_call("free", symbol, platform_imports, &mut instructions, &mut relocations)?;
     // name = get_hint(hint, "DESC")
-    emit_alsa_call(symbol, "snd_device_name_get_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_device_name_get_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, true, |ins, _relocs| {
         // Reload the hint by dereferencing HINT_PTR_OFF rather than reading N_OFF:
         // `emit_string_from_cstr` reused N_OFF as strlen scratch while building the
         // id String, so N_OFF now holds the id length, not the hint pointer. Using
@@ -1464,7 +1485,7 @@ fn lower_devices(
         // finding B: SIGSEGV / empty device name).
         ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), HINT_PTR_OFF));
         ins.push(abi::load_u64(abi::return_register(), abi::return_register(), 0));
-        emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_hint_desc", ins, &mut Vec::new());
+        emit_data_address(symbol, abi::ARG[1], "_mfb_audio_alsa_hint_desc", ins, _relocs);
     })?;
     instructions.push(abi::move_register("%v9", abi::return_register()));
     emit_string_from_cstr(symbol, "name", NAME_OFF, &alloc_fail, &mut instructions, &mut relocations);
@@ -1512,7 +1533,7 @@ fn lower_devices(
         abi::label(&fill_done),
     ]);
     // snd_device_name_free_hint(hints)
-    emit_alsa_call(symbol, "snd_device_name_free_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, |ins| {
+    emit_alsa_call(symbol, "snd_device_name_free_hint", &unavailable, platform, platform_imports, &mut instructions, &mut relocations, false, |ins, _relocs| {
         ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), HINTS_OFF));
     })?;
     instructions.extend([
