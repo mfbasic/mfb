@@ -250,7 +250,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         WRITE_BYTES | WRITE_BYTES_ATOMIC | APPEND_BYTES => Some("String, List OF Byte"),
         WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT => Some("String, String"),
         OPEN => Some("String, String"),
-        OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some("String, String"),
+        // `mode` is optional (arity 1..=2), so spell it as such rather than
+        // advertising only the maximal form (bug-213).
+        OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some("String[, String]"),
         CREATE_TEMP_FILE => Some("String"),
         READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => {
             Some(FILE_TYPE)
@@ -493,10 +495,11 @@ mod tests {
         );
         assert_eq!(expected_arguments(WRITE_TEXT), Some("String, String"));
         assert_eq!(expected_arguments(OPEN), Some("String, String"));
-        assert_eq!(expected_arguments(OPEN_FILE), Some("String, String"));
+        // bug-213: `mode` is optional (arity 1..=2), so it is spelled as optional.
+        assert_eq!(expected_arguments(OPEN_FILE), Some("String[, String]"));
         assert_eq!(
             expected_arguments(OPEN_FILE_NO_FOLLOW),
-            Some("String, String")
+            Some("String[, String]")
         );
         assert_eq!(expected_arguments(CREATE_TEMP_FILE), Some("String"));
         assert_eq!(expected_arguments(READ_LINE), Some(FILE_TYPE));

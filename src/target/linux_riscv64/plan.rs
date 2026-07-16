@@ -284,7 +284,7 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: spec.symbol.to_string(),
             })
             .collect(),
-            call if crate::builtins::audio::is_audio_call(call) => {
+            call if crate::builtins::audio::is_audio_runtime_call(call) => {
                 // The Linux audio backend resolves libasound.so.2 at first use
                 // via dlopen/dlsym (never a DT_NEEDED — plan-33-C §3.1), so a
                 // binary that mentions `audio` still execs where alsa-lib is

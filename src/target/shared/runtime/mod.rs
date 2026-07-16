@@ -109,7 +109,7 @@ use term_specs::*;
 use thread_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
-    if builtins::audio::is_audio_call(name) {
+    if builtins::audio::is_audio_runtime_call(name) {
         Some(RuntimeHelper::Audio)
     } else if builtins::crypto::is_native_crypto_call(name) {
         Some(RuntimeHelper::Crypto)

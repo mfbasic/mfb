@@ -625,7 +625,7 @@ impl plan::NativePlanPlatform for Platform {
                     })
                     .collect()
             }
-            call if crate::builtins::audio::is_audio_call(call) => {
+            call if crate::builtins::audio::is_audio_runtime_call(call) => {
                 // Per-spec framework imports (plan-33-B §5): a program that only
                 // enumerates devices pulls CoreAudio + CoreFoundation, never
                 // AudioToolbox. Each stream helper additionally imports the

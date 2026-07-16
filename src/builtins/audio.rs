@@ -71,27 +71,39 @@ pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
+/// User-facing `audio::` surface. The lowered-only internal names (the named-device
+/// opens, the timed `read`/`poll`, and the per-direction `close`) are deliberately
+/// excluded so `audio::readTimeout()` in source draws an unknown-function
+/// diagnostic rather than a call-argument mismatch (bug-213, the bug-173-E pattern
+/// already applied to `tls`/`thread`). Codegen/IR-lowering sites that see the
+/// synthesized names use [`is_audio_runtime_call`].
 pub(crate) fn is_audio_call(name: &str) -> bool {
     matches!(
         name,
         DEVICES
             | OPEN_INPUT
-            | OPEN_INPUT_DEVICE
             | OPEN_OUTPUT
-            | OPEN_OUTPUT_DEVICE
             | READ
-            | READ_TIMEOUT
             | WRITE
             | POLL
-            | POLL_TIMEOUT
             | AVAILABLE
             | XRUNS
             | CLOSE
-            | CLOSE_INPUT
-            | CLOSE_OUTPUT
             | RENDER
             | PLAY
     )
+}
+
+/// Post-lowering classifier: [`is_audio_call`] plus the internal names IR lowering
+/// synthesizes (`audio::implementation_name`). Used by the runtime/plan sites that
+/// route codegen and imports for those lowered-only targets.
+pub(crate) fn is_audio_runtime_call(name: &str) -> bool {
+    is_audio_call(name)
+        || matches!(
+            name,
+            OPEN_INPUT_DEVICE | OPEN_OUTPUT_DEVICE | READ_TIMEOUT | POLL_TIMEOUT | CLOSE_INPUT
+                | CLOSE_OUTPUT
+        )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
@@ -219,16 +231,23 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
     }
 }
 
+/// Return type of a **user-facing** `audio::` call. The lowered-only internal
+/// names are deliberately absent: `builtins::is_builtin_call` falls back to this
+/// lookup, so listing them here would re-admit `audio::readTimeout()` as a
+/// user-callable builtin and silently miscompile it (bug-213). IR lowering only
+/// queries this with the source callee — the internal names are synthesized after
+/// the result type is already fixed on the IR node — and the runtime helper specs
+/// carry their own ABI.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         DEVICES => Some("List OF AudioDevice"),
-        OPEN_INPUT | OPEN_INPUT_DEVICE => Some(AUDIO_INPUT_TYPE),
-        OPEN_OUTPUT | OPEN_OUTPUT_DEVICE => Some(AUDIO_OUTPUT_TYPE),
-        READ | READ_TIMEOUT | RENDER => Some("List OF Byte"),
-        WRITE | CLOSE | CLOSE_INPUT | CLOSE_OUTPUT | PLAY => Some("Nothing"),
+        OPEN_INPUT => Some(AUDIO_INPUT_TYPE),
+        OPEN_OUTPUT => Some(AUDIO_OUTPUT_TYPE),
+        READ | RENDER => Some("List OF Byte"),
+        WRITE | CLOSE | PLAY => Some("Nothing"),
         // `poll` is `Boolean`, `available`/`xruns` are `Integer`, on either
         // direction; `resolve_call` returns the precise type per operand.
-        POLL | POLL_TIMEOUT => Some("Boolean"),
+        POLL => Some("Boolean"),
         AVAILABLE | XRUNS => Some("Integer"),
         _ => None,
     }
@@ -299,9 +318,11 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         OPEN_INPUT | OPEN_OUTPUT => {
             Some("Integer, Integer, Integer or AudioDevice, Integer, Integer, Integer")
         }
-        READ => Some("AudioInput, Integer, Integer"),
+        // `timeoutMs` is optional (arity 2..=3) — spell it (bug-213).
+        READ => Some("AudioInput, Integer[, Integer]"),
         WRITE => Some("AudioOutput, List OF Byte"),
-        POLL => Some("AudioInput or AudioOutput, Integer"),
+        // `timeoutMs` is optional (arity 1..=2) — spell it (bug-213).
+        POLL => Some("AudioInput or AudioOutput[, Integer]"),
         AVAILABLE | XRUNS => Some("AudioInput or AudioOutput"),
         CLOSE => Some("AudioInput or AudioOutput"),
         RENDER => Some("AudioNote"),
@@ -392,27 +413,35 @@ mod tests {
     }
 
     #[test]
-    fn is_call_accepts_surface_and_internal() {
+    fn is_call_accepts_only_the_user_facing_surface() {
+        // bug-213: `is_audio_call` is the *user-facing* classifier. The lowered-only
+        // internal names must be excluded so `audio::readTimeout()` in source draws
+        // an unknown-function diagnostic; `is_audio_runtime_call` accepts both.
         for n in [
-            DEVICES,
-            OPEN_INPUT,
+            DEVICES, OPEN_INPUT, OPEN_OUTPUT, READ, WRITE, POLL, AVAILABLE, XRUNS, CLOSE, RENDER,
+            PLAY,
+        ] {
+            assert!(is_audio_call(n), "{n}");
+            assert!(is_audio_runtime_call(n), "{n}");
+        }
+        for n in [
             OPEN_INPUT_DEVICE,
-            OPEN_OUTPUT,
             OPEN_OUTPUT_DEVICE,
-            READ,
             READ_TIMEOUT,
-            WRITE,
-            POLL,
             POLL_TIMEOUT,
-            AVAILABLE,
-            XRUNS,
-            CLOSE,
             CLOSE_INPUT,
             CLOSE_OUTPUT,
         ] {
-            assert!(is_audio_call(n), "{n}");
+            assert!(!is_audio_call(n), "internal name must not be user-facing: {n}");
+            assert!(is_audio_runtime_call(n), "{n}");
+            // The is_builtin_call fallback must not re-admit them either.
+            assert!(
+                call_return_type_name(n).is_none(),
+                "internal name must not have a user-facing return type: {n}"
+            );
         }
         assert!(!is_audio_call("audio.nope"));
+        assert!(!is_audio_runtime_call("audio.nope"));
     }
 
     #[test]
@@ -685,3 +714,4 @@ mod tests {
         assert_eq!(resource_close_function(AUDIO_NOTE_TYPE), None);
     }
 }
+
