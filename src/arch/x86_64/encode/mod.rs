@@ -23,10 +23,14 @@
 //! AArch64 forms a data address as an `adrp; add :lo12:` page pair (two
 //! relocations). x86-64 references memory RIP-relative in a single instruction,
 //! so this encoder collapses the pair: `adrp {dst,symbol}` emits
-//! `lea dst, [rip+disp32]` with a single `data_pc32` (or `got_pc32` for an
-//! imported symbol) relocation against the disp32 field, and the following
+//! `lea dst, [rip+disp32]` with a single `data_pc32` relocation against the
+//! disp32 field for an internal data symbol. For an **imported** symbol the same
+//! form is rewritten to `mov dst, [rip+disp32]` (REX.W 0x8B) with a `got_pc32`
+//! relocation so the GOT slot is dereferenced once (`lea` would leave the GOT
+//! slot's address in `dst`, one indirection short — bug-192). The following
 //! `add_pageoff {dst,…}` emits **zero bytes** (the full address is already in
-//! `dst`). See [`emitter::Encoder::emit_symbol_ref`].
+//! `dst`). See [`emitter::Encoder::emit_symbol_ref`] and the opcode rewrite in
+//! [`emitter::Encoder::emit_instruction`].
 
 use std::collections::HashMap;
 

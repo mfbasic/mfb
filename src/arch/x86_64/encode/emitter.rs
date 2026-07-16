@@ -90,6 +90,25 @@ impl Encoder {
                 target,
                 intent,
             } => {
+                // For an imported data symbol the adrp-spelled `lea dst,[rip+disp32]`
+                // (opcode 0x8D, which computes the *address of* the GOT slot) must
+                // become `mov dst,[rip+disp32]` (REX.W 0x8B, which *loads* the GOT
+                // entry = the symbol address) so the reference is dereferenced
+                // through the GOT exactly once, matching aarch64/riscv64 and the
+                // `got_pc32` reloc kind (bug-192). The two forms share REX.W + the
+                // rip-relative ModRM, differing only in this opcode byte; non-import
+                // data addresses stay `lea`.
+                if matches!(
+                    intent,
+                    RelocIntent::DataAddrHi
+                        | RelocIntent::DataAddrLo
+                        | RelocIntent::GotLoadHi
+                        | RelocIntent::GotLoadLo
+                ) && self.imports.contains_key(&target)
+                    && self.text.get(start + 1) == Some(&0x8D)
+                {
+                    self.text[start + 1] = 0x8B;
+                }
                 self.record_reloc(start + disp_field_offset, target, intent)?;
             }
             SideEffect::LabelBranch {

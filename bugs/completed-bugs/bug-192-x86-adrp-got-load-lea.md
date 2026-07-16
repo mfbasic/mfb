@@ -5,8 +5,14 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: correctness (platform: linux-x86_64)
 
-Status: Open
-Regression Test: tests/rt-behavior/ (linux-x86_64 os::environ / getEnv returns correct value)
+Status: Fixed (2026-07-15) — in `emit_instruction`, an `adrp`-spelled
+`lea dst,[rip+disp32]` (opcode 0x8D) targeting an imported data symbol is rewritten
+to `mov dst,[rip+disp32]` (REX.W 0x8B) so the GOT slot is dereferenced once,
+matching the `got_pc32` reloc and aarch64/riscv64; non-import data addresses stay
+`lea`. Reconciled the encode-module doc comment.
+Regression Test: verified on hardware — a linux-x86_64 program calling
+`os::getEnvOr("MFB_TEST_VAR", "MISSING")` returns the variable's value when set and
+`MISSING` when unset, on both Alpine musl (VM 2227) and Ubuntu glibc (VM 2228).
 
 On linux-x86_64 the neutral `adrp` op is always encoded as `lea dst,[rip+disp32]`
 (opcode `0x8D`), even when the target is an imported (GOT) symbol that requires a
