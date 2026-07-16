@@ -492,17 +492,24 @@ impl CodeBuilder<'_> {
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch15, &scratch9, &scratch14));
-        self.emit(abi::add_immediate(
+        // Checked collection-size arithmetic (bug-147.7 / bug-232): count and
+        // dataLength come from live collection headers, so route
+        // count*ENTRY + HEADER + dataLen through the overflow-guarded helpers the
+        // mutate path uses — a wrapped 64-bit size would under-allocate.
+        let size_overflow = self.label("map_projection_size_overflow");
+        self.emit_checked_size_multiply(&scratch15, &scratch9, &scratch14, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch15,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch11,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -518,6 +525,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::move_immediate(
@@ -547,6 +556,15 @@ impl CodeBuilder<'_> {
             &scratch13,
             abi::RET[1],
             COLLECTION_OFFSET_FLAGS_VERSION,
+        ));
+        // `arena_alloc` does not zero the block, so the bucket-index-ready byte is
+        // stale poison. This result is a `List OF ...` (never consults the bucket
+        // index), but leaving it unwritten is an OOB read waiting to happen if the
+        // shape ever changes — zero it like the header writers do (bug-232).
+        self.emit(abi::store_u8(
+            abi::ZERO,
+            abi::RET[1],
+            COLLECTION_OFFSET_BUCKETS_READY,
         ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&scratch9, abi::RET[1], COLLECTION_OFFSET_COUNT));
@@ -752,17 +770,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&n_done));
         self.emit(abi::store_u64(&s9, abi::stack_pointer(), n_slot));
 
-        // Allocate HEADER + n*ENTRY + n*REC.
+        // Allocate HEADER + n*ENTRY + n*REC, through the overflow-guarded helpers
+        // the mutate path uses (bug-147.7 / bug-232): a wrapped 64-bit size would
+        // under-allocate.
+        let size_overflow = self.label("zip_size_overflow");
         self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
-        self.emit(abi::multiply_registers(&s15, &s9, &s14));
-        self.emit(abi::add_immediate(abi::return_register(), &s15, COLLECTION_HEADER_SIZE));
+        self.emit_checked_size_multiply(&s15, &s9, &s14, &size_overflow);
+        self.emit_checked_size_add_immediate(
+            abi::return_register(),
+            &s15,
+            COLLECTION_HEADER_SIZE,
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(&s16, "Integer", &REC.to_string()));
-        self.emit(abi::multiply_registers(&s16, &s9, &s16));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_multiply(&s16, &s9, &s16, &size_overflow);
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &s16,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -776,6 +803,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
 
@@ -791,6 +820,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE));
         self.emit(abi::move_immediate(&s13, "Byte", "1"));
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION));
+        // `arena_alloc` does not zero the block: zero the bucket-index-ready byte
+        // rather than leaving stale poison (bug-232).
+        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], COLLECTION_OFFSET_BUCKETS_READY));
         self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
         self.emit(abi::store_u64(&s16, abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH));
@@ -983,14 +1015,23 @@ impl CodeBuilder<'_> {
         // Allocate HEADER + count'*ENTRY + data_len.
         self.emit(abi::load_u64(&s12, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(&s13, abi::stack_pointer(), data_len_slot));
+        // Overflow-guarded size arithmetic (bug-147.7 / bug-232): count and
+        // data_len come from live headers; a wrapped size would under-allocate.
+        let size_overflow = self.label("slice_size_overflow");
         self.emit(abi::move_immediate(&s14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
-        self.emit(abi::multiply_registers(&s15, &s12, &s14));
-        self.emit(abi::add_immediate(abi::return_register(), &s15, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(
+        self.emit_checked_size_multiply(&s15, &s12, &s14, &size_overflow);
+        self.emit_checked_size_add_immediate(
+            abi::return_register(),
+            &s15,
+            COLLECTION_HEADER_SIZE,
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &s13,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1004,6 +1045,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
 
@@ -1016,6 +1059,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE));
         self.emit(abi::move_immediate(&s13, "Byte", "1"));
         self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION));
+        // `arena_alloc` does not zero the block: zero the bucket-index-ready byte
+        // rather than leaving stale poison (bug-232).
+        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], COLLECTION_OFFSET_BUCKETS_READY));
         self.emit(abi::load_u64(&s12, abi::stack_pointer(), count_slot));
         self.emit(abi::store_u64(&s12, abi::RET[1], COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&s12, abi::RET[1], COLLECTION_OFFSET_CAPACITY));

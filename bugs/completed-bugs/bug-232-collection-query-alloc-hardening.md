@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: memory-safety / footgun (latent)
 
-Status: Open
+Status: Fixed (2026-07-15) — lower_map_projection, lower_list_zip_fixed, and lower_list_slice_range now size their buffers through the overflow-guarded emit_checked_size_multiply/_add/_add_immediate helpers (with a size_overflow -> emit_error_code_return(ERR_OUT_OF_MEMORY_CODE) exit), matching the mutate-path discipline (bug-147.7); and all three inline header writers now zero COLLECTION_OFFSET_BUCKETS_READY (arena_alloc does not zero the block, so that byte was stale poison). Verified: the collections/zip/slice/keys/values acceptance tests pass.
 
 Two latent inconsistencies in `src/target/shared/code/builder_collection_queries.rs`,
 both relative to the established mutate-path hardening:
