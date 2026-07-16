@@ -122,6 +122,7 @@ impl<'a> Monomorphizer<'a> {
             type_instantiations: HashMap::new(),
             emitted_type_keys: HashSet::new(),
             emitted_function_keys: HashSet::new(),
+            concrete_symbol_keys: HashMap::new(),
             collections_bindings: crate::builtins::collections::collections_bindings(source)
                 .into_keys()
                 .collect(),
@@ -520,6 +521,36 @@ impl<'a> Monomorphizer<'a> {
         ordered.into_iter().collect()
     }
 
+    /// Claim `symbol` for the instantiation identified by the unambiguous `key`
+    /// (`name<args>`). `mangle_name` is lossy, so two distinct type-argument tuples
+    /// can mangle to the same symbol; when that happens, suffix the loser so each
+    /// instantiation keeps its own symbol (bug-226). A symbol already claimed by
+    /// this same key returns unchanged, so re-instantiation is stable and the
+    /// common (collision-free) case emits exactly the symbol it always did.
+    fn unique_concrete_symbol(&mut self, symbol: String, key: &str) -> String {
+        if let Some(owner) = self.concrete_symbol_keys.get(&symbol) {
+            if owner == key {
+                return symbol;
+            }
+            let mut n = 2usize;
+            loop {
+                let candidate = format!("{symbol}${n}");
+                match self.concrete_symbol_keys.get(&candidate) {
+                    Some(owner) if owner == key => return candidate,
+                    Some(_) => n += 1,
+                    None => {
+                        self.concrete_symbol_keys
+                            .insert(candidate.clone(), key.to_string());
+                        return candidate;
+                    }
+                }
+            }
+        }
+        self.concrete_symbol_keys
+            .insert(symbol.clone(), key.to_string());
+        symbol
+    }
+
     fn instantiate_function(
         &mut self,
         name: &str,
@@ -566,13 +597,46 @@ impl<'a> Monomorphizer<'a> {
             }
         }
 
-        let args = template
+        let args = match template
             .template_params
             .iter()
             .map(|param| substitutions.get(param).cloned())
-            .collect::<Option<Vec<_>>>()?;
-        let concrete_name = mangle_name(name, &args);
+            .collect::<Option<Vec<_>>>()
+        {
+            Some(args) => args,
+            None => {
+                // A type-param the arguments cannot pin down (it appears only in the
+                // return type, e.g. `FUNC make OF T() AS T`). Previously this
+                // returned None silently and the call was left as the bare template
+                // name, surfacing later as a confusing "unknown function" (bug-226).
+                let missing = template
+                    .template_params
+                    .iter()
+                    .filter(|param| !substitutions.contains_key(*param))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.report(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    &format!(
+                        "Call to `{display}` cannot infer template argument(s) `{missing}` from \
+                         its arguments (they appear only in the return type). Supply them at a \
+                         position the arguments determine."
+                    ),
+                    line,
+                );
+                return None;
+            }
+        };
+        // The mangled symbol is a lossy encoding (every non-alphanumeric collapses
+        // to `$`), so two distinct type-argument tuples of the same arity can
+        // produce the same symbol — the second instantiation would then overwrite
+        // the first in `concrete_functions` and both call sites would be rewritten
+        // to one shared, possibly-wrong symbol (bug-226). The `name<args>` key IS
+        // unambiguous, so disambiguate the symbol whenever a different key already
+        // claimed it. Existing single-instantiation symbols are unchanged.
         let key = format!("{name}<{}>", args.join(","));
+        let concrete_name = self.unique_concrete_symbol(mangle_name(name, &args), &key);
         if self.emitted_function_keys.insert(key) {
             if self.template_instantiation_depth >= MAX_TEMPLATE_INSTANTIATION_DEPTH {
                 self.report_instantiation_too_deep(&display, line);

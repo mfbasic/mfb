@@ -39,6 +39,10 @@ struct Monomorphizer<'a> {
     type_instantiations: HashMap<String, (String, Vec<String>)>,
     emitted_type_keys: HashSet<String>,
     emitted_function_keys: HashSet<String>,
+    /// Claimed concrete symbol -> the unambiguous `name<args>` key that owns it.
+    /// `mangle_name` is lossy, so this detects a symbol collision between two
+    /// distinct type-argument tuples and lets the loser be suffixed (bug-226).
+    concrete_symbol_keys: HashMap<String, String>,
     /// Import-binding names that refer to the built-in `collections` package
     /// (including aliases). A call `binding.member` with `binding` in this set
     /// and `member` a `collections::` function is rewritten to the internal

@@ -5,7 +5,8 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness / footgun
 
-Status: Open
+Status: Fixed (2026-07-15) — (1) symbol collision: rather than making mangle_name injective (which would rewrite EVERY generic symbol and churn all .ir/.nir/.ncode goldens for a latent bug), instantiate_function now claims each mangled symbol against the unambiguous `name<args>` dedup key via a new `concrete_symbol_keys` map + `unique_concrete_symbol` helper. A symbol already claimed by a DIFFERENT key gets a `$N` suffix, so two type-argument tuples that sanitize to the same symbol keep distinct concrete functions; the collision-free case (every shipped instantiation) emits exactly the symbol it always did, and re-instantiation of the same key is stable. (2) an un-inferable type-param (one appearing only in the return type, e.g. `FUNC make OF T() AS T`) now reports a TYPE_CALL_ARGUMENT_MISMATCH naming the missing parameter instead of returning None silently and surfacing later as a confusing "unknown function".
+Regression Test: verified `LET x AS Integer = make()` on `FUNC make OF T() AS T` reports "cannot infer template argument(s) `T` … they appear only in the return type"; 55 monomorph unit tests and 55 collections/generic/template/overload acceptance tests pass with no symbol churn.
 
 Two related monomorphization gaps:
 
