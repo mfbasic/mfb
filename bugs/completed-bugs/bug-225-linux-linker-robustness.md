@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: memory-safety / dead-code
 
-Status: Open
+Status: Fixed (2026-07-15) — read_u32/write_u32 now bounds-check offset+4 against the slice and return an Err (threaded through patch_relocations and the riscv patch helpers, all with `?`), so a relocation offset within the last 3 bytes of text yields a linker Err instead of an arithmetic slice panic. Dropped the vestigial text_len_with_stubs parameter from dynamic_prefix_size (it was `let _ =`-discarded; the returned GOT offset depends only on the data layout). All 29 linux link tests pass.
 
 Two low items in the Linux linker:
 

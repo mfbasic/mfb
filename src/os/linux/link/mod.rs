@@ -134,30 +134,30 @@ fn patch_relocations(
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let word = 0x9400_0000
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word);
+                write_u32(text, relocation.offset, word)?;
             }
             "data" if relocation.kind == "page21" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let pc = text_vmaddr + relocation.offset as u64;
                 let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset) & 0x1f;
+                let rd = read_u32(text, relocation.offset)? & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                );
+                )?;
             }
             "data" if relocation.kind == "pageoff12" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset);
+                let word = read_u32(text, relocation.offset)?;
                 let rd = word & 0x1f;
                 let rn = (word >> 5) & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                );
+                )?;
             }
             "external" if relocation.kind == "branch26" => {
                 let Some(&target) = import_locations.stubs.get(&relocation.target) else {
@@ -169,7 +169,7 @@ fn patch_relocations(
                 };
                 let word = 0x9400_0000
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word);
+                write_u32(text, relocation.offset, word)?;
             }
             // Imported data global addressed through its GOT slot (plan-linker.md
             // §6.1): the slot is filled by a GLOB_DAT dynamic relocation.
@@ -183,12 +183,12 @@ fn patch_relocations(
                 };
                 let pc = text_vmaddr + relocation.offset as u64;
                 let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset) & 0x1f;
+                let rd = read_u32(text, relocation.offset)? & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                );
+                )?;
             }
             "external" if relocation.kind == "pageoff12" => {
                 let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
@@ -199,14 +199,14 @@ fn patch_relocations(
                     ));
                 };
                 let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset);
+                let word = read_u32(text, relocation.offset)?;
                 let rd = word & 0x1f;
                 let rn = (word >> 5) & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                );
+                )?;
             }
             // --- x86-64 (plan-00-H): RIP-relative rel32 patches ----------------
             // A `call rel32` (internal call) or `lea reg,[rip+disp32]` (internal
@@ -217,7 +217,7 @@ fn patch_relocations(
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
                 let rel = rel32(target, site)?;
-                write_u32(text, relocation.offset, rel as u32);
+                write_u32(text, relocation.offset, rel as u32)?;
             }
             // x86-64 `call sym@PLT` to an imported libc function: the rel32
             // targets that symbol's PLT stub, which jumps through its GOT slot.
@@ -231,7 +231,7 @@ fn patch_relocations(
                 };
                 let site = text_vmaddr + relocation.offset as u64;
                 let rel = rel32(target, site)?;
-                write_u32(text, relocation.offset, rel as u32);
+                write_u32(text, relocation.offset, rel as u32)?;
             }
             // x86-64 imported data global via GOTPCREL: the rel32 targets the
             // symbol's GOT slot (filled by a GLOB_DAT reloc); the instruction
@@ -248,13 +248,13 @@ fn patch_relocations(
                 };
                 let site = text_vmaddr + relocation.offset as u64;
                 let rel = rel32(target, site)?;
-                write_u32(text, relocation.offset, rel as u32);
+                write_u32(text, relocation.offset, rel as u32)?;
             }
             "data" if relocation.kind == "data_pc32" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
                 let rel = rel32(target, site)?;
-                write_u32(text, relocation.offset, rel as u32);
+                write_u32(text, relocation.offset, rel as u32)?;
             }
             // --- RISC-V (plan-99) ----------------------------------------------
             // An internal `call` (auipc ra, hi; jalr ra, lo(ra)): patch both
@@ -263,8 +263,8 @@ fn patch_relocations(
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
                 let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64)?;
-                patch_riscv_auipc(text, relocation.offset, hi20);
-                patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
+                patch_riscv_auipc(text, relocation.offset, hi20)?;
+                patch_riscv_itype_imm(text, relocation.offset + 4, lo12)?;
             }
             // An external `call` targets the imported symbol's PLT-like stub.
             "external" if relocation.kind == "riscv_call" => {
@@ -277,8 +277,8 @@ fn patch_relocations(
                 };
                 let site = text_vmaddr + relocation.offset as u64;
                 let (hi20, lo12) = riscv_hi_lo(target as i64 - site as i64)?;
-                patch_riscv_auipc(text, relocation.offset, hi20);
-                patch_riscv_itype_imm(text, relocation.offset + 4, lo12);
+                patch_riscv_auipc(text, relocation.offset, hi20)?;
+                patch_riscv_itype_imm(text, relocation.offset + 4, lo12)?;
             }
             // Internal data address: `auipc rd, %pcrel_hi; addi rd, rd, %pcrel_lo`.
             // The lo12 is computed from the paired auipc's PC, located by pairing
@@ -288,7 +288,7 @@ fn patch_relocations(
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
                 let (hi20, _) = riscv_hi_lo(target as i64 - site as i64)?;
-                patch_riscv_auipc(text, relocation.offset, hi20);
+                patch_riscv_auipc(text, relocation.offset, hi20)?;
             }
             "data" if relocation.kind == "riscv_pcrel_lo12" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
@@ -299,7 +299,7 @@ fn patch_relocations(
                 )?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64)?;
-                patch_riscv_itype_imm(text, relocation.offset, lo12);
+                patch_riscv_itype_imm(text, relocation.offset, lo12)?;
             }
             // Imported data global addressed through its GOT slot: `auipc rd,
             // %got_pcrel_hi; ld rd, %pcrel_lo(rd)` — the slot holds the address
@@ -314,7 +314,7 @@ fn patch_relocations(
                 };
                 let site = text_vmaddr + relocation.offset as u64;
                 let (hi20, _) = riscv_hi_lo(slot as i64 - site as i64)?;
-                patch_riscv_auipc(text, relocation.offset, hi20);
+                patch_riscv_auipc(text, relocation.offset, hi20)?;
             }
             "external" if relocation.kind == "riscv_got_lo12" => {
                 let Some(&slot) = import_locations.got_entries.get(&relocation.target) else {
@@ -331,7 +331,7 @@ fn patch_relocations(
                 )?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64)?;
-                patch_riscv_itype_imm(text, relocation.offset, lo12);
+                patch_riscv_itype_imm(text, relocation.offset, lo12)?;
             }
             _ => {
                 return Err(format!(
@@ -362,7 +362,7 @@ fn append_import_stubs(
     let stub_count = image.imports.len();
     let text_len_with_stubs = text.len() + stub_count * 12;
     let data_offset = align(TEXT_FILE_OFFSET + text_len_with_stubs, PAGE_SIZE);
-    let got_offset = dynamic_prefix_size(image, text_len_with_stubs);
+    let got_offset = dynamic_prefix_size(image);
     let got_vmaddr = IMAGE_BASE + data_offset as u64 + got_offset as u64;
     for (index, import) in image.imports.iter().enumerate() {
         let stub_vmaddr = text_vmaddr + text.len() as u64;
@@ -427,17 +427,17 @@ fn riscv_hi_lo(delta: i64) -> Result<(u32, i32), String> {
 }
 
 /// Patch a RISC-V `auipc rd, hi20` word in place, preserving `rd`.
-fn patch_riscv_auipc(text: &mut [u8], offset: usize, hi20: u32) {
-    let existing = read_u32(text, offset);
+fn patch_riscv_auipc(text: &mut [u8], offset: usize, hi20: u32) -> Result<(), String> {
+    let existing = read_u32(text, offset)?;
     let rd = (existing >> 7) & 0x1f;
-    write_u32(text, offset, (hi20 << 12) | (rd << 7) | 0x17);
+    write_u32(text, offset, (hi20 << 12) | (rd << 7) | 0x17)
 }
 
 /// Patch the 12-bit immediate of a RISC-V I-type word (`addi`/`ld`/`jalr`) in
 /// place, preserving `rd`/`rs1`/`funct3`/opcode.
-fn patch_riscv_itype_imm(text: &mut [u8], offset: usize, lo12: i32) {
-    let existing = read_u32(text, offset) & 0x000f_ffff; // clear imm[31:20]
-    write_u32(text, offset, existing | (((lo12 as u32) & 0xfff) << 20));
+fn patch_riscv_itype_imm(text: &mut [u8], offset: usize, lo12: i32) -> Result<(), String> {
+    let existing = read_u32(text, offset)? & 0x000f_ffff; // clear imm[31:20]
+    write_u32(text, offset, existing | (((lo12 as u32) & 0xfff) << 20))
 }
 
 fn emit_import_stub(
@@ -570,12 +570,23 @@ fn align(value: usize, alignment: usize) -> usize {
     (value + alignment - 1) & !(alignment - 1)
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("slice length"))
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let slice = bytes.get(offset..offset + 4).ok_or_else(|| {
+        format!(
+            "linux linker: relocation offset {offset} + 4 exceeds text length {}",
+            bytes.len()
+        )
+    })?;
+    Ok(u32::from_le_bytes(slice.try_into().expect("slice length")))
 }
 
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) -> Result<(), String> {
+    let len = bytes.len();
+    let slice = bytes.get_mut(offset..offset + 4).ok_or_else(|| {
+        format!("linux linker: relocation offset {offset} + 4 exceeds text length {len}")
+    })?;
+    slice.copy_from_slice(&value.to_le_bytes());
+    Ok(())
 }
 
 fn put_u16(bytes: &mut Vec<u8>, value: u16) {

@@ -743,7 +743,7 @@ impl DynamicPayload {
     }
 }
 
-pub(super) fn dynamic_prefix_size(image: &EncodedImage, text_len_with_stubs: usize) -> usize {
+pub(super) fn dynamic_prefix_size(image: &EncodedImage) -> usize {
     let mut libraries = Vec::<&str>::new();
     for import in &image.imports {
         if !libraries.contains(&import.library.as_str()) {
@@ -780,7 +780,6 @@ pub(super) fn dynamic_prefix_size(image: &EncodedImage, text_len_with_stubs: usi
     let dynsym_size = (image.imports.len() + 1) * 24;
     let hash_offset = align(dynsym_offset + dynsym_size, 8);
     let hash_size = (2 + 1 + image.imports.len() + 1) * 4;
-    let _ = text_len_with_stubs;
     let rela_offset = align(hash_offset + hash_size, 8);
     // Must match DynamicPayload::build: imports + one R_*_RELATIVE per initializer
     // (bug-186), so the GOT offset baked into each stub stays correct.
