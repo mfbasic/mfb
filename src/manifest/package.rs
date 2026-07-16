@@ -725,7 +725,10 @@ fn json_field_name_position(contents: &str, field: &str) -> Option<usize> {
     loop {
         index = next_json_string_start(contents, index)?;
         let end = json_string_end(contents, index)?;
-        if &contents[index..end] == needle {
+        if &contents[index..end] == needle && contents[end..].trim_start().starts_with(':') {
+            // Only match a key, not a string *value* that happens to equal the
+            // field name: the next non-whitespace byte after the closing quote
+            // must be `:` (bug-212).
             return Some(index);
         }
         index = end;
@@ -1390,6 +1393,13 @@ mod tests {
         let b = json_field_name_position(src, "b").unwrap();
         assert!(b > a);
         assert!(json_field_name_position(src, "missing").is_none());
+        // bug-212: a string *value* equal to a field name must not match as a key;
+        // only the real `"packages":` key (followed by `:`) is located.
+        let src2 = r#"{"source": "packages", "packages": [1]}"#;
+        let pkgs = json_field_name_position(src2, "packages").unwrap();
+        // The located position is the key, so a `:` (after optional whitespace)
+        // follows its closing quote.
+        assert!(src2[pkgs + "\"packages\"".len()..].trim_start().starts_with(':'));
         // Array bounds around "b".
         let (start, end) = json_array_bounds(src, "b").unwrap();
         assert_eq!(src.as_bytes()[start], b'[');

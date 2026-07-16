@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — json_field_name_position now confirms key position before matching: a string token is treated as a field name only when the next non-whitespace byte after its closing quote is `:`, so a string *value* equal to a field name no longer latches. Regression test: json_scanning_primitives asserts `"packages"` resolves to the real key when a `"source": "packages"` value precedes it.
 
 `json_field_name_position` (`src/manifest/package.rs:712-724`) scans every JSON
 string token — keys and values alike — and returns the first whose contents
