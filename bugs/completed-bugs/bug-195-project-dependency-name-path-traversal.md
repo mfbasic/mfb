@@ -5,8 +5,14 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (path traversal)
 
-Status: Open
-Regression Test: tests/ (a project.json dependency name with `../`/absolute is rejected)
+Status: Fixed (2026-07-15) — `project_package_dependency` now calls
+`validate_package_name(&name)` and returns `None` (rejecting the dependency, like
+the blank-name case) when the name is not a single path component, so no
+`packages/<name>.mfp` path is ever built from a `../…`/absolute/`sub/dep`/leading-`.`
+name. Only `name` is path-joined (not `ident`), so this closes the vector.
+Regression Test: unit test `project_package_dependency_rejects_path_traversal_name`
+(rejects `../../../../etc/passwd`, `/etc/passwd`, `sub/dep`, `.hidden`; still
+accepts `legit_pkg`); verified `mfb audit` no longer probes the traversal path.
 
 A package dependency `name` read from `project.json` is never validated as a
 single path component, yet it is interpolated into `packages/<name>.mfp` and

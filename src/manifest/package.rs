@@ -525,6 +525,15 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         return None;
     }
 
+    // The dependency `name` is interpolated into `packages/<name>.mfp` and
+    // read/merged by `mfb audit`/`build`/`pkg`. Validate it as a single path
+    // component (same guard the header-stored name uses) so a `../…` or absolute
+    // name cannot escape `packages/` and probe/merge arbitrary host `.mfp` files
+    // (bug-195). Reject the dependency on failure, mirroring the blank-name case.
+    if validate_package_name(&name).is_err() {
+        return None;
+    }
+
     Some(ProjectPackageDependency {
         name,
         ident,
@@ -1130,6 +1139,20 @@ mod tests {
         assert!(project_package_dependency(&json("42")).is_none());
         assert!(project_package_dependency(&json(r#"{"version":"1"}"#)).is_none());
         assert!(project_package_dependency(&json(r#"{"name":"   "}"#)).is_none());
+    }
+
+    #[test]
+    fn project_package_dependency_rejects_path_traversal_name() {
+        // A `name` that is not a single path component would escape `packages/`
+        // when interpolated into `packages/<name>.mfp` (bug-195). Reject it.
+        assert!(
+            project_package_dependency(&json(r#"{"name":"../../../../etc/passwd"}"#)).is_none()
+        );
+        assert!(project_package_dependency(&json(r#"{"name":"/etc/passwd"}"#)).is_none());
+        assert!(project_package_dependency(&json(r#"{"name":"sub/dep"}"#)).is_none());
+        assert!(project_package_dependency(&json(r#"{"name":".hidden"}"#)).is_none());
+        // A legitimate single-component name is still accepted.
+        assert!(project_package_dependency(&json(r#"{"name":"legit_pkg"}"#)).is_some());
     }
 
     #[test]
