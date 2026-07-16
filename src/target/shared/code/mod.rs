@@ -799,6 +799,10 @@ pub(crate) fn lower_module_for_platform(
                     capture_args: module_uses_call(module, "os.args"),
                     // App mode reads the window input pipe, not fd 0 — no broadcast log.
                     subscribe_stdin: false,
+                    // The toolkit bootstrap owns `_main`; this body is CALLED by
+                    // the worker thread, whose stack has no kernel argv layout
+                    // (bug-240).
+                    entry_called_as_function: true,
                 },
                 &platform_imports,
             )?);
@@ -832,6 +836,9 @@ pub(crate) fn lower_module_for_platform(
                             "thread.closeStdIn",
                         ],
                     ),
+                    // `_main` IS the process entry here, so args arrive however
+                    // the platform's raw entry delivers them.
+                    entry_called_as_function: false,
                 },
                 &platform_imports,
             )?);

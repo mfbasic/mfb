@@ -162,6 +162,7 @@ impl code::CodegenPlatform for Platform {
             spec.register_signal_handlers,
             spec.capture_args,
             spec.subscribe_stdin,
+            spec.entry_called_as_function,
         )
     }
 

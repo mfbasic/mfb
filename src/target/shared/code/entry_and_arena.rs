@@ -18,6 +18,7 @@ pub(crate) fn lower_program_entry(
     register_signal_handlers: bool,
     capture_args: bool,
     subscribe_stdin: bool,
+    entry_called_as_function: bool,
 ) -> Result<CodeFunction, String> {
     // bug-175 I: the `entry_exit_range_error` handler (and its label) is emitted
     // only for an `Integer` entry, but the range-check branch to it is emitted for
@@ -33,6 +34,10 @@ pub(crate) fn lower_program_entry(
     }
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Where argc/argv live on arrival. The platform answer describes the RAW
+    // process entry; an entry reached as a call gets them in registers on every
+    // platform, from its caller (bug-240).
+    let args_in_registers = platform.entry_args_in_registers() || entry_called_as_function;
     // Capture argc/argv into the `os::args` globals before the frame is carved
     // (plan-31-B), while the OS-supplied values are still at their entry
     // positions: macOS delivers them in x0/x1; a raw Linux ELF entry has argc at
@@ -41,7 +46,7 @@ pub(crate) fn lower_program_entry(
     // x0/x1 stay live for the arg-materialization path below. Gated on os.args
     // usage, so a program that never calls it keeps a byte-identical entry.
     if capture_args {
-        if platform.entry_args_in_registers() {
+        if args_in_registers {
             push_symbol_address(
                 entry_symbol,
                 super::os::OS_ARGC_GLOBAL_SYMBOL,
@@ -84,10 +89,37 @@ pub(crate) fn lower_program_entry(
     // the rest of the entry expects BEFORE the frame is carved (the entry does
     // not pass through `finalize_frame`, so `[sp,0]` here is the true initial
     // stack). macOS delivers them in `x0`/`x1` (libSystem calls `main`).
-    if language_entry_accepts_args && !platform.entry_args_in_registers() {
+    //
+    // Skipped when the entry is CALLED (app mode): the worker thread's `[sp]`
+    // holds no kernel argv layout, so this would load garbage over the real
+    // argc/argv the caller passed in registers (bug-240).
+    if language_entry_accepts_args && !args_in_registers {
         instructions.extend([
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 8),
+        ]);
+    }
+    // Park argc/argv into callee-saved SCRATCH[17]/SCRATCH[18] (AArch64 x27/x28,
+    // x86-64 r12/r13) IMMEDIATELY, while they are still live in ARG[0]/ARG[1].
+    // Everything below clobbers them — starting with the very next block, the
+    // arena-state zero loop, whose end pointer is `SCRATCH[1]`.
+    //
+    // On AArch64 `SCRATCH[1]` is x10, distinct from ARG[1]=x1, so parking later
+    // was harmless there. On x86-64 both tokens realize to **rsi**
+    // (`map_scratch_register(10)` → index (10-9)%11 = 1 → rsi; `CALL_ARGS[1]` →
+    // rsi), so the loop destroyed argv two instructions after it was loaded and
+    // the entry then dereferenced the arena address as a `char**`: every
+    // arg-accepting program SIGSEGV'd on linux-x86_64, glibc and musl alike,
+    // console and app mode (bug-240). aarch64/riscv64 were unaffected. Parking
+    // first makes the sequence correct on every ISA rather than relying on a
+    // token-aliasing coincidence.
+    //
+    // Gated on `language_entry_accepts_args`, so a non-arg entry stays
+    // byte-identical.
+    if language_entry_accepts_args {
+        instructions.extend([
+            abi::move_register(abi::SCRATCH[17], abi::ARG[0]),
+            abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
     instructions.extend([
@@ -165,22 +197,11 @@ pub(crate) fn lower_program_entry(
     // The seed scratch lives in the as-yet-unused args slot; pre-fill it with
     // the arena address so a `getentropy` failure still yields a varying seed.
     //
-    // Park argc/argv into callee-saved x27/x28 NOW, while they are still live in
-    // x0/x1. Everything from here on — the seed_rng `getentropy`/`RNG_SEED`
-    // calls, the always-on fill block's `clock_gettime`/`getentropy`/
-    // `ARENA_FILL_SEED`, and the later `LINK`/global-initializer calls — clobbers
-    // x0/x1, so an arg-accepting entry must preserve them across all of it and
-    // read the args region back from x27/x28. Doing this BEFORE the seed_rng
-    // block fixes the crash where a program that both takes `args` and uses
-    // `math::rand` parked garbage (the `RNG_SEED` return) instead of argv.
-    // Non-arg entries keep the original sequence (parked inside the fill block)
-    // so their entry code stays byte-identical.
-    if language_entry_accepts_args {
-        instructions.extend([
-            abi::move_register(abi::SCRATCH[17], abi::ARG[0]),
-            abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
-        ]);
-    }
+    // argc/argv were parked in SCRATCH[17]/SCRATCH[18] at the top of the entry:
+    // everything here — the seed_rng `getentropy`/`RNG_SEED` calls, the always-on
+    // fill block's `clock_gettime`/`getentropy`/`ARENA_FILL_SEED`, and the later
+    // `LINK`/global-initializer calls — clobbers ARG[0]/ARG[1], so the args region
+    // is read back from those callee-saved registers below.
     if seed_rng {
         instructions.extend([
             abi::store_u64(
