@@ -75,9 +75,17 @@ impl CodeBuilder<'_> {
         decimals_arg: &NirValue,
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(value_arg)?;
+        // Spill the Money raw before lowering `decimals`: that lowering may emit a
+        // `_mfb_*` helper call which clobbers every caller-saved register (the
+        // register-lifetime model), destroying `value.location`. Mirror the spill
+        // every math sibling (lower_math_min_max/clamp/scalar_binary) already does
+        // (bug-200).
+        let raw_slot = self.allocate_stack_object("money_round_raw", 8);
+        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), raw_slot));
         let decimals = self.lower_value(decimals_arg)?;
         let text = format!("money.round({}, {})", value.text, decimals.text);
-        let raw = value.location;
+        let raw = self.allocate_register()?;
+        self.emit(abi::load_u64(&raw, abi::stack_pointer(), raw_slot));
         let dec = decimals.location;
 
         // decimals must be in 0..=5.

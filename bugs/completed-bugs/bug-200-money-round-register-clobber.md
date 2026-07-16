@@ -5,8 +5,13 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: memory-safety (native codegen register lifetime)
 
-Status: Open
-Regression Test: tests/rt-behavior/ (money::round with a call-valued decimals arg)
+Status: Fixed (2026-07-15) — `lower_money_round` now spills the Money raw to a
+stack slot before lowering the `decimals` argument and reloads it afterward,
+mirroring `lower_math_min_max`/`clamp`/`scalar_binary`, so a `decimals` expression
+that emits any `_mfb_*` helper call cannot clobber the raw.
+Regression Test: verified at runtime — `money::round(3.14159m, computeDecimals(1))`
+(decimals arg is a user call) yields `3.14` (correct rounding); a plain-literal
+decimals arg is unaffected.
 
 `lower_money_round` reads the Money raw from a caller-saved register *after*
 lowering the `decimals` argument, without spilling it first. If the decimals
