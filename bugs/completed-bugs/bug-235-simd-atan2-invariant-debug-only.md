@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun (latent)
 
-Status: Open
+Status: Fixed (2026-07-15) — the SIMD binary-kernel atan2-only invariant is now enforced in release: lower_simd_float_binary returns a hard Err for a non-Atan2 kernel (instead of a debug-only assert), so wiring a future Inf-raising binary kernel (e.g. Pow) without first hoisting the v24 Inf-mask zero out of the loop body fails the build loudly rather than silently reducing a stale mask. atan2 still lowers correctly (verified atan2(1,1)=0.79).
 
 `lower_simd_float_binary` (`src/target/shared/code/builder_simd_float_math.rs:1457`)
 relies on a `debug_assert!` to enforce that the only binary float kernel is

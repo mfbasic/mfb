@@ -1454,11 +1454,18 @@ impl CodeBuilder<'_> {
         // the loop and kept out of the per-iteration body — assert atan2-only
         // until that is wired, since the length-mismatch `ErrInvalidArgument` is
         // raised above.
-        debug_assert!(
-            matches!(kernel, FloatBinaryKernel::Atan2),
-            "lower_simd_float_binary is atan2-only; wiring an Inf-raising kernel \
-             (e.g. Pow) requires hoisting the v24 zero out of the loop body"
-        );
+        // Enforce the atan2-only invariant in release too (bug-235): a future
+        // Inf-raising binary kernel (e.g. Pow) reuses `v24` as a per-iteration
+        // scratch here, so it needs its `v24` Inf mask zeroed before the loop and
+        // kept out of the body first. Fail the build loudly rather than silently
+        // reducing a stale/never-zeroed mask (spurious or missed ErrFloatInf).
+        if !matches!(kernel, FloatBinaryKernel::Atan2) {
+            return Err(
+                "lower_simd_float_binary is atan2-only; wiring another binary kernel requires \
+                 hoisting the v24 Inf-mask zero out of emit_float_binary_body first"
+                    .to_string(),
+            );
+        }
         for err in kernel.errors() {
             self.emit_float_error_reduce(*err, k, false)?;
         }
