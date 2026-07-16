@@ -497,7 +497,10 @@ impl Encoder {
     }
 
     /// Shifted-immediate NEON ops on `.2d` lanes (64-bit element). `shl` takes a
-    /// left-shift 0..=63; `sshr`/`ushr` take a right-shift 1..=64.
+    /// left-shift 0..=63; `sshr`/`ushr` take a right-shift 1..=63. (ARM encodes a
+    /// `.2d` right-shift up to 64, but the shared `shift()` operand parser rejects
+    /// any amount >= 64, so 64 never reaches here — the encoder matches that bound
+    /// rather than carrying an unreachable case, bug-217.)
     fn emit_v_shift_imm(&mut self, op: CodeOp, vd: u8, vn: u8, amount: u8) -> Result<(), String> {
         let (base, immhb) = match op {
             CodeOp::ShlV => {
@@ -507,13 +510,13 @@ impl Encoder {
                 (0x4f00_5400, 64 + amount as u32)
             }
             CodeOp::SshrV => {
-                if amount == 0 || amount > 64 {
+                if amount == 0 || amount > 63 {
                     return Err(format!("AArch64 sshr.2d shift {amount} is out of range"));
                 }
                 (0x4f00_0400, 128 - amount as u32)
             }
             CodeOp::UshrV => {
-                if amount == 0 || amount > 64 {
+                if amount == 0 || amount > 63 {
                     return Err(format!("AArch64 ushr.2d shift {amount} is out of range"));
                 }
                 (0x6f00_0400, 128 - amount as u32)
@@ -583,20 +586,18 @@ impl Encoder {
     }
 
     fn emit_mov_imm(&mut self, rd: u8, value: u64) -> Result<(), String> {
-        let mut emitted = false;
+        // Index 0 always emits a `movz` for the low halfword (including the
+        // `value == 0` case, which emits `movz rd, #0`), so the base is always
+        // laid down; higher halfwords add `movk` only when nonzero.
         for (index, shift) in [0, 16, 32, 48].into_iter().enumerate() {
             let part = ((value >> shift) & 0xffff) as u32;
             if index == 0 {
                 self.emit_word(0xd280_0000 | (part << 5) | rd as u32)?;
-                emitted = true;
             } else if part != 0 {
                 self.emit_word(
                     0xf280_0000 | (((shift / 16) as u32) << 21) | (part << 5) | rd as u32,
                 )?;
             }
-        }
-        if !emitted {
-            self.emit_word(0xd280_0000 | rd as u32)?;
         }
         Ok(())
     }

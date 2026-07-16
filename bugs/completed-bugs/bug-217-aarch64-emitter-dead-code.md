@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: dead-code
 
-Status: Open
+Status: Fixed (2026-07-15) — deleted emit_mov_imm's unreachable `if !emitted { movz #0 }` fallback (index 0 always emits the base movz, including for value == 0), and narrowed emit_v_shift_imm's sshr/ushr `.2d` guards from >64 to >63 to match the shared shift() operand parser (which rejects any amount >= 64), so no unreachable shift-by-64 case remains.
 
 Two dead-code items in `src/arch/aarch64/encode/emitter.rs`:
 
