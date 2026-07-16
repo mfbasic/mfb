@@ -1,11 +1,10 @@
-//! Linux x86-64 codegen platform (plan-00-H Phase 1).
+//! Linux x86-64 codegen platform (plan-00-H, complete).
 //!
-//! Brings up the integer-only machine floor: the program entry + arena map/unmap
-//! + random bytes + exit, all via **raw Linux x86-64 syscalls** (no libc), so the
-//! emitted executable is fully static. The runtime-helper surface (io / fs / net /
-//! term / ...) is not wired in this phase — those `CodegenPlatform` methods return
-//! a `Phase 1: <name> not yet implemented` error. They are unreachable for a
-//! program that runs only integer language code.
+//! The program entry + arena map/unmap + random bytes + exit run via **raw Linux
+//! x86-64 syscalls** (no libc), so an integer-only executable is fully static. The
+//! full console runtime-helper surface (io / fs / net / term / ...) is implemented:
+//! every `CodegenPlatform` method is wired via the shared `code::` builders (dynamic
+//! programs link the required libc imports). App mode (`-app`) is not supported here.
 //!
 //! CodeInstructions are built with the neutral `abi::*` builders (the same ones
 //! the AArch64 backend uses) and the neutral role tokens (`%sysarg*`/`%sysnr`,

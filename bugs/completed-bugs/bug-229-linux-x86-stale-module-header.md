@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: docs
 
-Status: Open
+Status: Fixed (2026-07-15) — the linux_x86_64 code.rs module header no longer describes plan-00-H Phase 1 stubbed/unreachable runtime helpers; it reflects the completed console runtime surface. Documentation only.
 
 The module header of `src/target/linux_x86_64/code.rs:1-8` still describes
 plan-00-H "Phase 1" state — claiming the io/fs/net/term runtime-helper methods
