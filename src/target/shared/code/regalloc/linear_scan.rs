@@ -75,7 +75,8 @@ pub(super) fn run(
         }
     };
     // The set of this class's physical registers clobbered by any call in the
-    // half-open span `[s, e]` — a value live across those calls must avoid them.
+    // inclusive span `[s, e]` (`idx > e` breaks, so `idx == e` is included) — a
+    // value live across those calls must avoid them.
     let call_clobber_in = |s: usize, e: usize| -> u64 {
         let start = live.call_clobber.partition_point(|&(idx, _)| idx < s);
         let mut mask = 0u64;
@@ -90,10 +91,9 @@ pub(super) fn run(
 
     // Allocatable physicals as (name, index), in preference order. `reserved`
     // registers are held out of allocation entirely (used neither as a value's
-    // home nor as spill scratch / eviction victim), so a helper can guarantee it
-    // never clobbers a physical its hand-written callers rely on surviving the
-    // call (e.g. `_mfb_arena_alloc`'s `x8/x11/x12/x13/x17` survivor contract,
-    // `.ai/compiler.md`).
+    // home nor as spill scratch / eviction victim), so a physical the codegen
+    // pins for a fixed role (e.g. the arena-state register, the syscall
+    // number/argument registers) is never handed to the allocator to color.
     let allocatable: Vec<(&str, u32)> = model
         .allocatable(class)
         .iter()

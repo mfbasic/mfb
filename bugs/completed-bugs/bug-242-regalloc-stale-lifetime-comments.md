@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: docs / footgun
 
-Status: Open
+Status: Fixed (2026-07-15) — corrected the regalloc comments (analysis.rs arena_alloc survivor claim -> unknown-clobber justification; linear_scan.rs 'half-open' -> 'inclusive' span and the stale x8/x11/x12/x13/x17 survivor example) and added a debug_assert after LinearScan that no %v/%f sentinel survives (an uncovered DEF/USE field fails loudly).
 
 The register allocator core is sound (liveness, active-list, interference,
 `(s,v)` tie-break bug-87, clobber masks all verified), but its comments in the

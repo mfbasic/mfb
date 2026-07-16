@@ -78,11 +78,14 @@ const ALL_INT: PhysMask = 0x7fff_ffff;
 /// - `_mfb_fn_*` / `_mfb_ifn_*` (user/built-in functions, compiled here with a PCS
 ///   frame that saves the callee-saved registers it uses) and libc clobber only
 ///   caller-saved registers.
-/// - other `_mfb_*` runtime helpers clobber every integer register: the
-///   hand-written `_mfb_arena_alloc` uses callee-saved `x20`–`x28` as scratch
-///   (saving only `x30`), and other helpers' integer clobber sets are unknown.
-///   Their FP clobber still follows the PCS (caller-saved only) — `_mfb_arena_alloc`
-///   touches no FP on its fast path and reaches `mmap` (PCS) when it grows.
+/// - other `_mfb_*` runtime helpers clobber every integer register: their integer
+///   clobber sets are unknown to the allocator (the helpers are hand-written and
+///   varied), so the conservative `all_int` mask keeps a value out of every
+///   caller-saved *and* callee-saved integer register across such a call.
+///   (`_mfb_arena_alloc` is itself PCS-framed and preserves `x19`–`x28`; there is
+///   no survivor set — see `.ai/compiler.md`.) Their FP clobber still follows the
+///   PCS (caller-saved only) — `_mfb_arena_alloc` touches no FP on its fast path
+///   and reaches `mmap` (PCS) when it grows.
 /// - `blr` is an indirect call to a PCS function; `svc` is a syscall (no FP).
 pub(super) fn call_clobber_mask(
     instruction: &CodeInstruction,

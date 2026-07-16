@@ -323,6 +323,22 @@ pub(crate) fn allocate(
             }
             *instructions = fp.instructions;
 
+            // Fail-safe (bug-242): liveness sees register operands only through the
+            // hardcoded DEF_FIELDS/USE_FIELDS allowlist, so a future register-valued
+            // field name not listed there would be invisible to allocation and left
+            // as a raw `%v`/`%f` sentinel. Assert none survives, so an uncovered
+            // field fails loudly here in debug builds instead of silently emitting a
+            // bogus operand.
+            debug_assert!(
+                !instructions.iter().any(|instruction| instruction
+                    .fields
+                    .iter()
+                    .any(|(_, value)| parse_vreg(value).is_some()
+                        || parse_fp_vreg(value).is_some())),
+                "regalloc left an uncolored vreg/fp-vreg sentinel in an operand field \
+                 (a register-valued field not covered by DEF_FIELDS/USE_FIELDS?)"
+            );
+
             let total_spills = int.spill_slot_count + fp.spill_slot_count;
             let spill_slots = (0..total_spills)
                 .map(|k| spill_base_offset + k * slot_bytes)
