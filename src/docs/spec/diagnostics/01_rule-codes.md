@@ -105,12 +105,17 @@ mixes a low validation block (`0001`-`0011`) with a high orchestration block
 ### Code Collisions
 
 Because lookup keys on `name`, the registry tolerates duplicate `code`
-values. Two subsystem-`2-205` codes are reused across the metadata block and the
-DOC-semantics block: **`2-205-0001`** is both `PACKAGE_VERSION_UNSUPPORTED` and
-`DOC_UNRESOLVED`; **`2-205-0002`** is both `NATIVE_MANIFEST_INVALID` and
-`DOC_NAME_MISMATCH`. Diagnostics for these resolve correctly because each call
-site names the rule symbolically; the shared code is a display-label collision
-only. [[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
+values. Three codes are currently shared:
+
+- **`1-102-0010`** is both `MFB_PARSE_BLOCK_TOO_DEEP` (the parser's statement-block
+  nesting cap) and `MFB_PARSE_TESTING_EXPECTED_TGROUP`.
+- **`2-205-0001`** is both `PACKAGE_VERSION_UNSUPPORTED` and `DOC_UNRESOLVED`.
+- **`2-205-0002`** is both `NATIVE_MANIFEST_INVALID` and `DOC_NAME_MISMATCH`.
+
+Diagnostics for these resolve correctly because each call site names the rule
+symbolically; the shared code is a display-label collision only. It is tolerated,
+not endorsed — do not add to it: a new rule takes the next free code in its range.
+[[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
 
 ## Diagnostic Rendering
 
@@ -224,6 +229,7 @@ severity is `error`.
 | `1-102-0007` | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | error | pipeline expression is missing a placeholder |
 | `1-102-0008` | `MFB_PARSE_MISSING_NATIVE_SYMBOL` | error | a native LINK function must declare its native SYMBOL |
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | error | a native LINK function must declare its ABI signature |
+| `1-102-0010` | `MFB_PARSE_BLOCK_TOO_DEEP` | error | statement block nesting is too deep (shares this code — see *Code Collisions*) |
 | `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` | error | a TESTING block may contain only TGROUP groups |
 | `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases and nested TGROUP groups |
 | `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
@@ -392,6 +398,7 @@ Scheme*).
 | `2-203-0119` | `NATIVE_LIBRARY_AMBIGUOUS` | error | two equally-specific native library locators match the target being built |
 | `2-203-0120` | `NATIVE_LIBRARY_FILE_MISSING` | error | a resolved `vendor` native library is missing from the consumer project's `vendor/` directory |
 | `2-203-0121` | `NATIVE_LIBRARY_HASH_MISMATCH` | error | a resolved `vendor` native library does not match the sha256 the binding recorded for it |
+| `2-203-0122` | `NATIVE_LIBRARY_VENDOR_COLLISION` | error | two declaring units vendor different native libraries that copy to the same output filename |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |

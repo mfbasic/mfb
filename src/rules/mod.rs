@@ -219,6 +219,35 @@ mod tests {
         );
     }
 
+    /// Every rule in `RULES` must appear in the embedded `mfb spec diagnostics
+    /// rule-codes` table.
+    ///
+    /// `.ai/compiler.md` requires the embedded spec to stay current with every
+    /// diagnostic change, but nothing enforced it: the `errorCode::` registry has
+    /// a build-time drift guard while the *rule* table had none, so a new rule
+    /// could ship documented only in the source. Caught exactly that during
+    /// plan-46 (`NATIVE_LIBRARY_VENDOR_COLLISION` was in `RULES` but not the
+    /// spec) — by hand, which is the reason this test exists.
+    #[test]
+    fn every_rule_is_documented_in_the_spec() {
+        let spec = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/docs/spec/diagnostics/01_rule-codes.md"
+        ));
+        let missing: Vec<&str> = RULES
+            .iter()
+            .filter(|rule| {
+                // The table renders one row per rule as `| `<code>` | `<NAME>` | ...`.
+                !spec.contains(&format!("`{}`", rule.code)) || !spec.contains(rule.name)
+            })
+            .map(|rule| rule.code)
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "rules missing from src/docs/spec/diagnostics/01_rule-codes.md: {missing:?}"
+        );
+    }
+
     #[test]
     fn show_diagnostic_handles_empty_and_missing_source_files() {
         // An empty source file yields no lines, so the context/underline block is
