@@ -118,6 +118,8 @@
   { "library": "libSystem", "symbol": "_pthread_attr_setstacksize" },
   { "library": "libSystem", "symbol": "_pause" },
   { "library": "libSystem", "symbol": "_getenv" },
+  { "library": "libSystem", "symbol": "_isatty" },
+  { "library": "libSystem", "symbol": "_tcgetattr" },
   { "library": "libSystem", "symbol": "_pipe" },
   { "library": "libSystem", "symbol": "_dup2" },
   { "library": "libSystem", "symbol": "_fcntl" },

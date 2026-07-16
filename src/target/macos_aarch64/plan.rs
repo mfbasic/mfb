@@ -123,6 +123,17 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_pause"),
             ("libSystem", "_getenv"),
             ("libSystem", "_write"),
+            // bug-247: the app `io::input` helper delegates to the console
+            // readLine body (reading the fd-0 window pipe), which probes the
+            // terminal — no-ops on a pipe (isatty(0) = 0 skips the termios
+            // calls), but the symbols must still bind. The per-call rows only
+            // declare these for a program that calls io.readLine directly, so an
+            // io::input-only program would otherwise fail codegen. The composed
+            // body's other probes (`_read`, `_tcsetattr`, `___error`) already
+            // arrive via the io.input row, and `platform_imports` resolves by
+            // symbol alone, so only these two are missing.
+            ("libSystem", "_isatty"),
+            ("libSystem", "_tcgetattr"),
             ("libSystem", "_pipe"),
             ("libSystem", "_dup2"),
             ("libSystem", "_fcntl"), // bug-114: set pipe write end O_NONBLOCK

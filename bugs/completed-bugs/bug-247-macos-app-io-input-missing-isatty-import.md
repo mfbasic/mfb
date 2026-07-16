@@ -1,12 +1,55 @@
 # bug-247: macOS `-app` build of a program using `io::input` fails with "runtime helper requires _isatty import"
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: <tests/* filename — to be added in Phase 1>
+Status: FIXED (2026-07-16). All three phases done.
+
+Fix: `src/target/macos_aarch64/plan.rs:app_mode_imports` force-declares
+`_isatty` and `_tcgetattr`, mirroring `linux_gtk/mod.rs:743-751`.
+
+**Deviation from the Fix Design below (deliberate):** the design also proposed
+adding `_read`/`_tcsetattr` "for parity", on the stated grounds that they are
+"harmless duplicates — `push_platform_import` de-dups". That reasoning is
+wrong on both halves, so they were left out:
+
+1. `push_platform_import` (`shared/plan/symbols.rs:826`) de-dups on the
+   **triple** (library, symbol, required_by). `app_mode_imports` uses
+   `required_by: "_main"` while the `io.input` row uses
+   `required_by: spec.symbol`, so the entries would NOT collapse — they would
+   add rows attributing `_read`/`_tcsetattr` to `_main`, which never calls
+   them.
+2. They are unnecessary anyway: `emit_libsystem_call` resolves through
+   `platform_imports`, a flat symbol→library map built from every import
+   regardless of `required_by` (`shared/code/mod.rs:437-441`). `_read`,
+   `_tcsetattr` and `___error` already arrive via the `io.input` row and are
+   therefore already resolvable. Only `_isatty`/`_tcgetattr` were genuinely
+   absent.
+
+Phase 1 audit verdict (macOS app-mode force-composition): the only app-mode
+force-emit is `io.input` → `io.write` + `io.readLine`
+(`shared/code/mod.rs:1063-1073`). `io.readChar`/`io.readByte` are **not**
+force-composed, so they arrive through their own import row (which already
+declares the probes) and need no treatment.
+
+Phase 3 golden delta: the three `syntax/app/macos-app-mode-*` fixtures gained
+exactly two lines each in `.nplan`/`.ncode` (12 insertions, 0 deletions) — the
+added imports and nothing else. Note the import list is a multiset by design
+(the `macos-app-mode-io` golden already carried 6 `_isatty` entries, one per
+code unit that calls it); the emitter de-dups, and `nm -u` confirms the linked
+binary imports `_isatty` exactly once.
+
+Verified: the `examples/audio` reproduction and the minimal `io::input` case
+both build; both new tests fail with the fix reverted; the app runs headlessly
+(`Name > Hi bob`); `scripts/test-macapp.sh` fully green; full acceptance 949
+tests with only the 2 pre-existing unrelated `.audit` mismatches.
+
+Regression Test: tests/macos_app_io_input_imports.rs, plus Case 5b in
+scripts/test-macapp.sh (runtime). Case 5 of that harness calls `io::readLine`
+alongside `io::input`, which fires the readLine import row and masked this bug —
+Case 5b deliberately keeps the `io::input`-only shape.
 
 Building any macOS app-mode executable (`mfb build -app`, `NativeBuildMode::MacApp`)
 for a program that calls `io::input` aborts codegen with:

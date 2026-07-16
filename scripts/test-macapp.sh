@@ -223,6 +223,43 @@ else
   fi
 fi
 
+# Case 5b (bug-247): app-mode io::input WITHOUT any io::readLine call. Case 5
+# calls io::readLine too, which fires the readLine import row and declares the
+# terminal probes (_isatty/_tcgetattr) that the composed readLine body needs --
+# masking a build that would otherwise fail with "runtime helper requires
+# _isatty import". Keep this case free of io::readLine.
+proj="$work/inputonly"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "inputonly", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT io
+SUB main()
+  LET name AS String = io::input("Name? ")
+  io::print("Hi " & name)
+END SUB
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app inputonly (bug-247: missing _isatty/_tcgetattr imports?)" >&2
+  failures=$((failures + 1))
+else
+  out=$(printf 'bob\n' | MFB_MACAPP_HEADLESS=1 perl -e '
+    my $pid = open(my $fh, "-|");
+    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
+    alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
+  ' "$proj/inputonly.app/Contents/MacOS/inputonly")
+  if [ "$out" = 'Name? Hi bob' ]; then
+    echo "ok: app-mode io::input alone (no io::readLine) builds and reads"
+  else
+    echo "FAIL: unexpected app-mode input-only output: $(printf '%q' "$out")" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
 # Case 6 (GUI): terminal-style window input. Launch a real app, inject keystrokes
 # into the window via System Events, and confirm the program's io::readLine read
 # them (the program writes what it read to a file). Best-effort: keystroke

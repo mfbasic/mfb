@@ -119,6 +119,8 @@
   { "library": "libSystem", "symbol": "_pthread_attr_setstacksize", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pause", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_tcgetattr", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pipe", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_dup2", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_fcntl", "requiredBy": "_main" },
