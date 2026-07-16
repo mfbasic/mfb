@@ -3,6 +3,53 @@
 
 use super::*;
 
+/// Decode the UTF-8 code point at `ptr` (= `&text[index]`), whose lead byte is
+/// already in `glyph` (bug-203).
+///
+/// On return `glyph` holds the code point's bytes packed little-endian — lead
+/// byte in the low byte, zero-padded — which is exactly the layout a `str_u32`
+/// into a 5-byte buffer needs to hand `cairo_show_text` one NUL-terminated
+/// glyph. `len` holds its byte length (1-4), which the caller uses to advance.
+///
+/// The lead byte gives the length; a byte that is not a lead byte (a stray
+/// continuation, `10xxxxxx`) decodes as length 1, and a sequence running past
+/// `count` is clamped to 1. Malformed input therefore still advances one byte at
+/// a time and renders per-byte instead of hanging or reading out of bounds.
+///
+/// No calls, so it uses caller-saved scratch (x11/x12) only; `len` must be a
+/// register that survives the caller's own calls.
+fn emit_utf8_decode_at(asm: &mut Asm, glyph: &str, ptr: &str, len: &str, index: &str, count: &str) {
+    // Length from the lead byte: <0xC0 -> 1, <0xE0 -> 2, <0xF0 -> 3, else 4.
+    asm.push(abi::move_immediate(len, "Integer", "1"));
+    asm.push(abi::compare_immediate(glyph, "192"));
+    asm.push(abi::branch_lt("u8_len_done"));
+    asm.push(abi::move_immediate(len, "Integer", "2"));
+    asm.push(abi::compare_immediate(glyph, "224"));
+    asm.push(abi::branch_lt("u8_len_done"));
+    asm.push(abi::move_immediate(len, "Integer", "3"));
+    asm.push(abi::compare_immediate(glyph, "240"));
+    asm.push(abi::branch_lt("u8_len_done"));
+    asm.push(abi::move_immediate(len, "Integer", "4"));
+    asm.push(abi::label("u8_len_done"));
+    // Clamp to the bytes that remain, so a truncated tail cannot read past the
+    // text: consume one byte instead.
+    asm.push(abi::subtract_registers("x11", count, index));
+    asm.push(abi::compare_registers(len, "x11"));
+    asm.push(abi::branch_ls("u8_len_ok"));
+    asm.push(abi::move_immediate(len, "Integer", "1"));
+    asm.push(abi::label("u8_len_ok"));
+    // Pack the continuation bytes with fixed shifts (len is 1-4, so unrolling
+    // avoids needing a variable shift).
+    for (byte, shift) in [(1usize, 8u8), (2, 16), (3, 24)] {
+        asm.push(abi::compare_immediate(len, &(byte + 1).to_string()));
+        asm.push(abi::branch_lt("u8_pack_done"));
+        asm.push(abi::load_u8("x12", ptr, byte));
+        asm.push(abi::shift_left_immediate("x12", "x12", shift));
+        asm.push(abi::or_registers(glyph, glyph, "x12"));
+    }
+    asm.push(abi::label("u8_pack_done"));
+}
+
 /// Emit `cairo_set_source_rgb(cr, r/255, g/255, b/255)` from a packed RGB value in
 /// `packed` (low 24 bits). Clobbers x0/x9-x13 and d0-d3.
 fn emit_cairo_color(asm: &mut Asm, cr: &str, packed: &str) {
@@ -31,7 +78,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_DRAW_SYMBOL);
     // lr@0, x19(cr)@8, x20(row)@16, x21(col)@24, x22(lastBold)@32, x23(charsBase)@40,
     // x24(fgBase)@48, x25(bgBase)@56, x26(cols)@64, x27(rows)@72, fg@80, bg@88,
-    // charbuf@96 (2B).
+    // charbuf@96 (5B: up to 4 UTF-8 bytes + NUL).
     let frame = 112;
     let (off_fg, off_bg, off_buf) = (80usize, 88usize, 96usize);
     let saved = [
@@ -96,12 +143,16 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::multiply_registers("x10", "x20", "x9"));
     asm.push(abi::add_registers("x10", "x10", "x21")); // idx
     asm.push(abi::shift_left_immediate("x11", "x10", 2)); // idx*4
-                                                          // char -> charbuf; fg, bg -> stack (survive cairo calls)
-    asm.push(abi::add_registers("x12", "x23", "x10"));
-    asm.push(abi::load_u8("x13", "x12", 0));
-    asm.push(abi::store_u8("x13", abi::stack_pointer(), off_buf));
+    // char -> charbuf; fg, bg -> stack (survive cairo calls). The cell holds one
+    // code point's UTF-8 bytes packed little-endian, so storing the u32 lays them
+    // out in order; the NUL after it terminates the 1-4 byte sequence for
+    // `cairo_show_text` (bug-203 — this used to store a single byte, which cut a
+    // multi-byte glyph into invalid fragments).
+    asm.push(abi::add_registers("x12", "x23", "x11"));
+    asm.push(abi::load_u32("x13", "x12", 0));
+    asm.push(abi::store_u32("x13", abi::stack_pointer(), off_buf));
     asm.push(abi::move_immediate("x9", "Integer", "0"));
-    asm.push(abi::store_u8("x9", abi::stack_pointer(), off_buf + 1));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), off_buf + 4));
     asm.push(abi::add_registers("x12", "x24", "x11"));
     asm.push(abi::load_u32("x13", "x12", 0));
     asm.push(abi::store_u64("x13", abi::stack_pointer(), off_fg));
@@ -126,8 +177,13 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.call_external("cairo_fill");
     asm.push(abi::label("d_no_bg"));
 
-    // Glyph (skip spaces).
-    asm.push(abi::load_u8("x13", abi::stack_pointer(), off_buf));
+    // Glyph (skip blanks). A never-written cell is 0 (the blanking memsets clear
+    // whole u32 cells) and an explicitly written space is 32; both render
+    // nothing. Compares the whole cell, so a multi-byte glyph whose lead byte
+    // happens to be 0x20 could never be mistaken for a space.
+    asm.push(abi::load_u32("x13", abi::stack_pointer(), off_buf));
+    asm.push(abi::compare_immediate("x13", "0"));
+    asm.push(abi::branch_eq("d_next"));
     asm.push(abi::compare_immediate("x13", "32"));
     asm.push(abi::branch_eq("d_next"));
     // Re-select font weight if bold changed.
@@ -296,24 +352,18 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
         &TERM_MAX_COLS.to_string(),
     ));
     asm.push(abi::multiply_registers("x19", "x19", "x9")); // cells = (rows-1)*MAX_COLS
-                                                           // memmove each array up one (fixed-stride) row: chars 1B, fg/bg 4B per cell.
-    for (base, shift) in [(ST_TERM_CHARS, 0u8), (ST_TERM_FG, 2), (ST_TERM_BG, 2)] {
+    // memmove each array up one (fixed-stride) row: 4B per cell for all three
+    // (chars became u32 in bug-203, matching fg/bg).
+    for (base, shift) in [(ST_TERM_CHARS, 2u8), (ST_TERM_FG, 2), (ST_TERM_BG, 2)] {
         asm.state_array("x0", base); // dst = row 0
         asm.state_array("x1", base + TERM_MAX_COLS * (1 << shift)); // src = row 1
         asm.push(abi::shift_left_immediate("x2", "x19", shift)); // cells * elemSize
         asm.call_external("memmove");
     }
-    // Blank the last active row (offset = cells): chars=' ', fg/bg=0.
-    asm.state_array("x0", ST_TERM_CHARS);
-    asm.push(abi::add_registers("x0", "x0", "x19"));
-    asm.push(abi::move_immediate("x1", "Integer", "32"));
-    asm.push(abi::move_immediate(
-        "x2",
-        "Integer",
-        &TERM_MAX_COLS.to_string(),
-    ));
-    asm.call_external("memset");
-    for base in [ST_TERM_FG, ST_TERM_BG] {
+    // Blank the last active row (offset = cells*4): all three arrays to 0. chars
+    // clears to 0 rather than ' ' — `memset` writes whole bytes, so ' ' over u32
+    // cells would pack FOUR spaces per cell; the draw skips 0 (bug-203).
+    for base in [ST_TERM_CHARS, ST_TERM_FG, ST_TERM_BG] {
         asm.state_array("x0", base);
         asm.push(abi::shift_left_immediate("x9", "x19", 2)); // cells*4
         asm.push(abi::add_registers("x0", "x0", "x9"));
@@ -410,13 +460,14 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     asm.push(abi::unsigned_divide_registers("x11", "x9", "x10"));
     emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_ROWS, "rows");
     asm.store_state("x11", ST_TERM_ROWS);
-    // Blank the whole char backing store to spaces (fg/bg stay 0 = defaults).
+    // Blank the whole char backing store (fg/bg stay 0 = defaults). Cells clear
+    // to 0, not ' ' — see the scroll blank (bug-203).
     asm.state_array("x0", ST_TERM_CHARS);
-    asm.push(abi::move_immediate("x1", "Integer", "32"));
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.push(abi::move_immediate(
         "x2",
         "Integer",
-        &(TERM_MAX_COLS * TERM_MAX_ROWS).to_string(),
+        &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
     asm.call_external("memset");
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -500,13 +551,13 @@ pub(super) fn emit_term_hide_idle_helper() -> Result<CodeFunction, String> {
 /// (it is only ever reached from an idle callback). A raw byte copy preserves the
 /// COLOR_SET/bold/underline bit-packing in the fg/bg words. Clobbers x0/x1/x2/x9.
 fn emit_term_snapshot_copy(asm: &mut Asm) {
-    // chars: 1 byte/cell.
+    // chars: 4 bytes/cell (one code point's UTF-8 bytes packed LE — bug-203).
     asm.state_array("x0", ST_TERM_SNAP_CHARS);
     asm.state_array("x1", ST_TERM_CHARS);
     asm.push(abi::move_immediate(
         "x2",
         "Integer",
-        &(TERM_MAX_COLS * TERM_MAX_ROWS).to_string(),
+        &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
     asm.call_external("memcpy");
     // fg / bg: 4 bytes/cell (packed RGB | flags — copied verbatim).
@@ -609,8 +660,13 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
 pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,
-    // x25(row)@48, x26(col)@56, x27(fgBase)@64, x28(bgBase)@72, fgval@80, bgval@88.
-    let frame = 96;
+    // x25(row)@48, x26(col)@56, x27(fgBase)@64, x28(bgBase)@72, fgval@80, bgval@88,
+    // x19(code-point byte length)@96.
+    //
+    // The length must be callee-saved: `tw_clamp` can call TERM_SCROLL_SYMBOL
+    // between the decode and the `i += len` advance, so a caller-saved scratch
+    // would not survive it (bug-203).
+    let frame = 112;
     let (off_fgval, off_bgval) = (80usize, 88usize);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -620,6 +676,7 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
         0,
     ));
     for (reg, off) in [
+        ("x19", 96),
         ("x20", 8),
         ("x21", 16),
         ("x22", 24),
@@ -671,7 +728,17 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     asm.push(abi::load_u8("x10", "x9", 0)); // byte = ptr[i]
     asm.push(abi::compare_immediate("x10", "10")); // '\n'
     asm.push(abi::branch_eq("tw_newline"));
-    // idx = row*MAX_COLS + col; chars[idx]=byte; fg[idx]=fgval; bg[idx]=bgval.
+    // Decode ONE code point into x10 as its UTF-8 bytes packed little-endian,
+    // with its length in x19 (bug-203). Storing a byte per cell split a
+    // multi-byte glyph across cells: each cell held a lone fragment, the cursor
+    // advanced by the byte count instead of one column, and the draw handed
+    // cairo invalid UTF-8 (tofu). The lead byte gives the length:
+    //   0xxxxxxx -> 1   110xxxxx -> 2   1110xxxx -> 3   11110xxx -> 4
+    // A bare continuation byte (10xxxxxx) or a truncated tail is not a lead
+    // byte; those fall through as length 1, so malformed input still advances
+    // and renders per-byte rather than hanging or over-reading.
+    emit_utf8_decode_at(&mut asm, "x10", "x9", "x19", "x21", "x22");
+    // idx = row*MAX_COLS + col; chars[idx]=glyph; fg[idx]=fgval; bg[idx]=bgval.
     asm.push(abi::move_immediate(
         "x11",
         "Integer",
@@ -679,9 +746,9 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::multiply_registers("x12", "x25", "x11"));
     asm.push(abi::add_registers("x12", "x12", "x26")); // idx
-    asm.push(abi::add_registers("x9", "x24", "x12"));
-    asm.push(abi::store_u8("x10", "x9", 0));
     asm.push(abi::shift_left_immediate("x13", "x12", 2)); // idx*4
+    asm.push(abi::add_registers("x9", "x24", "x13"));
+    asm.push(abi::store_u32("x10", "x9", 0));
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_fgval));
     asm.push(abi::add_registers("x14", "x27", "x13"));
     asm.push(abi::store_u32("x9", "x14", 0));
@@ -697,6 +764,7 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_immediate("x25", "x25", 1));
     asm.push(abi::branch("tw_clamp"));
     asm.push(abi::label("tw_newline"));
+    asm.push(abi::move_immediate("x19", "Integer", "1")); // '\n' is one byte
     asm.push(abi::move_immediate("x26", "Integer", "0"));
     asm.push(abi::add_immediate("x25", "x25", 1));
     asm.push(abi::label("tw_clamp"));
@@ -708,7 +776,9 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     asm.load_state("x25", ST_TERM_ROWS);
     asm.push(abi::subtract_immediate("x25", "x25", 1));
     asm.push(abi::label("tw_next"));
-    asm.push(abi::add_immediate("x21", "x21", 1));
+    // Advance by the code point's byte length (x19), set to 1 on the '\n' path
+    // below. The cursor moved one column per glyph above (bug-203).
+    asm.push(abi::add_registers("x21", "x21", "x19"));
     asm.push(abi::branch("tw_loop"));
 
     asm.push(abi::label("tw_after"));
@@ -731,6 +801,7 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in [
+        ("x19", 96),
         ("x20", 8),
         ("x21", 16),
         ("x22", 24),

@@ -94,10 +94,21 @@ const ST_TERM_COLS: usize = ST_TERM_CURSOR_VISIBLE + 8; // active columns
 const ST_TERM_ROWS: usize = ST_TERM_COLS + 8; // active rows
 const ST_TERM_CELL_W: usize = ST_TERM_ROWS + 8; // cell width in px
 const ST_TERM_CELL_H: usize = ST_TERM_CELL_W + 8; // cell height in px
-                                                  // Parallel per-cell grids: chars (1B), fg (u32 packed | flags), bg (u32 packed).
+                                                  // Parallel per-cell grids: chars (u32), fg (u32 packed | flags), bg (u32 packed).
                                                   // Row stride is TERM_MAX_COLS; only the top-left cols x rows are active.
+                                                  //
+                                                  // A char cell holds ONE code point's UTF-8 bytes packed little-endian —
+                                                  // lead byte in the low byte, zero-padded — so a `str_u32` into a 5-byte
+                                                  // buffer lays the sequence out in order with a NUL terminator after it, and
+                                                  // `cairo_show_text` gets the whole glyph. It was one byte per cell, which
+                                                  // split a multi-byte glyph across cells and drew each fragment as tofu
+                                                  // (bug-203). 4 bytes covers every code point (U+10FFFF encodes to 4).
+                                                  //
+                                                  // A blank cell is 0, not ' ': the blanking `memset`s write whole bytes, and
+                                                  // a memset of ' ' over u32 cells would pack FOUR spaces per cell. The draw
+                                                  // treats 0 and ' ' alike (both render nothing).
 const ST_TERM_CHARS: usize = ST_TERM_CELL_H + 8;
-const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS;
+const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 // Draw-owned snapshot (front) copy of the three grid arrays (plan-35-E). The worker
 // mutates the live arrays above; a present (`term::sync`/`io::flush`/`off`) copies the
@@ -107,7 +118,7 @@ const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 // and COLOR_SET/bold/underline bit-packing as the live arrays (a raw memcpy preserves
 // every packed bit).
 const ST_TERM_SNAP_CHARS: usize = ST_TERM_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
-const ST_TERM_SNAP_FG: usize = ST_TERM_SNAP_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS;
+const ST_TERM_SNAP_FG: usize = ST_TERM_SNAP_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_BG: usize = ST_TERM_SNAP_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const STATE_SIZE: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 

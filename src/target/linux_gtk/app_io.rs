@@ -319,13 +319,15 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
         0,
     ));
     emit_gtk_term_active_gate(&mut asm, "clr_inactive"); // §4.2.1 no-op gate (bug-111)
-    // Blank the whole backing store (chars=' ', fg/bg=0).
+    // Blank the whole backing store (chars/fg/bg = 0). chars clears to 0 rather
+    // than ' ': cells are u32 since bug-203, and `memset` writes whole bytes, so
+    // ' ' would pack four spaces per cell. The draw renders 0 as blank.
     asm.state_array("x0", ST_TERM_CHARS);
-    asm.push(abi::move_immediate("x1", "Integer", "32"));
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.push(abi::move_immediate(
         "x2",
         "Integer",
-        &(TERM_MAX_COLS * TERM_MAX_ROWS).to_string(),
+        &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
     asm.call_external("memset");
     asm.state_array("x0", ST_TERM_FG);
