@@ -7,6 +7,13 @@ use super::*;
 /// cap `ir::verify` uses for the same reason; no real source nests this deep.
 const MAX_EXPR_DEPTH: usize = 256;
 
+/// Maximum type-annotation-nesting depth. `parse_type_name` recurses for grouped
+/// types, `Map`/`List`/`Result`/`Thread` element types, template args, and
+/// function-type params/return; an unbounded nested type (e.g. `List OF List OF …`
+/// or `(((…)))`) would otherwise overflow the native stack with no diagnostic
+/// (bug-191). Matches `MAX_EXPR_DEPTH`; no real annotation nests this deep.
+const MAX_TYPE_DEPTH: usize = 256;
+
 impl<'a> FileParser<'a> {
     /// Enter one expression-nesting level, reporting and returning `false` when
     /// the maximum depth is exceeded. On the `false` path the counter is already
@@ -536,7 +543,49 @@ impl<'a> FileParser<'a> {
         Some(name)
     }
 
+    /// Enter one type-annotation-nesting level, reporting and returning `false`
+    /// when the maximum depth is exceeded. On the `false` path the counter is
+    /// already rewound (the caller must simply bail); otherwise the caller must
+    /// pair a successful `enter_type` with exactly one `leave_type`.
+    fn enter_type(&mut self) -> bool {
+        self.type_depth += 1;
+        if self.type_depth > MAX_TYPE_DEPTH {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "Type annotation nesting is too deep.",
+                &token,
+            );
+            // Latch after the one diagnostic, then collapse the cursor to `Eof`
+            // (same recovery as the statement-depth guard, bug-183): the enclosing
+            // type/statement parses unwind without recursing further or emitting a
+            // trailing cascade for the same pathological annotation.
+            self.depth_exceeded = true;
+            self.seek_to_end();
+            self.type_depth -= 1;
+            false
+        } else {
+            true
+        }
+    }
+
+    fn leave_type(&mut self) {
+        self.type_depth -= 1;
+    }
+
+    /// Guarded entry point for type-name parsing. Every recursive sub-parse
+    /// re-enters through here, so the depth guard bounds native recursion across
+    /// grouped types, element types, template args, and function types (bug-191).
     pub(super) fn parse_type_name(&mut self) -> Option<String> {
+        if !self.enter_type() {
+            return None;
+        }
+        let result = self.parse_type_name_inner();
+        self.leave_type();
+        result
+    }
+
+    fn parse_type_name_inner(&mut self) -> Option<String> {
         if self.match_keyword(Keyword::Func) {
             return self.parse_function_type_name(false);
         }

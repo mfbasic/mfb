@@ -5,8 +5,13 @@ Effort: small (<1h)
 Severity: HIGH
 Class: memory-safety (compile-time DoS)
 
-Status: Open
-Regression Test: tests/syntax/ (deeply nested type annotation → bounded parse diagnostic, not abort)
+Status: Fixed (2026-07-15) — `parse_type_name` now enters an `enter_type`/
+`leave_type` depth guard (`MAX_TYPE_DEPTH = 256`, a new `type_depth` parser
+counter) via a guarded wrapper around `parse_type_name_inner`; exceeding the cap
+reports one bounded diagnostic and latches `depth_exceeded`/`seek_to_end` (same
+recovery as the statement-depth guard) instead of overflowing the stack.
+Regression Test: `tests/rt-error/parser_type_name_depth` (300-deep `List OF … Integer`
+→ single `MFB_PARSE_UNEXPECTED_TOKEN` "Type annotation nesting is too deep.", exit 1).
 
 `parse_type_name` recurses for grouped types, template args, Map/List/Result/
 Thread element types, and function-type params/return, but never bumps the

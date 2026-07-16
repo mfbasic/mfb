@@ -30,6 +30,13 @@ pub(super) struct FileParser<'a> {
     /// native stack here or in any downstream pass that re-walks the AST (audit-2
     /// FE-03 / bug-183). `expr_depth` guards only the expression grammar.
     pub(super) stmt_depth: usize,
+    /// Current type-annotation-nesting depth, bumped at each recursive re-entry of
+    /// `parse_type_name` (grouped `(…)`, `Map`/`List`/`Result`/`Thread` element
+    /// types, template args, and function-type params/return) so a pathologically
+    /// nested **type** annotation is rejected with a diagnostic instead of
+    /// overflowing the native stack (bug-191). `expr_depth`/`stmt_depth` guard only
+    /// the expression and statement grammars respectively.
+    pub(super) type_depth: usize,
     /// Latched once statement nesting hits the cap (bug-183). It fast-forwards the
     /// cursor to `Eof` and suppresses every subsequent diagnostic, so the deeply
     /// nested block unwinds through its ~256 enclosing `consume_end_block` calls
@@ -67,6 +74,7 @@ impl<'a> FileParser<'a> {
             had_error: false,
             expr_depth: 0,
             stmt_depth: 0,
+            type_depth: 0,
             depth_exceeded: false,
         }
     }
