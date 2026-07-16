@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/audio/read_output_invalid
    5 |   LET pcm AS List OF Byte = audio::read(out, 480)
      | ^
 tests/syntax/audio/read_output_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `audio.read` has argument type(s) (AudioOutput, Integer), expected AudioInput, Integer, Integer.
+               Call to `audio.read` has argument type(s) (AudioOutput, Integer), expected AudioInput, Integer[, Integer].
    3 | FUNC main AS Integer
    4 |   RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
    5 |   LET pcm AS List OF Byte = audio::read(out, 480)

@@ -231,23 +231,32 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
     }
 }
 
-/// Return type of a **user-facing** `audio::` call. The lowered-only internal
-/// names are deliberately absent: `builtins::is_builtin_call` falls back to this
-/// lookup, so listing them here would re-admit `audio::readTimeout()` as a
-/// user-callable builtin and silently miscompile it (bug-213). IR lowering only
-/// queries this with the source callee — the internal names are synthesized after
-/// the result type is already fixed on the IR node — and the runtime helper specs
-/// carry their own ABI.
+/// The lowered-only internal names `implementation_name` synthesizes. They are not
+/// user-callable, so `builtins::is_builtin_call` excludes them explicitly — its
+/// `call_return_type_name` fallback would otherwise re-admit them as a builtin and
+/// silently miscompile `audio::readTimeout()` (bug-213).
+pub(crate) fn is_audio_internal_call(name: &str) -> bool {
+    matches!(
+        name,
+        OPEN_INPUT_DEVICE | OPEN_OUTPUT_DEVICE | READ_TIMEOUT | POLL_TIMEOUT | CLOSE_INPUT
+            | CLOSE_OUTPUT
+    )
+}
+
+/// Return type of an `audio::` call. This **must** keep the lowered-only internal
+/// names: IR lowering rewrites e.g. `audio::close` to `audio.closeOutput` and then
+/// queries this for the rewritten target's return type. The user-facing gate is
+/// `is_audio_call` / `is_audio_internal_call`, not this lookup.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         DEVICES => Some("List OF AudioDevice"),
-        OPEN_INPUT => Some(AUDIO_INPUT_TYPE),
-        OPEN_OUTPUT => Some(AUDIO_OUTPUT_TYPE),
-        READ | RENDER => Some("List OF Byte"),
-        WRITE | CLOSE | PLAY => Some("Nothing"),
+        OPEN_INPUT | OPEN_INPUT_DEVICE => Some(AUDIO_INPUT_TYPE),
+        OPEN_OUTPUT | OPEN_OUTPUT_DEVICE => Some(AUDIO_OUTPUT_TYPE),
+        READ | READ_TIMEOUT | RENDER => Some("List OF Byte"),
+        WRITE | CLOSE | CLOSE_INPUT | CLOSE_OUTPUT | PLAY => Some("Nothing"),
         // `poll` is `Boolean`, `available`/`xruns` are `Integer`, on either
         // direction; `resolve_call` returns the precise type per operand.
-        POLL => Some("Boolean"),
+        POLL | POLL_TIMEOUT => Some("Boolean"),
         AVAILABLE | XRUNS => Some("Integer"),
         _ => None,
     }
@@ -433,12 +442,17 @@ mod tests {
             CLOSE_OUTPUT,
         ] {
             assert!(!is_audio_call(n), "internal name must not be user-facing: {n}");
+            assert!(is_audio_internal_call(n), "{n}");
             assert!(is_audio_runtime_call(n), "{n}");
-            // The is_builtin_call fallback must not re-admit them either.
+            // call_return_type_name MUST still know them (IR lowering queries the
+            // rewritten target), but is_builtin_call must not re-admit them via its
+            // call_return_type_name fallback.
+            assert!(call_return_type_name(n).is_some(), "{n}");
             assert!(
-                call_return_type_name(n).is_none(),
-                "internal name must not have a user-facing return type: {n}"
+                !crate::builtins::is_builtin_call(n),
+                "internal name must not be user-callable: {n}"
             );
+            assert!(!crate::builtins::is_builtin_member(n), "{n}");
         }
         assert!(!is_audio_call("audio.nope"));
         assert!(!is_audio_runtime_call("audio.nope"));

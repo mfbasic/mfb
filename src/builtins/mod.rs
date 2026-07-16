@@ -365,6 +365,14 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
+    // The `audio::` lowered-only internal names are not user-callable. They must be
+    // excluded before the `call_return_type_name` fallback below, which knows their
+    // types (IR lowering needs it for the rewritten target) and would otherwise
+    // re-admit `audio::readTimeout()` as a builtin and silently miscompile it
+    // (bug-213).
+    if audio::is_audio_internal_call(name) {
+        return false;
+    }
     audio::is_audio_call(name)
         || collections::is_collections_call(name)
         || general::is_general_call(name)
