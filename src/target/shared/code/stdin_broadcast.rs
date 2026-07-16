@@ -681,6 +681,15 @@ pub(super) fn lower_stdin_subscribe(
         abi::add_immediate("%v67", "%v78", STDIN_LOG_REGISTRY_OFFSET),
         abi::move_immediate("%v74", "Integer", "0"),
         abi::label(&l("find")),
+        // Registry-full (bug-243): the subscriber table holds at most
+        // STDIN_LOG_MAX_SUBSCRIBERS (128) concurrently-live subscribers. When full,
+        // the calling thread is left unregistered (STDIN_SUBSCRIBER stays null), so
+        // its later `readByte`/`readChar` return ErrInvalidContext ("not
+        // subscribed") — which is accurate (it genuinely is not subscribed). A
+        // distinct capacity error would require making `thread::openStdIn` fallible
+        // (it currently returns `Nothing`); the 128-subscriber cap is the documented
+        // limit. Reaching it needs >128 concurrently-live threads each calling
+        // openStdIn — far beyond normal use.
         abi::compare_immediate("%v74", &STDIN_LOG_MAX_SUBSCRIBERS.to_string()),
         abi::branch_ge(&l("unlock")),
         abi::load_u64("%v51", "%v67", STDIN_SUBSCRIBER_ACTIVE_OFFSET),

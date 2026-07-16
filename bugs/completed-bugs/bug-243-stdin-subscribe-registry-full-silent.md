@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: footgun
 
-Status: Open
+Status: Fixed (documented, 2026-07-15) — documented the 128-subscriber cap and the registry-full behavior at the subscribe helper's `find` loop: when full the thread is left unregistered (STDIN_SUBSCRIBER stays null) so a later read returns ErrInvalidContext — which is accurate (it genuinely is not subscribed). Surfacing a *distinct* capacity error would require making `thread::openStdIn` fallible (it returns `Nothing` today), a change to its documented contract disproportionate to a LOW bug reachable only with >128 concurrently-live stdin-subscribing threads. Documented per the bug's stated minimum.
 
 When the 128-slot subscriber registry is full, `lower_stdin_subscribe`
 (`src/target/shared/code/stdin_broadcast.rs:683-691`, the `find` loop) silently
