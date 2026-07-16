@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — contains_resource_or_thread_with_seen and is_copyable_type_with_seen now short-circuit each Union variant on resource_registry.is_resource(&variant.name) (contains -> true; copyable -> false) instead of vacuously iterating the always-empty variant.fields of a resource-union variant, mirroring is_thread_sendable_type_with_seen (bug-173-F). Regression Test: verified `UNION Handle / File / END UNION` used as `Map OF Handle TO Integer` is now rejected by syntaxcheck with TYPE_COLLECTION_OWNERSHIP_VIOLATION (previously only backstopped by ir::verify). All 464 syntaxcheck tests pass.
 
 `contains_resource_or_thread_with_seen` (`src/syntaxcheck/resources.rs:99-119`)
 and `is_copyable_type_with_seen` (`:211-236`) both iterate `variant.fields`, which

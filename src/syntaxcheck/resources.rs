@@ -109,9 +109,14 @@ impl<'a> SyntaxChecker<'a> {
                         self.contains_resource_or_thread_with_seen(&field.type_, seen)
                     }),
                     TypeDeclKind::Union => info.variants.iter().any(|variant| {
-                        variant.fields.iter().any(|field| {
-                            self.contains_resource_or_thread_with_seen(&field.type_, seen)
-                        })
+                        // A resource-union variant name is itself a registered
+                        // resource carrying empty `fields`; the vacuous `.any()` over
+                        // no fields would miss it (bug-231, the bug-173-F pattern).
+                        // Short-circuit on the variant being a resource.
+                        self.resource_registry.is_resource(&variant.name)
+                            || variant.fields.iter().any(|field| {
+                                self.contains_resource_or_thread_with_seen(&field.type_, seen)
+                            })
                     }),
                 };
                 seen.remove(name);
@@ -225,10 +230,14 @@ impl<'a> SyntaxChecker<'a> {
                         .iter()
                         .all(|field| self.is_copyable_type_with_seen(&field.type_, seen)),
                     TypeDeclKind::Union => info.variants.iter().all(|variant| {
-                        variant
-                            .fields
-                            .iter()
-                            .all(|field| self.is_copyable_type_with_seen(&field.type_, seen))
+                        // A resource-union variant is a registered resource (not
+                        // copyable) with empty `fields`; the vacuous `.all()` over no
+                        // fields would report it copyable (bug-231, bug-173-F pattern).
+                        !self.resource_registry.is_resource(&variant.name)
+                            && variant
+                                .fields
+                                .iter()
+                                .all(|field| self.is_copyable_type_with_seen(&field.type_, seen))
                     }),
                 };
                 seen.remove(name);
