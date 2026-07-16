@@ -63,9 +63,15 @@ pub(super) fn external_function_metadata(
                     format!("export references missing function {}", export.function_id)
                 })?;
             let export_name = string_at(&package.project.strings.values, export.name)?;
+            // `export.function_id` is decoded from an attacker-influenced `.mfp`;
+            // use checked_add (like the `next_function_id` bump below) so an
+            // overflow errors instead of silently wrapping (bug-215).
+            let global_function_id = next_function_id
+                .checked_add(export.function_id)
+                .ok_or_else(|| "merged binary representation has too many functions".to_string())?;
             external_function_ids.insert(
                 format!("{package_name}.{export_name}"),
-                next_function_id + export.function_id,
+                global_function_id,
             );
             external_function_returns.insert(
                 format!("{package_name}.{export_name}"),

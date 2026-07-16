@@ -73,7 +73,9 @@ pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
         })
     };
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut decls = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 2));
+    // A doc declaration occupies ~40+ wire bytes; use that as the min-element size
+    // for the pre-allocation bound (was an understated 2).
+    let mut decls = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 40));
     for _ in 0..count {
         let kind = doc_kind_name(cursor_u16(bytes, &mut offset)?).to_string();
         let name = cursor_string(bytes, &mut offset)?;
@@ -828,7 +830,9 @@ pub(super) fn read_function_table(
 ) -> Result<Vec<Function>, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut functions = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 4));
+    // A function entry occupies >= 52 wire bytes, so use that as the min-element
+    // size for the PKG-05 pre-allocation bound (was an understated 4, ~13x loose).
+    let mut functions = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 52));
     for _ in 0..count {
         let name = cursor_u32(bytes, &mut offset)?;
         let kind = cursor_u16(bytes, &mut offset)?;

@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: security / footgun
 
-Status: Open
+Status: Fixed (2026-07-15) — read_function_table's bounded_capacity min_elem is now 52 (a function entry's real >=52 wire bytes) and read_doc_table's is 40 (a doc decl's ~40+ bytes), tightening the PKG-05 pre-allocation bound; and external_function_metadata now uses checked_add on the attacker-influenced next_function_id + export.function_id, matching the sibling two lines below. binary_repr tests pass.
 
 Two minor robustness gaps on the untrusted `.mfp` path (the module is otherwise
 well hardened — every other count→alloc and offset uses checked bounds):
