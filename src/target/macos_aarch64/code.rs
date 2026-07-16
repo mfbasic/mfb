@@ -176,13 +176,6 @@ impl code::CodegenPlatform for Platform {
         Some(Ok(app::emit_app_io_is_terminal_helper(symbol)))
     }
 
-    fn emit_app_io_terminal_size_helper(
-        &self,
-        symbol: &str,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(app::emit_app_io_terminal_size_helper(symbol)))
-    }
-
     fn emit_app_term_helper(
         &self,
         call: &str,

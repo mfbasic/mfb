@@ -337,8 +337,12 @@ else
   fi
 fi
 
-# Case 8 (GUI): io::terminalSize reports the transcript viewport (plan §5.4).
-# Launch a real window; the program writes the computed columns/rows to a file.
+# Case 8 (GUI): term::terminalSize reports the TermView surface grid.
+# Launch a real window; the program writes the reported columns/rows to a file.
+# This case used io::terminalSize until plan-01-term Phase 3 removed that
+# builtin; because the whole case is GUI-gated it kept being skipped, so the
+# stale source went unnoticed and MFB_MACAPP_GUI=1 failed at "build -app tsize".
+# term::terminalSize is gated behind TUI mode, hence the term::on() first.
 proj="$work/tsize"
 mkdir -p "$proj/src"
 cat > "$proj/project.json" <<'JSON'
@@ -347,10 +351,12 @@ cat > "$proj/project.json" <<'JSON'
   "entry": "main", "targets": ["native"] }
 JSON
 cat > "$proj/src/main.mfb" <<MFB
-IMPORT io
+IMPORT term
 IMPORT fs
 SUB main()
-  LET s AS TerminalSize = io::terminalSize()
+  term::on()
+  LET s AS TermSize = term::terminalSize()
+  term::off()
   fs::writeText("$proj/size.txt", toString(s.columns) & "x" & toString(s.rows))
 END SUB
 MFB
@@ -366,9 +372,9 @@ else
   pkill -KILL tsize >/dev/null 2>&1
   size=$(cat "$proj/size.txt" 2>/dev/null || true)
   if printf '%s' "$size" | grep -Eq '^[1-9][0-9]*x[1-9][0-9]*$'; then
-    echo "ok: io::terminalSize reported window viewport ($size)"
+    echo "ok: term::terminalSize reported window surface ($size)"
   else
-    echo "skip: io::terminalSize window check unavailable (need GUI session); got '$size'"
+    echo "skip: term::terminalSize window check unavailable (need GUI session); got '$size'"
   fi
 fi
 

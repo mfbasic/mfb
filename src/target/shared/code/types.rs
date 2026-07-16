@@ -585,19 +585,6 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for the transcript viewport size in text columns/rows,
-    /// computed from the scroll view's content size and the monospaced font
-    /// metrics. `None` for targets without app mode. Retained for plan-01-term.md
-    /// Phase 5 (`term::terminalSize` app backend, §8.3); unused since
-    /// `io::terminalSize` was removed in Phase 3.
-    #[allow(clippy::type_complexity, dead_code)]
-    fn emit_app_io_terminal_size_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        None
-    }
-
     /// App-mode body for a `term::` runtime helper that drives the synthesized
     /// TermView surface (plan-01-term.md §6.3, Phase 4-5). Returns `None` for
     /// calls that keep the shared console backend (and for targets without app

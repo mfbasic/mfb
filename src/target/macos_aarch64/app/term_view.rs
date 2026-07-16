@@ -109,16 +109,34 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x21", "x0")); // UTF-8 bytes of the line
     asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_strlen", LIB_SYSTEM);
-    asm.push(abi::move_register("x2", "x0")); // length
+    asm.push(abi::move_register("x22", "x0")); // bytes still to deliver
+    // Deliver the whole line, resuming after a partial write (bug-241). A pipe
+    // write is atomic only up to PIPE_BUF, so a line longer than that splits
+    // when the reader is behind; writing the remainder off and still sending the
+    // newline below would hand the program a truncated line as a complete one.
+    // x22 (text storage) is dead on this path — only `kd_backspace` reads it and
+    // `kd_commit` branches straight to `kd_done` — so it carries the remaining
+    // count across the `_write` calls, which clobber x0-x17.
+    asm.push(abi::label("kd_commit_write"));
+    asm.push(abi::compare_immediate("x22", "0"));
+    asm.push(abi::branch_eq("kd_commit_newline"));
     asm.push(abi::move_register("x0", "x23"));
     asm.push(abi::move_register("x1", "x21"));
+    asm.push(abi::move_register("x2", "x22"));
     asm.call_external("_write", LIB_SYSTEM);
     // The pipe write end is O_NONBLOCK (bug-114): if the pipe buffer is full the
     // worker hasn't drained stdin, so write() returns -1/EAGAIN instead of
-    // blocking the UI thread forever. On failure drop this line (skip the
-    // trailing newline write) rather than block; still echo + clear below.
+    // blocking the UI thread forever. Give up on the line then, skipping the
+    // trailing newline so the program never sees a partial line terminated as a
+    // whole one; still echo + clear below. Testing `<= 0` rather than `< 0` also
+    // makes the loop provably terminate: each iteration either delivers at least
+    // one byte or leaves the loop, so it can never spin on the UI thread.
     asm.push(abi::compare_immediate("x0", "0"));
-    asm.push(abi::branch_lt("kd_commit_echo"));
+    asm.push(abi::branch_le("kd_commit_echo"));
+    asm.push(abi::add_registers("x21", "x21", "x0"));
+    asm.push(abi::subtract_registers("x22", "x22", "x0"));
+    asm.push(abi::branch("kd_commit_write"));
+    asm.push(abi::label("kd_commit_newline"));
     asm.push(abi::move_immediate("x9", "Integer", "10"));
     asm.push(abi::store_u8("x9", abi::stack_pointer(), 72));
     asm.push(abi::move_register("x0", "x23"));
@@ -1049,9 +1067,9 @@ pub(super) fn emit_term_accepts_first_responder() -> CodeFunction {
 /// thread.
 pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_KEY_DOWN_SYMBOL);
-    // Frame: lr@0, x19(self)@8, x20(app)@16, x21(chars/cstr)@24, x23(event/wfd/
-    // scratch)@40, x24(char/scratch)@48, x25(input line)@56, x26(input mode)@64,
-    // newline byte@72.
+    // Frame: lr@0, x19(self)@8, x20(app)@16, x21(chars/cstr)@24,
+    // x22(write remainder)@32, x23(event/wfd/scratch)@40, x24(char/scratch)@48,
+    // x25(input line)@56, x26(input mode)@64, newline byte@72.
     let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -1064,6 +1082,10 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
         ("x19", 8),
         ("x20", 16),
         ("x21", 24),
+        // x22 carries `tkd_commit`'s remaining-byte count across `_write`
+        // (bug-241). Unlike the `kd_*` sibling this helper had no other use for
+        // it, so it must be saved here before being clobbered.
+        ("x22", 32),
         ("x23", 40),
         ("x24", 48),
         ("x25", 56),
@@ -1146,15 +1168,27 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x21", "x0")); // UTF-8 bytes of the line
     asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_strlen", LIB_SYSTEM);
-    asm.push(abi::move_register("x2", "x0"));
+    asm.push(abi::move_register("x22", "x0")); // bytes still to deliver
+    // Deliver the whole line, resuming after a partial write (bug-241) — see
+    // `kd_commit`, which this mirrors.
+    asm.push(abi::label("tkd_commit_write"));
+    asm.push(abi::compare_immediate("x22", "0"));
+    asm.push(abi::branch_eq("tkd_commit_newline"));
     asm.push(abi::move_register("x0", "x23"));
     asm.push(abi::move_register("x1", "x21"));
+    asm.push(abi::move_register("x2", "x22"));
     asm.call_external("_write", LIB_SYSTEM);
     // O_NONBLOCK write end (bug-114): on -1/EAGAIN (pipe full, worker not
-    // reading) drop the line rather than block the UI thread; skip the trailing
-    // newline write and fall through to echo + clear.
+    // reading) give up on the line rather than block the UI thread; skip the
+    // trailing newline write so a partial line is never terminated as a whole
+    // one, and fall through to echo + clear. `<= 0` also makes the loop provably
+    // terminate — each pass delivers at least one byte or leaves.
     asm.push(abi::compare_immediate("x0", "0"));
-    asm.push(abi::branch_lt("tkd_commit_echo"));
+    asm.push(abi::branch_le("tkd_commit_echo"));
+    asm.push(abi::add_registers("x21", "x21", "x0"));
+    asm.push(abi::subtract_registers("x22", "x22", "x0"));
+    asm.push(abi::branch("tkd_commit_write"));
+    asm.push(abi::label("tkd_commit_newline"));
     asm.push(abi::move_immediate("x9", "Integer", "10"));
     asm.push(abi::store_u8("x9", abi::stack_pointer(), 72));
     asm.push(abi::move_register("x0", "x23"));
@@ -1219,6 +1253,7 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
         ("x19", 8),
         ("x20", 16),
         ("x21", 24),
+        ("x22", 32),
         ("x23", 40),
         ("x24", 48),
         ("x25", 56),

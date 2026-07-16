@@ -136,6 +136,9 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_tcgetattr"),
             ("libSystem", "_pipe"),
             ("libSystem", "_dup2"),
+            // bug-241: close the redundant pipe read end after dup2'ing it onto
+            // fd 0.
+            ("libSystem", "_close"),
             ("libSystem", "_fcntl"), // bug-114: set pipe write end O_NONBLOCK
             ("libSystem", "_strlen"),
             ("libSystem", "_calloc"),

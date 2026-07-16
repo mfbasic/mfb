@@ -367,6 +367,19 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
     asm.push(abi::move_immediate("x1", "Integer", "0")); // newfd: stdin
     asm.call_external("_dup2", LIB_SYSTEM);
+    // fd 0 now names the read end, so the original fds[0] is a redundant
+    // duplicate that would otherwise stay open for the process lifetime
+    // (bug-241). Two cases must NOT close it: a failed dup2 (fds[0] is then the
+    // only read end), and fds[0] already being fd 0 (only reachable if stdin was
+    // closed before `pipe`, which makes dup2 a no-op — closing would leave the
+    // program with no stdin at all).
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_lt("input_pipe_wired"));
+    asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("input_pipe_wired"));
+    asm.call_external("_close", LIB_SYSTEM);
+    asm.push(abi::label("input_pipe_wired"));
     asm.push(abi::load_u32("x2", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
     asm.push(abi::move_register("x0", REG_APP));
     asm.local_address("x1", PIPE_ASSOC_KEY);

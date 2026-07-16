@@ -123,6 +123,7 @@
   { "library": "libSystem", "symbol": "_tcgetattr", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pipe", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_dup2", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_close", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_fcntl", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_strlen", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_calloc", "requiredBy": "_main" },
