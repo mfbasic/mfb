@@ -1373,9 +1373,12 @@ pub(crate) fn lower_tls_accept_helper(
     const FNPTR_OFFSET: usize = 48;
     const SSL_OFFSET: usize = 56;
     const POLLFD_OFFSET: usize = 64; // pollfd { fd; events; revents }
+    const TIMEVAL_OFFSET: usize = 72; // timeval { tv_sec; tv_usec } (bug-202)
 
     let closed = format!("{symbol}_closed");
     let no_timeout = format!("{symbol}_no_timeout");
+    let hs_timeout_set = format!("{symbol}_hs_timeout_set");
+    let hs_timeout_cleared = format!("{symbol}_hs_timeout_cleared");
     let accept_fail = format!("{symbol}_accept_fail");
     let accept_timeout = format!("{symbol}_accept_timeout");
     let ssl_fail = format!("{symbol}_ssl_fail");
@@ -1494,6 +1497,35 @@ pub(crate) fn lower_tls_accept_helper(
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&ssl_fail),
     ]);
+    // Bound the blocking server handshake by timeoutMs (SO_RCVTIMEO/SO_SNDTIMEO on
+    // the accepted connfd), mirroring the connect handshake wrapping. `timeoutMs`
+    // previously bounded only the connection-wait poll above, so a client that
+    // completed the TCP handshake then stalled mid-TLS wedged SSL_accept — and the
+    // single-threaded accept loop with it — forever (bug-202). Cleared after the
+    // handshake so the socket's reads/writes stay unbounded.
+    instructions.extend([
+        abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v14", "0"),
+        abi::branch_le(&hs_timeout_set),
+        // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
+        abi::move_immediate("%v10", "Integer", "1000"),
+        abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
+        abi::move_immediate("%v13", "Integer", "1000"),
+        abi::multiply_registers("%v12", "%v12", "%v13"),
+        abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+    ]);
+    emit_set_sock_timeouts(
+        symbol,
+        CONNFD_OFFSET,
+        TIMEVAL_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&hs_timeout_set));
     // r = SSL_accept(ssl); require 1 (server handshake complete).
     emit_dlsym(
         symbol,
@@ -1513,6 +1545,24 @@ pub(crate) fn lower_tls_accept_helper(
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&ssl_fail),
     ]);
+    // Handshake done: clear the timeouts so the returned socket blocks normally.
+    instructions.extend([
+        abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v14", "0"),
+        abi::branch_le(&hs_timeout_cleared),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+    ]);
+    emit_set_sock_timeouts(
+        symbol,
+        CONNFD_OFFSET,
+        TIMEVAL_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&hs_timeout_cleared));
     // Build the TlsSocket record { fd, closed = 0, ssl, ctx = 0 } — the zero
     // ctx slot marks a borrowed (listener-owned) server context, which the
     // close helper must not free (plan-06-tls-server.md §6.4).

@@ -5,7 +5,20 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: security (DoS)
 
-Status: Open
+Status: Fixed (2026-07-15) — lower_tls_accept_helper now bounds the blocking
+server handshake with SO_RCVTIMEO/SO_SNDTIMEO on the accepted `connfd`, derived
+from `timeoutMs` (tv_sec = ms/1000, tv_usec = (ms%1000)*1000) via the same
+`emit_set_sock_timeouts` helper `connect` uses, and clears them once the handshake
+completes so the returned socket's reads/writes stay unbounded. `timeoutMs <= 0`
+skips both (blocking semantics unchanged, per the non-goals). A new
+`TIMEVAL_OFFSET` (72) uses free space in the existing 96-byte frame.
+Regression Test: 15 tls acceptance tests pass. NOTE: an end-to-end stalled-client
+run could not be performed because `tls::listen` + `tls::accept` in one program
+currently fails to build with "native code data relocation target
+'_mfb_str_error_tls_failed' is not a data object or defined symbol" — verified
+PRE-EXISTING (reproduced with this fix stashed), i.e. a separate latent defect in
+the ERR_TLS_FAILED string's emission gate for the listen/accept path, filed as
+bug-249.
 Regression Test: tests/rt-behavior/ (Linux tls accept with a mid-handshake stall returns within timeout)
 
 On Linux the server TLS handshake (`SSL_accept`) runs on a blocking socket with
