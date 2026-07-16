@@ -15,6 +15,56 @@ use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
 use reqwest::blocking::Client;
 use serde::de::DeserializeOwned;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// A registry that cannot complete a TCP handshake this quickly is down; failing
+/// fast beats waiting out a full request deadline on a dead host.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Deadline for a control-plane JSON call. These payloads are small — keys,
+/// signatures, index metadata — so a slow one means a sick registry, not a big
+/// transfer. This is reqwest's own default, kept deliberately: it is the right
+/// bound for every endpoint except `/blob`.
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Deadline for one `/blob/<hash>` transfer.
+///
+/// `CONTROL_TIMEOUT` is far too tight here: the registry accepts bodies up to
+/// 64 MiB, and moving that inside 30s demands ~18 Mbit/s of *sustained*
+/// throughput. A vendored native library on an ordinary connection therefore
+/// fails outright with the default — the common case, not an edge case.
+///
+/// This bound is loose on purpose. Blocking reqwest exposes no read/stall
+/// timeout (`ClientBuilder::read_timeout` is async-only in 0.12), and its
+/// `timeout` is a *deadline* applied twice — once to connect+headers, then again
+/// to the whole body read (`blocking::Response::bytes` re-wraps it). So the only
+/// portable choice is between an unbounded hang and a generous deadline; 10
+/// minutes carries a full 64 MiB down to ~0.9 Mbit/s while still bounding a
+/// wedged socket. A true stall timeout needs the async API or a chunked reader.
+const BLOB_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// The one shared HTTP client for every registry call.
+///
+/// Built once, for two reasons. Each blocking `Client` owns a tokio runtime on a
+/// background thread, so constructing one per request spawned a runtime and paid
+/// a fresh TLS handshake every time, defeating connection pooling entirely —
+/// which matters now that installing a package can mean a run of sequential blob
+/// fetches. And it is the only place to set `connect_timeout`, which reqwest
+/// leaves unset by default.
+fn http_client() -> Result<&'static Client, String> {
+    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(CONTROL_TIMEOUT)
+                .build()
+                .map_err(|err| format!("failed to build the repository HTTP client: {err}"))
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
+}
 
 pub fn repo_url_from_env() -> String {
     std::env::var("MFB_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string())
@@ -958,8 +1008,13 @@ pub fn fetch_index(
 pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
     ensure_transport_security(repo_url)?;
     let url = format!("{}/blob/{}", repo_url.trim_end_matches('/'), hash);
-    let response = Client::new()
+    // Blob bodies are orders of magnitude larger than any control-plane payload,
+    // so they get their own deadline; the client default would reject a slow but
+    // perfectly healthy transfer. The override rides into the `Response`, so it
+    // covers the body read below and not just the headers.
+    let response = http_client()?
         .get(&url)
+        .timeout(BLOB_TIMEOUT)
         .send()
         .map_err(|err| format!("failed to connect to repository service: {err}"))?;
     let status = response.status();
@@ -1042,7 +1097,7 @@ fn post_json<T: DeserializeOwned>(
 ) -> Result<T, String> {
     ensure_transport_security(repo_url)?;
     let url = format!("{}{}", repo_url.trim_end_matches('/'), path);
-    let response = Client::new()
+    let response = http_client()?
         .post(&url)
         .json(body)
         .send()
@@ -1053,7 +1108,7 @@ fn post_json<T: DeserializeOwned>(
 fn get_json<T: DeserializeOwned>(repo_url: &str, path: &str) -> Result<T, String> {
     ensure_transport_security(repo_url)?;
     let url = format!("{}{}", repo_url.trim_end_matches('/'), path);
-    let response = Client::new()
+    let response = http_client()?
         .get(&url)
         .send()
         .map_err(|err| format!("failed to connect to repository service: {err}"))?;
@@ -1083,6 +1138,66 @@ fn read_json_response<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    /// The one client is shared, so blob fetches reuse connections instead of
+    /// standing up a fresh tokio runtime and TLS handshake per request.
+    #[test]
+    fn http_client_is_built_once_and_shared() {
+        let first = http_client().expect("client builds");
+        let second = http_client().expect("client builds");
+        assert!(std::ptr::eq(first, second));
+    }
+
+    /// A blob whose body arrives after the control-plane deadline must still
+    /// download.
+    ///
+    /// reqwest's blocking `timeout` is a *deadline*, not a stall timeout, and it
+    /// is applied twice: once to connect+headers, then again — fresh — to the
+    /// whole body read, because `blocking::Response::bytes` re-wraps it. With the
+    /// 30s default and no `Client::builder()` anywhere, any blob slow enough to
+    /// take half a minute failed outright. A vendored native library on an
+    /// ordinary connection routinely is that slow (64 MiB inside 30s needs
+    /// ~18 Mbit/s sustained), so this was the common case, not an edge case.
+    ///
+    /// The server here holds the body back past `CONTROL_TIMEOUT` and then sends
+    /// it: that delay is exactly what the old code rejected and the per-request
+    /// `BLOB_TIMEOUT` override now tolerates. Necessarily slow — the 30s bound it
+    /// guards is the thing under test.
+    #[test]
+    fn fetch_blob_survives_a_body_slower_than_the_control_timeout() {
+        let body = b"vendored-native-library-payload".to_vec();
+        let hash = hex::encode(crypto::sha256(&body));
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().unwrap().port();
+
+        let served = body.clone();
+        let server = thread::spawn(move || {
+            let (mut sock, _) = listener.accept().expect("accept");
+            // Drain the request head; its contents do not matter here.
+            let mut scratch = [0u8; 1024];
+            let _ = sock.read(&mut scratch);
+            write!(
+                sock,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                served.len()
+            )
+            .expect("write head");
+            sock.flush().expect("flush head");
+            // Headers land immediately, so the request phase succeeds either way;
+            // the body is what outlives the old deadline.
+            thread::sleep(CONTROL_TIMEOUT + Duration::from_secs(2));
+            sock.write_all(&served).expect("write body");
+            sock.flush().expect("flush body");
+        });
+
+        let fetched = fetch_blob(&format!("http://127.0.0.1:{port}"), &hash);
+        server.join().expect("server thread");
+        assert_eq!(fetched.expect("slow blob still downloads"), body);
+    }
 
     struct MetadataFixture {
         root_fingerprint: String,
