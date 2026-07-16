@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — (1) new link_fallible_calls(ast) collects `<alias>.<func>` for every LINK function with a SUCCESS_ON gate, and fallible_functions seeds its `names` set with them before the fixpoint, so a user function whose only error source is such a native call is reported fallible and its call appears in the Control-flow section. (2) collect_resources now detects acquisitions via Statement::Assign (reassignment) and unwraps Expression::Trapped to its inner call (a new acquisition_callee helper), instead of matching only a bare Expression::Call under Statement::Let. Regression Test: verified `h = fs::openFile(...)` reassignment now appears in the Resources section (previously only the LET did), and an inline-TRAP acquisition is listed. 76 audit tests pass.
 
 Two related gaps in `src/audit/collect/source.rs` cause `mfb audit` to
 under-report:

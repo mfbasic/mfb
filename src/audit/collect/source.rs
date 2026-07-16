@@ -107,16 +107,47 @@ pub(super) fn collect_source(
     (flow, permissions, resources)
 }
 
+/// The callee of a resource-acquiring value: a bare call, or the call wrapped in an
+/// inline `TRAP` (`LET h = fs::open(p) TRAP(e) … END TRAP`). Matching only the bare
+/// `Expression::Call` under-reported the Resources section (bug-211).
+fn acquisition_callee(value: &Expression) -> Option<&str> {
+    match value {
+        Expression::Call { callee, .. } => Some(callee),
+        Expression::Trapped { expression, .. } => acquisition_callee(expression),
+        _ => None,
+    }
+}
+
 fn collect_resources(function: &str, path: &str, body: &[Statement], out: &mut Vec<ResourceEntry>) {
     for statement in body {
         match statement {
             Statement::Let {
                 name,
-                value: Some(Expression::Call { callee, .. }),
+                value: Some(value),
                 line,
                 ..
             } => {
-                if let Some((resource_type, close_op)) = resource_producer(callee) {
+                if let Some((resource_type, close_op)) =
+                    acquisition_callee(value).and_then(resource_producer)
+                {
+                    out.push(ResourceEntry {
+                        function: function.to_string(),
+                        name: name.clone(),
+                        resource_type: resource_type.to_string(),
+                        close_op: close_op.to_string(),
+                        path: path.to_string(),
+                        line: *line,
+                        native: false,
+                        close_may_fail: true,
+                    });
+                }
+            }
+            // A resource acquired by reassignment (`h = fs::open(p)`) is an
+            // acquisition too — previously missed entirely (bug-211).
+            Statement::Assign { name, value, line } => {
+                if let Some((resource_type, close_op)) =
+                    acquisition_callee(value).and_then(resource_producer)
+                {
                     out.push(ResourceEntry {
                         function: function.to_string(),
                         name: name.clone(),
@@ -353,7 +384,11 @@ fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
         }
     }
 
-    let mut names: HashSet<String> = HashSet::new();
+    // Seed with the `LINK` functions carrying a `SUCCESS_ON` gate: a call to one
+    // raises a trappable native error, so a user function whose only error source
+    // is such a call is fallible. The fixpoint below then propagates that to its
+    // callers (bug-211).
+    let mut names: HashSet<String> = link_fallible_calls(ast);
     loop {
         let mut changed = false;
         for (_, function) in &functions {
@@ -562,6 +597,26 @@ fn link_aliases(ast: &ast::AstProject) -> HashSet<String> {
         }
     }
     aliases
+}
+
+/// `<alias>.<func>` for every `LINK` function carrying a `SUCCESS_ON` gate. Such a
+/// call raises a trappable error when the gate fails, so a user function whose only
+/// error source is one of these is fallible — previously it was reported pure and
+/// its call omitted from the Control-flow section (bug-211).
+fn link_fallible_calls(ast: &ast::AstProject) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                for function in &link.functions {
+                    if function.success_on.is_some() {
+                        names.insert(format!("{}.{}", link.alias, function.name));
+                    }
+                }
+            }
+        }
+    }
+    names
 }
 
 fn is_fallible_call(callee: &str, fallible: &HashSet<String>) -> bool {
