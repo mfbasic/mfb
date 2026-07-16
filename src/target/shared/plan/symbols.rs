@@ -115,6 +115,37 @@ pub(super) fn platform_imports(
             push_platform_import(&mut imports, import);
         }
     }
+    // A resource-union bind drops by dispatching to each variant's close op
+    // (codegen-emitted on scope exit), so pull in every variant's close *imports* —
+    // mirroring the `runtime_symbols` union block, which adds the close symbols.
+    // The `NirOp::Bind` scan above only resolves `resource_close_function(type_)`,
+    // which is `None` for the union itself (its variants are the resources), so
+    // without this a scope-dropped resource union whose variant close needs a
+    // unique import (e.g. audio's `_munmap`) fails the emitter's
+    // `platform_imports.get("_X")` lookup on valid source (bug-209).
+    let mut bind_types = std::collections::HashSet::new();
+    for function in &module.functions {
+        collect_bind_type_names(&function.body, &mut bind_types);
+    }
+    for type_ in &module.types {
+        if type_.kind != "union"
+            || !bind_types.contains(&type_.name)
+            || type_.variants.is_empty()
+            || !type_
+                .variants
+                .iter()
+                .all(|variant| crate::builtins::is_resource_type(&variant.name))
+        {
+            continue;
+        }
+        for variant in &type_.variants {
+            if let Some(close) = crate::builtins::resource_close_function(&variant.name) {
+                for import in platform_imports_for_runtime_call(platform, close) {
+                    push_platform_import(&mut imports, import);
+                }
+            }
+        }
+    }
     // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
     // even when the program never calls it explicitly. `term::off` now drives a
     // `tcsetattr` to restore the saved cooked line discipline (bug-149) and

@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: correctness
 
-Status: Open
+Status: Fixed (2026-07-15) — platform_imports now mirrors the runtime_symbols resource-union block: for each bound all-resource union type it collects platform_imports_for_runtime_call for every variant's resource_close_function. The NirOp::Bind scan only resolves resource_close_function(type_), which is None for the union itself (its variants are the resources), so a scope-dropped resource union whose variant close needed a unique import previously failed the emitter's platform_imports lookup on valid source. Regression Test: verified on HW (VM 2228) — a `UNION Stream / AudioInput / AudioOutput` bound via audio::openOutput and scope-dropped builds, links, and runs (exit 0).
 Regression Test: tests/ (a scope-dropped resource-union whose close needs a platform import links)
 
 `platform_imports` has no resource-union-variant close handling, so a union drop
