@@ -19,7 +19,9 @@ internal text and data and no dynamic-loading metadata:
   [[src/os/linux/link/elf.rs:encode_static_elf]]
 
 A static image needs nothing from a dynamic loader, but on macOS it is still
-ad-hoc code-signed (see `macos-aarch64`).
+ad-hoc code-signed (see `macos-aarch64`). Like every emitted executable it also
+carries the `MFBasic\0` provenance marker, which is independent of imports (see
+`provenance-marker`).
 
 ## Imports present — dynamic image
 

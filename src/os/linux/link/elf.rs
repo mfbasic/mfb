@@ -1,5 +1,48 @@
 use super::*;
 
+/// The `Elf64_Nhdr`-framed provenance note (plan-43 §5): `namesz`/`descsz`/`type`,
+/// then the `MFBasic\0` name and the descriptor. Both are already 4-aligned, so
+/// neither needs the note-format padding.
+fn mfb_note_bytes() -> Vec<u8> {
+    let descriptor = mfb_note_descriptor();
+    let mut bytes = Vec::new();
+    put_u32(&mut bytes, MFB_NOTE_OWNER.len() as u32);
+    put_u32(&mut bytes, descriptor.len() as u32);
+    put_u32(&mut bytes, MFB_NOTE_TYPE);
+    bytes.extend_from_slice(MFB_NOTE_OWNER);
+    bytes.extend_from_slice(&descriptor);
+    bytes
+}
+
+/// The `PT_NOTE` program header covering `note` at `note_offset`. Read-only, and
+/// mapped by the enclosing text `PT_LOAD` (the note lives below
+/// `TEXT_FILE_OFFSET`, inside that segment's file range).
+fn note_program_header(bytes: &mut Vec<u8>, image_base: u64, note_offset: usize, note_len: usize) {
+    program_header(
+        bytes,
+        PT_NOTE,
+        4, // p_flags = R
+        note_offset as u64,
+        image_base + note_offset as u64,
+        image_base + note_offset as u64,
+        note_len as u64,
+        note_len as u64,
+        4,
+    );
+}
+
+/// Program headers a static image carries: the text `PT_LOAD`, the data
+/// `PT_LOAD`, `PT_GNU_STACK` (bug-224), and the `PT_NOTE` provenance marker
+/// (plan-43).
+const STATIC_PH_COUNT: usize = 4;
+
+/// File offset of the provenance note in a static image: straight after the
+/// program-header table, in the padding the text `PT_LOAD` already maps below
+/// `TEXT_FILE_OFFSET`.
+fn static_note_offset() -> usize {
+    align(64 + STATIC_PH_COUNT * 56, 8)
+}
+
 /// A static AArch64/RISC-V ELF executable: the shape a build takes when it imports
 /// nothing, so no interpreter or PLT/GOT is needed.
 ///
@@ -36,7 +79,7 @@ pub(super) fn encode_static_elf(
     put_u32(&mut bytes, 0); // e_flags
     put_u16(&mut bytes, 64); // e_ehsize
     put_u16(&mut bytes, 56); // e_phentsize
-    put_u16(&mut bytes, 3); // e_phnum (text + data + GNU_STACK)
+    put_u16(&mut bytes, STATIC_PH_COUNT as u16); // e_phnum (text + data + GNU_STACK + NOTE)
     put_u16(&mut bytes, 0); // e_shentsize
     put_u16(&mut bytes, 0); // e_shnum
     put_u16(&mut bytes, 0); // e_shstrndx
@@ -66,6 +109,13 @@ pub(super) fn encode_static_elf(
     // (bug-224). All sizes 0 — it is a marker, not a loaded segment.
     program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
 
+    // PT_NOTE: the `MFBasic\0` provenance marker (plan-43).
+    let note = mfb_note_bytes();
+    let note_offset = static_note_offset();
+    note_program_header(&mut bytes, IMAGE_BASE, note_offset, note.len());
+
+    bytes.resize(note_offset, 0);
+    bytes.extend_from_slice(&note);
     bytes.resize(text_offset, 0);
     bytes.extend_from_slice(text);
     bytes.resize(data_offset, 0);
@@ -109,7 +159,7 @@ pub(super) fn encode_static_elf_x86(
     put_u32(&mut bytes, 0); // e_flags
     put_u16(&mut bytes, 64); // e_ehsize
     put_u16(&mut bytes, 56); // e_phentsize
-    put_u16(&mut bytes, 3); // e_phnum (text + data + GNU_STACK)
+    put_u16(&mut bytes, STATIC_PH_COUNT as u16); // e_phnum (text + data + GNU_STACK + NOTE)
     put_u16(&mut bytes, 0); // e_shentsize
     put_u16(&mut bytes, 0); // e_shnum
     put_u16(&mut bytes, 0); // e_shstrndx
@@ -139,6 +189,13 @@ pub(super) fn encode_static_elf_x86(
     // (bug-224). All sizes 0 — it is a marker, not a loaded segment.
     program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
 
+    // PT_NOTE: the `MFBasic\0` provenance marker (plan-43).
+    let note = mfb_note_bytes();
+    let note_offset = static_note_offset();
+    note_program_header(&mut bytes, IMAGE_BASE, note_offset, note.len());
+
+    bytes.resize(note_offset, 0);
+    bytes.extend_from_slice(&note);
     bytes.resize(text_offset, 0);
     bytes.extend_from_slice(text);
     bytes.resize(data_offset, 0);
@@ -162,11 +219,16 @@ pub(super) fn encode_dynamic_elf(
     // When present it is carved into its own R `PT_LOAD`, leaving the arena global
     // and the dynamic payload in the writable one.
     let rodata_size = image.rodata_size.min(data.len());
-    // PHDR, INTERP, LOAD(text), LOAD(data-rw), DYNAMIC, GNU_STACK — plus a leading
-    // R LOAD for the constant partition when there is one (bug-187).
-    let ph_count = if rodata_size > 0 { 7_u16 } else { 6_u16 };
+    // PHDR, INTERP, LOAD(text), LOAD(data-rw), DYNAMIC, GNU_STACK, NOTE (plan-43)
+    // — plus a leading R LOAD for the constant partition when there is one
+    // (bug-187).
+    let ph_count = if rodata_size > 0 { 8_u16 } else { 7_u16 };
     let interp = interpreter(arch, flavor).as_bytes();
     let interp_offset = 64 + ph_count as usize * 56;
+    // The provenance note shares the header/text gap with the interpreter string;
+    // both stay below `TEXT_FILE_OFFSET`, inside the text PT_LOAD's file range.
+    let note = mfb_note_bytes();
+    let note_offset = align(interp_offset + interp.len() + 1, 8);
     let text_offset = TEXT_FILE_OFFSET;
     // PIE (ET_DYN): file-relative virtual addresses, loader adds the slide.
     let text_vmaddr = DYN_IMAGE_BASE + text_offset as u64;
@@ -283,10 +345,14 @@ pub(super) fn encode_dynamic_elf(
     // (PT_GNU_RELRO is deferred to compose with the bug-187 const/mutable data
     // partition, which page-isolates the GOT from the writable arena global.)
     program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
+    // PT_NOTE: the `MFBasic\0` provenance marker (plan-43).
+    note_program_header(&mut bytes, DYN_IMAGE_BASE, note_offset, note.len());
 
     bytes.resize(interp_offset, 0);
     bytes.extend_from_slice(interp);
     bytes.push(0);
+    bytes.resize(note_offset, 0);
+    bytes.extend_from_slice(&note);
     bytes.resize(text_offset, 0);
     bytes.extend_from_slice(text);
     bytes.resize(data_offset, 0);

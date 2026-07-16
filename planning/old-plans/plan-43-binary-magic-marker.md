@@ -251,45 +251,73 @@ wrap it in a tiny read-only segment like `__MFB`.
 
 Land the payload builder with no callers, so it is provably correct before wiring.
 
-- [ ] Add `mfb_note_descriptor()` (new `src/os/note.rs` or shared module) plus the
+- [x] Add `mfb_note_descriptor()` (new `src/os/note.rs` or shared module) plus the
       `MFB_NOTE_OWNER = b"MFBasic\0"` constant.
-- [ ] Unit tests: descriptor is exactly 16 bytes, starts with `b"MFB1"`, version
+- [x] Unit tests: descriptor is exactly 16 bytes, starts with `b"MFB1"`, version
       field == 1, and the compiler-version fields match the parsed crate version.
 
 Acceptance: `cargo test` covering the descriptor passes; bytes match the §4 table
-exactly.
+exactly. **DONE** — `src/os/note.rs`; 4 unit tests green. A real binary's
+descriptor decodes to `MFB1 / v1 / flags 0 / 0.1.0 / pad 0`, matching §4.
 Commit: —
 
 ### Phase 2 — ELF PT_NOTE (all three encoders)
 
 Lowest codegen risk: header-region-only change, text/data offsets fixed.
 
-- [ ] Add a `PT_NOTE` phdr + note bytes helper; wire into `encode_static_elf`,
+- [x] Add a `PT_NOTE` phdr + note bytes helper; wire into `encode_static_elf`,
       `encode_static_elf_x86`, `encode_dynamic_elf`; bump `e_phnum` (2→3, 5→6) and
       place the note per §5 (dynamic: after the interp string).
-- [ ] Regenerate ELF acceptance goldens for aarch64/x86_64/riscv64 static +
-      dynamic via `scripts/sync-goldens.sh`.
-- [ ] Tests: an encoder-level test (or acceptance check) asserting a built ELF has
+      **Counts differed from the plan's snapshot**: static was already 3
+      (PT_GNU_STACK, bug-224) → **4**; dynamic was already 6/7 (bug-186/bug-187)
+      → **7/8**.
+- [x] Regenerate ELF acceptance goldens for aarch64/x86_64/riscv64 static +
+      dynamic via `scripts/sync-goldens.sh`. **Not needed — zero churn.** The
+      goldens capture `-ncode` (codegen output), not linked binaries, and
+      `code_offset`/`macho_layout`/`load_commands_size` are confined to
+      `src/os/*/link/`. Nothing upstream of the linker moved.
+- [x] Tests: an encoder-level test (or acceptance check) asserting a built ELF has
       a `PT_NOTE` with name `MFBasic\0` and the 16-byte descriptor.
+      `static_elf_carries_the_mfbasic_provenance_note` (all 3 arches, both static
+      encoders), `dynamic_elf_carries_the_mfbasic_provenance_note_past_the_interpreter`
+      (all 3 arches), `provenance_note_coexists_with_the_signing_section`.
 
 Acceptance: `readelf -n` on a freshly built Linux binary (each arch/flavor) shows
 an `MFBasic` note with the expected descriptor; the binary still runs; ELF golden
-diffs are confined to the header region.
+diffs are confined to the header region. **DONE on hardware** — `readelf -n`
+reports `Owner MFBasic / Data size 0x10 / 4d 46 42 31 01 00 …` and the program
+prints and exits 0 on aarch64-glibc (Kali, 2223), x86_64-glibc (Ubuntu, 2228),
+riscv64-musl (Alpine, 2229); x86_64-musl (Alpine, 2227) runs (no readelf on that
+box). The static encoders were validated on all three arches with a throwaway
+raw-`exit(7)` image: `readelf -n` shows the note at 0x120 and each exits 7.
+Boxes 2222/2224 were down and there is no riscv64-glibc box, so aarch64-musl and
+riscv64-glibc are covered by unit tests + a local note decode only — they differ
+from validated combos solely in the interp string.
 Commit: —
 
 ### Phase 3 — Mach-O LC_NOTE + signed payload (highest-risk work last)
 
-- [ ] Add `note_file_offset` to `MachOLayout`/`macho_layout`; add the `LC_NOTE`
+- [x] Add `note_file_offset` to `MachOLayout`/`macho_layout`; add the `LC_NOTE`
       emitter to `commands.rs`; emit it + write the payload in
       `encode_unsigned_mach_o`; bump `load_commands_size` (+40),
       `load_command_count` (+1); verify `code_offset` and the two-pass sign settle.
-- [ ] Regenerate macOS acceptance goldens (`scripts/sync-goldens.sh`).
-- [ ] Tests: assert a built Mach-O has an `LC_NOTE` with `data_owner == "MFBasic\0"`
+- [x] Regenerate macOS acceptance goldens (`scripts/sync-goldens.sh`). **Not
+      needed — zero churn**, for the reason given in Phase 2. `code_offset` does
+      shift the image, but nothing that feeds a golden reads it.
+- [x] Tests: assert a built Mach-O has an `LC_NOTE` with `data_owner == "MFBasic\0"`
       whose `offset/size` region equals the descriptor.
+      `mach_o_carries_the_mfbasic_provenance_note_inside_the_signed_region` (also
+      asserts the payload is below `LC_CODE_SIGNATURE`'s `codeLimit`),
+      `provenance_note_coexists_with_the_mfb_sign_segment`, and the macOS-gated
+      `noted_mach_o_verifies_and_runs` (`codesign -v` + exit 7, plain and signed).
 
 Acceptance: on macOS arm64, `otool -l` shows the `LC_NOTE` (owner `MFBasic`),
 `codesign -v <binary>` passes, and the binary runs. (If signing rejects the bare
-region, apply the §6 fallback and re-verify.)
+region, apply the §6 fallback and re-verify.) **DONE** — on a real `mfb build`
+output: `otool -l` reports `cmd LC_NOTE / cmdsize 40 / data_owner MFBasic /
+offset 49152 / size 16`, `codesign -v` passes, and the program prints
+"Hello World" and exits 0. **The bare-gap placement was accepted — no fallback
+was needed**, resolving that Open Decision.
 Commit: —
 
 ## Validation Plan
@@ -307,17 +335,23 @@ Commit: —
   (`scripts/artifact-gate.sh` for the codegen path; `scripts/test-accept.sh`);
   goldens changed only as described in Compatibility / Format Impact.
 
-## Open Decisions
+## Open Decisions — all resolved
 
-- **Mach-O payload placement** — bare page-aligned gap before `__LINKEDIT`
-  (recommended, simplest) vs. inside `__LINKEDIT` / wrapped in a tiny RO segment
-  (fallback if `codesign -v` or launch rejects the bare region). (§6)
-- **Note `type` value** — fixed `1` (recommended) vs. an enumerated type per
-  binary kind. Recommend a single reserved value for v1; the descriptor's own
-  fields carry any needed discrimination. (§5)
-- **Reuse the `__MFB` segment name on Mach-O** for the payload region vs. leave it
-  as a bare `LC_NOTE`-referenced gap. Recommend bare gap to keep the marker
-  independent of the plan-23 signing segment. (§6)
+- **Mach-O payload placement** — **RESOLVED: bare 16-byte-aligned gap before
+  `__LINKEDIT`**, the recommended first attempt. The kernel and `codesign` both
+  accept a signed file region owned by no `LC_SEGMENT`, confirming that page
+  hashing is file-offset based, not segment based: `codesign -v` passes and the
+  binary runs. No fallback applied. Cost: `__LINKEDIT` rounds up to the next
+  16 KiB page after the 16-byte payload, so an unsigned image grows by one page.
+  (§6)
+- **Note `type` value** — **RESOLVED: fixed `1`** (`MFB_NOTE_TYPE`), as
+  recommended. `readelf -n` renders it as `NT_VERSION`, which is harmless — the
+  `MFBasic` owner is what identifies the note, and the descriptor's own fields
+  carry any discrimination. (§5)
+- **Reuse the `__MFB` segment name on Mach-O** — **RESOLVED: no.** The payload is
+  a bare `LC_NOTE`-referenced gap, keeping the marker independent of the plan-23
+  signing segment. Both are emitted together and verified to coexist
+  (`provenance_note_coexists_with_the_mfb_sign_segment`). (§6)
 
 ## Summary
 

@@ -297,6 +297,159 @@ fn writes_mfb_sign_section_to_mach_o() {
         .any(|window| window == br#"{"owner":"alice"}"#));
 }
 
+/// The `MFBasic\0` `LC_NOTE`'s out-of-line payload (plan-43), located the way
+/// `otool -l` does: walk the load commands, match `cmd == LC_NOTE` and the
+/// `data_owner`, then read `offset`/`size` out of the file. Also returns the
+/// payload's file offset so callers can prove it lies in the signed prefix.
+fn mfb_note(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
+    let read_u32 = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let read_u64 = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let count = read_u32(16) as usize;
+    let mut command = 32;
+    for _ in 0..count {
+        let size = read_u32(command + 4) as usize;
+        if read_u32(command) == 0x31 {
+            assert_eq!(size, NOTE_COMMAND_SIZE);
+            let mut data_owner = [0u8; 16];
+            data_owner[..MFB_NOTE_OWNER.len()].copy_from_slice(MFB_NOTE_OWNER);
+            if bytes[command + 8..command + 24] == data_owner {
+                let offset = read_u64(command + 24) as usize;
+                let length = read_u64(command + 32) as usize;
+                return Some((offset, bytes[offset..offset + length].to_vec()));
+            }
+        }
+        command += size;
+    }
+    None
+}
+
+/// The file offset of `LC_CODE_SIGNATURE`'s blob — the ad-hoc signature's
+/// `codeLimit`. Every byte below it is covered by a page hash.
+fn code_signature_offset(bytes: &[u8]) -> usize {
+    let read_u32 = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let count = read_u32(16) as usize;
+    let mut command = 32;
+    for _ in 0..count {
+        if read_u32(command) == 0x1d {
+            return read_u32(command + 8) as usize;
+        }
+        command += read_u32(command + 4) as usize;
+    }
+    panic!("LC_CODE_SIGNATURE must be present");
+}
+
+/// plan-43: every emitted Mach-O carries an unconditional `LC_NOTE` whose
+/// `data_owner` is `MFBasic\0` and whose out-of-line payload is the shared
+/// descriptor — placed below `codeLimit`, so the ad-hoc signature covers it and
+/// stays valid.
+#[test]
+fn mach_o_carries_the_mfbasic_provenance_note_inside_the_signed_region() {
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "noted", &image).expect("link mach-o");
+    let bytes = std::fs::read(path).unwrap();
+    let (offset, descriptor) = mfb_note(&bytes).expect("LC_NOTE owned by MFBasic");
+    assert_eq!(descriptor, mfb_note_descriptor());
+    assert_eq!(offset % 16, 0, "the payload stays 16-byte aligned");
+    assert!(
+        offset + descriptor.len() <= code_signature_offset(&bytes),
+        "the payload must lie inside the signed prefix"
+    );
+}
+
+/// plan-43 non-goal: the marker is additive and orthogonal to the `--sign`
+/// feature — an image with `signing_metadata` carries both the `LC_NOTE` and the
+/// `__MFB`/`__sign` segment.
+#[test]
+fn provenance_note_coexists_with_the_mfb_sign_segment() {
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "noted-signed", &image).expect("link signed mach-o");
+    let bytes = std::fs::read(path).unwrap();
+    let (offset, descriptor) = mfb_note(&bytes).expect("LC_NOTE owned by MFBasic");
+    assert_eq!(descriptor, mfb_note_descriptor());
+    assert!(offset + descriptor.len() <= code_signature_offset(&bytes));
+    assert!(bytes
+        .windows(b"__sign".len())
+        .any(|window| window == b"__sign"));
+    assert!(bytes
+        .windows(br#"{"owner":"alice"}"#.len())
+        .any(|window| window == br#"{"owner":"alice"}"#));
+}
+
+/// plan-43 acceptance: the marker must not invalidate the ad-hoc code signature
+/// or change runtime behavior. `codesign -v` passing proves the `LC_NOTE` payload
+/// lies inside `codeLimit` (a payload past it, or an `LC_NOTE` the two-pass sign
+/// settle sized inconsistently, breaks verification); exit 7 proves dyld still
+/// loads the image and reaches `_main`. Both the plain and the `--sign`
+/// (`__MFB`/`__sign`) shapes, since the marker is orthogonal to that feature.
+#[cfg(target_os = "macos")]
+#[test]
+fn noted_mach_o_verifies_and_runs() {
+    let words: [u32; 3] = [
+        0xD280_00E0, // _main: movz x0, #7
+        0xD280_0030, //        movz x16, #1  (SYS_exit)
+        0xD400_1001, //        svc  #0x80    -> exit(7)
+    ];
+    let mut text = Vec::new();
+    for word in words {
+        put_u32(&mut text, word);
+    }
+    for (name, metadata) in [
+        ("noted_run", None),
+        ("noted_run_signed", Some(br#"{"owner":"ada"}"#.to_vec())),
+    ] {
+        let image = EncodedImage {
+            text: text.clone(),
+            data: Vec::new(),
+            rodata_size: 0,
+            symbols: vec![text_symbol("_main", 0)],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: metadata,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_executable(dir.path(), name, &image).expect("link mach-o");
+        let verified = std::process::Command::new("/usr/bin/codesign")
+            .arg("-v")
+            .arg(&path)
+            .status()
+            .expect("run codesign");
+        assert!(
+            verified.success(),
+            "{name}: codesign -v must still pass with the LC_NOTE present"
+        );
+        let status = std::process::Command::new(&path).status().expect("run binary");
+        assert_eq!(
+            status.code(),
+            Some(7),
+            "{name}: the marker is inert — _main must still run"
+        );
+    }
+}
+
 // Drives the multi-library Mach-O path (plan-linker.md §7) end to end against
 // the real `tls` driver library, Network.framework: a hand-built program that
 // imports a symbol from Network (ordinal 2) and `exit` from libSystem

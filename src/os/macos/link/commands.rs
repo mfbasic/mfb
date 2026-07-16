@@ -178,6 +178,20 @@ pub(super) fn mfb_sign_segment(bytes: &mut Vec<u8>, file_offset: usize, metadata
     );
 }
 
+/// `LC_NOTE` (cmd 0x31, cmdsize 40): the unconditional `MFBasic\0` provenance
+/// marker (plan-43). `data_owner` names the vendor; `offset`/`size` point at an
+/// out-of-line copy of the descriptor placed before the signature, so the ad-hoc
+/// code signature's page hashes cover it.
+pub(super) fn note_command(bytes: &mut Vec<u8>, file_offset: usize, size: usize) {
+    put_u32(bytes, 0x31);
+    put_u32(bytes, NOTE_COMMAND_SIZE as u32);
+    let mut data_owner = [0u8; 16];
+    data_owner[..MFB_NOTE_OWNER.len()].copy_from_slice(MFB_NOTE_OWNER);
+    bytes.extend_from_slice(&data_owner);
+    put_u64(bytes, file_offset as u64);
+    put_u64(bytes, size as u64);
+}
+
 pub(super) fn segment(
     bytes: &mut Vec<u8>,
     name: &str,

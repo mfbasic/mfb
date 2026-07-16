@@ -1,4 +1,5 @@
 use crate::arch::aarch64::encode::{EncodedImage, EncodedSection};
+use crate::os::note::{mfb_note_descriptor, MFB_NOTE_DESCRIPTOR_SIZE, MFB_NOTE_OWNER};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
@@ -9,6 +10,10 @@ const VM_BASE: u64 = 0x1_0000_0000;
 /// Byte size of one imported-symbol stub (adrp + ldr + br).
 const IMPORT_STUB_SIZE: usize = 12;
 const PAGE_SIZE: usize = 0x4000;
+/// `sizeof(struct note_command)`: cmd + cmdsize + `data_owner[16]` + offset +
+/// size. Every image carries exactly one (plan-43), so this is unconditional in
+/// `load_commands_size`/`load_command_count`.
+const NOTE_COMMAND_SIZE: usize = 40;
 
 mod commands;
 mod macho;

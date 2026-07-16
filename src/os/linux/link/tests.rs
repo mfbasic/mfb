@@ -196,8 +196,8 @@ fn encode_static_elf_x86_emits_two_pt_load_segments() {
         u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
         IMAGE_BASE + TEXT_FILE_OFFSET as u64
     );
-    // e_phnum = 3 (text + data + GNU_STACK, bug-224).
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 3);
+    // e_phnum = 4 (text + data + GNU_STACK (bug-224) + PT_NOTE (plan-43)).
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 4);
     // First program header at offset 64: PT_LOAD (1), R+X (5).
     assert_eq!(u32::from_le_bytes(bytes[64..68].try_into().unwrap()), 1);
     assert_eq!(u32::from_le_bytes(bytes[68..72].try_into().unwrap()), 5);
@@ -236,8 +236,9 @@ fn encode_static_elf_places_data_where_relocations_expect_it() {
         assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
         // e_machine follows the target ISA (this path serves both).
         assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), machine);
-        // e_phnum = 3: text R+X, a writable data segment, and GNU_STACK (bug-224).
-        assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 3);
+        // e_phnum = 4: text R+X, a writable data segment, GNU_STACK (bug-224),
+        // and the PT_NOTE provenance marker (plan-43).
+        assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 4);
         assert_eq!(u32::from_le_bytes(bytes[120..124].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(bytes[124..128].try_into().unwrap()), 6);
         // PT_GNU_STACK (0x6474e551), R+W (6) — non-executable stack.
@@ -441,11 +442,11 @@ fn write_executable_x86_dynamic_covers_all_reloc_kinds() {
     )
     .expect("link x86 dynamic elf");
     let bytes = std::fs::read(&path).unwrap();
-    // EM_X86_64 PIE (ET_DYN) dynamic ELF: 6 program headers (incl. PT_GNU_STACK),
-    // interpreter present (bug-186).
+    // EM_X86_64 PIE (ET_DYN) dynamic ELF: 7 program headers (incl. PT_GNU_STACK
+    // and the plan-43 PT_NOTE), interpreter present (bug-186).
     assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3); // ET_DYN
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62);
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 6);
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 7);
     assert!(has_gnu_stack(&bytes), "PT_GNU_STACK must be present");
     assert!(bytes
         .windows(b"ld-linux-x86-64.so.2".len())
@@ -1205,12 +1206,135 @@ fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
     assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3); // ET_DYN
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243);
     assert_eq!(u32::from_le_bytes(bytes[48..52].try_into().unwrap()) & 0x4, 0x4);
-    // 6 program headers (dynamic + PT_GNU_STACK) and the riscv64 interpreter path.
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 6);
+    // 7 program headers (dynamic + PT_GNU_STACK + the plan-43 PT_NOTE) and the
+    // riscv64 interpreter path.
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 7);
     assert!(has_gnu_stack(&bytes), "PT_GNU_STACK must be present");
     assert!(bytes
         .windows(b"ld-linux-riscv64".len())
         .any(|window| window == b"ld-linux-riscv64"));
+}
+
+/// The `MFBasic\0` provenance note in an emitted ELF (plan-43), located through
+/// the program-header table the same way `readelf -n` does: walk the `PT_NOTE`
+/// entries, frame each with its `Elf64_Nhdr`, and match the note *name* against
+/// the vendor owner. Returns the note's `(p_offset, descriptor)`, or `None` when
+/// the image carries no such note.
+fn mfb_note(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
+    let phoff = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+    let phnum = u16::from_le_bytes([bytes[56], bytes[57]]) as usize;
+    (0..phnum).find_map(|index| {
+        let base = phoff + index * 56;
+        let read_u32 = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        let read_u64 = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+        if read_u32(base) != PT_NOTE {
+            return None;
+        }
+        // p_offset/p_filesz — and the note must be readable (R) at runtime.
+        assert_eq!(read_u32(base + 4), 4, "PT_NOTE p_flags must be R");
+        let offset = read_u64(base + 8) as usize;
+        let file_size = read_u64(base + 32) as usize;
+        assert_eq!(read_u64(base + 40) as usize, file_size, "p_memsz == p_filesz");
+        let note = &bytes[offset..offset + file_size];
+        let namesz = u32::from_le_bytes(note[0..4].try_into().unwrap()) as usize;
+        let descsz = u32::from_le_bytes(note[4..8].try_into().unwrap()) as usize;
+        assert_eq!(
+            u32::from_le_bytes(note[8..12].try_into().unwrap()),
+            MFB_NOTE_TYPE
+        );
+        if &note[12..12 + namesz] != MFB_NOTE_OWNER {
+            return None;
+        }
+        // The name is 8 bytes and the descriptor 16, so neither needs the note
+        // format's 4-byte padding — the descriptor starts right after the name.
+        Some((offset, note[12 + namesz..12 + namesz + descsz].to_vec()))
+    })
+}
+
+/// plan-43: every static ELF the linker emits — for each arch and both static
+/// encoders — carries the unconditional `MFBasic\0` `PT_NOTE`, whose descriptor
+/// is the shared payload, placed in the header/text gap the text `PT_LOAD` maps.
+#[test]
+fn static_elf_carries_the_mfbasic_provenance_note() {
+    let image = x86_static_image();
+    let images = [
+        encode_static_elf_x86(0, &image.text, &image.data, None),
+        encode_static_elf("aarch64", 0, &image.text, &image.data, None),
+        encode_static_elf("riscv64", 0, &image.text, &image.data, None),
+    ];
+    for bytes in images {
+        let (offset, descriptor) = mfb_note(&bytes).expect("PT_NOTE owned by MFBasic");
+        assert_eq!(descriptor, mfb_note_descriptor());
+        // The note lives below the text, inside the text PT_LOAD's file range, so
+        // the text/data offsets the relocations assume are untouched.
+        assert!(offset >= 64 + 4 * 56);
+        assert!(offset + 12 + 8 + descriptor.len() <= TEXT_FILE_OFFSET);
+        assert_eq!(bytes[TEXT_FILE_OFFSET], 0xc3);
+    }
+}
+
+/// plan-43: the dynamic encoder places its note after the NUL-terminated
+/// interpreter string — the other occupant of the header/text gap — so the two
+/// coexist below `TEXT_FILE_OFFSET`.
+#[test]
+fn dynamic_elf_carries_the_mfbasic_provenance_note_past_the_interpreter() {
+    for (arch, interp) in [
+        ("aarch64", &b"/lib/ld-linux-aarch64.so.1"[..]),
+        ("x86_64", &b"/lib64/ld-linux-x86-64.so.2"[..]),
+        ("riscv64", &b"/lib/ld-linux-riscv64-lp64d.so.1"[..]),
+    ] {
+        let image = glob_dat_image("libc.so.6");
+        let bytes = encode_dynamic_elf(
+            arch,
+            LinuxFlavor::Glibc,
+            0,
+            &image.text,
+            &image.data,
+            &image,
+        )
+        .expect("dynamic elf");
+        let (offset, descriptor) = mfb_note(&bytes).expect("PT_NOTE owned by MFBasic");
+        assert_eq!(descriptor, mfb_note_descriptor());
+        // Past the interpreter string and still inside the gap below the text.
+        let interp_offset = 64 + 7 * 56;
+        assert_eq!(&bytes[interp_offset..interp_offset + interp.len()], interp);
+        assert!(offset >= interp_offset + interp.len() + 1);
+        assert!(offset + 12 + 8 + descriptor.len() <= TEXT_FILE_OFFSET);
+    }
+}
+
+/// plan-43 non-goal: the marker is additive and orthogonal to the `--sign`
+/// feature — an image with `signing_metadata` carries both the note and the
+/// `.mfb_sign` section.
+#[test]
+fn provenance_note_coexists_with_the_signing_section() {
+    let mut image = glob_dat_image("libc.so.6");
+    image.signing_metadata = Some(br#"{"k":"v"}"#.to_vec());
+    let dynamic = encode_dynamic_elf(
+        "aarch64",
+        LinuxFlavor::Glibc,
+        0,
+        &image.text,
+        &image.data,
+        &image,
+    )
+    .expect("dynamic elf with signing");
+    let static_image = x86_static_image();
+    let statics = encode_static_elf_x86(
+        0,
+        &static_image.text,
+        &static_image.data,
+        Some(br#"{"k":"v"}"#),
+    );
+    for bytes in [dynamic, statics] {
+        assert_eq!(
+            mfb_note(&bytes).expect("PT_NOTE owned by MFBasic").1,
+            mfb_note_descriptor()
+        );
+        assert!(bytes
+            .windows(b".mfb_sign".len())
+            .any(|window| window == b".mfb_sign"));
+    }
 }
 
 /// Whether the ELF's program-header table contains a `PT_GNU_STACK` entry

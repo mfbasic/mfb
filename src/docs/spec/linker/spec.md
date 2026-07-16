@@ -48,6 +48,8 @@ The topics below follow the native linking pipeline.
   executable (merged into IR, not linked as external symbols).
 - `failure-rules` lists the conditions under which the linker must fail rather
   than emit a broken executable, with the concrete diagnostics it raises.
+- `provenance-marker` specifies the `MFBasic\0` vendor note every emitted
+  executable carries in both formats, and the versioned descriptor it exposes.
 
 ## See Also
 

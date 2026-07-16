@@ -1,5 +1,6 @@
 use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
 use crate::os::linux::flavor::LinuxFlavor;
+use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER, MFB_NOTE_TYPE};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -16,6 +17,10 @@ const DYN_IMAGE_BASE: u64 = 0;
 /// `PT_GNU_STACK`: its `p_flags` (R+W, no execute) set the non-executable-stack
 /// policy the kernel/loader would otherwise leave to a default (LNK-02 / bug-186).
 const PT_GNU_STACK: u32 = 0x6474_e551;
+/// `PT_NOTE`: the segment carrying the unconditional `MFBasic\0` provenance note
+/// (plan-43). It rides in the header/text gap, inside the text `PT_LOAD`'s file
+/// range, so `readelf -n` and the mapped image both see it.
+const PT_NOTE: u32 = 4;
 /// `PT_GNU_RELRO`: the segment made read-only after the dynamic loader finishes
 /// relocations, covering the GOT so a post-relocation write cannot hijack it
 /// (LNK-03 / bug-186). Wired once the bug-187 const/mutable data partition

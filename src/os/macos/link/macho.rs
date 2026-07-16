@@ -147,6 +147,9 @@ fn encode_unsigned_mach_o(
     entry_point(&mut bytes, code_offset + entry_offset);
     linkedit_data(&mut bytes, 0x26, linkedit.function_starts_offset, 1);
     linkedit_data(&mut bytes, 0x29, linkedit.data_in_code_offset, 0);
+    // The `MFBasic\0` provenance marker (plan-43), before `LC_CODE_SIGNATURE` so
+    // its payload is inside the signed prefix.
+    note_command(&mut bytes, layout.note_file_offset, MFB_NOTE_DESCRIPTOR_SIZE);
     linkedit_data(&mut bytes, 0x1d, signature_offset, signature_size);
 
     bytes.resize(code_offset, 0);
@@ -183,6 +186,9 @@ fn encode_unsigned_mach_o(
         bytes.resize(layout.mfb_sign_file_offset, 0);
         bytes.extend_from_slice(metadata);
     }
+    // The out-of-line `LC_NOTE` payload (plan-43), in the gap before `__LINKEDIT`.
+    bytes.resize(layout.note_file_offset, 0);
+    bytes.extend_from_slice(&mfb_note_descriptor());
     bytes.resize(layout.linkedit_file_offset, 0);
     if needs_data_const {
         bytes.extend_from_slice(&rebase_info(image));
@@ -216,6 +222,11 @@ pub(super) struct MachOLayout {
     pub(super) data_seg_file_offset: usize,
     pub(super) data_seg_size: usize,
     pub(super) mfb_sign_file_offset: usize,
+    /// The `LC_NOTE` descriptor payload (plan-43): a 16-byte-aligned region after
+    /// `__DATA` / the optional `__MFB` sign block and before `__LINKEDIT`. It is
+    /// a bare file region owned by no segment — `LC_NOTE` addresses it by file
+    /// offset — and sits below `codeLimit`, so the ad-hoc signature covers it.
+    pub(super) note_file_offset: usize,
     pub(super) linkedit_file_offset: usize,
 }
 
@@ -252,17 +263,23 @@ pub(super) fn macho_layout(
     } else {
         align(after_data, 16)
     };
-    let linkedit_file_offset = if signing_metadata_len == 0 {
+    let after_sign = if signing_metadata_len == 0 {
         after_data
     } else {
-        align(mfb_sign_file_offset + signing_metadata_len, PAGE_SIZE)
+        mfb_sign_file_offset + signing_metadata_len
     };
+    // The `LC_NOTE` descriptor (plan-43) follows the signing block (or `__DATA`
+    // when there is none); `__LINKEDIT` starts on the next page after it, so the
+    // note is never inside a mapped segment but is still hashed by the signature.
+    let note_file_offset = align(after_sign, 16);
+    let linkedit_file_offset = align(note_file_offset + MFB_NOTE_DESCRIPTOR_SIZE, PAGE_SIZE);
     MachOLayout {
         text_file_size,
         data_const_file_offset,
         data_seg_file_offset,
         data_seg_size,
         mfb_sign_file_offset,
+        note_file_offset,
         linkedit_file_offset,
     }
 }
@@ -293,7 +310,22 @@ fn load_commands_size(
     has_writable: bool,
     has_rodata: bool,
 ) -> usize {
-    let base = 72 + 232 + 72 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16;
+    // The trailing `NOTE_COMMAND_SIZE` is the unconditional `LC_NOTE` provenance
+    // marker (plan-43) — present in every image, signed or not.
+    let base = 72
+        + 232
+        + 72
+        + 24
+        + 80
+        + dylinker_command_size()
+        + 24
+        + 32
+        + 16
+        + 24
+        + 16
+        + 16
+        + 16
+        + NOTE_COMMAND_SIZE;
     let signing = if has_signing_metadata { 152 } else { 0 };
     // The writable `__DATA` segment adds its segment header plus one `__data`
     // section header.
@@ -324,10 +356,11 @@ fn load_command_count(
 ) -> u32 {
     let signing = if has_signing_metadata { 1 } else { 0 };
     // The chained-fixups path (no data-const segment) and the dyld_info path both
-    // total 15 base commands; the data-const path swaps two LINKEDIT commands for a
+    // total 16 base commands (15 plus the unconditional `LC_NOTE` provenance
+    // marker, plan-43); the data-const path swaps two LINKEDIT commands for a
     // __DATA_CONST segment + LC_DYLD_INFO_ONLY. A __mod_init_func/__const block adds
     // a section, not a command, so only extra dylibs grow the count. The writable
     // `__DATA` segment adds one command when the image has writable data.
     let _ = has_init;
-    15 + libraries.len() as u32 + signing + has_writable as u32
+    16 + libraries.len() as u32 + signing + has_writable as u32
 }

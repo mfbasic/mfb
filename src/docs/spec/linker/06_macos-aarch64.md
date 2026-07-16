@@ -25,6 +25,9 @@ __MFB          __sign: executable signing metadata (only if signing_metadata)
 __LINKEDIT     dyld info, symbol/string tables, code signature
 ```
 
+Between the last of those and `__LINKEDIT` sits the `LC_NOTE` provenance-marker
+payload — a small file region owned by no segment (see `provenance-marker`).
+
 `__DATA` is a writable (`initprot = RW`) segment, which is what gives the runtime
 a writable global plane (the main arena pointer and `LINK`/`term` global slots
 live here). `__DATA_CONST` holds the GOT and the `__mod_init_func` pointer array;
@@ -37,7 +40,8 @@ The header is `MH_EXECUTE` for `arm64`. The base load-command set always present
 includes `LC_SEGMENT_64` for each emitted segment, `LC_LOAD_DYLINKER`
 (`/usr/lib/dyld`), `LC_UUID`, `LC_BUILD_VERSION`, `LC_SOURCE_VERSION`, `LC_MAIN`
 (entry = `_main`), `LC_SYMTAB`, `LC_DYSYMTAB`, `LC_FUNCTION_STARTS`,
-`LC_DATA_IN_CODE`, and `LC_CODE_SIGNATURE`. Additionally:
+`LC_DATA_IN_CODE`, the `LC_NOTE` provenance marker (see `provenance-marker`), and
+`LC_CODE_SIGNATURE`. Additionally:
 
 - one `LC_LOAD_DYLIB` per imported library,
 - `LC_DYLD_INFO_ONLY` when a `__DATA_CONST` is present (carrying the

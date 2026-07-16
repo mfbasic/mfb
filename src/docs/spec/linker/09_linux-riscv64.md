@@ -36,23 +36,17 @@ ABI. The rv64 glibc/musl loader refuses a soft-float (`0x0`) executable, so this
 must be set; x86-64 and aarch64 leave `e_flags` zero.
 [[src/os/linux/link/elf.rs:e_flags]]
 
-A dynamic image (imports present, `encode_dynamic_elf`) has the **same five program
-headers** as the other Linux targets — only the machine field, `e_flags`, and the
-interpreter string branch on arch:
-
-```text
-PT_PHDR      the program header table
-PT_INTERP    the dynamic loader path
-PT_LOAD      RX text (image base)
-PT_LOAD      RW data
-PT_DYNAMIC   the .dynamic section
-```
+A dynamic image (imports present, `encode_dynamic_elf`) has the **same program
+headers** as the other Linux targets — seven, or eight with a read-only constant
+partition (see `linux-aarch64` for the list). Only the machine field, `e_flags`,
+and the interpreter string branch on arch.
 
 The **static** image carries **two** `PT_LOAD`s — a text segment (R+X) and a
 separate page-aligned **writable** data segment (R+W) — because the program entry
-writes `_mfb_rt_main_arena` and the data must be writable. The aarch64/RISC-V static
-encoder is shared. Every console build imports libc, so no console build produces a
-static image. [[src/os/linux/link/elf.rs:encode_static_elf]]
+writes `_mfb_rt_main_arena` and the data must be writable. It also carries
+`PT_GNU_STACK` and the `PT_NOTE` provenance marker (see `provenance-marker`), for
+four headers total. The aarch64/RISC-V static encoder is shared. Every console
+build imports libc, so no console build produces a static image. [[src/os/linux/link/elf.rs:encode_static_elf]]
 
 ## Calling convention and ABI
 

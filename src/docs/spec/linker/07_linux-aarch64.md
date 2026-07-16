@@ -21,20 +21,28 @@ Constants: image base `0x400000`, text file offset `0x1000`, page size `0x1000`
 (4 KiB). The ELF header is `ET_EXEC`, `EM_AARCH64`, entry =
 `text_vmaddr + entry_offset`.
 
-A dynamic image (imports present, `encode_dynamic_elf`) has five program headers:
+A dynamic image (imports present, `encode_dynamic_elf`) has seven program
+headers, or eight when the image has a read-only constant partition:
 
 ```text
 PT_PHDR      the program header table
 PT_INTERP    the dynamic loader path
 PT_LOAD      RX text (image base)
+PT_LOAD      R  rodata (only if a constant partition is present)
 PT_LOAD      RW data
 PT_DYNAMIC   the .dynamic section
+PT_GNU_STACK the non-executable-stack marker (all sizes 0)
+PT_NOTE      the MFBasic provenance marker
 ```
 
-A static image (no imports, `encode_static_elf`) has two `PT_LOAD`s — text (R+X)
-and a writable data segment page-aligned to the `data_vmaddr` the relocation
-patcher uses — and no `PT_INTERP`/`PT_DYNAMIC`. Every console build imports libc,
-so no current console build produces a static image.
+A static image (no imports, `encode_static_elf`) has four: two `PT_LOAD`s — text
+(R+X) and a writable data segment page-aligned to the `data_vmaddr` the
+relocation patcher uses — plus `PT_GNU_STACK` and `PT_NOTE`, and no
+`PT_INTERP`/`PT_DYNAMIC`. Every console build imports libc, so no current console
+build produces a static image.
+
+The `PT_NOTE` marker is unconditional and identical across every encoder and
+arch; see `provenance-marker`.
 
 ## Dynamic metadata
 
