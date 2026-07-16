@@ -217,7 +217,6 @@ severity is `error`.
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
 | `1-102-0001` | `MFB_PARSE_EXPECTED_EXPRESSION` | error | parser expected an expression |
-| `1-102-0002` | `MFB_PARSE_INVALID_FUNCTION_HEADER` | error | function header is invalid |
 | `1-102-0003` | `MFB_PARSE_INVALID_IDENTIFIER` | error | identifier is invalid |
 | `1-102-0004` | `MFB_PARSE_UNEXPECTED_STATEMENT` | error | parser found an unexpected statement |
 | `1-102-0005` | `MFB_PARSE_UNEXPECTED_TOKEN` | error | parser found an unexpected token |
@@ -284,7 +283,6 @@ registry's only `info`, and `2-200-0009` one of exactly six `warn` rules
 | `2-201-0010` | `SYMBOL_DUPLICATE_TOP_LEVEL` | error | top-level symbol is declared more than once |
 | `2-201-0011` | `SYMBOL_UNKNOWN_IDENTIFIER` | error | identifier could not be resolved |
 | `2-201-0012` | `SYMBOL_NOT_CALLABLE` | error | symbol cannot be called |
-| `2-201-0013` | `SYMBOL_NOT_VALUE` | error | symbol is not a value |
 | `2-201-0014` | `SYMBOL_UNKNOWN_IMPORT` | error | package-qualified symbol uses an unknown import |
 | `2-201-0015` | `SYMBOL_UNKNOWN_TYPE` | error | type name could not be resolved |
 | `2-201-0016` | `SYMBOL_RESERVED_BUILTIN_NAME` | error | function name is a reserved built-in and may not be redeclared |
@@ -350,7 +348,6 @@ Scheme*).
 | `2-203-0044` | `TYPE_UNKNOWN_ENUM_MEMBER` | error | enum member does not exist |
 | `2-203-0045` | `TYPE_UNKNOWN_FIELD` | error | record field does not exist |
 | `2-203-0046` | `TYPE_UNION_INCLUDE_REQUIRES_UNION` | error | union includes must name union types |
-| `2-203-0047` | `TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS` | error | variant constructor name is ambiguous |
 | `2-203-0048` | `TYPE_ASSIGN_REQUIRES_MUT` | error | assignment target must be mutable |
 | `2-203-0049` | `TYPE_MATCH_PATTERN_MISMATCH` | error | match pattern type does not match the scrutinee type |
 | `2-203-0050` | `TYPE_FOR_EACH_REQUIRES_COLLECTION` | error | FOR EACH source must be a List or Map |

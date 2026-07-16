@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: dead-code
 
-Status: Open
+Status: Fixed (2026-07-15) — dropped the three dead diagnostic rows that had no emit site (MFB_PARSE_INVALID_FUNCTION_HEADER, SYMBOL_NOT_VALUE, TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS) from both src/rules/table.rs and the spec listing src/docs/spec/diagnostics/01_rule-codes.md, leaving a one-line note at each old table.rs slot explaining the drop and which live code reports the condition instead. They were not in the 02_error-codes.md Constant Registry and had 0 code references, so no errorCode:: constant or behavior changes. Build + rules tests pass.
 
 Three compiler-diagnostic rule entries in `src/rules/table.rs` have no emit site
 anywhere in the tree, so the conditions they name can never surface their

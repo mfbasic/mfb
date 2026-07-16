@@ -127,12 +127,8 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "parser expected an expression",
     },
-    Rule {
-        code: "1-102-0002",
-        name: "MFB_PARSE_INVALID_FUNCTION_HEADER",
-        severity: Severity::Error,
-        message: "function header is invalid",
-    },
+    // 1-102-0002 (MFB_PARSE_INVALID_FUNCTION_HEADER) dropped (bug-216): it had no
+    // emit site — an invalid FUNC header is reported via MFB_PARSE_UNEXPECTED_TOKEN.
     Rule {
         code: "1-102-0003",
         name: "MFB_PARSE_INVALID_IDENTIFIER",
@@ -253,12 +249,8 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "symbol cannot be called",
     },
-    Rule {
-        code: "2-201-0013",
-        name: "SYMBOL_NOT_VALUE",
-        severity: Severity::Error,
-        message: "symbol is not a value",
-    },
+    // 2-201-0013 (SYMBOL_NOT_VALUE) dropped (bug-216): it had no emit site — a
+    // symbol used in value position is reported via SYMBOL_UNKNOWN_IDENTIFIER.
     Rule {
         code: "2-201-0014",
         name: "SYMBOL_UNKNOWN_IMPORT",
@@ -565,12 +557,8 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "union includes must name union types",
     },
-    Rule {
-        code: "2-203-0047",
-        name: "TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS",
-        severity: Severity::Error,
-        message: "variant constructor name is ambiguous",
-    },
+    // 2-203-0047 (TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS) dropped (bug-216): it had no
+    // emit site — variant constructors resolve unambiguously by their unique name.
     Rule {
         code: "2-203-0048",
         name: "TYPE_ASSIGN_REQUIRES_MUT",
