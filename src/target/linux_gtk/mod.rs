@@ -7,21 +7,20 @@
 //! plain `bl <symbol>` against the imports declared in
 //! `linux_aarch64/plan.rs::app_mode_imports`.
 //!
-//! SCAFFOLD STATUS (plan-05 Phase 3): the structure below mirrors the macOS
-//! backend and is code-plan-valid + ELF-encodable, but it has **not** been run on
-//! a Linux+GTK aarch64 machine (the dev host is macOS, which cannot execute the
-//! produced ELF). Several runtime-bound behaviors are intentionally simplified and
-//! marked `TODO(plan-05)`:
-//!   * output `io::print`/`io::write` append to the `GtkTextBuffer` directly from
-//!     the worker thread; the main-thread marshal (`g_idle_add` / condvar) that
-//!     §6.4 requires is not yet wired, and the fd fallback (write to stdout/stderr)
-//!     is the only path exercised when no buffer is attached.
-//!   * `io::printError` is not yet visually distinguished with a `GtkTextTag`.
-//!   * the finish path hard-exits via `_exit` instead of keeping the window open
-//!     (§6.7). (`io::terminalSize` and interactive resize are now wired — the grid
-//!     reflows on the drawing area's `resize` signal, plan-35-E.)
-//! These are completed-and-verified on-device in a later pass; until then the
-//! glibc executable links GTK and is structurally complete but unverified.
+//! SCAFFOLD STATUS (plan-05): the structure below mirrors the macOS backend and is
+//! code-plan-valid + ELF-encodable. It is exercised on Linux+GTK (Debian/Ubuntu
+//! GTK VMs); the notes below describe the **implemented** main-thread contract:
+//!   * output `io::print`/`io::write` marshal every transcript write onto the main
+//!     loop: the worker copies the bytes into a malloc'd chunk and posts it via
+//!     `g_idle_add(APPEND_IDLE)`, so the `GtkTextBuffer` is only touched on the main
+//!     thread (§6.4). The fd fallback (write to stdout/stderr) is used only when no
+//!     window/buffer is attached (headless).
+//!   * `io::printError` is prefix-distinguished on the marshaled path (not raw-
+//!     appended).
+//!   * the finish path parks the worker in `pause()` for the GUI case so the window
+//!     stays open (§6.7); it `_exit`s only headless. `io::terminalSize` and
+//!     interactive resize are wired — the grid reflows on the drawing area's
+//!     `resize` signal (plan-35-E).
 
 use std::collections::HashMap;
 

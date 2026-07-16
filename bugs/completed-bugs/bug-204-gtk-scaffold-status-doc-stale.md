@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: docs
 
-Status: Open
+Status: Fixed (2026-07-15) — the linux_gtk SCAFFOLD STATUS block now describes the implemented main-thread contract: io::print/write marshal via g_idle_add(APPEND_IDLE), printError is prefix-distinguished, and the finish path parks the worker in pause() for the GUI case (only _exits headless). Documentation only.
 Regression Test: n/a (documentation)
 
 The `src/target/linux_gtk/mod.rs` module-level SCAFFOLD STATUS block describes
