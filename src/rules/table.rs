@@ -761,6 +761,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a scalar literal must name a valid Unicode scalar value",
     },
     Rule {
+        code: "2-203-0113",
+        name: "TYPE_ISOLATED_NOT_VISIBLE",
+        severity: Severity::Error,
+        message: "ISOLATED function must be a project-visible FUNC declaration",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

@@ -1627,7 +1627,7 @@ impl<'a> SyntaxChecker<'a> {
                 || matches!(function.visibility, Visibility::Private))
         {
             self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
+                "TYPE_ISOLATED_NOT_VISIBLE",
                 &format!(
                     "ISOLATED function `{}` must be a project-visible FUNC declaration \
                      (PUBLIC — the default — or EXPORT, not PRIVATE).",
@@ -2115,7 +2115,7 @@ mod checker_tests {
         // FUNC is PUBLIC and accepted — exercised by the thread acceptance tests.)
         assert!(rejects_with(
             "PRIVATE ISOLATED FUNC w(x AS Integer) AS Integer\n  RETURN x\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-            "TYPE_CALL_ARGUMENT_MISMATCH"
+            "TYPE_ISOLATED_NOT_VISIBLE"
         ));
     }
 

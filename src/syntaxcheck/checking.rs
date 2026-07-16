@@ -163,8 +163,6 @@ impl<'a> SyntaxChecker<'a> {
                     (binding_type != Type::Unknown).then_some(&binding_type),
                     &format!("binding `{name}`"),
                 );
-                // A `RES` binding whose ownership floats into an outer-scope
-                // collection (or out via a returned collection) becomes
                 locals.insert(
                     name.clone(),
                     LocalInfo {
@@ -422,8 +420,6 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 if else_flow == Flow::FallsThrough {
                     fallthroughs.push(else_locals);
-                } else if else_body.is_empty() {
-                    fallthroughs.push(locals.clone());
                 }
                 if then_flow == Flow::AlwaysReturns
                     && else_flow == Flow::AlwaysReturns

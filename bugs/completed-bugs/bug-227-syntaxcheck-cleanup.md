@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: dead-code / docs
 
-Status: Open
+Status: Fixed (2026-07-15) — (1) deleted the unreachable `else if else_body.is_empty()` arm in the Statement::If fallthrough merge (check_block on an empty else always returns FallsThrough, so the preceding arm always wins); (2) introduced a dedicated diagnostic TYPE_ISOLATED_NOT_VISIBLE (2-203-0113, in table.rs + 01_rule-codes.md) and switched the ISOLATED-must-be-project-visible report to it instead of mis-classifying it as TYPE_CALL_ARGUMENT_MISMATCH (test updated); (3) removed the dangling/truncated `RES binding whose ownership floats...` comment. Build + syntaxcheck tests pass.
 
 Three minor cleanups in the syntax checker:
 

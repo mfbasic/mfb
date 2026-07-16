@@ -381,6 +381,7 @@ Scheme*).
 | `2-203-0110` | `TYPE_SCALAR_LITERAL_EMPTY` | error | a backtick scalar literal must contain exactly one Unicode scalar |
 | `2-203-0111` | `TYPE_SCALAR_LITERAL_TOO_MANY` | error | a backtick scalar literal must contain exactly one Unicode scalar |
 | `2-203-0112` | `TYPE_SCALAR_LITERAL_INVALID` | error | a scalar literal must name a valid Unicode scalar value |
+| `2-203-0113` | `TYPE_ISOLATED_NOT_VISIBLE` | error | ISOLATED function must be a project-visible FUNC declaration |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |
