@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: docs
 
-Status: Open
+Status: Fixed (2026-07-15) — fma_fusion.rs adds the commuted c + a*b -> fmadd_d row; module_analysis.rs drops the duplicated doc paragraphs on module_uses_migrated / module_drops_resource_union_close; audio_specs.rs reworded to reference the capabilities.runtime_calls pre-emit gate. Documentation only.
 
 Three documentation corrections in the codegen/runtime layer:
 

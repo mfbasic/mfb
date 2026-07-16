@@ -6,9 +6,12 @@ use crate::target::shared::abi;
 // direction-specific `read`/`write`/`open*`/`close*` bodies plus the
 // direction-agnostic `poll`/`available`/`xruns`, which share one symbol each and
 // branch on `AudioHandle.kind` internally. The bodies land with the macOS
-// (plan-33-B) and Linux (plan-33-C) backends; these rows wire the spine so a
-// program that calls `audio::` fails to *build* with the precise "does not emit
-// runtime helper" error until a backend lands, rather than miscompiling.
+// (plan-33-B) and Linux (plan-33-C) backends; these rows carry the full ABI
+// metadata so `spec_for_symbol` resolves an `audio::` call. Before a backend
+// landed, the pre-emit gate was `capabilities.runtime_calls` (which rejects a
+// call whose helper the target cannot emit) — not a "does not emit runtime
+// helper" error from these specs, which always resolve. (Moot now that the
+// macOS and Linux audio backends have landed.)
 //
 // A shared-symbol call (`poll`/`available`/`xruns`) accepts either resource
 // type; its param type is the representative pointer-sized `AudioInput`, exactly

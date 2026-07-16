@@ -96,19 +96,10 @@ pub(super) fn module_uses_call(module: &NirModule, target: &str) -> bool {
 /// bare native lowering name is `bare` (e.g. `bare = "find"` checks both
 /// `collections.find` and `strings.find`). The native ops keep their bare
 /// lowering but arrive with the qualified target (plan-01-functions.md §5).
-
-/// Whether the module uses a migrated `collections::`/`strings::` member whose
-/// bare native lowering name is `bare` (e.g. `bare = "find"` checks both
-/// `collections.find` and `strings.find`). The native ops keep their bare
-/// lowering but arrive with the qualified target (plan-01-functions.md §5).
 pub(super) fn module_uses_migrated(module: &NirModule, bare: &str) -> bool {
     module_uses_call(module, &format!("collections.{bare}"))
         || module_uses_call(module, &format!("strings.{bare}"))
 }
-
-/// Whether the module binds a resource union whose tag-dispatched drop calls
-/// `target` (a variant's close op). These calls are codegen-emitted rather than
-/// NIR calls, so they must still pull in the close helper.
 
 /// Whether the module binds a resource union whose tag-dispatched drop calls
 /// `target` (a variant's close op). These calls are codegen-emitted rather than

@@ -9,12 +9,14 @@
 //!   fadd_d  %w, %p, c     =>    (fmul removed)
 //! ```
 //!
-//! The four sign combinations map to the neutral fused ops (each backend selects
-//! the native form that computes the same result — see the `CodeOp` docs):
+//! The sign combinations map to the neutral fused ops (each backend selects the
+//! native form that computes the same result — see the `CodeOp` docs). Both add
+//! orderings (`a*b + c` and the commuted `c + a*b`) fuse to `fmadd_d`:
 //!
 //! | source            | fused op    | result            |
 //! |-------------------|-------------|-------------------|
 //! | `a*b + c`         | `fmadd_d`   | `c + a*b`         |
+//! | `c + a*b`         | `fmadd_d`   | `c + a*b`         |
 //! | `a*b - c`         | `fmsub_d`   | `a*b - c`         |
 //! | `c - a*b`         | `fnmsub_d`  | `c - a*b`         |
 //!
