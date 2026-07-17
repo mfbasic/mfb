@@ -1,0 +1,24 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_bind_state_valid",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "export",
+    "name": "FileInfo",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "frames", "type": "Integer" },
+    { "visibility": null, "line": 13, "name": "samplerate", "type": "Integer" },
+    { "visibility": null, "line": 14, "name": "channels", "type": "Integer" },
+    { "visibility": null, "line": 15, "name": "format", "type": "Integer" },
+    { "visibility": null, "line": 16, "name": "sections", "type": "Integer" },
+    { "visibility": null, "line": 17, "name": "seekable", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  ]
+}

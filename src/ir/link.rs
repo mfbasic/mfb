@@ -431,6 +431,11 @@ pub(crate) struct IrLinkFunction {
     /// `(slot, [(field, value)])`. A value is a wrapper parameter name or an
     /// integer literal. Fields not listed are zero (plan-50-E).
     pub(crate) bind_in: Vec<IrBindIn>,
+    /// `BIND STATE <res> = <out-struct-slot>` (plan-53-B): the OUT struct slot
+    /// whose filled buffer is marshalled into the returned resource's STATE. The
+    /// resource slot is the native return; only the struct slot is needed at
+    /// codegen. `None` when the native func has no BIND STATE.
+    pub(crate) bind_state: Option<String>,
     /// `FREE <slot>` deallocation of a caller-owned native return (mfbasic.md §17).
     pub(crate) free: Option<IrFree>,
 }

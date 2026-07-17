@@ -480,12 +480,13 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         params: decode_vec(r, |r| Ok((r.string()?, r.string()?)))?,
         return_type: r.string()?,
         return_resource: r.bool()?,
-        // plan-53-A: `return_state_type` is consumed by the PRODUCING thunk, which
-        // the declaring package builds from in-memory IR — never from this decoded
-        // form. A CONSUMER that re-emits an imported stateful-native-resource thunk
-        // does need it; that is added with a BINARY_REPR_VERSION bump in plan-53-C
-        // (cross-package). Until then a decoded link function has no STATE — which
-        // is correct for every package in the wild today (none is stateful).
+        // plan-53-A/B: `return_state_type` and `bind_state` are consumed by the
+        // PRODUCING thunk, which the declaring package builds from in-memory IR —
+        // never from this decoded form. A CONSUMER that re-emits an imported
+        // stateful-native-resource thunk does need them; that is added with a
+        // BINARY_REPR_VERSION bump in plan-53-C (cross-package). Until then a
+        // decoded link function has no STATE — correct for every package in the
+        // wild today (none is stateful).
         return_state_type: None,
         abi_slots: decode_vec(r, |r| {
             let name = r.string()?;
@@ -534,6 +535,8 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
                 .map_err(|_| "invalid LINK const value".to_string())?;
             Ok((slot, value))
         })?,
+        // plan-53-B: deferred to 53-C's version bump, same as return_state_type.
+        bind_state: None,
         success_on: decode_opt_link_expr(r)?,
         result: decode_opt_link_expr(r)?,
         free: if r.u8()? != 0 {

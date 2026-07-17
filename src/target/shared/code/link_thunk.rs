@@ -910,11 +910,10 @@ fn lower_link_thunk(
             abi::load_u64("%v9", abi::stack_pointer(), rec_handle_off),
             abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
             abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
-            // Zero every other record word: CLOSED (open), STATE (bind inits it),
-            // and the File I/O buffer words a native resource never uses (they must
-            // be zero, not the arena-alloc's poison — plan-52-B).
+            // Zero CLOSED (open) and the File I/O buffer words a native resource
+            // never uses (they must be zero, not the arena-alloc's poison —
+            // plan-52-B). STATE@16 is handled below.
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_CLOSED),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_STATE),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_PTR),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_FILLED),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_ENABLED),
@@ -922,7 +921,54 @@ fn lower_link_thunk(
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_POS),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_FILL),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_AT_EOF),
+        ]);
+        // STATE@16: `BIND STATE <res> = <out-struct>` (plan-53-B) marshals the OUT
+        // struct the native call filled into an `S` record and stores its pointer;
+        // otherwise leave it null so the caller's bind default-inits it (a built-in
+        // `File STATE S` works the same way — the producer never inits STATE).
+        if let Some(struct_slot_name) = function.bind_state.as_deref() {
+            let Some((_, buf_off, layout, decl)) = struct_slots
+                .iter()
+                .find(|(idx, ..)| function.abi_slots[*idx].name == struct_slot_name)
+            else {
+                return Err(format!(
+                    "LINK function '{}.{}' BIND STATE names '{struct_slot_name}', which is not an OUT struct slot",
+                    function.alias, function.name
+                ));
+            };
+            // marshal_struct_out arena-allocates the `S` record from the post-call
+            // buffer and leaves its pointer in RESULT_VALUE_REGISTER. It clobbers
+            // scratch, so the record pointer is reloaded from its slot afterward.
+            marshal_struct_out(
+                function,
+                decl,
+                layout,
+                *buf_off,
+                record_fields,
+                &symbol,
+                cstr_area,
+                cursor_off,
+                total_off,
+                &alloc_fail,
+                &encoding_fail,
+                &nan_fail,
+                &inf_fail,
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
+                abi::store_u64(RESULT_VALUE_REGISTER, "%v10", FILE_OFFSET_STATE),
+            ]);
+        } else {
+            instructions.extend([
+                abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
+                abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_STATE),
+            ]);
+        }
+        instructions.extend([
             // The record pointer is the wrapper result.
+            abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
             abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
         ]);
     }
@@ -1515,6 +1561,7 @@ mod tests {
                 abi_return_ctype: (*ctype).to_string(),
                 consts: vec![],
                 bind_in: vec![],
+                bind_state: None,
                 success_on: None,
                 result: None,
                 free: None,
@@ -1549,6 +1596,7 @@ mod tests {
                 abi_return_ctype: "CInt32".to_string(),
                 consts: vec![("pinned".to_string(), 0)],
                 bind_in: vec![],
+                bind_state: None,
                 success_on: None,
                 result: None,
                 free: None,

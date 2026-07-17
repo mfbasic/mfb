@@ -1,0 +1,43 @@
+' plan-53-B: `BIND STATE <res> = <out-struct>` on a native LINK function. The
+' native call fills an SF_INFO through an OUT param; BIND STATE hands it back as
+' the returned resource's STATE. This is bindings/libsnd's openFile shape. A
+' package builds to a .mfp without linking libsndfile (it is dlopen'd at run
+' time), so this compile-time fixture needs no library present.
+'
+' Runtime is proven separately against the vendored libsndfile: sf_open on a WAV
+' yields `samplerate=8000 / channels=1 / frames=4`, read as `.state`.
+EXPORT RESOURCE SoundFile CLOSE BY snd::closeFile
+
+EXPORT TYPE FileInfo
+  frames     AS Integer
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
+
+LINK "libsnd" AS snd
+  CSTRUCT SfFileInfo AS FileInfo
+    frames     CInt64
+    samplerate CInt32
+    channels   CInt32
+    format     CInt32
+    sections   CInt32
+    seekable   CInt32
+  END CSTRUCT
+
+  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+    SYMBOL "sf_open"
+    ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+    CONST mode = 16
+    BIND STATE file = info
+    ERROR_ON file = NOTHING
+    RETURN file
+  END FUNC
+
+  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+    SYMBOL "sf_close"
+    ABI (sndfile CPtr) AS status CInt32
+  END FUNC
+END LINK

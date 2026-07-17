@@ -1,5 +1,27 @@
 # plan-53-B: `BIND STATE` — populate a native resource's STATE from an OUT struct
 
+Status: **LANDED + runtime-proven against libsndfile.** `BIND STATE file = info`
+parses, and the producing thunk marshals the OUT struct into the resource record's
+STATE@16 (reusing `marshal_struct_out`, superseding 53-A's default-init). Proven
+end-to-end: `sf_open` on a real WAV, read as `.state` →
+`samplerate=8000 / channels=1 / frames=4` (the actual file metadata, not zeros).
+libsnd's `openFile`/`closeFile` compile as written (the only non-STATE gap was
+`closeFile`'s `ABI (sndfile CPtr)` omitting its native return `AS status CInt32` —
+a pre-existing grammar rule, not a STATE issue). Artifact gate 0 diffs / 1145
+goldens; 981 acceptance + 2901 unit green.
+
+Fixtures: `tests/syntax/native/native-bind-state-valid` (a package with the libsnd
+`openFile`/`closeFile` shape — builds to `.mfp` with no library present, since a
+package dlopen's its native lib at run time). The runtime proof uses the vendored
+libsndfile and is reproducible but not an in-tree CI fixture (no tests/ fixture
+vendors libsndfile; libsnd is validated out-of-tree). The BIND STATE codegen reuses
+`marshal_struct_out`, which is already proven by `getFormat`/`getFormats`.
+
+**Remaining (guardrails):** reject a `BIND STATE` whose OUT struct's `CSTRUCT AS S`
+disagrees with the resource's declared STATE type, and reject `BIND STATE` naming a
+non-OUT slot (the codegen currently errors at lowering for the latter). Syntax
+fixtures for those. Tracked in the plan phases below.
+
 Last updated: 2026-07-17
 Effort: medium (1h–2h)
 Depends on: plan-53-A (the record representation — there is no STATE slot to write

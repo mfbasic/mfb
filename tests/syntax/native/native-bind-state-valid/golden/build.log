@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/native/native-bind-state-valid
+Wrote AST to tests/syntax/native/native-bind-state-valid/native_bind_state_valid.ast
+Wrote IR to tests/syntax/native/native-bind-state-valid/native_bind_state_valid.ir
+[exit 0]

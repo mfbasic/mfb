@@ -1,0 +1,124 @@
+{
+  "project": "native_bind_state_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "export", "name": "SoundFile", "closeFn": "snd.closeFile", "threadSendable": false, "line": 9 },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "FileInfo",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "frames", "type": "Integer", "line": 12 },
+      { "visibility": null, "name": "samplerate", "type": "Integer", "line": 13 },
+      { "visibility": null, "name": "channels", "type": "Integer", "line": 14 },
+      { "visibility": null, "name": "format", "type": "Integer", "line": 15 },
+      { "visibility": null, "name": "sections", "type": "Integer", "line": 16 },
+      { "visibility": null, "name": "seekable", "type": "Integer", "line": 17 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "libsnd",
+      "alias": "snd",
+      "line": 20,
+      "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "SfFileInfo",
+        "mapsTo": "FileInfo",
+        "line": 21,
+        "fields": [
+        {
+          "name": "frames",
+          "ctype": "CInt64",
+          "line": 22
+        },
+        {
+          "name": "samplerate",
+          "ctype": "CInt32",
+          "line": 23
+        },
+        {
+          "name": "channels",
+          "ctype": "CInt32",
+          "line": 24
+        },
+        {
+          "name": "format",
+          "ctype": "CInt32",
+          "line": 25
+        },
+        {
+          "name": "sections",
+          "ctype": "CInt32",
+          "line": 26
+        },
+        {
+          "name": "seekable",
+          "ctype": "CInt32",
+          "line": 27
+        }
+        ]
+      }
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "openFile",
+        "symbol": "sf_open",
+        "returnResource": true,
+        "returnType": "SoundFile",
+        "line": 30,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 30 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 32 },
+          { "name": "mode", "ctype": "CInt32", "out": false, "line": 32 },
+          { "name": "info", "ctype": "SfFileInfo", "out": true, "line": 32 }
+          ],
+          "returnName": "file",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        { "slot": "mode", "value": { "kind": "number", "value": "16" }, "line": 33 }
+        ],
+        "successOn": { "kind": "unary", "operator": "NOT", "operand": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "file" }, "right": { "kind": "identifier", "value": "NOTHING" } } },
+        "result": { "kind": "identifier", "value": "file" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "closeFile",
+        "symbol": "sf_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 39,
+        "params": [
+        { "name": "sndfile", "type": "SoundFile", "resource": true, "state": "FileInfo", "default": null, "line": 39 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "sndfile", "ctype": "CPtr", "out": false, "line": 41 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": null,
+        "result": null,
+        "free": null
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

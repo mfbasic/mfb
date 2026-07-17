@@ -391,6 +391,7 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                                     .collect(),
                             })
                             .collect(),
+                        bind_state: native.bind_state.as_ref().map(|b| b.struct_slot.clone()),
                         success_on: native.success_on.as_ref().map(lower_link_expr),
                         result: native.result.as_ref().map(lower_link_expr),
                         free: native.free.as_ref().map(|f| IrFree {

@@ -328,6 +328,10 @@ pub struct LinkFunction {
     pub consts: Vec<ConstPin>,
     /// `BIND IN <slot>` blocks: struct fields written before the call (plan-50-E).
     pub bind_in: Vec<BindIn>,
+    /// `BIND STATE <res-slot> = <out-struct-slot>` (plan-53-B): the returned
+    /// resource carries the C struct the native call filled through an `OUT`
+    /// parameter as its STATE payload. One per native func.
+    pub bind_state: Option<BindState>,
     /// `SUCCESS_ON <expr>` gate, if any (the De Morgan complement of `ERROR_ON`).
     pub success_on: Option<Expression>,
     /// `RESULT <expr>` value mapping, if any (plan-link-update.md §5b).
@@ -398,6 +402,17 @@ pub struct BindIn {
 pub struct BindInField {
     pub name: String,
     pub value: Expression,
+    pub line: usize,
+}
+
+/// `BIND STATE <resource_slot> = <struct_slot>` (plan-53-B): the native return
+/// resource `resource_slot` carries the `OUT` struct `struct_slot` as its STATE.
+#[derive(Clone, Debug)]
+pub struct BindState {
+    /// The native return slot naming the produced resource (e.g. `file`).
+    pub resource_slot: String,
+    /// The `OUT` ABI slot whose filled `CSTRUCT … AS S` becomes the STATE.
+    pub struct_slot: String,
     pub line: usize,
 }
 

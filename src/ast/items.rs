@@ -794,6 +794,7 @@ impl<'a> FileParser<'a> {
         let mut success_on: Option<Expression> = None;
         let mut result: Option<Expression> = None;
         let mut bind_in: Vec<BindIn> = Vec::new();
+        let mut bind_state: Option<BindState> = None;
         let mut free: Option<FreeSpec> = None;
 
         while !self.is_at_end() {
@@ -863,7 +864,22 @@ impl<'a> FileParser<'a> {
                 continue;
             }
             if self.match_identifier_ci("BIND") {
-                if let Some(bind) = self.parse_bind_in() {
+                // `BIND STATE <res> = <slot>` (plan-53-B) vs `BIND IN <slot> …`
+                // (plan-50-E). STATE is a single-line clause; IN opens a block.
+                if self.check_identifier_ci("STATE") {
+                    self.advance(); // STATE
+                    if let Some(bs) = self.parse_bind_state() {
+                        if bind_state.is_some() {
+                            self.report(
+                                "MFB_PARSE_UNEXPECTED_STATEMENT",
+                                "A native FUNC may declare at most one BIND STATE.",
+                                &func_token,
+                            );
+                        } else {
+                            bind_state = Some(bs);
+                        }
+                    }
+                } else if let Some(bind) = self.parse_bind_in() {
                     bind_in.push(bind);
                 }
                 self.skip_separators();
@@ -913,8 +929,32 @@ impl<'a> FileParser<'a> {
             success_on,
             result,
             bind_in,
+            bind_state,
             free,
             line: func_token.line,
+        })
+    }
+
+    /// `BIND STATE <resource-slot> = <out-struct-slot>` — a single-line clause
+    /// (unlike `BIND IN … END BIND`). `STATE` and `BIND` are already consumed.
+    pub(super) fn parse_bind_state(&mut self) -> Option<BindState> {
+        let line = self.previous().line;
+        let resource_slot =
+            self.consume_identifier("BIND STATE requires the resource slot name.")?;
+        if !self.consume_kind(
+            TokenKind::Equal,
+            "BIND STATE requires `= <out-struct-slot>`.",
+        ) {
+            self.synchronize();
+            return None;
+        }
+        let struct_slot =
+            self.consume_identifier("BIND STATE requires an OUT struct slot name.")?;
+        self.consume_statement_end("Expected end of statement after BIND STATE.");
+        Some(BindState {
+            resource_slot,
+            struct_slot,
+            line,
         })
     }
 

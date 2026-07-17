@@ -2575,6 +2575,7 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         abi_return_ctype: "CInt32".to_string(),
         consts: vec![],
         bind_in: vec![],
+        bind_state: None,
         success_on: None,
         // plan-50-H: the result is whatever `RETURN <expr>` names; a bare Var over
         // the ABI return is the `AS value CInt32` + `RETURN value` passthrough.
