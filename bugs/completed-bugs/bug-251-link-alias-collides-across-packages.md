@@ -1,12 +1,27 @@
 # bug-251: two imported packages sharing a `LINK` alias + function name silently route to one library
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: — (Phase 1)
+Status: Fixed
+Regression Test: `tests/rt-behavior/native/native-link-alias-collision-rt` — two
+imported packages share the `LINK` alias `fooLink` + function name `raw`, each
+bound to a different `sqlite3` symbol; correct per-package routing exits **73**,
+any misroute exits **70** (the pre-fix observed value).
+
+Fix (Phase 2, `src/ir/package.rs:prefix_package_symbols`): qualify each imported
+package's `LINK` function `alias` with the package's content-addressed identity
+prefix — the same prefix regular functions already receive — rewriting the
+wrapper-body routing references (`alias.func`), the CSTRUCT-table `alias` join,
+and the re-export alias targets in the same pass. The merge dedup key
+(`alias, name`), the `link_thunk_symbol`, and the routing import name all inherit
+the package-distinct identity in lockstep, so two packages that independently
+choose the same alias + function name no longer collide, while a diamond import
+(same package, same prefix) still collapses to one thunk. The `.mfp` trailer is
+untouched: `prefix_package_symbols` runs only in the executable-merge path, never
+in `write_package`.
 
 A native `LINK` function's routing identity is its **package-internal**
 `alias.func` pair, but `merge_package` de-duplicates link functions in a
@@ -229,32 +244,56 @@ trailer is untouched). Executable codegen goldens change **only** for a fixture
 importing two colliding packages — none exists today, so the churn should be
 zero. Verify with the artifact gate rather than assuming.
 
+## Resolution (2026-07-17)
+
+Fixed via approach **(1)** — qualify the alias during `prefix_package_symbols`.
+Approach (1) turned out *cleaner* than (2), not just more uniform: once the
+`alias` string carries the identity prefix, every downstream consumer that keys
+off it — the merge dedup (`alias, name`), `link_thunk_symbol(alias, name)`, the
+routing import name (`alias.func`), and the CSTRUCT join (`c.alias ==
+function.alias`) — becomes package-distinct automatically, with **zero** changes
+to `link_thunk_symbol`, `nir::link_routing_imports`, or the merge dedup key
+itself. The wrapper-body references are rewritten in the same pass by folding the
+routing names into the existing `own_fns` prefixing set, so the "three
+load-bearing places" move together and the collision cannot reappear one layer
+down. (2) would have left the routing import *name* colliding — two surviving
+link functions both named `fooLink.raw` overwrite each other in the
+name→symbol map — so it was insufficient without also rewriting body references,
+i.e. it collapses into (1) anyway.
+
+Reproduction note: the checked-in fixture distinguishes the two packages by
+binding two different **symbols in the same system library** (`sqlite3_strglob`
+vs `sqlite3_stricmp`), not two different vendored libraries. The routing defect is
+identical — a dropped thunk misroutes to the surviving package's `(library,
+symbol)` — and system `sqlite3` keeps the fixture deterministic and portable
+across every supported arch without shipping custom multi-arch binaries. Observed
+pre-fix exit was **70** (not 77) with these symbols; post-fix **73**.
+
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a runtime fixture under `tests/rt-behavior/native/` reproducing the
-      collision: two binding packages sharing an alias + function name, each
-      bound to a different vendored library, and a consumer asserting each
-      returns its own library's result. Confirm it fails (77, not 73) against
-      current behavior.
-- [ ] Add the distinct-alias contrast fixture (or assert both in one) so the
-      single-variable proof is pinned.
-- [ ] Confirm the blast-radius verdicts above against the tree.
-
-Acceptance: the new fixture fails with exit 77 for the documented reason; the
-audit list is complete with a verdict per site.
-Commit: —
+- [x] Runtime fixture `tests/rt-behavior/native/native-link-alias-collision-rt`:
+      two packages sharing alias `fooLink` + function `raw`, each bound to a
+      different `sqlite3` symbol; consumer asserts each routes to its own symbol.
+      Confirmed it exited **70** (not 73) against pre-fix behavior.
+- [x] The collision fixture asserts BOTH directions in one program (exit encodes
+      both `op()` results), so a misroute of either thunk is caught.
+- [x] Blast-radius verdicts confirmed against the tree.
 
 ### Phase 2 — the fix
 
-- [ ] Make the declaring package part of the link function's merged identity per
-      Fix Design, and make `link_thunk_symbol` package-distinct.
-- [ ] Confirm the diamond-import case still collapses to one entry.
+- [x] Alias qualified in `prefix_package_symbols` with the identity prefix; the
+      routing name, thunk symbol, and merge dedup key all inherit it. No change to
+      `link_thunk_symbol` was needed — the qualified alias makes it distinct.
+- [x] Diamond import still collapses: the same package reached twice gets the same
+      content-addressed prefix, so `(alias, name)` matches and dedups to one thunk.
 
-Acceptance: the Phase 1 fixture exits 73; the diamond-import behavior is
-unchanged; nothing in Non-goals moved.
-Commit: —
+### Phase 3 — validation
+
+- [x] `scripts/test-accept.sh native-*` green (43 tests, incl. the new fixture and
+      the imported-resource / cstruct / re-export fixtures — no golden churn).
+- [x] Fixture exits 73 end-to-end; manual two-package repro also 73.
 
 ### Phase 3 — regenerate expected outputs + full validation
 

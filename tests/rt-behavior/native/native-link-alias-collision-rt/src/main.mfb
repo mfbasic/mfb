@@ -1,0 +1,19 @@
+' bug-251 regression: two imported binding packages declare a `LINK` block with
+' the SAME alias (`fooLink`) and the SAME function name (`raw`), each bound to a
+' DIFFERENT native symbol. The link-function merge used to de-duplicate on the
+' package-internal `(alias, name)` in a project-global namespace, dropping the
+' second package's thunk and silently routing its calls to the first package's
+' library/symbol. Each package's wrapper must call ITS OWN symbol.
+'
+' collidera::op() = 7 iff A's `sqlite3_strglob` answered; colliderb::op() = 3 iff
+' B's `sqlite3_stricmp` answered. Correct routing => 7*10 + 3 = 73. Any misroute
+' (either thunk dropped) makes at least one op() return 0, so the exit code is
+' never 73 under the bug.
+IMPORT collidera
+IMPORT colliderb
+
+FUNC main() AS Integer
+  LET a AS Integer = collidera::op()
+  LET b AS Integer = colliderb::op()
+  RETURN a * 10 + b
+END FUNC

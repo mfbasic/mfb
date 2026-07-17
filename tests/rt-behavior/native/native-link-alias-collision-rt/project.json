@@ -1,0 +1,13 @@
+{
+  "name": "native_link_alias_collision_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "packages": [
+    { "name": "collidera", "version": "=0.1.0", "source": "file:packages/collidera.mfp" },
+    { "name": "colliderb", "version": "=0.1.0", "source": "file:packages/colliderb.mfp" }
+  ],
+  "sources": [ { "root": "src", "role": "main", "include": ["**/*.mfb"] } ],
+  "entry": "main",
+  "targets": [ "native" ]
+}

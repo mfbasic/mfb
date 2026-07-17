@@ -1,0 +1,29 @@
+{
+  "project": "native_link_alias_collision_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collidera", "line": 12 },
+    { "module": "colliderb", "line": 13 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 15,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "collidera.op", "arguments": [] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "colliderb.op", "arguments": [] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "10" } }, "right": { "kind": "identifier", "value": "b" } }, "line": 18 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_link_alias_collision_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 16, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collidera.op", "args": [] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "colliderb.op", "args": [] } },
+    { "op": "return", "line": 18, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "local", "name": "b" } } }
+    ]
+  }
+  ]
+}

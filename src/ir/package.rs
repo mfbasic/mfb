@@ -9,8 +9,20 @@ use super::*;
 /// two distinct packages that share a name stay separate instead of colliding.
 pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
     let prefix = format!("{id}.{}", pir.name);
-    let own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
+    let mut own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
     let own_globals: HashSet<String> = pir.bindings.iter().map(|b| b.name.clone()).collect();
+    // A native `LINK` function's routing name is its package-internal `alias.func`
+    // (wrapper bodies reference it unprefixed), yet after merge every package
+    // shares one project-global `link_functions` namespace. Fold those routing
+    // names into the identity prefix exactly like regular functions, so two
+    // packages that independently pick the same alias *and* function name stay
+    // distinct and each wrapper routes to its own thunk (bug-251). The alias is
+    // load-bearing in three places at once — the merge dedup key, these body
+    // references, and the emitted thunk symbol — so qualify it in this one pass
+    // and let all three inherit the package-distinct identity together.
+    for link in &pir.link_functions {
+        own_fns.insert(format!("{}.{}", link.alias, link.name));
+    }
 
     for function in &mut pir.functions {
         for op in &mut function.body {
@@ -31,6 +43,21 @@ pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
     }
     if let Some(entry) = &mut pir.entry {
         entry.name = format!("{prefix}.{}", entry.name);
+    }
+    // Qualify each LINK function's alias with the identity prefix so its routing
+    // name (`alias.func`), its `link_thunk_symbol`, and the merge dedup key all
+    // become package-distinct in lockstep with the wrapper-body references
+    // rewritten above. The CSTRUCT table joins to its functions by `alias`, so
+    // prefix it identically to keep that join intact; a re-export alias routes by
+    // its target's `alias.func`, so prefix the target the same way.
+    for link in &mut pir.link_functions {
+        link.alias = format!("{prefix}.{}", link.alias);
+    }
+    for cstruct in &mut pir.link_cstructs {
+        cstruct.alias = format!("{prefix}.{}", cstruct.alias);
+    }
+    for (_, target) in &mut pir.link_aliases {
+        *target = format!("{prefix}.{target}");
     }
 }
 
@@ -113,9 +140,13 @@ pub fn merge_package(project: &mut IrProject, package: IrProject) {
             project.functions.push(function);
         }
     }
-    // Native `LINK` functions keep their package-internal `alias.func` routing
-    // names (wrapper bodies reference them unprefixed), de-duplicated across
-    // diamond imports (plan-linker.md §12).
+    // Native `LINK` functions are de-duplicated by their `(alias, name)` routing
+    // identity. `prefix_package_symbols` has already qualified each imported
+    // package's alias with its content-addressed identity prefix, so this key is
+    // package-distinct: two packages that independently chose the same alias +
+    // function name stay separate (bug-251), while a diamond import — the same
+    // package reached twice, hence the same prefix — still collapses to one entry
+    // (plan-linker.md §12).
     for link in package.link_functions {
         if !project
             .link_functions
