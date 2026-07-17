@@ -403,6 +403,8 @@ Scheme*).
 | `2-203-0124` | `NATIVE_CSTRUCT_INVALID` | error | a CSTRUCT declaration is not a layout the compiler can compute faithfully |
 | `2-203-0125` | `NATIVE_CSTRUCT_TOO_LARGE` | error | a CSTRUCT lays out larger than the maximum native struct size |
 | `2-203-0126` | `NATIVE_CSTRUCT_ESCAPE` | error | a CSTRUCT name is used outside its LINK block, where only its mapped record type is nameable |
+| `2-203-0127` | `NATIVE_STRUCT_FIELD_MISMATCH` | error | a CSTRUCT and the record it maps to differ by field name, type, or coverage |
+| `2-203-0128` | `NATIVE_BIND_IN_INVALID` | error | a BIND IN block names an unknown slot or field, or binds a value it cannot marshal |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |

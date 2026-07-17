@@ -113,6 +113,33 @@ The marshaling boundary aims to validate values rather than silently corrupting 
 * The bytes of a returned `CPtr`-to-`String` are validated as UTF-8, failing with `ErrEncoding` (`77020004`) when malformed; a NULL return yields an empty `String`. [[src/target/shared/code/link_thunk.rs:emit_copy_cstring_to_string]]
 * Embedded NUL bytes in a `CString` **argument** are *intended* to be rejected with `ErrInvalidArgument` (`77050002`), but the current marshaling copies the string bytes verbatim without scanning for an interior NUL, so this check is not yet enforced. [[src/target/shared/code/link_thunk.rs:emit_copy_string_to_cstring]]
 
+**Passing a struct (`INOUT` / `BIND IN`).** An `ABI (...)` slot may name a `CSTRUCT` as its ctype. The thunk stages a sized, aligned buffer in its frame, **zeroes it entirely**, writes the bound input fields, and passes its *address* as the C argument — the same shape as an `OUT` scalar, only sized.
+
+```basic
+FUNC getFormat(index AS Integer) AS AudioFormat
+  SYMBOL "sf_command"
+  ABI (sndfile CPtr, command CInt32, info INOUT SfFormatInfo, datasize CInt32) AS status CInt32
+  CONST sndfile = NOTHING
+  CONST command = 4129                   ' SFC_GET_SIMPLE_FORMAT
+  CONST datasize = SIZEOF SfFormatInfo
+  BIND IN info
+    format = index                       ' the one input field; the rest stay zero
+  END BIND
+  RETURN info                            ' the post-call struct, as an AudioFormat
+  SUCCESS_ON status = 0
+END FUNC
+```
+
+A struct slot takes a direction: `IN` (the default) for a struct the callee only reads, `OUT` for one it only fills, `INOUT` for both. `INOUT` on a non-struct slot is rejected — a scalar is either an argument or a produced value, never both. The buffer is **always fully zeroed** before the call: that is a correctness requirement (libsndfile demands a zeroed `SF_INFO` for a non-RAW read) and a safety one — an unzeroed buffer would hand the thunk's stack contents to the C library.
+
+`BIND IN <slot> … END BIND` writes named fields before the call; every field it does not name is zero. A value is a wrapper parameter or an integer literal. This is why the caller writes `getFormat(3)` rather than constructing a whole record whose other fields the C function immediately overwrites. `BIND IN` on an `OUT` slot is rejected (the callee fills it), as is naming a field the `CSTRUCT` does not declare, or binding a parameter that does not exist (`NATIVE_BIND_IN_INVALID`).
+
+A parameter consumed by `BIND IN` needs no ABI slot of its own — it feeds a struct *field*. Likewise an `IN` struct slot needs no parameter: its `BIND IN` block satisfies it.
+
+`RETURN <struct-slot>` builds the `CSTRUCT`'s mapped record from the buffer the callee filled, so the wrapper must return that record type. `RETURN` on an `IN` struct slot is rejected: an input slot is zeroed and never read back. Field values marshal by width and signedness — a signed narrow field is sign-extended (so a `CInt32` of `-1` surfaces as `-1`, not `4294967295`), a `CBool` normalizes to `TRUE`/`FALSE`, and a `CDouble` that is NaN or infinite is rejected, since an MFBASIC `Float` is always finite. Writing a field range-checks the same way a `CInt32` argument does: a 64-bit `Integer` that does not fit the C field fails with `ErrOverflow` rather than truncating. [[src/target/shared/code/link_thunk.rs:marshal_struct_out]]
+
+> Implementation status: struct fields marshal for **scalar** ctypes. A `CString` (`const char *`) field is rejected with `NATIVE_STRUCT_FIELD_MISMATCH` — the pointer path (copy-out to an owned `String`, UTF-8 validation, copy-and-leave ownership) is not yet implemented. A `CPtr` field is rejected outright and always will be: a raw pointer may not surface in a record.
+
 ABI parameters may use a direction modifier:
 
 | Form | Meaning |
@@ -217,6 +244,7 @@ Rules:
 - An `ABI (...)` slot's C type, and the ABI return's, must name a type the marshaling backend implements; anything else is `NATIVE_ABI_UNKNOWN_CTYPE`. `CVoid` is return-only and `CString` argument-only (see the type table above). Enforced on both the source and package paths.
 - A `CSTRUCT`'s layout is computed from its field ctypes and is never declared or transported; offsets are recomputed when a package is decoded. A struct the compiler cannot lay out faithfully is rejected (`NATIVE_CSTRUCT_INVALID`), and one over 1024 bytes is `NATIVE_CSTRUCT_TOO_LARGE`.
 - A `CSTRUCT` name is nameable only in its declaration, an `ABI (...)` slot's ctype position, and `SIZEOF`; anywhere else is `NATIVE_CSTRUCT_ESCAPE`.
+- A struct slot's buffer is always fully zeroed before the call, so an unbound field is `0` and no stack contents reach the C library. `BIND IN` writes its inputs; `RETURN <slot>` reads the result back as the `CSTRUCT`'s mapped record. `INOUT` is valid only on a struct slot.
 - Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings use codes `1-102-0008`…`0009`, `2-203-0089`…`0098`, and `2-203-0123` (see `./mfb man errors`).
 - Native libraries are platform-specific dependencies. A binding package declares which concrete shared object to load per platform in its project.json `libraries` section; the compiler encodes those locators into the `.mfp` (`./mfb spec package native-bindings`), together with a sha256 for any library the author vendors. The native library itself is never portable binary representation and is not carried inside the `.mfp` — only its name, or its hash.
 - Two **built-in** packages also load platform libraries at run time, through the same `dlopen`/`dlsym` mechanism but internal to their runtime helpers rather than via a `LINK` block: `tls` (Network.framework/Security.framework on macOS, `libssl`/`libcrypto` on Linux) and `crypto` (Security.framework SecKey on macOS, `libcrypto.so.3` falling back to `libcrypto.so.1.1` on Linux, for the NIST-EC public-key operations only — every other `crypto` primitive is a portable software core). These built-ins resolve their symbols lazily inside each helper call, not in `_mfb_linker_init`, and surface load failures as ordinary package errors (`ErrTlsFailed` / `ErrUnknown`), not `ErrNativeBindingUnavailable`. See `./mfb spec stdlib crypto` for the crypto backend split.

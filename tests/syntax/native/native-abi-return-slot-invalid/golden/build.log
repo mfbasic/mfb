@@ -22,7 +22,7 @@ tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:12 error[1-102-00
   12 |     ABI (path CString, return OUT CInt32) AS status CInt32
      |                                   ^^^^^^
 tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:12 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
-               A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, or FREE clauses.
+               A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, BIND IN, or FREE clauses.
    8 | '   RETURN db
    9 | LINK "demo" AS demoLink
   10 |   FUNC opn(path AS String) AS Integer

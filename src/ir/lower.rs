@@ -366,6 +366,18 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                             .iter()
                             .map(|pin| (pin.slot.clone(), eval_link_const(&pin.value)))
                             .collect(),
+                        bind_in: native
+                            .bind_in
+                            .iter()
+                            .map(|b| crate::ir::IrBindIn {
+                                slot: b.slot.clone(),
+                                fields: b
+                                    .fields
+                                    .iter()
+                                    .map(|f| lower_bind_in_field(f, &native.params))
+                                    .collect(),
+                            })
+                            .collect(),
                         success_on: native
                             .success_on
                             .as_ref()
@@ -445,6 +457,38 @@ fn link_const_bits(text: &str) -> i64 {
         .parse::<i64>()
         .or_else(|_| decimal.parse::<u64>().map(|bits| bits as i64))
         .unwrap_or(0)
+}
+
+/// Lower one `BIND IN` field binding (plan-50-E).
+///
+/// A value is either a wrapper parameter (marshaled from its incoming register)
+/// or an integer literal. Anything else lowers to neither, and the checkers
+/// reject it (`NATIVE_BIND_IN_INVALID`) — lowering cannot emit diagnostics, so an
+/// unrecognized form must be *representable as invalid* rather than silently
+/// folded to 0, which is the `eval_link_const` mistake.
+fn lower_bind_in_field(
+    field: &crate::ast::BindInField,
+    params: &[Param],
+) -> crate::ir::IrBindInField {
+    let (param, literal) = match &field.value {
+        Expression::Identifier(name) if params.iter().any(|p| p.name == *name) => {
+            (Some(name.clone()), None)
+        }
+        Expression::Number(text) => (None, Some(link_const_bits(text))),
+        Expression::Boolean(value) => (None, Some(i64::from(*value))),
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => match operand.as_ref() {
+            Expression::Number(text) => (None, Some(link_const_bits(text).wrapping_neg())),
+            _ => (None, None),
+        },
+        _ => (None, None),
+    };
+    crate::ir::IrBindInField {
+        name: field.name.clone(),
+        param,
+        literal,
+    }
 }
 
 /// Lower a `SUCCESS_ON`/`RESULT` expression to [`IrLinkExpr`], resolving each

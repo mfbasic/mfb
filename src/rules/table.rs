@@ -839,6 +839,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "a CSTRUCT lays out larger than the maximum native struct size",
     },
     Rule {
+        code: "2-203-0127",
+        name: "NATIVE_STRUCT_FIELD_MISMATCH",
+        severity: Severity::Error,
+        message: "a CSTRUCT and the record it maps to differ by field name, type, or coverage",
+    },
+    Rule {
+        code: "2-203-0128",
+        name: "NATIVE_BIND_IN_INVALID",
+        severity: Severity::Error,
+        message: "a BIND IN block names an unknown slot or field, or binds a value it cannot marshal",
+    },
+    Rule {
         code: "2-203-0126",
         name: "NATIVE_CSTRUCT_ESCAPE",
         severity: Severity::Error,

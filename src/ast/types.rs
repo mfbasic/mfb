@@ -321,6 +321,8 @@ pub struct LinkFunction {
     pub abi: AbiSpec,
     /// `CONST slot = value` pins (plan-link-update.md §5c).
     pub consts: Vec<ConstPin>,
+    /// `BIND IN <slot>` blocks: struct fields written before the call (plan-50-E).
+    pub bind_in: Vec<BindIn>,
     /// `SUCCESS_ON <expr>` gate, if any (the De Morgan complement of `ERROR_ON`).
     pub success_on: Option<Expression>,
     /// `RESULT <expr>` value mapping, if any (plan-link-update.md §5b).
@@ -370,6 +372,27 @@ pub struct AbiSlot {
     pub ctype: String,
     /// `IN` (the default), `OUT`, or `INOUT` (plan-50-C).
     pub direction: crate::ir::AbiDirection,
+    pub line: usize,
+}
+
+/// A `BIND IN <slot> … END BIND` block: the struct fields written into an
+/// `IN`/`INOUT` struct slot before the call (plan-50-E).
+///
+/// Fields not named here are zero — the whole buffer is zeroed first — so a
+/// wrapper states exactly its inputs instead of taking a fully-constructed record
+/// whose other fields the C library overwrites.
+#[derive(Clone, Debug)]
+pub struct BindIn {
+    pub slot: String,
+    pub fields: Vec<BindInField>,
+    pub line: usize,
+}
+
+/// One `<field> = <expr>` binding inside a `BIND IN` block.
+#[derive(Clone, Debug)]
+pub struct BindInField {
+    pub name: String,
+    pub value: Expression,
     pub line: usize,
 }
 

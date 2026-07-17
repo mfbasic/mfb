@@ -2650,6 +2650,113 @@ impl TypeEnv {
             }
         }
 
+        // plan-50-E: every struct slot's record mapping, re-checked here. A crafted
+        // `.mfp` never ran the frontend, so without this the package path would be
+        // the weaker of the two — the `IrFree` mistake.
+        for function in &project.link_functions {
+            for slot in &function.abi_slots {
+                let Some(decl) = project
+                    .link_cstructs
+                    .iter()
+                    .find(|c| c.alias == function.alias && c.name == slot.ctype)
+                else {
+                    continue;
+                };
+                let Some(rec) = project.types.iter().find(|t| {
+                    t.name == decl.maps_to && (t.kind == "type" || t.kind == "record")
+                }) else {
+                    self.emit(
+                        "NATIVE_STRUCT_FIELD_MISMATCH",
+                        format!(
+                            "CSTRUCT `{}` maps to `{}`, which is not a record type.",
+                            decl.name, decl.maps_to
+                        ),
+                    );
+                    continue;
+                };
+                let cfields: Vec<(String, String)> = decl
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ctype.clone()))
+                    .collect();
+                let record: Vec<(String, String)> = rec
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.type_.clone()))
+                    .collect();
+                let view = crate::ir::StructSlotView {
+                    slot: &slot.name,
+                    direction: slot.direction,
+                    cfields: &cfields,
+                    record: &record,
+                    cstruct_name: &decl.name,
+                    maps_to: &decl.maps_to,
+                };
+                for fault in crate::ir::check_struct_slot(&view, crate::ir::CSTRING_STRUCT_FIELDS) {
+                    self.emit(fault.rule, fault.message);
+                }
+            }
+            // BIND IN must name a real slot and real fields.
+            for bind in &function.bind_in {
+                let Some(slot) = function.abi_slots.iter().find(|s| s.name == bind.slot) else {
+                    self.emit(
+                        "NATIVE_BIND_IN_INVALID",
+                        format!(
+                            "Native function `{}` BIND IN names ABI slot `{}`, which does not exist.",
+                            function.name, bind.slot
+                        ),
+                    );
+                    continue;
+                };
+                let Some(decl) = project
+                    .link_cstructs
+                    .iter()
+                    .find(|c| c.alias == function.alias && c.name == slot.ctype)
+                else {
+                    self.emit(
+                        "NATIVE_BIND_IN_INVALID",
+                        format!(
+                            "Native function `{}` BIND IN names slot `{}`, which is not a CSTRUCT.",
+                            function.name, bind.slot
+                        ),
+                    );
+                    continue;
+                };
+                for field in &bind.fields {
+                    if !decl.fields.iter().any(|f| f.name == field.name) {
+                        self.emit(
+                            "NATIVE_BIND_IN_INVALID",
+                            format!(
+                                "Native function `{}` BIND IN sets `{}`, which CSTRUCT `{}` does not declare.",
+                                function.name, field.name, decl.name
+                            ),
+                        );
+                    }
+                    // Exactly one of param/literal, or the thunk has nothing to write.
+                    if field.param.is_some() == field.literal.is_some() {
+                        self.emit(
+                            "NATIVE_BIND_IN_INVALID",
+                            format!(
+                                "Native function `{}` BIND IN field `{}` must bind exactly one of a parameter or a literal.",
+                                function.name, field.name
+                            ),
+                        );
+                    }
+                    if let Some(param) = &field.param {
+                        if !function.params.iter().any(|(n, _)| n == param) {
+                            self.emit(
+                                "NATIVE_BIND_IN_INVALID",
+                                format!(
+                                    "Native function `{}` BIND IN field `{}` binds unknown parameter `{param}`.",
+                                    function.name, field.name
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // The C name must not surface in a wrapper's MFBASIC-facing signature. On
         // the source path the resolver usually catches this first (a CSTRUCT name
         // is not a type), but a decoded package never ran the resolver, so this is
@@ -2759,6 +2866,24 @@ impl TypeEnv {
                 );
             }
             for slot in &function.abi_slots {
+                // A slot may name a CSTRUCT declared in the same LINK alias; the
+                // struct rules then apply instead of the scalar table (plan-50-E).
+                if project
+                    .link_cstructs
+                    .iter()
+                    .any(|c| c.alias == function.alias && c.name == slot.ctype)
+                {
+                    continue;
+                }
+                // A slot may name a CSTRUCT declared in the same LINK alias; the
+                // struct rules then apply instead of the scalar table (plan-50-E).
+                if project
+                    .link_cstructs
+                    .iter()
+                    .any(|c| c.alias == function.alias && c.name == slot.ctype)
+                {
+                    continue;
+                }
                 // An OUT slot is a produced *value*, so it carries a return-shaped
                 // ctype; an ordinary slot is a C argument.
                 let ok = if slot.direction.writes_back() {
@@ -2790,6 +2915,11 @@ impl TypeEnv {
                 // An OUT slot is native storage the callee fills; it needs no
                 // wrapper parameter. It is surfaced (if at all) by `RETURN`.
                 if slot.direction.writes_back() {
+                    continue;
+                }
+                // An IN struct slot is satisfied by its `BIND IN` block
+                // (plan-50-E): its fields carry the inputs, unbound fields are 0.
+                if function.bind_in.iter().any(|b| b.slot == slot.name) {
                     continue;
                 }
                 if !param_names.contains(slot.name.as_str()) {
@@ -2829,11 +2959,19 @@ impl TypeEnv {
                 .map(|slot| slot.name.as_str())
                 .collect();
             for (pname, _) in &function.params {
-                if !abi_slot_names.contains(pname.as_str()) {
+                // plan-50-E: a parameter may instead be consumed by a `BIND IN`
+                // field, which writes it into a struct slot and so has no slot of
+                // its own.
+                let by_bind = function.bind_in.iter().any(|b| {
+                    b.fields
+                        .iter()
+                        .any(|f| f.param.as_deref() == Some(pname.as_str()))
+                });
+                if !abi_slot_names.contains(pname.as_str()) && !by_bind {
                     self.emit(
                         "NATIVE_ABI_UNBOUND_PARAM",
                         format!(
-                            "Native function `{}` parameter `{pname}` has no matching ABI slot.",
+                            "Native function `{}` parameter `{pname}` has no matching ABI slot and no BIND IN field.",
                             function.name
                         ),
                     );

@@ -124,6 +124,8 @@ fn emit_alloc(
 /// function, and the backing data objects.
 pub(super) fn emit_link_support(
     link_functions: &[IrLinkFunction],
+    link_cstructs: &[crate::ir::IrCStruct],
+    record_fields: &HashMap<String, Vec<(String, String)>>,
     globals_base: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -181,7 +183,14 @@ pub(super) fn emit_link_support(
     let mut functions = vec![initializer];
     for (index, function) in link_functions.iter().enumerate() {
         let free_slot = free_index_of[index].map(|k| link_count + k);
-        functions.push(lower_link_thunk(function, index, globals_base, free_slot)?);
+        functions.push(lower_link_thunk(
+            function,
+            link_cstructs,
+            record_fields,
+            index,
+            globals_base,
+            free_slot,
+        )?);
     }
 
     Ok(LinkSupport {
@@ -327,6 +336,8 @@ fn lower_link_initializer(
 /// Emit one marshaling thunk for a `LINK` function (plan-linker.md §12.2/§12.3).
 fn lower_link_thunk(
     function: &IrLinkFunction,
+    link_cstructs: &[crate::ir::IrCStruct],
+    record_fields: &HashMap<String, Vec<(String, String)>>,
     index: usize,
     globals_base: usize,
     free_slot: Option<usize>,
@@ -334,10 +345,19 @@ fn lower_link_thunk(
     let symbol = link_thunk_symbol(&function.alias, &function.name);
     let n_params = function.params.len();
     let m_slots = function.abi_slots.len();
+    // Only SCALAR OUT slots occupy the 8-byte OUT region; a struct slot gets a
+    // sized buffer in the struct region instead (plan-50-E). Counting structs here
+    // would inflate the frame and, worse, desynchronize `expr_offsets` from the
+    // staging loop's sequence.
+    let is_struct_ctype = |ctype: &str| {
+        link_cstructs
+            .iter()
+            .any(|c| c.alias == function.alias && c.name == ctype)
+    };
     let n_out = function
         .abi_slots
         .iter()
-        .filter(|slot| slot.direction.writes_back())
+        .filter(|slot| slot.direction.writes_back() && !is_struct_ctype(&slot.ctype))
         .count();
 
     const STATUS_OFF: usize = 8;
@@ -349,7 +369,36 @@ fn lower_link_thunk(
     // One extra slot past the OUT buffers holds the floating-point return bits
     // (`d0`) when the native return is `CDouble`.
     let cretd_off = out_base + n_out * 8;
-    let frame = align(cretd_off + 8 + 24, 16);
+
+    // plan-50-E: a struct slot needs a sized, aligned buffer for the C struct
+    // itself; the cslot holds its ADDRESS. Layouts are recomputed here from the
+    // CSTRUCT's field ctypes — never transported — so a crafted package cannot
+    // dictate an offset.
+    let target = "";
+    let cstruct_of = |ctype: &str| -> Option<&crate::ir::IrCStruct> {
+        link_cstructs
+            .iter()
+            .find(|c| c.alias == function.alias && c.name == ctype)
+    };
+    // (slot index) -> (buffer offset, layout, the CSTRUCT)
+    let mut struct_slots: Vec<(usize, usize, crate::ir::CLayout, &crate::ir::IrCStruct)> =
+        Vec::new();
+    let mut struct_cursor = cretd_off + 8;
+    for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
+        let Some(decl) = cstruct_of(&slot.ctype) else {
+            continue;
+        };
+        let fields: Vec<(String, String)> = decl
+            .fields
+            .iter()
+            .map(|f| (f.name.clone(), f.ctype.clone()))
+            .collect();
+        let layout = crate::ir::compute_c_layout(&fields, target)?;
+        struct_cursor = align(struct_cursor, layout.align);
+        struct_slots.push((slot_idx, struct_cursor, layout.clone(), decl));
+        struct_cursor += layout.size;
+    }
+    let frame = align(struct_cursor + 24, 16);
 
     // plan-50-H: the wrapper's result is whatever `RETURN <expr>` names. A bare
     // `RETURN <slot>` (an `IrLinkExpr::Var`) selects that slot's value; anything
@@ -417,6 +466,51 @@ fn lower_link_thunk(
     let mut result_out_ctype: Option<String> = None;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
+        // plan-50-E: a struct slot passes the ADDRESS of a zeroed buffer, exactly
+        // as an OUT scalar does — only sized.
+        if let Some((_, buf_off, layout, decl)) =
+            struct_slots.iter().find(|(idx, ..)| *idx == slot_idx)
+        {
+            // Zero the WHOLE buffer first. Mandatory, not hygiene: libsndfile
+            // requires a zeroed SF_INFO for a non-RAW read, and an unzeroed buffer
+            // leaks this thunk's stack into the C library. The tail uses narrower
+            // stores so a struct whose size is not a multiple of 8 cannot write
+            // past its own buffer into the next one.
+            let mut z = 0usize;
+            while z + 8 <= layout.size {
+                instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), buf_off + z));
+                z += 8;
+            }
+            while z + 4 <= layout.size {
+                instructions.push(abi::store_u32(abi::ZERO, abi::stack_pointer(), buf_off + z));
+                z += 4;
+            }
+            while z + 2 <= layout.size {
+                instructions.push(abi::store_u16(abi::ZERO, abi::stack_pointer(), buf_off + z));
+                z += 2;
+            }
+            while z < layout.size {
+                instructions.push(abi::store_u8(abi::ZERO, abi::stack_pointer(), buf_off + z));
+                z += 1;
+            }
+            // Then the bound input fields; everything else stays zero.
+            marshal_struct_in(
+                function,
+                decl,
+                layout,
+                *buf_off,
+                &slot.name,
+                param_base,
+                &param_index,
+                &range_fail,
+                &mut instructions,
+            )?;
+            instructions.extend([
+                abi::add_immediate("%v9", abi::stack_pointer(), *buf_off),
+                abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+            ]);
+            continue;
+        }
         if slot.direction.writes_back() {
             let out_off = out_base + out_seq * 8;
             out_seq += 1;
@@ -541,6 +635,11 @@ fn lower_link_thunk(
     {
         let mut seq = 0usize;
         for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
+            // A struct slot holds an address, not a value an expression can read;
+            // it is skipped so the OUT sequence matches the staging loop exactly.
+            if is_struct_ctype(&slot.ctype) {
+                continue;
+            }
             let off = if slot.direction.writes_back() {
                 let o = out_base + seq * 8;
                 seq += 1;
@@ -579,7 +678,28 @@ fn lower_link_thunk(
     }
 
     // Produce the wrapper result value in RESULT_VALUE_REGISTER (x1).
-    if let Some(out_off) = result_out_off {
+    // plan-50-E: a bare `RETURN <struct-slot>` builds the mapped record from the
+    // slot's post-call buffer. Checked first — a struct slot is also `writes_back`,
+    // so it would otherwise be mistaken for a scalar OUT.
+    if let Some((_, buf_off, layout, decl)) = result_var.and_then(|name| {
+        struct_slots
+            .iter()
+            .find(|(idx, ..)| function.abi_slots[*idx].name == name)
+    }) {
+        marshal_struct_out(
+            function,
+            decl,
+            layout,
+            *buf_off,
+            record_fields,
+            &symbol,
+            &alloc_fail,
+            &nan_fail,
+            &inf_fail,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    } else if let Some(out_off) = result_out_off {
         // bug-238: an OUT-slot result carries the same C value shapes as a direct
         // return, so apply the same ctype-driven marshalling instead of a bare
         // 8-byte load — otherwise a `CInt32` OUT writing -1 surfaced as
@@ -1237,11 +1357,12 @@ mod tests {
                 abi_return_name: if returns_value { "return" } else { "status" }.to_string(),
                 abi_return_ctype: (*ctype).to_string(),
                 consts: vec![],
+                bind_in: vec![],
                 success_on: None,
                 result: None,
                 free: None,
             };
-            let lowered = lower_link_thunk(&function, 0, 0, None);
+            let lowered = lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None);
             assert!(
                 lowered.is_ok(),
                 "accepted return ctype {ctype} does not lower: {:?}",
@@ -1268,11 +1389,12 @@ mod tests {
                 abi_return_name: "status".to_string(),
                 abi_return_ctype: "CInt32".to_string(),
                 consts: vec![("pinned".to_string(), 0)],
+                bind_in: vec![],
                 success_on: None,
                 result: None,
                 free: None,
             };
-            let lowered = lower_link_thunk(&function, 0, 0, None);
+            let lowered = lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None);
             assert!(
                 lowered.is_ok(),
                 "accepted argument ctype {ctype} does not lower: {:?}",
@@ -1280,4 +1402,230 @@ mod tests {
             );
         }
     }
+}
+
+/// Emit the sized store for a struct field of `ctype` at `[sp + off]` from `src`
+/// (plan-50-E §4.4).
+fn store_field(ctype: &str, src: &str, off: usize) -> CodeInstruction {
+    match ctype {
+        "CInt8" | "CUInt8" | "CBool" | "CByte" => abi::store_u8(src, abi::stack_pointer(), off),
+        "CInt16" | "CUInt16" => abi::store_u16(src, abi::stack_pointer(), off),
+        "CInt32" | "CUInt32" | "CFloat" => abi::store_u32(src, abi::stack_pointer(), off),
+        _ => abi::store_u64(src, abi::stack_pointer(), off),
+    }
+}
+
+/// Emit the sized load for a struct field of `ctype` at `[sp + off]` into `dst`.
+///
+/// Every load zero-extends, so a SIGNED narrow field is sign-extended by the
+/// caller — otherwise a `CInt32 sections = -1` surfaces as 4294967295, which is
+/// exactly bug-238.
+fn load_field(ctype: &str, dst: &str, off: usize) -> CodeInstruction {
+    match ctype {
+        "CInt8" | "CUInt8" | "CBool" | "CByte" => abi::load_u8(dst, abi::stack_pointer(), off),
+        "CInt16" | "CUInt16" => abi::load_u16(dst, abi::stack_pointer(), off),
+        "CInt32" | "CUInt32" | "CFloat" => abi::load_u32(dst, abi::stack_pointer(), off),
+        _ => abi::load_u64(dst, abi::stack_pointer(), off),
+    }
+}
+
+/// Write the `BIND IN` fields into a struct slot's buffer before the call
+/// (plan-50-E §4.4).
+///
+/// Only bound fields are written; the buffer is already fully zeroed, so every
+/// other field is 0. Reads a wrapper PARAMETER (or an immediate) — there is no
+/// record on the input side, hence none of the register-lifetime hazard that
+/// `marshal_struct_out` has.
+#[allow(clippy::too_many_arguments)]
+fn marshal_struct_in(
+    function: &IrLinkFunction,
+    decl: &crate::ir::IrCStruct,
+    layout: &crate::ir::CLayout,
+    buf_off: usize,
+    slot_name: &str,
+    param_base: usize,
+    param_index: &HashMap<&str, usize>,
+    range_fail: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) -> Result<(), String> {
+    let Some(bind) = function.bind_in.iter().find(|b| b.slot == slot_name) else {
+        return Ok(());
+    };
+    for field in &bind.fields {
+        let Some(pos) = decl.fields.iter().position(|f| f.name == field.name) else {
+            return Err(format!(
+                "LINK function '{}.{}' BIND IN sets unknown field '{}' of CSTRUCT '{}'",
+                function.alias, function.name, field.name, decl.name
+            ));
+        };
+        let ctype = decl.fields[pos].ctype.as_str();
+        let off = buf_off + layout.offsets[pos];
+
+        if let Some(literal) = field.literal {
+            instructions.push(abi::move_immediate(
+                "%v10",
+                "Integer",
+                &(literal as u64).to_string(),
+            ));
+        } else if let Some(param) = &field.param {
+            let Some(&pidx) = param_index.get(param.as_str()) else {
+                return Err(format!(
+                    "LINK function '{}.{}' BIND IN binds field '{}' to unknown parameter '{param}'",
+                    function.alias, function.name, field.name
+                ));
+            };
+            instructions.push(abi::load_u64(
+                "%v10",
+                abi::stack_pointer(),
+                param_base + pidx * 8,
+            ));
+        } else {
+            return Err(format!(
+                "LINK function '{}.{}' BIND IN field '{}' binds neither a parameter nor a literal",
+                function.alias, function.name, field.name
+            ));
+        }
+
+        // A 64-bit MFBASIC Integer must fit the C field's width. Truncating
+        // silently is the bug-238 class; the existing CInt32 argument path
+        // range-checks for exactly this reason, and a struct field is no different.
+        if let Some(bits) = narrow_signed_bits(ctype) {
+            instructions.extend([
+                abi::shift_left_immediate("%v11", "%v10", (64 - bits) as u8),
+                abi::arithmetic_shift_right_immediate("%v11", "%v11", (64 - bits) as u8),
+                abi::compare_registers("%v10", "%v11"),
+                abi::branch_ne(range_fail),
+            ]);
+        }
+        instructions.push(store_field(ctype, "%v10", off));
+    }
+    Ok(())
+}
+
+/// The bit width of a signed narrow C integer, or `None` when the ctype needs no
+/// range check (64-bit, unsigned, float, or pointer).
+fn narrow_signed_bits(ctype: &str) -> Option<u32> {
+    match ctype {
+        "CInt8" => Some(8),
+        "CInt16" => Some(16),
+        "CInt32" => Some(32),
+        _ => None,
+    }
+}
+
+/// Build the wrapper's result record from a struct slot's post-call buffer
+/// (plan-50-E §4.5).
+///
+/// **Register lifetime is the whole design here.** `_mfb_arena_alloc` destroys
+/// every caller-saved register (`x0`-`x17`) with no survivor set, so the record
+/// pointer cannot live in one across any later allocation. Two structural rules
+/// make that safe:
+///
+///  1. allocate the record FIRST and spill its pointer to a stack slot;
+///  2. read each field from the `sp`-relative struct buffer, which survives every
+///     call by construction, and reload the record pointer per field.
+///
+/// Reading fields into registers and *then* allocating would lose them all — the
+/// `copy-record-register-aliasing` bug in miniature.
+#[allow(clippy::too_many_arguments)]
+fn marshal_struct_out(
+    function: &IrLinkFunction,
+    decl: &crate::ir::IrCStruct,
+    layout: &crate::ir::CLayout,
+    buf_off: usize,
+    record_fields: &HashMap<String, Vec<(String, String)>>,
+    symbol: &str,
+    alloc_fail: &str,
+    nan_fail: &str,
+    inf_fail: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let record = record_fields.get(&decl.maps_to).ok_or_else(|| {
+        format!(
+            "LINK function '{}.{}' returns CSTRUCT '{}', whose record '{}' has no field layout",
+            function.alias, function.name, decl.name, decl.maps_to
+        )
+    })?;
+
+    // A record is one word per field; field i lives at 8*i.
+    const REC_OFF: usize = 24; // the string-return scratch slot; free here
+    instructions.extend([
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &(8 * record.len()).to_string(),
+        ),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    emit_alloc(symbol, instructions, relocations, alloc_fail);
+    // Spill immediately: every later step may allocate.
+    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), REC_OFF));
+
+    for (rec_idx, (rname, _)) in record.iter().enumerate() {
+        let Some(cpos) = decl.fields.iter().position(|f| f.name == *rname) else {
+            return Err(format!(
+                "LINK function '{}.{}': record '{}' field '{rname}' has no CSTRUCT field",
+                function.alias, function.name, decl.maps_to
+            ));
+        };
+        let ctype = decl.fields[cpos].ctype.as_str();
+        let off = buf_off + layout.offsets[cpos];
+
+        instructions.push(load_field(ctype, "%v9", off));
+        match ctype {
+            // Every load zero-extends, so a signed narrow field must be
+            // sign-extended or -1 surfaces as its unsigned reading (bug-238).
+            "CInt8" | "CInt16" | "CInt32" => {
+                let bits = narrow_signed_bits(ctype).unwrap();
+                instructions.extend([
+                    abi::shift_left_immediate("%v9", "%v9", (64 - bits) as u8),
+                    abi::arithmetic_shift_right_immediate("%v9", "%v9", (64 - bits) as u8),
+                ]);
+            }
+            "CBool" => {
+                let set = format!("{symbol}_sf{rec_idx}_true");
+                let end = format!("{symbol}_sf{rec_idx}_end");
+                instructions.extend([
+                    abi::compare_immediate("%v9", "0"),
+                    abi::branch_ne(&set),
+                    abi::move_immediate("%v9", "Integer", "0"),
+                    abi::branch(&end),
+                    abi::label(&set),
+                    abi::move_immediate("%v9", "Integer", "1"),
+                    abi::label(&end),
+                ]);
+            }
+            "CDouble" => {
+                // An MFBASIC Float is always finite (§3), so reject NaN/Inf at the
+                // boundary exactly as the CDouble return path does.
+                let finite = format!("{symbol}_sf{rec_idx}_finite");
+                instructions.extend([
+                    abi::move_immediate("%v10", "Integer", "9218868437227405312"),
+                    abi::and_registers("%v11", "%v9", "%v10"),
+                    abi::compare_registers("%v11", "%v10"),
+                    abi::branch_ne(&finite),
+                    abi::move_immediate("%v12", "Integer", "4503599627370495"),
+                    abi::and_registers("%v13", "%v9", "%v12"),
+                    abi::compare_immediate("%v13", "0"),
+                    abi::branch_eq(inf_fail),
+                    abi::branch(nan_fail),
+                    abi::label(&finite),
+                ]);
+            }
+            _ => {}
+        }
+        // Reload the record pointer per field: it did not survive any call above,
+        // and will not survive plan-50-F's per-field allocations.
+        instructions.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),
+            abi::store_u64("%v9", "%v10", 8 * rec_idx),
+        ]);
+    }
+    instructions.push(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        REC_OFF,
+    ));
+    Ok(())
 }

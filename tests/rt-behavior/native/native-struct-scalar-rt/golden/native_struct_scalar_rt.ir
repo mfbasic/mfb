@@ -1,0 +1,73 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_struct_scalar_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Instant",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "seconds", "type": "Integer" },
+    { "visibility": null, "line": 14, "name": "nanoseconds", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 49,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 51, "mutable": false, "name": "t", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "libc.now", "args": [] } },
+    {
+      "op": "if",
+      "line": 52,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "seconds" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } },
+      "then": [
+      { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "seconds: plausible" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "seconds: BAD" }] } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 60,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "nanoseconds" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "nanoseconds" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } } },
+      "then": [
+      { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "nanoseconds: in range" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "nanoseconds: BAD" }] } }
+      ]
+    },
+    { "op": "bind", "line": 66, "mutable": false, "name": "t2", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "libc.now", "args": [] } },
+    {
+      "op": "if",
+      "line": 67,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t2" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "seconds" } }, "right": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t2" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "seconds" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t2" }, "member": "nanoseconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "nanoseconds" } } } },
+      "then": [
+      { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "monotonic-ish: ok" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "monotonic-ish: BAD" }] } }
+      ]
+    },
+    { "op": "bind", "line": 74, "mutable": false, "name": "rc", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "libc.sleepNanos", "args": [{ "kind": "const", "type": "Integer", "value": "1000" }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sleep rc: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rc" }] } }] } },
+    { "op": "return", "line": 76, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

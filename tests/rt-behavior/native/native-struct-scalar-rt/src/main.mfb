@@ -1,0 +1,77 @@
+' plan-50-E: a C struct crossing the ABI by pointer, both directions, with
+' scalar fields only.
+'
+' `struct timespec` is the ideal probe: 16 bytes, align 8, fields at 0 and 8 on
+' every supported target (verified with gcc on macOS/aarch64 and Linux), and
+' `clock_gettime`/`nanosleep` live in libc everywhere.
+'
+'   clock_gettime(CLOCK_REALTIME, &ts)  -- an OUT struct the callee fills
+'   nanosleep(&req, NULL)               -- an IN struct we fill via BIND IN
+IMPORT io
+
+TYPE Instant
+  seconds     AS Integer
+  nanoseconds AS Integer
+END TYPE
+
+LINK "c" AS libc
+  ' 16 bytes, align 8: seconds@0, nanoseconds@8.
+  CSTRUCT TimeSpec AS Instant
+    seconds     CInt64
+    nanoseconds CInt64
+  END CSTRUCT
+
+  ' The callee fills the struct; RETURN names it, so the wrapper hands back the
+  ' mapped record. This is marshal_struct_out.
+  FUNC now() AS Instant
+    SYMBOL "clock_gettime"
+    ABI (clk CInt32, ts OUT TimeSpec) AS status CInt32
+    CONST clk = 0        ' CLOCK_REALTIME — 0 on macOS and Linux alike
+    RETURN ts
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' We fill the struct; the callee reads it. BIND IN writes only `nanoseconds`,
+  ' and `seconds` stays 0 because the whole buffer is zeroed first. This is
+  ' marshal_struct_in.
+  FUNC sleepNanos(nanos AS Integer) AS Integer
+    SYMBOL "nanosleep"
+    ABI (req IN TimeSpec, rem CPtr) AS status CInt32
+    CONST rem = NOTHING  ' NULL: we do not want the remaining-time struct
+    BIND IN req
+      nanoseconds = nanos
+    END BIND
+    RETURN status
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  ' The struct came back filled: a real wall-clock time is far past 2001.
+  LET t = libc::now()
+  IF t.seconds > 1000000000 THEN
+    io::print("seconds: plausible")
+  ELSE
+    io::print("seconds: BAD")
+  END IF
+  ' A field at offset 8 must be read from offset 8: nanoseconds is < 1e9 by
+  ' definition, so a struct read at the wrong offset (or a 4-byte read of an
+  ' 8-byte field) shows up here immediately.
+  IF t.nanoseconds >= 0 AND t.nanoseconds < 1000000000 THEN
+    io::print("nanoseconds: in range")
+  ELSE
+    io::print("nanoseconds: BAD")
+  END IF
+  ' Two reads must advance: proves we read live memory, not a constant.
+  LET t2 = libc::now()
+  IF t2.seconds > t.seconds OR (t2.seconds = t.seconds AND t2.nanoseconds >= t.nanoseconds) THEN
+    io::print("monotonic-ish: ok")
+  ELSE
+    io::print("monotonic-ish: BAD")
+  END IF
+  ' BIND IN: nanosleep succeeds only if `req` holds a valid timespec — a garbage
+  ' or unzeroed `seconds` would make it fail with EINVAL.
+  LET rc = libc::sleepNanos(1000)
+  io::print("sleep rc: " & toString(rc))
+  RETURN 0
+END FUNC

@@ -1,0 +1,150 @@
+{
+  "project": "native_struct_scalar_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Instant",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "seconds", "type": "Integer", "line": 13 },
+      { "visibility": null, "name": "nanoseconds", "type": "Integer", "line": 14 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "c",
+      "alias": "libc",
+      "line": 17,
+      "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "TimeSpec",
+        "mapsTo": "Instant",
+        "line": 19,
+        "fields": [
+        {
+          "name": "seconds",
+          "ctype": "CInt64",
+          "line": 20
+        },
+        {
+          "name": "nanoseconds",
+          "ctype": "CInt64",
+          "line": 21
+        }
+        ]
+      }
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "now",
+        "symbol": "clock_gettime",
+        "returnResource": false,
+        "returnType": "Instant",
+        "line": 26,
+        "params": [
+        ],
+        "abi": {
+          "slots": [
+          { "name": "clk", "ctype": "CInt32", "out": false, "line": 28 },
+          { "name": "ts", "ctype": "TimeSpec", "out": true, "line": 28 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "clk", "value": { "kind": "number", "value": "0" }, "line": 29 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "ts" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "sleepNanos",
+        "symbol": "nanosleep",
+        "returnResource": false,
+        "returnType": "Integer",
+        "line": 37,
+        "params": [
+        { "name": "nanos", "type": "Integer", "default": null, "line": 37 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "req", "ctype": "TimeSpec", "out": false, "line": 39 },
+          { "name": "rem", "ctype": "CPtr", "out": false, "line": 39 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "rem", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 40 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "status" },
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 49,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": null, "value": { "kind": "call", "callee": "libc.now", "arguments": [] }, "line": 51 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "seconds" }, "right": { "kind": "number", "value": "1000000000" } },
+        "line": 52,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "seconds: plausible" }] }, "line": 53 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "seconds: BAD" }] }, "line": 55 }
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": ">=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "nanoseconds" }, "right": { "kind": "number", "value": "0" } }, "right": { "kind": "binary", "operator": "<", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "nanoseconds" }, "right": { "kind": "number", "value": "1000000000" } } },
+        "line": 60,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "nanoseconds: in range" }] }, "line": 61 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "nanoseconds: BAD" }] }, "line": 63 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": null, "value": { "kind": "call", "callee": "libc.now", "arguments": [] }, "line": 66 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t2" }, "member": "seconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "seconds" } }, "right": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t2" }, "member": "seconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "seconds" } }, "right": { "kind": "binary", "operator": ">=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t2" }, "member": "nanoseconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "nanoseconds" } } } },
+        "line": 67,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "monotonic-ish: ok" }] }, "line": 68 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "monotonic-ish: BAD" }] }, "line": 70 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "rc", "type": null, "value": { "kind": "call", "callee": "libc.sleepNanos", "arguments": [{ "kind": "number", "value": "1000" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sleep rc: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "rc" }] } }] }, "line": 75 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 76 }
+      ]
+    }
+    ]
+  }
+  ]
+}

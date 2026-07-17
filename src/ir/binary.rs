@@ -303,6 +303,23 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     });
     put_str(out, &f.abi_return_name);
     put_str(out, &f.abi_return_ctype);
+    // plan-50-E: BIND IN, as field 15 of the positional record. Rides plan-50-C's
+    // 4->5 bump — the record has no per-field tags, so it could not be added later
+    // without a second break.
+    put_vec(out, &f.bind_in, |o, b| {
+        put_str(o, &b.slot);
+        put_vec(o, &b.fields, |o, fl| {
+            put_str(o, &fl.name);
+            put_opt_str(o, &fl.param);
+            match fl.literal {
+                Some(v) => {
+                    put_u8(o, 1);
+                    put_str(o, &v.to_string());
+                }
+                None => put_u8(o, 0),
+            }
+        });
+    });
     put_vec(out, &f.consts, |o, (slot, value)| {
         put_str(o, slot);
         put_str(o, &value.to_string());
@@ -479,6 +496,29 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         })?,
         abi_return_name: r.string()?,
         abi_return_ctype: r.string()?,
+        bind_in: decode_vec(r, |r| {
+            Ok(crate::ir::IrBindIn {
+                slot: r.string()?,
+                fields: decode_vec(r, |r| {
+                    let name = r.string()?;
+                    let param = r.opt_string()?;
+                    let literal = if r.u8()? != 0 {
+                        Some(
+                            r.string()?
+                                .parse::<i64>()
+                                .map_err(|_| "invalid BIND IN literal".to_string())?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok(crate::ir::IrBindInField {
+                        name,
+                        param,
+                        literal,
+                    })
+                })?,
+            })
+        })?,
         consts: decode_vec(r, |r| {
             let slot = r.string()?;
             let value = r

@@ -172,11 +172,121 @@ pub(crate) fn link_expr_var_names<'a>(expr: &'a IrLinkExpr, out: &mut Vec<&'a st
     }
 }
 
+/// The MFBASIC record field type an ABI ctype maps to inside a `CSTRUCT`
+/// (plan-50-E §3), or `None` when the ctype cannot cross into a record.
+///
+/// `CPtr` never maps: a raw pointer must not surface in ordinary code
+/// (`NATIVE_CPTR_ESCAPE`). `CVoid` has no storage.
+pub(crate) fn cstruct_field_mfb_type(ctype: &str) -> Option<&'static str> {
+    match ctype {
+        // Every narrow integer widens into MFBASIC's 64-bit `Integer`.
+        // `CUInt64` reinterprets: MFBASIC has no unsigned 64-bit type, so a value
+        // above i64::MAX wraps. Documented rather than rejected.
+        "CInt8" | "CInt16" | "CInt32" | "CInt64" | "CUInt8" | "CUInt16" | "CUInt32"
+        | "CUInt64" | "CByte" => Some("Integer"),
+        "CBool" => Some("Boolean"),
+        "CFloat" | "CDouble" => Some("Float"),
+        // A `const char *` field, copied out into an owned String (plan-50-F).
+        "CString" => Some("String"),
+        _ => None,
+    }
+}
+
 /// One reason a `CSTRUCT` declaration is not usable, paired with the rule that
 /// reports it (plan-50-B §4.4).
 pub(crate) struct CStructFault {
     pub(crate) rule: &'static str,
     pub(crate) message: String,
+}
+
+/// Whether a `CSTRUCT` may declare a `CString` (`const char *`) field.
+///
+/// plan-50-E marshals scalar fields only; plan-50-F implements the pointer path
+/// (arena copy-out to an owned `String`, UTF-8 validation, copy-and-leave) and
+/// flips this to `true`. A single switch keeps the two checkers and the thunk
+/// from drifting while the capability lands.
+pub(crate) const CSTRING_STRUCT_FIELDS: bool = false;
+
+/// A struct slot's shape, resolved for validation (plan-50-E).
+pub(crate) struct StructSlotView<'a> {
+    pub(crate) slot: &'a str,
+    pub(crate) direction: AbiDirection,
+    /// The `CSTRUCT`'s fields, in C declaration order.
+    pub(crate) cfields: &'a [(String, String)],
+    /// The `AS <MfbType>` record's fields, as `(name, mfb_type)`.
+    pub(crate) record: &'a [(String, String)],
+    pub(crate) cstruct_name: &'a str,
+    pub(crate) maps_to: &'a str,
+}
+
+/// Validate one struct slot's record mapping (plan-50-E §3/§4.6).
+///
+/// Coverage must be **total** both ways: a silently-unmapped field would be
+/// zeroed going in and dropped coming out — a wrong answer with no diagnostic.
+///
+/// `allow_cstring` gates the `CString` field type: plan-50-E rejects it (scalar
+/// fields only) and plan-50-F lifts the restriction. Shared by both checkers.
+pub(crate) fn check_struct_slot(view: &StructSlotView, allow_cstring: bool) -> Vec<CStructFault> {
+    let mut faults = Vec::new();
+    let fault = |rule: &'static str, message: String| CStructFault { rule, message };
+
+    for (cname, ctype) in view.cfields {
+        // A CPtr field can never surface: it would put a raw pointer in a record.
+        if ctype == "CPtr" {
+            faults.push(fault(
+                "NATIVE_CSTRUCT_INVALID",
+                format!(
+                    "CSTRUCT `{}` field `{cname}` is a `CPtr`, which cannot map into record `{}` — a raw pointer may not surface in ordinary code.",
+                    view.cstruct_name, view.maps_to
+                ),
+            ));
+            continue;
+        }
+        if ctype == "CString" && !allow_cstring {
+            faults.push(fault(
+                "NATIVE_STRUCT_FIELD_MISMATCH",
+                format!(
+                    "CSTRUCT `{}` field `{cname}` is a `CString`; string struct fields are not yet marshaled.",
+                    view.cstruct_name
+                ),
+            ));
+            continue;
+        }
+        let Some(want) = cstruct_field_mfb_type(ctype) else {
+            // An unlayoutable ctype is already reported by `check_cstruct`.
+            continue;
+        };
+        match view.record.iter().find(|(rname, _)| rname == cname) {
+            None => faults.push(fault(
+                "NATIVE_STRUCT_FIELD_MISMATCH",
+                format!(
+                    "CSTRUCT `{}` field `{cname}` has no matching field in record `{}`; coverage must be total.",
+                    view.cstruct_name, view.maps_to
+                ),
+            )),
+            Some((_, rtype)) if rtype != want => faults.push(fault(
+                "NATIVE_STRUCT_FIELD_MISMATCH",
+                format!(
+                    "CSTRUCT `{}` field `{cname}` is `{ctype}`, which maps to `{want}`, but record `{}` declares it `{rtype}`.",
+                    view.cstruct_name, view.maps_to
+                ),
+            )),
+            Some(_) => {}
+        }
+    }
+    // ...and the other way: a record field with no C field would be dropped.
+    for (rname, _) in view.record {
+        if !view.cfields.iter().any(|(cname, _)| cname == rname) {
+            faults.push(fault(
+                "NATIVE_STRUCT_FIELD_MISMATCH",
+                format!(
+                    "record `{}` field `{rname}` has no matching field in CSTRUCT `{}`; coverage must be total.",
+                    view.maps_to, view.cstruct_name
+                ),
+            ));
+        }
+    }
+    faults
 }
 
 /// Validate one `CSTRUCT` declaration and return every fault found.
@@ -307,10 +417,31 @@ pub(crate) struct IrLinkFunction {
     pub(crate) consts: Vec<(String, i64)>,
     /// `SUCCESS_ON <expr>` over the native return variable.
     pub(crate) success_on: Option<IrLinkExpr>,
-    /// `RESULT <expr>` value mapping over the native return variable.
+    /// `RETURN <expr>`: what the wrapper's result is. A bare `Var` naming a slot
+    /// selects that slot's value; any other expression computes one (plan-50-H).
     pub(crate) result: Option<IrLinkExpr>,
+    /// `BIND IN <slot>` blocks: struct fields written before the call, as
+    /// `(slot, [(field, value)])`. A value is a wrapper parameter name or an
+    /// integer literal. Fields not listed are zero (plan-50-E).
+    pub(crate) bind_in: Vec<IrBindIn>,
     /// `FREE <slot>` deallocation of a caller-owned native return (mfbasic.md §17).
     pub(crate) free: Option<IrFree>,
+}
+
+/// A `BIND IN <slot>` block on the IR (plan-50-E).
+#[derive(Clone)]
+pub(crate) struct IrBindIn {
+    pub(crate) slot: String,
+    pub(crate) fields: Vec<IrBindInField>,
+}
+
+/// One `<field> = <value>` binding. `param` names a wrapper parameter; `literal`
+/// is a folded integer immediate. Exactly one is set.
+#[derive(Clone)]
+pub(crate) struct IrBindInField {
+    pub(crate) name: String,
+    pub(crate) param: Option<String>,
+    pub(crate) literal: Option<i64>,
 }
 
 /// A `FREE` block: after the wrapper copies the produced pointer into its owned

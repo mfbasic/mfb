@@ -1,0 +1,92 @@
+' Struct slot and BIND IN misuse (plan-50-E §4.6).
+TYPE Wrong
+  a AS Integer
+  extra AS Integer     ' no matching C field: coverage must be total both ways
+END TYPE
+
+TYPE Mistyped
+  a AS String          ' the C field is CInt32, which maps to Integer
+END TYPE
+
+TYPE Ok2
+  a AS Integer
+END TYPE
+
+LINK "demo" AS demoLink
+  CSTRUCT Uncovered AS Wrong
+    a CInt32
+  END CSTRUCT
+
+  CSTRUCT CMistyped AS Mistyped
+    a CInt32
+  END CSTRUCT
+
+  CSTRUCT Good AS Ok2
+    a CInt32
+  END CSTRUCT
+
+  ' A record field with no C field is dropped silently unless rejected.
+  FUNC f1() AS Wrong
+    SYMBOL "demo_f1"
+    ABI (s OUT Uncovered) AS status CInt32
+    RETURN s
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' A C field whose record field has an incompatible type.
+  FUNC f2() AS Mistyped
+    SYMBOL "demo_f2"
+    ABI (s OUT CMistyped) AS status CInt32
+    RETURN s
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' BIND IN on an unknown slot.
+  FUNC f3(n AS Integer) AS Nothing
+    SYMBOL "demo_f3"
+    ABI (s IN Good) AS status CInt32
+    BIND IN nope
+      a = n
+    END BIND
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' BIND IN naming a field the CSTRUCT does not declare.
+  FUNC f4(n AS Integer) AS Nothing
+    SYMBOL "demo_f4"
+    ABI (s IN Good) AS status CInt32
+    BIND IN s
+      nosuch = n
+    END BIND
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' BIND IN writing an OUT slot: it is zeroed and filled by the callee.
+  FUNC f5(n AS Integer) AS Ok2
+    SYMBOL "demo_f5"
+    ABI (s OUT Good) AS status CInt32
+    BIND IN s
+      a = n
+    END BIND
+    RETURN s
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' RETURN on an IN struct slot: it is zeroed and never read back.
+  FUNC f6(n AS Integer) AS Ok2
+    SYMBOL "demo_f6"
+    ABI (s IN Good) AS status CInt32
+    BIND IN s
+      a = n
+    END BIND
+    RETURN s
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' INOUT on a scalar slot is meaningless.
+  FUNC f7(n AS Integer) AS Nothing
+    SYMBOL "demo_f7"
+    ABI (n INOUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

@@ -142,6 +142,7 @@ mod tests {
                         line: 1,
                     },
                     consts: Vec::new(),
+                    bind_in: Vec::new(),
                     success_on,
                     result: None,
                     free: None,

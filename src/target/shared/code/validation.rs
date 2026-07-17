@@ -513,6 +513,7 @@ mod union_tag_tests {
             runtime_helpers: Vec::new(),
             functions: Vec::new(),
             link_functions: Vec::new(),
+            link_cstructs: Vec::new(),
             native_libraries: Default::default(),
         }
     }

@@ -782,6 +782,7 @@ impl<'a> FileParser<'a> {
         let mut consts = Vec::new();
         let mut success_on: Option<Expression> = None;
         let mut result: Option<Expression> = None;
+        let mut bind_in: Vec<BindIn> = Vec::new();
         let mut free: Option<FreeSpec> = None;
 
         while !self.is_at_end() {
@@ -850,6 +851,13 @@ impl<'a> FileParser<'a> {
                 self.skip_separators();
                 continue;
             }
+            if self.match_identifier_ci("BIND") {
+                if let Some(bind) = self.parse_bind_in() {
+                    bind_in.push(bind);
+                }
+                self.skip_separators();
+                continue;
+            }
             if self.match_identifier_ci("FREE") {
                 free = self.parse_free_block();
                 self.skip_separators();
@@ -858,7 +866,7 @@ impl<'a> FileParser<'a> {
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, or FREE clauses.",
+                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, BIND IN, or FREE clauses.",
                 &token,
             );
             self.synchronize();
@@ -892,9 +900,83 @@ impl<'a> FileParser<'a> {
             consts,
             success_on,
             result,
+            bind_in,
             free,
             line: func_token.line,
         })
+    }
+
+    /// `BIND IN <slot>` / `<field> = <expr>`… / `END BIND` (plan-50-E).
+    ///
+    /// Writes named struct fields before the call. Every field the block does not
+    /// name is zero, so the caller supplies only the real inputs — no dummy record
+    /// stuffed with values the C library immediately overwrites. The `BIND`
+    /// identifier has already been consumed.
+    pub(super) fn parse_bind_in(&mut self) -> Option<BindIn> {
+        let line = self.previous().line;
+        // `IN` is a keyword (FOR EACH x IN xs), not an identifier.
+        if !self.match_keyword(Keyword::In) {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "BIND requires a direction: `BIND IN <slot>`.",
+                &token,
+            );
+            self.synchronize();
+            return None;
+        }
+        let slot = self.consume_identifier("BIND IN requires an ABI slot name.")?;
+        self.consume_statement_end("Expected end of statement after BIND IN <slot>.");
+        self.skip_separators();
+
+        let mut fields = Vec::new();
+        while !self.is_at_end() {
+            if self.check_keyword(Keyword::End) {
+                self.advance(); // END
+                if !self.match_identifier_ci("BIND") {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        "END must name the block kind it closes (END BIND).",
+                        &token,
+                    );
+                    self.synchronize();
+                    return None;
+                }
+                self.consume_statement_end("Expected end of statement after END BIND.");
+                return Some(BindIn { slot, fields, line });
+            }
+            let field_line = self.peek().line;
+            let Some(field) = self.consume_identifier("Expected a struct field name.") else {
+                self.synchronize();
+                self.skip_separators();
+                continue;
+            };
+            if !self.consume_kind(TokenKind::Equal, "BIND IN field requires `= <value>`.") {
+                self.synchronize();
+                self.skip_separators();
+                continue;
+            }
+            let Some(value) = self.parse_expression() else {
+                self.synchronize();
+                self.skip_separators();
+                continue;
+            };
+            self.consume_statement_end("Expected end of statement after a BIND IN field.");
+            self.skip_separators();
+            fields.push(BindInField {
+                name: field,
+                value,
+                line: field_line,
+            });
+        }
+        let token = self.peek().clone();
+        self.report(
+            "MFB_PARSE_UNTERMINATED_BLOCK",
+            "BIND block reached end-of-file before its END BIND statement.",
+            &token,
+        );
+        None
     }
 
     /// Parse a `FREE <slot> SYMBOL "…" ABI (ptr CPtr) AS <ctype> END FREE` block.
@@ -1010,9 +1092,17 @@ impl<'a> FileParser<'a> {
             loop {
                 let slot_line = self.peek().line;
                 let name = self.parse_abi_slot_name()?;
-                let direction = if self.match_identifier_ci("OUT") {
+                // plan-50-E: INOUT and an explicit IN join OUT. INOUT is matched
+                // first: it shares a prefix with IN, so the order is load-bearing.
+                // IN is optional — an unmarked slot is an input — but a struct slot
+                // reads better spelled out next to its INOUT sibling.
+                let direction = if self.match_identifier_ci("INOUT") {
+                    crate::ir::AbiDirection::InOut
+                } else if self.match_identifier_ci("OUT") {
                     crate::ir::AbiDirection::Out
                 } else {
+                    // `IN` is a keyword (FOR EACH x IN xs), not an identifier.
+                    self.match_keyword(Keyword::In);
                     crate::ir::AbiDirection::In
                 };
                 let ctype = self.parse_c_type_name()?;

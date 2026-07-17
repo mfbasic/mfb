@@ -32,6 +32,9 @@ pub(crate) struct NirModule {
     /// Native `LINK` functions whose marshaling thunks the backend emits
     /// (plan-linker.md §12). Carried verbatim from the IR.
     pub(crate) link_functions: Vec<crate::ir::IrLinkFunction>,
+    /// `CSTRUCT` declarations backing struct ABI slots (plan-50-E). The thunk
+    /// needs each one's field ctypes to recompute its layout.
+    pub(crate) link_cstructs: Vec<crate::ir::IrCStruct>,
     /// The project's **own** native library locators (plan-46-C), for a project
     /// that declares its own `LINK` block. An imported binding's locators are read
     /// from that binding's `.mfp` section 10 at codegen instead. Carried verbatim

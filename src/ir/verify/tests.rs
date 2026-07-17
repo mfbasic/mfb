@@ -2573,6 +2573,7 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         abi_return_name: "value".to_string(),
         abi_return_ctype: "CInt32".to_string(),
         consts: vec![],
+        bind_in: vec![],
         success_on: None,
         // plan-50-H: the result is whatever `RETURN <expr>` names; a bare Var over
         // the ABI return is the `AS value CInt32` + `RETURN value` passthrough.
@@ -2752,6 +2753,51 @@ fn accepts_link_expr_naming_an_abi_slot() {
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     accept(&p);
+}
+
+/// plan-50-E: a struct slot's record mapping must cover every field both ways —
+/// a silently-unmapped field is zeroed in and dropped out, a wrong answer with no
+/// diagnostic. Enforced on the package path too: a crafted `.mfp` never ran the
+/// frontend.
+#[test]
+fn rejects_struct_slot_with_uncovered_record_field() {
+    let mut lf = link_fn();
+    lf.return_type = "Rec".to_string();
+    lf.params = vec![];
+    lf.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "s".to_string(),
+        ctype: "S".to_string(),
+        direction: crate::ir::AbiDirection::Out,
+    }];
+    lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    let mut p = project(
+        vec![func_returns("run", "Nothing", vec![], vec![])],
+        vec![record_typed("Rec", &[("a", "Integer"), ("extra", "Integer")])],
+    );
+    p.link_cstructs = vec![cstruct("S", &[("a", "CInt32")])];
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
+}
+
+#[test]
+fn rejects_struct_slot_with_mistyped_record_field() {
+    let mut lf = link_fn();
+    lf.return_type = "Rec".to_string();
+    lf.params = vec![];
+    lf.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "s".to_string(),
+        ctype: "S".to_string(),
+        direction: crate::ir::AbiDirection::Out,
+    }];
+    lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    let mut p = project(
+        vec![func_returns("run", "Nothing", vec![], vec![])],
+        // CInt32 maps to Integer, not String.
+        vec![record_typed("Rec", &[("a", "String")])],
+    );
+    p.link_cstructs = vec![cstruct("S", &[("a", "CInt32")])];
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
 }
 
 /// plan-50-A: the package path is a marshaling-safety gate — a crafted `.mfp`

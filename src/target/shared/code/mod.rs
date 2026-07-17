@@ -1193,6 +1193,8 @@ pub(crate) fn lower_module_for_platform(
     if link_count > 0 {
         let support = link_thunk::emit_link_support(
             &module.link_functions,
+            &module.link_cstructs,
+            &type_model.record_fields,
             globals_base,
             &platform_imports,
             platform,

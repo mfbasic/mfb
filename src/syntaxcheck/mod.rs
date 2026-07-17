@@ -399,8 +399,203 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_link_block(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
         self.check_link_cstructs(file, link);
         self.check_cstruct_escape(file, link);
+        let cstructs: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
         for function in &link.functions {
-            self.check_link_function(file, function);
+            self.check_link_function_in(file, function, &cstructs);
+            self.check_struct_slots(file, link, function);
+        }
+    }
+
+    /// The `(name, type)` fields of a user record `TYPE`, or `None` when the name
+    /// is not a record (a union/enum/unknown cannot back a `CSTRUCT`).
+    fn record_fields_of(&self, name: &str) -> Option<Vec<(String, String)>> {
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::Type(decl) = item {
+                    if decl.name == name && decl.kind == crate::ast::TypeDeclKind::Type {
+                        return Some(
+                            decl.fields
+                                .iter()
+                                .map(|f| (f.name.clone(), f.type_name.clone()))
+                                .collect(),
+                        );
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Validate a wrapper's struct slots and `BIND IN` blocks (plan-50-E §4.6).
+    fn check_struct_slots(
+        &mut self,
+        file: &AstFile,
+        link: &crate::ast::LinkBlock,
+        function: &crate::ast::LinkFunction,
+    ) {
+        let find_cstruct = |name: &str| link.cstructs.iter().find(|c| c.name == name);
+
+        for slot in &function.abi.slots {
+            let Some(decl) = find_cstruct(&slot.ctype) else {
+                // A non-struct slot marked INOUT has nothing to be in/out *of*:
+                // a scalar slot is either a C argument or a produced value.
+                if slot.direction == crate::ir::AbiDirection::InOut {
+                    self.report(
+                        "NATIVE_ABI_UNKNOWN_CTYPE",
+                        &format!(
+                            "Native function `{}` ABI slot `{}` is INOUT but `{}` is not a CSTRUCT; INOUT is meaningful only for a struct.",
+                            function.name, slot.name, slot.ctype
+                        ),
+                        file,
+                        slot.line,
+                    );
+                }
+                continue;
+            };
+            // The record it maps to must exist and be a record.
+            let Some(record) = self.record_fields_of(&decl.maps_to) else {
+                self.report(
+                    "NATIVE_STRUCT_FIELD_MISMATCH",
+                    &format!(
+                        "CSTRUCT `{}` maps to `{}`, which is not a record type.",
+                        decl.name, decl.maps_to
+                    ),
+                    file,
+                    decl.line,
+                );
+                continue;
+            };
+            let cfields: Vec<(String, String)> = decl
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.ctype.clone()))
+                .collect();
+            let view = crate::ir::StructSlotView {
+                slot: &slot.name,
+                direction: slot.direction,
+                cfields: &cfields,
+                record: &record,
+                cstruct_name: &decl.name,
+                maps_to: &decl.maps_to,
+            };
+            // plan-50-E marshals scalar fields only; plan-50-F lifts CString.
+            for fault in crate::ir::check_struct_slot(&view, crate::ir::CSTRING_STRUCT_FIELDS) {
+                self.report(fault.rule, &fault.message, file, slot.line);
+            }
+            // A wrapper returning this struct must declare the mapped record.
+            if matches!(&function.result, Some(crate::ast::Expression::Identifier(n)) if *n == slot.name)
+            {
+                if slot.direction == crate::ir::AbiDirection::In {
+                    self.report(
+                        "NATIVE_ABI_RESULT_MARKER",
+                        &format!(
+                            "Native function `{}` returns struct slot `{}`, which is IN — an input slot is zeroed and never read back.",
+                            function.name, slot.name
+                        ),
+                        file,
+                        slot.line,
+                    );
+                }
+                if function.return_type.as_deref() != Some(decl.maps_to.as_str()) {
+                    self.report(
+                        "NATIVE_STRUCT_FIELD_MISMATCH",
+                        &format!(
+                            "Native function `{}` returns struct slot `{}`, so it must return `{}` (the CSTRUCT's mapped record).",
+                            function.name, slot.name, decl.maps_to
+                        ),
+                        file,
+                        function.line,
+                    );
+                }
+            }
+        }
+
+        // BIND IN: the slot must exist, be a struct, be readable as input, and
+        // every field must be a real field bound to a real value.
+        for bind in &function.bind_in {
+            let Some(slot) = function.abi.slots.iter().find(|s| s.name == bind.slot) else {
+                self.report(
+                    "NATIVE_BIND_IN_INVALID",
+                    &format!(
+                        "Native function `{}` BIND IN names ABI slot `{}`, which does not exist.",
+                        function.name, bind.slot
+                    ),
+                    file,
+                    bind.line,
+                );
+                continue;
+            };
+            let Some(decl) = find_cstruct(&slot.ctype) else {
+                self.report(
+                    "NATIVE_BIND_IN_INVALID",
+                    &format!(
+                        "Native function `{}` BIND IN names slot `{}`, which is `{}` and not a CSTRUCT.",
+                        function.name, bind.slot, slot.ctype
+                    ),
+                    file,
+                    bind.line,
+                );
+                continue;
+            };
+            if slot.direction == crate::ir::AbiDirection::Out {
+                self.report(
+                    "NATIVE_BIND_IN_INVALID",
+                    &format!(
+                        "Native function `{}` BIND IN writes slot `{}`, which is OUT — an OUT slot is zeroed and filled by the callee.",
+                        function.name, bind.slot
+                    ),
+                    file,
+                    bind.line,
+                );
+            }
+            let mut seen: Vec<&str> = Vec::new();
+            for field in &bind.fields {
+                if !decl.fields.iter().any(|f| f.name == field.name) {
+                    self.report(
+                        "NATIVE_BIND_IN_INVALID",
+                        &format!(
+                            "Native function `{}` BIND IN sets `{}`, which CSTRUCT `{}` does not declare.",
+                            function.name, field.name, decl.name
+                        ),
+                        file,
+                        field.line,
+                    );
+                }
+                if seen.contains(&field.name.as_str()) {
+                    self.report(
+                        "NATIVE_BIND_IN_INVALID",
+                        &format!(
+                            "Native function `{}` BIND IN sets `{}` more than once.",
+                            function.name, field.name
+                        ),
+                        file,
+                        field.line,
+                    );
+                }
+                seen.push(field.name.as_str());
+                // A value is a wrapper parameter or an integer/boolean literal.
+                let ok = match &field.value {
+                    crate::ast::Expression::Identifier(name) => {
+                        function.params.iter().any(|p| p.name == *name)
+                    }
+                    crate::ast::Expression::Number(_) | crate::ast::Expression::Boolean(_) => true,
+                    crate::ast::Expression::Unary { operator, operand, .. } => {
+                        operator == "-" && matches!(operand.as_ref(), crate::ast::Expression::Number(_))
+                    }
+                    _ => false,
+                };
+                if !ok {
+                    self.report(
+                        "NATIVE_BIND_IN_INVALID",
+                        &format!(
+                            "Native function `{}` BIND IN sets `{}` from a value that is neither a wrapper parameter nor an integer literal.",
+                            function.name, field.name
+                        ),
+                        file,
+                        field.line,
+                    );
+                }
+            }
         }
     }
 
@@ -488,6 +683,17 @@ impl<'a> SyntaxChecker<'a> {
         file: &AstFile,
         function: &crate::ast::LinkFunction,
     ) {
+        self.check_link_function_in(file, function, &[]);
+    }
+
+    /// `cstructs` is every `CSTRUCT` name declared in the owning `LINK` block; a
+    /// slot may name one as its ctype (plan-50-E).
+    pub(super) fn check_link_function_in(
+        &mut self,
+        file: &AstFile,
+        function: &crate::ast::LinkFunction,
+        cstructs: &[String],
+    ) {
         // `CPtr` (and other raw C ABI types) may never appear in a wrapper's
         // MFBASIC-facing signature — only inside `ABI (...)` slots. A wrapper
         // param or return typed as a C type would let a raw pointer escape into an
@@ -550,6 +756,11 @@ impl<'a> SyntaxChecker<'a> {
             );
         }
         for slot in &function.abi.slots {
+            // A slot may name a CSTRUCT declared in this LINK block; the struct
+            // rules then apply instead of the scalar ctype table (plan-50-E).
+            if cstructs.iter().any(|n| *n == slot.ctype) {
+                continue;
+            }
             // An OUT slot is a produced *value*, so it carries a return-shaped
             // ctype; an ordinary slot is a C argument.
             let ok = if slot.direction.writes_back() {
@@ -592,6 +803,11 @@ impl<'a> SyntaxChecker<'a> {
             // An OUT slot is native storage the callee fills; it needs no wrapper
             // parameter. It is surfaced (if at all) by naming it in `RETURN`.
             if slot.direction.writes_back() {
+                continue;
+            }
+            // An IN struct slot is satisfied by its `BIND IN` block: its fields
+            // carry the inputs, and everything unbound is zero (plan-50-E).
+            if function.bind_in.iter().any(|b| b.slot == slot.name) {
                 continue;
             }
             // An ordinary input slot must bind to a wrapper parameter by name.
@@ -682,19 +898,21 @@ impl<'a> SyntaxChecker<'a> {
             );
         }
 
-        // Every wrapper parameter must map to an ABI slot of the same name.
-        let abi_slot_names: HashSet<&str> = function
-            .abi
-            .slots
-            .iter()
-            .map(|slot| slot.name.as_str())
-            .collect();
+        // Every wrapper parameter must be consumed: by an ABI slot of the same
+        // name, or by a `BIND IN` field that binds it (plan-50-E — a parameter
+        // feeding a struct field has no slot of its own).
         for param in &function.params {
-            if !abi_slot_names.contains(param.name.as_str()) {
+            let by_slot = function.abi.slots.iter().any(|s| s.name == param.name);
+            let by_bind = function.bind_in.iter().any(|b| {
+                b.fields.iter().any(|f| {
+                    matches!(&f.value, crate::ast::Expression::Identifier(n) if *n == param.name)
+                })
+            });
+            if !by_slot && !by_bind {
                 self.report(
                     "NATIVE_ABI_UNBOUND_PARAM",
                     &format!(
-                        "Native function `{}` parameter `{}` has no matching ABI slot.",
+                        "Native function `{}` parameter `{}` has no matching ABI slot and no BIND IN field.",
                         function.name, param.name
                     ),
                     file,
@@ -704,6 +922,12 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         // A CONST pin must name a real ABI slot.
+        let abi_slot_names: HashSet<&str> = function
+            .abi
+            .slots
+            .iter()
+            .map(|slot| slot.name.as_str())
+            .collect();
         for pin in &function.consts {
             if !abi_slot_names.contains(pin.slot.as_str()) {
                 self.report(

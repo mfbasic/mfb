@@ -343,6 +343,7 @@ fn link_function() -> IrLinkFunction {
         abi_return_name: "rc".to_string(),
         abi_return_ctype: "CInt32".to_string(),
         consts: vec![("flags".to_string(), 6)],
+        bind_in: vec![],
         // Exercise every IrLinkExpr arm across success_on/result.
         success_on: Some(IrLinkExpr::Compare {
             op: "=".to_string(),
