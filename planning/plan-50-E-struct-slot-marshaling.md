@@ -425,7 +425,14 @@ Acceptance: the runtime proof below returns the true `samplerate`/`channels`/
 rejected on both paths; `scripts/test-accept.sh` green with churn only where
 struct tests were added; existing thunks byte-identical via
 `scripts/artifact-gate.sh`.
-Commit: —
+Commit: `3d5cbe01`
+
+**Landed note.** The runtime proof is `native-struct-scalar-rt`, which uses
+`clock_gettime`/`nanosleep` + `struct timespec` (16/8, fields at 0/8 on macOS and
+Linux alike) rather than libsndfile — no fixture file, no vendored library, and
+both directions covered. It matches C exactly. `IN`/`INOUT` are keywords, not
+identifiers; a `BIND IN` parameter needs no ABI slot; and `n_out` must exclude
+struct slots or `expr_offsets` desyncs from the staging loop.
 
 ## Validation Plan
 

@@ -261,7 +261,18 @@ for format index 0 on **aarch64, x86_64, and riscv64**; the wide multi-`CString`
 struct returns every field uncorrupted; `scripts/test-accept.sh` green;
 `scripts/artifact-gate.sh` shows no churn in thunks without struct `CString`
 fields.
-Commit: —
+Commit: `fab685f0` — capability + static coverage only. **Acceptance NOT met:**
+see `bugs/bug-255`. A `CString` struct field compiles, verifies, and emits, but a
+wrapper with one **segfaults when called**. Scalar struct fields are proven
+(plan-50-E's `native-struct-scalar-rt` matches C exactly), so the fault is
+specific to the pointer path. The runtime test is held back rather than committed
+failing.
+
+**Landed note.** `emit_copy_cstring_to_string` was single-use — fixed labels and a
+fixed save slot — so calling it per field emitted duplicate labels (bug-79) and
+collided with the record pointer. It now takes a label tag and a save slot. Its
+NULL path also never wrote that slot, leaving the caller reading garbage for an
+empty field; both paths now store it. Real bugs, but neither was the segfault.
 
 ## Validation Plan
 

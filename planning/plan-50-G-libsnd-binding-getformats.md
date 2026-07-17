@@ -342,7 +342,30 @@ One landable unit.
 Acceptance: `getFormats()` returns libsndfile's real simple-format table, with
 distinct extensions and non-empty names, executed on macOS/aarch64,
 Linux/aarch64, Linux/x86_64, and Linux/riscv64; `scripts/test-accept.sh` green.
-Commit: —
+Commit: `7fbff627` — the compiler work only. **Acceptance NOT met:** `getFormats()`
+segfaults (`bugs/bug-255`). The binding source, manifest, and `.mfp` are committed
+and build; `getFormatCount()` returns 17 correctly through the scalar OUT path.
+
+**Landed notes.**
+1. `CONST <slot> = SIZEOF <CStruct>` implemented (the §Open Decisions
+   recommendation), and with it the **last** instance of this subsystem's
+   silently-default anti-pattern: `eval_link_const`'s `_ => 0` pinned **0** for any
+   unrecognized expression. Now rejected. Note syntaxcheck runs AFTER `ir::lower`
+   here, so lowering cannot assert the pin is good — it folds to 0 and the
+   diagnostic still fails the build.
+2. `merge_package` did not carry `link_cstructs`, so an imported binding's struct
+   slots resolved to nothing. The CSTRUCT table has to travel with the LINK
+   functions that name it.
+3. Two more helper-inclusion/label gates had to learn about struct fields
+   (`link_returns_cstring`, `needs_range`) — same family as plan-50-H's, and both
+   surface as link errors rather than test failures.
+4. §4.5's manifest defects resolved: the `windows` locator is **invalid**, not
+   merely mismatched — the schema accepts only `macos`/`linux`, so the
+   `libsnd.dll`/`sndfile.dll` question is moot until plan-47 lands. Dropped, along
+   with the unbuildable riscv64-glibc slot. Also: the manifest used a `clib` key
+   where the schema says **`libc`**; the wrong key was silently ignored, so every
+   Linux vendor locator was invalid — it had never surfaced because the binding was
+   a stub whose manifest was never validated.
 
 ## Validation Plan
 
