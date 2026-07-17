@@ -137,8 +137,17 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         TRANSFER
             if (arg_types.len() == 2 || arg_types.len() == 3)
                 && is_thread_type(&arg_types[0])
-                && thread_resource(&arg_types[0])
-                    .is_some_and(|resource| resource == "Unknown" || resource == arg_types[1])
+                && thread_resource(&arg_types[0]).is_some_and(|resource| {
+                    // Match on the BASE resource type; the plane may carry a
+                    // ` STATE T` clause (plan-54) that the transferred handle's
+                    // type string need not spell identically. STATE *agreement*
+                    // is enforced by ir::verify (TYPE_STATE_MISMATCH), the sole
+                    // rejecter — the front end stays permissive so the precise
+                    // STATE diagnostic fires there, mirroring plan-52-C.
+                    resource == "Unknown"
+                        || crate::builtins::resource::base_resource_name(resource)
+                            == crate::builtins::resource::base_resource_name(&arg_types[1])
+                })
                 && arg_types.get(2).is_none_or(|timeout| timeout == "Integer") =>
         {
             Cow::Borrowed("Nothing")
@@ -321,7 +330,7 @@ fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
 
     // Resource-only: no data message before the `RES` clause.
     if let Some(after_res) = rest.strip_prefix("RES ") {
-        let res_end = type_prefix_len(after_res)?;
+        let res_end = resource_element_len(after_res)?;
         let resource = after_res[..res_end].trim();
         let output = after_res.get(res_end..)?.strip_prefix(" TO ")?.trim();
         return Some(("Nothing", Some(resource), output));
@@ -333,7 +342,7 @@ fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
 
     // Optional ` RES <res>` clause between the message and ` TO `.
     if let Some(after_res) = tail.strip_prefix(" RES ") {
-        let res_end = type_prefix_len(after_res)?;
+        let res_end = resource_element_len(after_res)?;
         let resource = after_res[..res_end].trim();
         let output = after_res.get(res_end..)?.strip_prefix(" TO ")?.trim();
         return Some((message, Some(resource), output));
@@ -362,6 +371,25 @@ pub(crate) fn strip_type_group(type_: &str) -> &str {
         }
     }
     &trimmed[1..trimmed.len() - 1]
+}
+
+/// Length consumed by a thread plane's `RES` element: the resource base type
+/// plus an optional ` STATE <T>` clause (plan-54). The plane carries the
+/// resource's STATE on its own type so `thread::transfer`/`accept` can check it
+/// against the resource being moved, closing the cross-thread STATE confusion
+/// (bug-257). A bare element (no ` STATE `) measures exactly as before.
+fn resource_element_len(after_res: &str) -> Option<usize> {
+    let base = type_prefix_len(after_res)?;
+    match after_res
+        .get(base..)
+        .and_then(|tail| tail.strip_prefix(" STATE "))
+    {
+        Some(after_state) => {
+            let state_len = type_prefix_len(after_state)?;
+            Some(base + " STATE ".len() + state_len)
+        }
+        None => Some(base),
+    }
 }
 
 fn type_prefix_len(input: &str) -> Option<usize> {
@@ -425,7 +453,7 @@ fn type_prefix_len(input: &str) -> Option<usize> {
 /// `rest`. Used by `type_prefix_len` to measure a nested thread type.
 fn thread_body_len(rest: &str) -> Option<usize> {
     if let Some(after_res) = rest.strip_prefix("RES ") {
-        let res_len = type_prefix_len(after_res)?;
+        let res_len = resource_element_len(after_res)?;
         let to = after_res.get(res_len..)?.strip_prefix(" TO ")?;
         let out_len = type_prefix_len(to)?;
         // "RES " (4) + res + " TO " (4) + out
@@ -436,7 +464,7 @@ fn thread_body_len(rest: &str) -> Option<usize> {
     let tail = rest.get(msg_len..)?;
 
     if let Some(after_res) = tail.strip_prefix(" RES ") {
-        let res_len = type_prefix_len(after_res)?;
+        let res_len = resource_element_len(after_res)?;
         let to = after_res.get(res_len..)?.strip_prefix(" TO ")?;
         let out_len = type_prefix_len(to)?;
         // msg + " RES " (5) + res + " TO " (4) + out
@@ -722,6 +750,58 @@ mod tests {
         // data-only thread has no resource plane
         let d = "Thread OF Integer TO String";
         assert_eq!(rt(ACCEPT, &[d]), None);
+    }
+
+    #[test]
+    fn plane_parses_state_on_resource_element() {
+        // plan-54: the `RES` element carries an optional ` STATE T` clause, so the
+        // plane type names the transferred resource's state.
+        assert_eq!(
+            thread_parts_full("Thread OF Integer RES File STATE Cursor TO String"),
+            Some((THREAD_TYPE, "Integer", Some("File STATE Cursor"), "String"))
+        );
+        // Resource-only spelling (message defaults to Nothing).
+        assert_eq!(
+            thread_parts_full("ThreadWorker OF RES File STATE Cursor TO Integer"),
+            Some((
+                THREAD_WORKER_TYPE,
+                "Nothing",
+                Some("File STATE Cursor"),
+                "Integer"
+            ))
+        );
+        // thread_resource surfaces the full stateful element.
+        assert_eq!(
+            thread_resource("Thread OF RES File STATE Cursor TO Integer"),
+            Some("File STATE Cursor")
+        );
+        // A bare plane is unchanged — no STATE captured.
+        assert_eq!(
+            thread_resource("Thread OF RES File TO Integer"),
+            Some("File")
+        );
+        // A record-typed STATE round-trips through format_thread_type.
+        assert_eq!(
+            format_thread_type(THREAD_TYPE, "Nothing", Some("File STATE Cursor"), "Integer"),
+            "Thread OF RES File STATE Cursor TO Integer"
+        );
+    }
+
+    #[test]
+    fn resolve_transfer_accept_stateful_plane() {
+        // plan-54: accept returns the plane element WITH its STATE, so the receiver
+        // binds `RES f AS File STATE Cursor` and ir::verify checks agreement.
+        let s = "Thread OF Integer RES File STATE Cursor TO String";
+        assert_eq!(rt(ACCEPT, &[s]), Some("File STATE Cursor".to_string()));
+        // transfer resolves on the BASE resource type whether or not the handle's
+        // type string spells the STATE; STATE agreement is ir::verify's job.
+        assert_eq!(
+            rt(TRANSFER, &[s, "File STATE Cursor"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(TRANSFER, &[s, "File"]), Some("Nothing".to_string()));
+        // A different base resource still fails to resolve.
+        assert_eq!(rt(TRANSFER, &[s, "Socket STATE Cursor"]), None);
     }
 
     #[test]

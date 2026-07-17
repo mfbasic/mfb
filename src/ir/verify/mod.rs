@@ -864,8 +864,11 @@ impl TypeEnv {
                         }
                         // STATE is undefined on a resource union (varies by
                         // tag), and a STATE payload type must be defaultable.
-                        if let Some(idx) = type_.find(" STATE ") {
-                            let state_type = &type_[idx + " STATE ".len()..];
+                        // `state_type_name` peels only a *top-level* STATE, so a
+                        // thread handle whose plane carries `STATE` (`Thread OF RES
+                        // File STATE Cursor TO Out`, plan-54) is not misread here.
+                        if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
+                        {
                             if self.unions.contains_key(base) {
                                 self.emit(
                                     "TYPE_UNION_STATE_FORBIDDEN",
@@ -1014,7 +1017,8 @@ impl TypeEnv {
                     // carried in the local's type string (`File STATE T`); a
                     // resource declared without STATE has nothing to assign.
                     if let Some(t) = locals.get(resource) {
-                        if !t.contains(" STATE ")
+                        let declared_state = crate::builtins::resource::state_type_name(t);
+                        if declared_state.is_none()
                             && self.is_resource_or_resource_union(resource_base_type(t))
                         {
                             self.emit(
@@ -1024,8 +1028,7 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        if let Some(idx) = t.find(" STATE ") {
-                            let state_type = t[idx + " STATE ".len()..].to_string();
+                        if let Some(state_type) = declared_state.map(str::to_string) {
                             if let Some(actual) = self.infer_type(value, locals) {
                                 if !self.expression_compatible(&state_type, &actual, value) {
                                     self.emit(
@@ -1849,7 +1852,7 @@ impl TypeEnv {
         // statement, from whichever rule knows the most.
         if member == "state"
             && !self.checking_state_assign.get()
-            && !type_name.contains(" STATE ")
+            && crate::builtins::resource::state_type_name(&type_name).is_none()
             && self.is_resource_or_resource_union(resource_base_type(&type_name))
         {
             let base = resource_base_type(&type_name);
@@ -3213,11 +3216,7 @@ impl TypeEnv {
     /// Whether a type contains a resource or thread handle anywhere (mirrors
     /// syntaxcheck's `contains_resource_or_thread` on type strings).
     fn contains_resource_or_thread(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        let t = type_.strip_prefix("RES ").unwrap_or(type_);
-        let t = match t.find(" STATE ") {
-            Some(i) => &t[..i],
-            None => t,
-        };
+        let t = resource_base_type(type_);
         if t.starts_with("Thread") || self.is_resource_or_resource_union(t) {
             return true;
         }
@@ -3680,6 +3679,72 @@ impl TypeEnv {
         }
     }
 
+    /// Reject a `thread::transfer` whose transferred resource's `STATE` disagrees
+    /// with the thread plane's declared element `STATE` (`TYPE_STATE_MISMATCH`,
+    /// plan-54 — closes bug-257).
+    ///
+    /// A transfer is a **move to a re-typer**: the accepting thread re-declares the
+    /// resource type (`RES f AS File STATE Cursor = thread::accept(t)`), and the
+    /// STATE payload carries no runtime tag, so its type comes entirely from
+    /// whichever type string each side holds. Unlike a parameter — a non-escaping
+    /// alias, where bare reads as "opaque" and accepts any state — the transfer
+    /// escapes the frame, so the plane and the transferred resource must name the
+    /// **same** state. Both bare is agreement; every disagreement (a stateful
+    /// resource on a bare plane, a bare resource on a stateful plane, or two
+    /// different states) is the cross-thread confusion bug-257 demonstrated: a
+    /// `Cursor{pos:Integer}` sent, read as a `Label{name:String}`.
+    ///
+    /// This mirrors the escape rule (`mfb spec language resource-management`
+    /// §15.5): a transfer is an escape position, so STATE must be in the contract —
+    /// here, the plane type. The check runs on the lowered `transferResource` call
+    /// (arg 0 = the thread handle whose type carries the plane STATE, arg 1 = the
+    /// transferred resource).
+    fn check_thread_transfer_state(
+        &self,
+        target: &str,
+        args: &[IrValue],
+        locals: &HashMap<String, String>,
+    ) {
+        if target != crate::builtins::thread::TRANSFER_RESOURCE {
+            return;
+        }
+        let (Some(handle), Some(resource)) = (args.first(), args.get(1)) else {
+            return;
+        };
+        let (Some(handle_type), Some(resource_type)) = (
+            self.infer_type(handle, locals),
+            self.infer_type(resource, locals),
+        ) else {
+            return;
+        };
+        let Some(plane_resource) = crate::builtins::thread::thread_resource(&handle_type) else {
+            return;
+        };
+        let plane_state = crate::builtins::resource::state_type_name(plane_resource);
+        let resource_state = crate::builtins::resource::state_type_name(&resource_type);
+        if plane_state == resource_state {
+            return; // both bare, or the same state — the agreeing case.
+        }
+        let detail = match (plane_state, resource_state) {
+            (Some(plane), Some(actual)) => format!(
+                "carries STATE `{actual}` but the thread plane declares `STATE {plane}`; a transfer moves the resource to a thread that re-types it, so both must name the same state"
+            ),
+            (Some(plane), None) => format!(
+                "carries no STATE but the thread plane declares `STATE {plane}`; the accepting thread would read an unattached state"
+            ),
+            (None, Some(actual)) => format!(
+                "carries STATE `{actual}` but the thread plane is bare; a bare plane asserts the resource has no state — declare the plane `RES {} STATE {actual}`",
+                crate::builtins::resource::base_resource_name(plane_resource)
+            ),
+            // Equal (both None) is handled above; unreachable.
+            (None, None) => return,
+        };
+        self.emit(
+            "TYPE_STATE_MISMATCH",
+            format!("`thread::transfer` {detail}."),
+        );
+    }
+
     /// Reject a `RES` parameter whose declared `STATE` disagrees with the state
     /// its argument actually carries (`TYPE_STATE_MISMATCH`, plan-52-C).
     ///
@@ -3983,6 +4048,11 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
+        // plan-54: a `thread::transfer` moves a resource to a re-typing thread, so
+        // the transferred resource's STATE must agree with the plane's declared
+        // STATE. Run before the STATE-stripping arg-type collection below, which
+        // would erase exactly the clause this check needs.
+        self.check_thread_transfer_state(target, args, locals);
         // `collections` element searches compare elements for equality, so the
         // list's element type must be comparable — syntaxcheck's
         // `check_special_builtin_arguments` arm of TYPE_REQUIRES_COMPARABLE.
@@ -4788,13 +4858,12 @@ fn is_resource_name(name: &str) -> bool {
 }
 
 /// The base resource type name, stripping the `RES ` ownership marker and a
-/// trailing `STATE T` clause (`File STATE Cursor` → `File`).
+/// trailing `STATE T` clause (`File STATE Cursor` → `File`). Composite-safe: a
+/// `STATE` nested inside a thread plane (`Thread OF RES File STATE Cursor TO Out`)
+/// is left intact (plan-54, via `base_resource_name`'s top-level guard).
 fn resource_base_type(type_: &str) -> &str {
     let t = type_.strip_prefix("RES ").unwrap_or(type_);
-    match t.find(" STATE ") {
-        Some(idx) => &t[..idx],
-        None => t,
-    }
+    crate::builtins::resource::base_resource_name(t)
 }
 
 /// Collect the names of every `Local` read anywhere in an op's value positions

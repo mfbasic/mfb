@@ -29,7 +29,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "state_xfer_workers.takeCursor" }, { "kind": "string", "value": "seed" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES File STATE Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "state_xfer_workers.takeCursor" }, { "kind": "string", "value": "seed" }] }, "line": 13 },
       { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-transfer-state-rt/data/input.txt" }] }, "line": 14 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "99" } }] }, "line": 15 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }] }, "line": 16 },

@@ -44,17 +44,26 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Result(Box::new(self.parse_type(success)));
         }
         if let Some((kind, message, resource, output)) = builtins::thread::thread_parts_full(name) {
+            // The plane's `RES` element may carry a `STATE T` clause (plan-54);
+            // peel it into a separate `resource_state` so the resource type stays
+            // bare (every resource consumer sees `File`, not `File STATE Cursor`),
+            // while the plane still names the state it transfers.
+            let resource_state = resource
+                .and_then(crate::builtins::resource::state_type_name)
+                .map(|state| Box::new(self.parse_type(state)));
             let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
             if kind == builtins::thread::THREAD_WORKER_TYPE {
                 return Type::ThreadWorker(
                     Box::new(self.parse_type(message)),
                     resource,
+                    resource_state,
                     Box::new(self.parse_type(output)),
                 );
             }
             return Type::Thread(
                 Box::new(self.parse_type(message)),
                 resource,
+                resource_state,
                 Box::new(self.parse_type(output)),
             );
         }
@@ -121,19 +130,26 @@ impl<'a> SyntaxChecker<'a> {
             }
             (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
             (
-                Type::Thread(expected_message, expected_resource, expected_output),
-                Type::Thread(actual_message, actual_resource, actual_output),
+                Type::Thread(expected_message, expected_resource, expected_state, expected_output),
+                Type::Thread(actual_message, actual_resource, actual_state, actual_output),
             ) => {
                 self.compatible(expected_message, actual_message)
                     && self.compatible_optional(expected_resource, actual_resource)
+                    && self.compatible_optional(expected_state, actual_state)
                     && self.compatible(expected_output, actual_output)
             }
             (
-                Type::ThreadWorker(expected_message, expected_resource, expected_output),
-                Type::ThreadWorker(actual_message, actual_resource, actual_output),
+                Type::ThreadWorker(
+                    expected_message,
+                    expected_resource,
+                    expected_state,
+                    expected_output,
+                ),
+                Type::ThreadWorker(actual_message, actual_resource, actual_state, actual_output),
             ) => {
                 self.compatible(expected_message, actual_message)
                     && self.compatible_optional(expected_resource, actual_resource)
+                    && self.compatible_optional(expected_state, actual_state)
                     && self.compatible(expected_output, actual_output)
             }
             (
@@ -933,7 +949,7 @@ mod types_tests {
         // Result vs Result.
         assert!(checker.compatible(&Type::Result(int()), &Type::Result(int())));
         // ThreadWorker vs ThreadWorker, with and without a resource plane.
-        let tw = |res: Option<Box<Type>>| Type::ThreadWorker(int(), res, int());
+        let tw = |res: Option<Box<Type>>| Type::ThreadWorker(int(), res, None, int());
         assert!(checker.compatible(&tw(None), &tw(None)));
         assert!(checker.compatible(
             &tw(Some(Box::new(Type::String))),
@@ -942,7 +958,7 @@ mod types_tests {
         // compatible_optional: one side carries a resource plane, the other not.
         assert!(!checker.compatible(&tw(Some(Box::new(Type::String))), &tw(None)));
         // Thread vs Thread resource-plane mismatch.
-        let th = |res: Option<Box<Type>>| Type::Thread(int(), res, int());
+        let th = |res: Option<Box<Type>>| Type::Thread(int(), res, None, int());
         assert!(!checker.compatible(&th(Some(Box::new(Type::String))), &th(None)));
         // Function: a non-isolated function fits a non-isolated slot, and an
         // isolated function fits an isolated slot, but not vice versa.

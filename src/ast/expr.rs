@@ -687,11 +687,11 @@ impl<'a> FileParser<'a> {
         let mut resource: Option<String> = None;
 
         if self.match_keyword(Keyword::Res) {
-            resource = Some(self.parse_type_name()?);
+            resource = Some(self.parse_resource_plane_type()?);
         } else {
             message = Some(self.parse_type_name()?);
             if self.match_keyword(Keyword::Res) {
-                resource = Some(self.parse_type_name()?);
+                resource = Some(self.parse_resource_plane_type()?);
             }
         }
 
@@ -715,6 +715,19 @@ impl<'a> FileParser<'a> {
             Some(resource) => format!("{canonical} OF {message} RES {resource} TO {output}"),
             None => format!("{canonical} OF {message} TO {output}"),
         })
+    }
+
+    /// Parse a thread plane's `RES` element: the resource type plus an optional
+    /// ` STATE T` clause (plan-54), folded into one type string
+    /// (`File STATE Cursor`) so the plane names the transferred resource's state
+    /// and `thread::transfer`/`accept` can check it (closes bug-257). A bare
+    /// element (no `STATE`) is unchanged.
+    fn parse_resource_plane_type(&mut self) -> Option<String> {
+        let resource = self.parse_type_name()?;
+        match self.parse_optional_state() {
+            Some(state) => Some(format!("{resource} STATE {state}")),
+            None => Some(resource),
+        }
     }
 
     pub(super) fn parse_function_type_name(&mut self, isolated: bool) -> Option<String> {

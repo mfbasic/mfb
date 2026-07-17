@@ -10,7 +10,7 @@ END TYPE
 ' The resource plane moves a File together with its STATE across the thread
 ' boundary: the worker reads the transferred `pos` (99) and returns it.
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(state_xfer_workers::takeCursor, "seed")
+  LET t AS Thread OF RES File STATE Cursor TO Integer = thread::start(state_xfer_workers::takeCursor, "seed")
   RES f AS File STATE Cursor = fs::openFile("tests/rt-behavior/threads/thread-transfer-state-rt/data/input.txt")
   f.state.pos = 99
   thread::transfer(t, f)

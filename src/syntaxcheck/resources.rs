@@ -358,7 +358,7 @@ impl<'a> SyntaxChecker<'a> {
                         input,
                     );
                 }
-                if let Type::Thread(message, resource, output) = return_type {
+                if let Type::Thread(message, resource, _resource_state, output) = return_type {
                     self.require_thread_sendable_type(
                         file,
                         line,
@@ -385,7 +385,7 @@ impl<'a> SyntaxChecker<'a> {
             "thread.send" => {
                 if let Some(handle) = arg_types.first() {
                     match handle {
-                        Type::Thread(message, _, _) | Type::ThreadWorker(message, _, _) => {
+                        Type::Thread(message, _, _, _) | Type::ThreadWorker(message, _, _, _) => {
                             self.require_thread_sendable_type(
                                 file,
                                 line,
@@ -412,7 +412,7 @@ impl<'a> SyntaxChecker<'a> {
             }
             "thread.transfer" | "thread.accept" => {
                 if let Some(handle) = arg_types.first() {
-                    if let Type::Thread(_, resource, _) | Type::ThreadWorker(_, resource, _) =
+                    if let Type::Thread(_, resource, _, _) | Type::ThreadWorker(_, resource, _, _) =
                         handle
                     {
                         match resource {

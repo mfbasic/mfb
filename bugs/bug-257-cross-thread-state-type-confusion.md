@@ -1,12 +1,32 @@
 # bug-257: `thread::transfer` admits a STATE type disagreement — cross-thread type confusion
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory safety)
 
-Status: Open
-Regression Test: — (none; see Failing Reproduction)
+Status: Fixed (plan-54)
+Regression Test: `tests/syntax/threads/thread-transfer-state-mismatch` (the repro
+below, now a `TYPE_STATE_MISMATCH` compile error) + `tests/rt-behavior/threads/
+thread-transfer-state-rt` (an agreeing stateful transfer runs, plane STATE checked)
+
+## Resolution
+
+Fixed by **plan-54** (`planning/old-plans/plan-54-thread-plane-state.md`): the thread
+plane type carries the resource's `STATE` on its `RES` element (`Thread OF RES File
+STATE Cursor TO Out`). Both findings are closed:
+
+1. **Type confusion (this bug's first half).** `thread::transfer` requires the moved
+   resource's `STATE` to equal the plane's declared `STATE`; a stateful resource on a
+   bare plane (the repro), a bare resource on a stateful plane, or two disagreeing
+   states are each rejected with `TYPE_STATE_MISMATCH` (ir::verify, the sole rejecter).
+   `thread::accept` returns the plane's stateful type, so the receiver cannot invent a
+   different one. The repro below now fails to compile instead of dying at runtime.
+2. **The cross-arena STATE pointer (the second finding, below).** The transfer now
+   **deep-copies** the STATE record into the receiving thread's arena
+   (`copy_resource_to_current_arena`, plan-54 §5) rather than aliasing the sender's
+   pointer, so the accepted handle owns an independent payload with no cross-thread
+   lifetime coupling.
 
 `thread::transfer` moves a resource's `STATE` **pointer** to the receiver without
 consulting either side's state type. The sender may attach a

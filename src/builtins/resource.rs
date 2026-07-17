@@ -217,11 +217,28 @@ fn builtin_resources() -> &'static HashMap<String, ResourceInfo> {
     &BUILTIN_RESOURCES
 }
 
+/// Split a resource type string at its **own** top-level `STATE` clause, if any.
+/// A bare stateful resource is spelled `<ResourceName> STATE <StateType>`, where
+/// `<ResourceName>` is a single type token (a bare name or a `pkg.Name`, never
+/// containing a space). A `STATE` nested inside a composite type — a thread
+/// plane's `RES` element (`Thread OF RES File STATE Cursor TO Out`, plan-54), or
+/// a `List`/`Map` of a stateful resource — is the inner resource's state, not the
+/// composite's own, so it must NOT be split off here (doing so truncated
+/// `ThreadWorker OF RES File STATE Cursor TO Integer` to `ThreadWorker OF RES
+/// File`). Keying on a space in the base distinguishes the two.
+fn split_state_clause(type_name: &str) -> Option<(&str, &str)> {
+    let (base, state) = type_name.split_once(" STATE ")?;
+    if base.contains(' ') {
+        return None; // nested STATE inside a composite type — not this type's own.
+    }
+    Some((base, state))
+}
+
 /// The bare resource type name, with any `STATE T` suffix removed. A stateful
 /// resource carries its `STATE` type in the type string (`File STATE FileState`)
 /// once lowered to IR/NIR; recognition keys on the bare resource name.
 pub(crate) fn base_resource_name(type_name: &str) -> &str {
-    match type_name.split_once(" STATE ") {
+    match split_state_clause(type_name) {
         Some((base, _)) => base,
         None => type_name,
     }
@@ -229,7 +246,7 @@ pub(crate) fn base_resource_name(type_name: &str) -> &str {
 
 /// The `STATE` record type carried by a resource type string, if any.
 pub(crate) fn state_type_name(type_name: &str) -> Option<&str> {
-    type_name.split_once(" STATE ").map(|(_, state)| state)
+    split_state_clause(type_name).map(|(_, state)| state)
 }
 
 /// Whether `type_name` is a built-in resource type. Used by stages that only

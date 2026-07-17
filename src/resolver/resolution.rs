@@ -1273,6 +1273,20 @@ impl Resolver<'_> {
             }
         }
 
+        // A resource type carrying `STATE T` (plan-52/54): resolve the base
+        // resource type and the STATE payload type independently — `File STATE
+        // Cursor` is not a single symbol. Reached only after the compound-type
+        // arms above have peeled off any enclosing `Thread`/`List`/`Map` (whose
+        // own type strings also contain ` STATE `), so this fires on the bare
+        // resource element — a stateful binding/return, or a thread plane's RES
+        // element (plan-54).
+        if let Some(state) = crate::builtins::resource::state_type_name(type_name) {
+            let base = crate::builtins::resource::base_resource_name(type_name);
+            self.resolve_type_name(file, base, line, imports);
+            self.resolve_type_name(file, state, line, imports);
+            return;
+        }
+
         if let Some((base, args)) = type_name.split_once(" OF ") {
             if self.types.contains(base) || self.active_template_params.contains(base) {
                 // Split at top-level commas only: a template argument may itself

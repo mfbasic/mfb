@@ -54,10 +54,14 @@ enum Type {
     /// by codepoint, but **not numeric** — it never enters the promotion lattice.
     Scalar,
     String,
-    // (message, resource, output). `resource` is the optional resource-plane
-    // type carried by thread::transfer/accept; `None` for a data-only thread.
-    Thread(Box<Type>, Option<Box<Type>>, Box<Type>),
-    ThreadWorker(Box<Type>, Option<Box<Type>>, Box<Type>),
+    // (message, resource, resource_state, output). `resource` is the optional
+    // resource-plane type carried by thread::transfer/accept (`None` for a
+    // data-only thread); `resource_state` is that resource's optional `STATE T`
+    // payload type, declared on the plane so it is checked across the thread
+    // boundary (plan-54, closes bug-257). `resource_state` is `None` unless
+    // `resource` is `Some` and carries a `STATE` clause.
+    Thread(Box<Type>, Option<Box<Type>>, Option<Box<Type>>, Box<Type>),
+    ThreadWorker(Box<Type>, Option<Box<Type>>, Option<Box<Type>>, Box<Type>),
     User(String),
     Unknown,
 }
@@ -1266,8 +1270,8 @@ impl<'a> SyntaxChecker<'a> {
                     seen,
                 );
             }
-            Type::Thread(message, resource, output)
-            | Type::ThreadWorker(message, resource, output) => {
+            Type::Thread(message, resource, resource_state, output)
+            | Type::ThreadWorker(message, resource, resource_state, output) => {
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -1282,6 +1286,16 @@ impl<'a> SyntaxChecker<'a> {
                         line,
                         package_file,
                         resource,
+                        context,
+                        seen,
+                    );
+                }
+                if let Some(resource_state) = resource_state {
+                    self.validate_package_metadata_type(
+                        file,
+                        line,
+                        package_file,
+                        resource_state,
                         context,
                         seen,
                     );
@@ -2264,8 +2278,8 @@ impl<'a> SyntaxChecker<'a> {
                     line,
                 );
             }
-            Type::Thread(message, resource, output)
-            | Type::ThreadWorker(message, resource, output) => {
+            Type::Thread(message, resource, resource_state, output)
+            | Type::ThreadWorker(message, resource, resource_state, output) => {
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
                 self.require_thread_sendable_type(file, line, "Thread message type", message);
@@ -2287,6 +2301,12 @@ impl<'a> SyntaxChecker<'a> {
                 if let Some(resource) = resource {
                     self.check_type_reference(file, resource, line);
                     self.require_thread_sendable_type(file, line, "Thread resource type", resource);
+                }
+                // The plane's `STATE T` payload type (plan-54) must resolve; its
+                // defaultability/copyability is enforced by ir::verify, as for a
+                // stateful binding.
+                if let Some(resource_state) = resource_state {
+                    self.check_type_reference(file, resource_state, line);
                 }
             }
             Type::User(name) => {
@@ -2362,18 +2382,22 @@ impl<'a> SyntaxChecker<'a> {
             Type::Nothing => "Nothing".to_string(),
             Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
-            Type::Thread(message, resource, output) => self.format_thread_type_name(
-                builtins::thread::THREAD_TYPE,
-                message,
-                resource,
-                output,
-            ),
-            Type::ThreadWorker(message, resource, output) => self.format_thread_type_name(
-                builtins::thread::THREAD_WORKER_TYPE,
-                message,
-                resource,
-                output,
-            ),
+            Type::Thread(message, resource, resource_state, output) => self
+                .format_thread_type_name(
+                    builtins::thread::THREAD_TYPE,
+                    message,
+                    resource,
+                    resource_state,
+                    output,
+                ),
+            Type::ThreadWorker(message, resource, resource_state, output) => self
+                .format_thread_type_name(
+                    builtins::thread::THREAD_WORKER_TYPE,
+                    message,
+                    resource,
+                    resource_state,
+                    output,
+                ),
             Type::User(name) => name.clone(),
             Type::Unknown => "Unknown".to_string(),
         }
@@ -2396,13 +2420,21 @@ impl<'a> SyntaxChecker<'a> {
         kind: &str,
         message: &Type,
         resource: &Option<Box<Type>>,
+        resource_state: &Option<Box<Type>>,
         output: &Type,
     ) -> String {
         let message = self.thread_type_argument_name(message);
         let output = self.thread_type_argument_name(output);
-        let resource = resource
-            .as_ref()
-            .map(|resource| self.thread_type_argument_name(resource));
+        // Weave the plane's `STATE T` back into the resource element string
+        // (plan-54): `File` + `Cursor` → `File STATE Cursor`, so the plane type
+        // round-trips the state that thread::transfer/accept check.
+        let resource = resource.as_ref().map(|resource| {
+            let base = self.thread_type_argument_name(resource);
+            match resource_state.as_ref() {
+                Some(state) => format!("{base} STATE {}", self.type_name(state)),
+                None => base,
+            }
+        });
         builtins::thread::format_thread_type(kind, &message, resource.as_deref(), &output)
     }
 

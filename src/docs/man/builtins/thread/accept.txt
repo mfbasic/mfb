@@ -30,6 +30,12 @@ DESCRIPTION
   the handle is a parent Thread or a ThreadWorker; the handle type only selects
   which resource queue is read.
 
+  When the plane declares a STATE (Thread OF RES File STATE Cursor TO Out), accept
+  returns the stateful type RES Res STATE T, so the receiver binds RES f AS Res
+  STATE T by agreement -- a different STATE is rejected. The STATE arrives with the
+  resource, deep-copied into the receiving thread's arena. On a bare plane accept
+  returns a bare RES Res. See `mfb spec language threads`.
+
   There are two forms. The no-timeout form waits: accept blocks until a resource
   arrives, the queue is closed, or the worker is cancelled. The timeoutMs form does
   not have a default and controls a bounded wait when the resource queue is

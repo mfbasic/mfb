@@ -6,7 +6,10 @@ END TYPE
 
 ' Receives a File on the resource plane together with its STATE Cursor and
 ' returns the transferred `pos` (the consumer set it to 99 before transfer).
-EXPORT ISOLATED FUNC takeCursor(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
+' The plane carries `STATE Cursor` (plan-54), so `thread::accept` returns a
+' `RES File STATE Cursor` the worker binds by agreement — the state type is
+' checked across the thread boundary, not a coincidence of authorship.
+EXPORT ISOLATED FUNC takeCursor(t AS ThreadWorker OF RES File STATE Cursor TO Integer, seed AS String) AS Integer
   RES f AS File STATE Cursor = thread::accept(t, 1000)
   RETURN f.state.pos
 END FUNC

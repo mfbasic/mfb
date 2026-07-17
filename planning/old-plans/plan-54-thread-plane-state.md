@@ -113,48 +113,85 @@ error".
 
 ## 4. Phases
 
-### Phase 1 — parse STATE on the plane's RES element
+### Phase 1 — parse STATE on the plane's RES element — DONE
 
-- [ ] `src/builtins/thread.rs` — `split_thread_types`/`type_prefix_len` capture
-      ` STATE <T>` as part of the `RES` element, so `thread_parts_full` returns
-      `resource = Some("File STATE Cursor")`.
-- [ ] Decide representation (a) vs (b); wire it so the plane type round-trips the
-      STATE (string and/or `Type`).
-- [ ] Tests: `thread_parts_full` unit tests for the STATE shapes; a syntax fixture
-      that a `Thread OF RES File STATE Cursor TO Int` type parses and prints.
+- [x] `src/builtins/thread.rs` — `resource_element_len` captures ` STATE <T>` as
+      part of the `RES` element in `split_thread_types`/`thread_body_len`, so
+      `thread_parts_full` returns `resource = Some("File STATE Cursor")`. The AST
+      grammar parser (`ast/expr.rs::parse_thread_type_name`) gained the same via
+      `parse_resource_plane_type` (reusing `parse_optional_state`).
+- [x] Representation **(b)** chosen — (a) proved to drop STATE unavoidably: the
+      param type round-trips through `Type::Thread`, which strips the resource
+      STATE, and storing it in `Type::User("File STATE Cursor")` broke
+      `is_resource_type` (exact-name registry lookup). Added a dedicated
+      `resource_state: Option<Box<Type>>` field to `Type::Thread`/`ThreadWorker`
+      (24 sites), so the resource element stays bare and STATE rides beside it.
+      Also fixed `base_resource_name`/`state_type_name` to split only a *top-level*
+      STATE (they truncated `ThreadWorker OF RES File STATE Cursor TO Int` to
+      `ThreadWorker OF RES File`), and made `resolver` + `ir::verify` STATE-string
+      sites composite-safe.
+- [x] Tests: `thread_parts_full`/`resolve_call` unit tests for the STATE shapes
+      (`plane_parses_state_on_resource_element`, `resolve_transfer_accept_stateful_plane`).
 
-Acceptance: the plane type with STATE parses and round-trips (unit + a golden);
-bare planes unchanged (artifact gate delta nil for existing thread fixtures).
+Acceptance: the plane type with STATE parses and round-trips (unit + the rt fixture
+goldens); bare planes unchanged (bare `resource_element_len`/`copy_resource` paths
+byte-identical).
 
-### Phase 2 — accept returns the stateful type; transfer checks agreement
+### Phase 2 — accept returns the stateful type; transfer checks agreement — DONE
 
-- [ ] `thread::accept` on a `STATE T` plane returns `RES Res STATE T`; on a bare
-      plane returns bare (unchanged).
-- [ ] `thread::transfer(t, f)` emits `TYPE_STATE_MISMATCH` when `f`'s STATE differs
-      from the plane's element STATE, **including** a stateful `f` on a bare plane.
-- [ ] Fixtures: bug-257's repro becomes a **compile error** (`tests/syntax/threads/`);
-      an agreeing transfer runs and the worker reads the real state
-      (`tests/rt-behavior/threads/` — mirror `thread-transfer-state-rt`, but with the
-      STATE on the plane so it is *checked*, not coincidental).
+- [x] `thread::accept` on a `STATE T` plane returns `RES Res STATE T` (via
+      `resolve_call`'s `thread_resource`, now STATE-carrying); on a bare plane
+      returns bare. The receiver binding is validated by the existing
+      `check_binding_state_agreement` (plan-52-D) — no new accept-side rule.
+- [x] `thread::transfer(t, f)` emits `TYPE_STATE_MISMATCH` (ir::verify's
+      `check_thread_transfer_state`, the sole rejecter) when `f`'s STATE differs
+      from the plane's element STATE — a stateful `f` on a bare plane, a bare `f`
+      on a stateful plane, or two different states. The front-end `resolve_call`
+      matches on the *base* resource type so the precise diagnostic fires in verify.
+- [x] Fixtures: `tests/syntax/threads/thread-transfer-state-mismatch` (bug-257's
+      repro → `TYPE_STATE_MISMATCH` compile error); `tests/rt-behavior/threads/
+      thread-transfer-state-rt` updated so the STATE rides the plane and is *checked*
+      (runs, worker reads `pos = 99`).
 
 Acceptance: the disagreeing-STATE transfer is a compile error; the agreeing one runs
-and the worker reads the sent state; `thread-transfer-state-rt` still passes (updated
-to carry the plane STATE).
+and the worker reads the sent state; `thread-transfer-state-rt` passes with the plane
+STATE.
 
-### Phase 3 — cross-package + .mfp + spec
+### Phase 3 — cross-package + .mfp + spec — DONE
 
-- [ ] Confirm the plane STATE rides an exported worker signature (kind-11 element
-      id, §2) so `thread::start` infers the parent `Thread OF RES File STATE Cursor`.
-      Cross-package fixture: a worker package + an importer that transfers/accepts.
-- [ ] `./mfb spec language threads` documents the plane STATE + the transfer/accept
-      agreement; §15.5 already frames transfer as the escape position (2a3a46de) —
-      drop the "(once enforced)" qualifier once it is.
-- [ ] Update `bugs/bug-257` → fixed (or note the lifetime half remains, §5).
+- [x] The plane STATE rides the exported worker signature: the `.mfp` encoder
+      threads the resource element through `type_id`, which emits the kind-11
+      composite for `File STATE Cursor`, and the decoder reassembles it via
+      `format_thread_type` — **no binary_repr change needed** (Phase 1's parser
+      makes it round-trip). `thread::start` infers the parent `Thread OF RES File
+      STATE Cursor` from the worker. Cross-package proven: `thread-transfer-state-rt`
+      is a `state_xfer_workers` package + importer that transfers/accepts (worker
+      reads `99`).
+- [x] `./mfb spec language threads` (§16) documents the plane STATE + the
+      transfer/accept agreement + the deep-copy; §15.5 drops the "(once enforced)"
+      qualifier; `thread::transfer`/`accept` man pages note the STATE rule.
+- [x] `bugs/bug-257` → Fixed (both the type confusion and the cross-arena lifetime,
+      §5).
 
 Acceptance: cross-package transfer of a stateful resource type-checks and reads the
 state; specs current; artifact gate delta only the intended fixtures.
 
-## 5. The cross-arena lifetime (the harder half)
+## 5. The cross-arena lifetime (the harder half) — DONE (folded into Phase 2)
+
+Implemented: `copy_resource_to_current_arena` now takes the resource `type_` and,
+when it carries a `STATE`, **deep-copies** the STATE record via
+`copy_value_to_current_arena` into the current arena (the receiver's — the transfer
+switches the arena to the destination, and accept runs in the receiver's own),
+storing the fresh pointer at `FILE_OFFSET_STATE` instead of aliasing the sender's.
+The source keeps its own STATE (freed normally), so there is no shared pointer and no
+cross-thread lifetime coupling. A null STATE slot stays null (lazy init on accept).
+Bare resources keep the verbatim word copy (byte-identical). Proven live:
+`thread-transfer-state-rt` reads `99`, with the deep-copy path emitted on both the
+`transferResource` and `acceptResource` sides.
+
+Original analysis retained below.
+
+
 
 Typing the plane closes the **confusion**. It does **not** close bug-257's second
 finding: `copy_resource_to_current_arena` copies the STATE **pointer**, which points

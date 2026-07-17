@@ -30,6 +30,14 @@ DESCRIPTION
   thread whose resource type is Unknown accepts any resource). Transferring a
   non-resource value fails to type-check; use thread::send for data.
 
+  res's STATE must match the plane's declared STATE. When the plane names a state
+  (Thread OF RES File STATE Cursor TO Out), res must carry that same STATE; a
+  stateful resource on a bare plane, a bare resource on a stateful plane, or two
+  disagreeing states are each rejected with TYPE_STATE_MISMATCH. A transfer is a
+  move to a re-typing thread, so -- unlike a RES parameter -- bare does not accept
+  any state here. The STATE is deep-copied into the receiving thread's arena. See
+  `mfb spec language threads`.
+
   timeoutMs controls how long the call waits for queue space when the destination
   resource queue is already full. With timeoutMs = 0 (the default) the call does
   not wait: it enqueues immediately if there is room and otherwise fails at once

@@ -1,0 +1,20 @@
+IMPORT thread
+IMPORT fs
+IMPORT thread_file_workers
+
+' bug-257 (closed by plan-54): a resource's STATE type is fixed at its owning
+' binding; a thread that accepts it cannot re-type it. The plane here is BARE
+' (`RES File`, no STATE), so transferring a stateful `File STATE Cursor` onto it
+' would let the worker read the payload as a different type. Rejected at the
+' `thread::transfer` call with TYPE_STATE_MISMATCH — no longer silent confusion.
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+FUNC main AS Integer
+  LET t AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "p", 1, 1)
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/threads/thread-transfer-state-mismatch/src/main.mfb")
+  f.state.pos = 99
+  thread::transfer(t, f)
+  RETURN 0
+END FUNC

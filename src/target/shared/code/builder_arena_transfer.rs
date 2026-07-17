@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
                 self.copy_collection_to_current_arena(other, source)
             }
             other if crate::builtins::is_thread_sendable_resource_type(other) => {
-                self.copy_resource_to_current_arena(source)
+                self.copy_resource_to_current_arena(other, source)
             }
             // A non-sendable resource (audio streams, TLS sockets/listeners) is a
             // pointer to its arena record and never crosses a thread boundary —
@@ -295,7 +295,21 @@ impl CodeBuilder<'_> {
     /// both words so the receiver owns the underlying OS resource. The sender's
     /// lexical cleanup is deactivated on the successful-transfer path, so the
     /// resource is closed exactly once by the receiver.
-    fn copy_resource_to_current_arena(&mut self, source: &str) -> Result<String, String> {
+    ///
+    /// When the resource carries a `STATE` payload (plan-54, `type_` spells `File
+    /// STATE Cursor`), the STATE record is **deep-copied** into the current
+    /// (receiver) arena rather than aliasing the sender's pointer — the transfer
+    /// runs with the arena switched to the destination (`transferResource`) or is
+    /// the receiver's own (`acceptResource`), so `copy_value_to_current_arena`
+    /// allocates the fresh STATE in receiver memory. Copying the pointer verbatim
+    /// left the receiver's `FILE_OFFSET_STATE` aliasing the sender's arena, freed
+    /// at the sender thread's teardown (bug-257's second finding); the independent
+    /// copy severs that lifetime. The source keeps its own STATE, freed normally.
+    fn copy_resource_to_current_arena(
+        &mut self,
+        type_: &str,
+        source: &str,
+    ) -> Result<String, String> {
         let source_slot = self.allocate_stack_object("thread_copy_resource_source", 8);
         let result_slot = self.allocate_stack_object("thread_copy_resource_result", 8);
         let alloc_ok = self.label("thread_copy_resource_alloc_ok");
@@ -328,13 +342,66 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
+        // fd @0 and the closed flag @8 move verbatim (the OS handle itself).
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::store_u64(&scratch10, abi::RET[1], 0));
         self.emit(abi::load_u64(&scratch10, &scratch9, 8));
         self.emit(abi::store_u64(&scratch10, abi::RET[1], 8));
-        self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_STATE));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_STATE));
+        // STATE @16 (plan-54 §5).
+        match crate::builtins::resource::state_type_name(type_) {
+            // Stateful: deep-copy the STATE record into the current (receiver)
+            // arena so the moved handle owns an independent payload — never an
+            // alias into the sender's arena (bug-257).
+            Some(state_type) => {
+                let state_type = state_type.to_string();
+                let have_state = self.label("thread_copy_resource_have_state");
+                let state_done = self.label("thread_copy_resource_state_done");
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+                self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_STATE));
+                self.emit(abi::compare_immediate(&scratch10, "0"));
+                self.emit(abi::branch_ne(&have_state));
+                // No STATE attached yet: leave the receiver's slot null so its
+                // `accept` binding runs the ordinary lazy init.
+                self.emit(abi::load_u64(
+                    abi::RET[1],
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
+                self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE));
+                self.emit(abi::branch(&state_done));
+                self.emit(abi::label(&have_state));
+                // `scratch10` holds the source STATE pointer; `copy_value_to_current_arena`
+                // consumes it before the arena_alloc clobbers registers, matching
+                // the record/collection field-copy idiom above.
+                let copied_state = self.copy_value_to_current_arena(&state_type, &scratch10)?;
+                let state_ptr_slot =
+                    self.allocate_stack_object("thread_copy_resource_state_ptr", 8);
+                self.emit(abi::store_u64(
+                    &copied_state,
+                    abi::stack_pointer(),
+                    state_ptr_slot,
+                ));
+                self.emit(abi::load_u64(
+                    abi::RET[1],
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    abi::stack_pointer(),
+                    state_ptr_slot,
+                ));
+                self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_STATE));
+                self.emit(abi::label(&state_done));
+            }
+            // Bare resource: `FILE_OFFSET_STATE` carries no owned record — move the
+            // (null/inert) word verbatim, exactly as before.
+            None => {
+                self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_STATE));
+                self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_STATE));
+            }
+        }
         // Opt-in per-File output buffer (plan-14-B) is not copied across a thread
         // transfer: the buffer block lives in the sender's arena. Zero the fields so
         // the moved handle starts unbuffered in the receiver (a buffered handle

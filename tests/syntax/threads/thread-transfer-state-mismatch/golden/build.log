@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/threads/thread-transfer-state-mismatch
+uses thread_file_workers - [Unsigned]
+  16 |   RES f AS File STATE Cursor = fs::openFile("tests/syntax/threads/thread-transfer-state-mismatch/src/main.mfb")
+  17 |   f.state.pos = 99
+  18 |   thread::transfer(t, f)
+     | ^
+tests/syntax/threads/thread-transfer-state-mismatch/src/main.mfb:18 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               `thread::transfer` carries STATE `Cursor` but the thread plane is bare; a bare plane asserts the resource has no state — declare the plane `RES File STATE Cursor`.
+[exit 1]
