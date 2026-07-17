@@ -26,7 +26,7 @@
     ],
     "returns": "SfFile STATE FileInfo",
     "body": [
-    { "op": "bind", "line": 39, "mutable": false, "name": "f", "type": "SfFile STATE FileInfo", "value": { "kind": "call", "type": "SfFile", "target": "sndLink.open", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "f", "type": "SfFile STATE FileInfo", "value": { "kind": "call", "type": "SfFile STATE FileInfo", "target": "sndLink.open", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "stateAssign", "line": 40, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "frames", "value": { "kind": "const", "type": "Integer", "value": "1024" } }] } },
     { "op": "stateAssign", "line": 41, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "samplerate", "value": { "kind": "const", "type": "Integer", "value": "44100" } }] } },
     { "op": "return", "line": 42, "value": { "kind": "local", "name": "f" } }

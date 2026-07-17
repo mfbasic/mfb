@@ -40,7 +40,7 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 51, "mutable": false, "name": "h", "type": "Db STATE DbInfo", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 51, "mutable": false, "name": "h", "type": "Db STATE DbInfo", "value": { "kind": "call", "type": "Db STATE DbInfo", "target": "sql.open", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "default opens=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "opens" }] } }] } },
     { "op": "stateAssign", "line": 53, "resource": "h", "value": { "kind": "with", "type": "DbInfo", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "opens", "value": { "kind": "const", "type": "Integer", "value": "1" } }] } },
     { "op": "stateAssign", "line": 54, "resource": "h", "value": { "kind": "with", "type": "DbInfo", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "primary" } }] } },

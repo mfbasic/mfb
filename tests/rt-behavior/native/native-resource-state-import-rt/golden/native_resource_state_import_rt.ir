@@ -1,0 +1,46 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_state_import_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/native_resource_state_import_rt.db" } },
+    {
+      "op": "if",
+      "line": 15,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] },
+      "then": [
+      { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 18, "mutable": false, "name": "h", "type": "Db STATE DbInfo", "value": { "kind": "call", "type": "Db STATE DbInfo", "target": "native_resource_state_export_valid.openDb", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "default opens=" }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "opens" }] } }] } },
+    { "op": "stateAssign", "line": 20, "resource": "h", "value": { "kind": "with", "type": "DbInfo", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "opens", "value": { "kind": "const", "type": "Integer", "value": "3" } }] } },
+    { "op": "stateAssign", "line": 21, "resource": "h", "value": { "kind": "with", "type": "DbInfo", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "imported" } }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "native_resource_state_export_valid.exec", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t(x)" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "opens=" }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "opens" }] } }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "label=" }, "right": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "label" } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 27, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

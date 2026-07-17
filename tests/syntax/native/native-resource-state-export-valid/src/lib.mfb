@@ -1,0 +1,42 @@
+' plan-53-C: a binding package that EXPORTS a stateful native LINK resource. The
+' LINK block is internal; the public API is the EXPORT FUNC wrapper `openDb`,
+' whose `AS RES Db STATE DbInfo` return crosses the package boundary (the STATE
+' rides the .mfp via type kind 11 and the v6 link-function fields). A consumer
+' imports this and reads `.state` — proven at runtime by
+' tests/rt-behavior/native/native-resource-state-import-rt.
+EXPORT RESOURCE Db CLOSE BY sql::rawClose
+
+EXPORT TYPE DbInfo
+  opens AS Integer
+  label AS String
+END TYPE
+
+LINK "sqlite3" AS sql
+  FUNC rawOpen(path AS String) AS RES Db STATE DbInfo
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC rawExec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC rawClose(RES db AS Db STATE DbInfo) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC openDb(path AS String) AS RES Db STATE DbInfo
+  RETURN sql::rawOpen(path)
+END FUNC
+
+EXPORT FUNC exec(RES db AS Db STATE DbInfo, statement AS String) AS Nothing
+  sql::rawExec(db, statement)
+END FUNC

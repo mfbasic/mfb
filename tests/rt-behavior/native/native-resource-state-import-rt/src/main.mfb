@@ -1,0 +1,28 @@
+' plan-53-C: a consumer imports a binding package that exports a stateful native
+' LINK resource, and reads its `.state` — the whole point of a binding package.
+' Proves the `Db STATE DbInfo` return crosses the .mfp (type kind 11 for the
+' STATE association + the v6 link-function STATE/BIND-STATE fields, so the
+' re-emitted thunk rebuilds the record) and that the imported resource is a real
+' record: state writes are sound, and a bare-param native call (`exec`) loads the
+' handle from FD@0. Imported types are named by their BARE names (`Db`/`DbInfo`),
+' as an importer always does. Uses sqlite3 (a system library) so it runs in CI.
+IMPORT io
+IMPORT fs
+IMPORT native_resource_state_export_valid AS db
+
+FUNC main AS Integer
+  LET path AS String = "target/native_resource_state_import_rt.db"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  RES h AS Db STATE DbInfo = db::openDb(path)
+  io::print("default opens=" & toString(h.state.opens))   ' 0 — the record STATE default-inits across the boundary
+  h.state.opens = 3
+  h.state.label = "imported"
+  db::exec(h, "CREATE TABLE t(x)")                         ' real native call through the imported handle
+  io::print("opens=" & toString(h.state.opens))            ' 3 — STATE survived the native call
+  io::print("label=" & h.state.label)                      ' imported
+  fs::deleteFile(path)
+  io::print("ok")
+  RETURN 0
+END FUNC

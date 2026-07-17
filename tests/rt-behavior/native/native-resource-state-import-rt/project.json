@@ -1,0 +1,26 @@
+{
+  "name": "native_resource_state_import_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "native_resource_state_export_valid",
+      "version": "=0.1.0",
+      "source": "file:packages/native_resource_state_export_valid.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

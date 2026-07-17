@@ -1,0 +1,61 @@
+Package: native_resource_state_export_valid
+Ident: native_resource_state_export_valid
+Version: 0.1.0
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
+Author: <empty>
+URL: <empty>
+Path: tests/syntax/native/native-resource-state-export-valid/native_resource_state_export_valid.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000001
+  signature type: unsigned
+  signature length: 0
+  package binary hash: 8f2ed0822b6b57428605f1cc342734ead3c93ecc4907cd1f28598e1b43f92a92
+  content hash: e4ef5f79c3e2d49bd9afd21236d6f28f9a584bd833563d2bb0a08949229fb071
+  binary representation length: 2368
+
+Manifest:
+  name: native_resource_state_export_valid
+  ident: native_resource_state_export_valid
+  version: 0.1.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 3
+  constants: 0
+  resources: 1
+  functions: 2
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 4
+
+Exports:
+  FUNC openDb
+    sigHash: 757eedce5758400f8ad9ecaa6b29503319c7e6b629e4381c3aef0a0838e20bd8
+  FUNC exec
+    sigHash: d8018a629facaec2d8560a9ab8e3cb83fb1123536bf762259e67e3f6e7a5f8de
+  TYPE DbInfo
+    sigHash: 3204c637c7eec193feb5d442fff2917b3ff291d5d4adf5e32cd3fed1bbf4d63b
+  TYPE Db
+    sigHash: 35959289dc9cb37004eb8a9fb7180d0a483fc9e1aedd9aaf130e1aa29ea92064
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

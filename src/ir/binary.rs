@@ -20,6 +20,15 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// `IrLinkExpr::Var` a slot-name payload, and carries each function's `bind_in`
 /// table (plan-50-C). Slots are positional with no per-field tag, so every one of
 /// those is a hard format break; they ride one bump rather than four.
+///
+/// plan-53 carries a native LINK function's `return_state_type` and `bind_state`
+/// (a stateful native resource's STATE type + the OUT struct slot that populates
+/// it) as an OPTIONAL APPEND-ONLY TRAILER, NOT a version bump — see
+/// `encode_link_state_trailer`. A package with no stateful native resource writes
+/// no trailer and is byte-identical to before; a decoder that reaches end-of-input
+/// simply leaves every link function stateless. This avoids re-churning every
+/// committed `.mfp` (including the hand-crafted security decode-hardening vectors,
+/// which pin an exact version).
 pub const BINARY_REPR_VERSION: u16 = 5;
 
 // --- low-level writers -----------------------------------------------------
@@ -282,7 +291,58 @@ fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
                 put_str(o, &f.ctype);
             });
         });
+        encode_link_state_trailer(out, &project.link_functions);
     }
+}
+
+/// plan-53: an optional, append-only trailer carrying each stateful native LINK
+/// function's `return_state_type` and `bind_state`, so a CONSUMER re-emitting an
+/// imported thunk reproduces the STATE record and the `BIND STATE` marshalling.
+///
+/// Written ONLY when at least one link function is stateful, so a package whose
+/// `LINK` block has no stateful native resource (every existing binding) is
+/// byte-identical to before — no version bump, no golden churn. A decoder that
+/// reaches end-of-input after the CSTRUCT table simply leaves every link function
+/// stateless (`decode_link_state_trailer`).
+fn encode_link_state_trailer(out: &mut Vec<u8>, functions: &[IrLinkFunction]) {
+    let stateful: Vec<&IrLinkFunction> = functions
+        .iter()
+        .filter(|f| f.return_state_type.is_some() || f.bind_state.is_some())
+        .collect();
+    if stateful.is_empty() {
+        return;
+    }
+    put_vec(out, &stateful, |o, f| {
+        put_str(o, &f.alias);
+        put_str(o, &f.name);
+        put_opt_str(o, &f.return_state_type);
+        put_opt_str(o, &f.bind_state);
+    });
+}
+
+/// Read the STATE trailer (if present) and patch the matching link functions.
+/// Absent — at end-of-input right after the CSTRUCT table — in every package
+/// built before plan-53 and every one with no stateful native resource.
+fn decode_link_state_trailer(
+    r: &mut IrReader,
+    functions: &mut [IrLinkFunction],
+) -> Result<(), String> {
+    if r.at_end() {
+        return Ok(());
+    }
+    let entries = decode_vec(r, |r| {
+        Ok((r.string()?, r.string()?, r.opt_string()?, r.opt_string()?))
+    })?;
+    for (alias, name, return_state_type, bind_state) in entries {
+        if let Some(f) = functions
+            .iter_mut()
+            .find(|f| f.alias == alias && f.name == name)
+        {
+            f.return_state_type = return_state_type;
+            f.bind_state = bind_state;
+        }
+    }
+    Ok(())
 }
 
 fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
@@ -296,6 +356,8 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     });
     put_str(out, &f.return_type);
     put_bool(out, f.return_resource);
+    // return_state_type / bind_state ride the optional trailer, not this record —
+    // see encode_link_state_trailer.
     put_vec(out, &f.abi_slots, |o, slot| {
         put_str(o, &slot.name);
         put_str(o, &slot.ctype);
@@ -398,9 +460,11 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
     let (link_functions, link_aliases, link_cstructs) = if r.at_end() {
         (Vec::new(), Vec::new(), Vec::new())
     } else {
-        let link_functions = decode_vec(r, decode_link_function)?;
+        let mut link_functions = decode_vec(r, decode_link_function)?;
         let link_aliases = decode_vec(r, |r| Ok((r.string()?, r.string()?)))?;
         let link_cstructs = decode_cstructs(r)?;
+        // plan-53: patch each link function's STATE from the optional trailer.
+        decode_link_state_trailer(r, &mut link_functions)?;
         (link_functions, link_aliases, link_cstructs)
     };
     Ok(IrProject {
@@ -480,14 +544,10 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         params: decode_vec(r, |r| Ok((r.string()?, r.string()?)))?,
         return_type: r.string()?,
         return_resource: r.bool()?,
-        // plan-53-A/B: `return_state_type` and `bind_state` are consumed by the
-        // PRODUCING thunk, which the declaring package builds from in-memory IR —
-        // never from this decoded form. A CONSUMER that re-emits an imported
-        // stateful-native-resource thunk does need them; that is added with a
-        // BINARY_REPR_VERSION bump in plan-53-C (cross-package). Until then a
-        // decoded link function has no STATE — correct for every package in the
-        // wild today (none is stateful).
+        // return_state_type / bind_state are patched from the optional trailer
+        // after the whole project decodes (decode_link_state_trailer).
         return_state_type: None,
+        bind_state: None,
         abi_slots: decode_vec(r, |r| {
             let name = r.string()?;
             let ctype = r.string()?;
@@ -535,8 +595,6 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
                 .map_err(|_| "invalid LINK const value".to_string())?;
             Ok((slot, value))
         })?,
-        // plan-53-B: deferred to 53-C's version bump, same as return_state_type.
-        bind_state: None,
         success_on: decode_opt_link_expr(r)?,
         result: decode_opt_link_expr(r)?,
         free: if r.u8()? != 0 {

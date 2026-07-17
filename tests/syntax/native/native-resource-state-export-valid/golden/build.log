@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/native/native-resource-state-export-valid
+Wrote AST to tests/syntax/native/native-resource-state-export-valid/native_resource_state_export_valid.ast
+Wrote IR to tests/syntax/native/native-resource-state-export-valid/native_resource_state_export_valid.ir
+[exit 0]
+$ mfb build tests/syntax/native/native-resource-state-export-valid
+Wrote package to tests/syntax/native/native-resource-state-export-valid/native_resource_state_export_valid.mfp
+[exit 0]

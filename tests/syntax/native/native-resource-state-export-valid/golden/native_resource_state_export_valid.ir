@@ -1,0 +1,47 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_state_export_valid",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "line": 9,
+    "visibility": "export",
+    "name": "DbInfo",
+    "fields": [
+    { "visibility": null, "line": 10, "name": "opens", "type": "Integer" },
+    { "visibility": null, "line": 11, "name": "label", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "openDb",
+    "line": 36,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 36, "type": "String", "default": null }
+    ],
+    "returns": "Db STATE DbInfo",
+    "body": [
+    { "op": "return", "line": 37, "value": { "kind": "call", "type": "Db STATE DbInfo", "target": "sql.rawOpen", "args": [{ "kind": "local", "name": "path" }] } }
+    ]
+  },
+  {
+    "name": "exec",
+    "line": 40,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "db", "line": 40, "type": "Db STATE DbInfo", "default": null },
+    { "name": "statement", "line": 40, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "sql.rawExec", "args": [{ "kind": "local", "name": "db" }, { "kind": "local", "name": "statement" }] } }
+    ]
+  }
+  ]
+}

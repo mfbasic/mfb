@@ -1,0 +1,140 @@
+{
+  "project": "native_resource_state_export_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "export", "name": "Db", "closeFn": "sql.rawClose", "threadSendable": false, "line": 7 },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "DbInfo",
+      "line": 9,
+      "fields": [
+      { "visibility": null, "name": "opens", "type": "Integer", "line": 10 },
+      { "visibility": null, "name": "label", "type": "String", "line": 11 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 14,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "rawOpen",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "line": 15,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 15 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 17 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 17 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "rawExec",
+        "symbol": "sqlite3_exec",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 21,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 21 },
+        { "name": "statement", "type": "String", "default": null, "line": 21 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 23 },
+          { "name": "statement", "ctype": "CString", "out": false, "line": 23 },
+          { "name": "callback", "ctype": "CPtr", "out": false, "line": 23 },
+          { "name": "arg", "ctype": "CPtr", "out": false, "line": 23 },
+          { "name": "errmsg", "ctype": "CPtr", "out": false, "line": 23 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "callback", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 24 },
+        { "slot": "arg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 25 },
+        { "slot": "errmsg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 26 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "rawClose",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 29,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": "DbInfo", "default": null, "line": 29 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 31 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "openDb",
+      "line": 36,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 36 }
+      ],
+      "returnType": "Db", "returnResource": true, "returnState": "DbInfo",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "sql.rawOpen", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 37 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "exec",
+      "line": 40,
+      "params": [
+      { "name": "db", "type": "Db", "resource": true, "state": "DbInfo", "default": null, "line": 40 },
+      { "name": "statement", "type": "String", "default": null, "line": 40 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.rawExec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "identifier", "value": "statement" }] }, "line": 41 }
+      ]
+    }
+    ]
+  }
+  ]
+}

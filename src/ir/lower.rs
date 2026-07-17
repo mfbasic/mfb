@@ -2038,6 +2038,16 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
                             .return_type
                             .clone()
                             .unwrap_or_else(|| "Nothing".to_string());
+                        // Carry a stateful native producer's STATE, so a wrapper
+                        // that calls `snd::rawOpen(p)` sees `SoundFile STATE
+                        // FileInfo` and can RETURN it as its own stateful return
+                        // (plan-53-A/B). Without this the call infers bare
+                        // `SoundFile` and the wrapper's RETURN mismatches.
+                        let return_type = match (native.return_resource, &native.return_state_type)
+                        {
+                            (true, Some(state)) => format!("{return_type} STATE {state}"),
+                            _ => return_type,
+                        };
                         native_returns
                             .insert(format!("{}.{}", link.alias, native.name), return_type);
                     }
@@ -2113,6 +2123,12 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                         .return_type
                         .clone()
                         .unwrap_or_else(|| "Nothing".to_string());
+                    // Stateful native producer: carry its STATE in the callable
+                    // type too (plan-53-A/B), matching `native_returns` above.
+                    let returns = match (native.return_resource, &native.return_state_type) {
+                        (true, Some(state)) => format!("{returns} STATE {state}"),
+                        _ => returns,
+                    };
                     types.insert(
                         format!("{}.{}", link.alias, native.name),
                         format!("FUNC({params}) AS {returns}"),

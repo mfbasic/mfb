@@ -1,7 +1,39 @@
 # plan-53-C: libsnd end-to-end + close the false-green fixture
 
+Status: **DONE — cross-package works, proven two ways.** A consumer imports a
+binding package that exports a stateful native LINK resource and reads its
+`.state`:
+- **sqlite** (`native-resource-state-import-rt`, runs in CI): `default opens=0`
+  (record STATE default-inits across the boundary) → `opens=3 / label=imported`
+  (state survives a real native `exec` through the imported handle) → `ok`.
+- **libsndfile** (out-of-tree, real `BIND STATE` marshalling): `sf_open` on a WAV,
+  read cross-package as `.state` → `samplerate=8000 / channels=1 / frames=4`.
+
+libsnd's own `openFile`/`closeFile` compile (the ABI-return fix was the user's, on
+their file). The false-green `native-resource-state-link-valid` was corrected to the
+STATE-on-LINK shape. Artifact gate **0 diffs / 1149 goldens**; 2901 unit green.
+
+**What made cross-package work — three things, none of them the version bump I first
+reached for:**
+1. A native LINK function's *callable* type (`native_returns` / the function-value
+   map in `ir/lower.rs`) had to carry its STATE, so a wrapper `EXPORT FUNC` that
+   `RETURN snd::rawOpen(p)` sees `SoundFile STATE FileInfo` and can re-export it.
+2. The `.mfp` had to carry `return_state_type`/`bind_state` so a consumer re-emits
+   the imported thunk with the record + `BIND STATE` — done as an **optional
+   append-only trailer** (`encode_link_state_trailer`), NOT a `BINARY_REPR_VERSION`
+   bump. A bump would have broken all 99 committed `.mfp` (including the hand-crafted
+   security decode-hardening vectors that pin an exact version). The trailer is
+   written only when a stateful native function exists, so every existing package is
+   byte-identical.
+3. **The consumer names imported types by their BARE name** (`Db`/`DbInfo`), not
+   qualified (`pkg::DbInfo`) — qualified imported types don't resolve for field
+   access. This is the established idiom (plan-52-D's File consumer uses bare
+   `Cursor`); my first cross-package attempt used qualified names and mis-read the
+   `Unknown` field type as a bug.
+
 Last updated: 2026-07-17
-Effort: small (<1h)
+Effort: small (<1h)  — actual: much larger (native callable-type STATE + the .mfp
+trailer + the bare-name diagnosis)
 Depends on: plan-53-A (record), plan-53-B (BIND STATE)
 
 Proves the whole feature on its motivating consumer and cleans up the false-green
