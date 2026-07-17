@@ -208,7 +208,24 @@ test; a `str_u16`/`ldr_u16` round-trip through a stack slot returns the low 16 b
 neighbours, since a wrong width passes a naive round-trip);
 `scripts/artifact-gate.sh` shows **zero** instruction-byte churn in every existing
 program.
-Commit: —
+Commit: `628faca7`
+
+**Landed notes.**
+1. The op also had to be registered in `CodeOp` (`src/arch/ops.rs`: enum,
+   mnemonic, `from_mnemonic`, the all-ops list), `code_impl`'s field list, the
+   MIR mirror group, and the riscv64 sizing table — the plan only named the
+   emitters. `CodeInstruction::new` panics on an unregistered mnemonic, so this
+   surfaced immediately.
+2. **Found a real bug**: aarch64's `instruction_size` had no `StrU32` arm, so a
+   `str_u32` past the scaled imm12 ceiling emitted 12 bytes (scratch-address
+   fallback) while sizing said 4 — a size/emit mismatch that corrupts layout.
+   Latent (needs a >16380-byte frame) but reachable: `store_u32` is emitted with
+   frame offsets in the term-rendering paths. An existing test comment had noticed
+   the missing arm and routed around it. Fixed in the same commit — same file,
+   same function, same defect class, exposed by the same test.
+3. The runtime proof deferred per §Open Decisions: a dead-code op has no natural
+   runtime exercise. plan-50-E supplies the first real caller and its
+   three-architecture proof covers this op.
 
 ## Validation Plan
 

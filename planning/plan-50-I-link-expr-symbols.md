@@ -267,7 +267,11 @@ both paths; a `SUCCESS_ON` over an `OUT` slot gates on that slot's value at
 runtime; `bindings/sqlite3`'s thunks are **byte-identical**
 (`scripts/artifact-gate.sh`) and `native-link-sqlite-rt` passes unchanged;
 `scripts/test-accept.sh` green with zero golden churn beyond the new tests.
-Commit: —
+Commit: `cf66dcfb`
+
+**Landed note.** Byte-identical, as predicted: artifact-gate 946 tests / 1121
+goldens / 0 diffs. The `Var(String)` wire payload rode plan-50-C's bump, so this
+phase was pure semantics.
 
 ## Validation Plan
 

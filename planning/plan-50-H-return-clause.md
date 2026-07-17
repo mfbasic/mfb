@@ -301,7 +301,26 @@ Acceptance: `bindings/sqlite3` rebuilds and every generated thunk is
 `tests/rt-behavior/native/native-link-sqlite-rt` passes **at runtime** unchanged;
 a slot named `return` fails to parse; `scripts/test-accept.sh` green with churn
 only in the migrated fixtures' own goldens.
-Commit: —
+Commit: `56d7df32`
+
+**Landed notes.**
+1. **A third magic-name site the plan missed**: `link_returns_cstring`
+   (`src/target/shared/code/mod.rs`) decides whether to *emit*
+   `_mfb_rt_validate_utf8`, and tested `abi_return_name == "return"`. It must
+   agree exactly with the thunk's `needs_encoding`, or the thunk references a
+   helper nobody emitted — which is how it surfaced (a link error, not a test
+   failure).
+2. **Byte-identity, measured**: the migrated executable differs from its
+   pre-migration build in exactly 40 words — 16 `MOVZ` immediates shifted by
+   **+5** (ErrorLoc lines; each wrapper gained a `RETURN` line) and 24 inside
+   `LC_CODE_SIGNATURE`. Zero instruction or logic changes. Literal byte-identity
+   was never achievable because the migration adds source lines; this is the
+   honest form of that gate.
+3. **Restored 9 crafted security fixtures clobbered by plan-50-C**: the `.mfp`
+   regeneration rebuilt them from source, destroying deliberate corruption so
+   packages meant to be rejected built and ran. They regenerate via their own
+   `tools/security-package-sources/*/generate.py`; `mfp_craft.py` now tracks
+   `BINARY_REPR_VERSION` by constant instead of a literal `4`.
 
 ## Validation Plan
 

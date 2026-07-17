@@ -345,7 +345,18 @@ rejected; the regenerated `bindings/sqlite3` still passes
 `tests/rt-behavior/native/native-link-sqlite-rt` **at runtime**;
 `scripts/test-accept.sh` is green.
 
-Commit: —
+Commit: `1a7c0c2f`
+
+**Landed notes.**
+1. The bump invalidates **117 committed `.mfp` files**, not just sqlite3's — the
+   plan only named sqlite3. All 39 other packages were regenerated from their
+   sources under `tools/thread-package-sources/` and `tests/`; sqlite3 waited for
+   plan-50-H, since its source already used `RETURN`.
+2. One golden changed *meaning*: `native-resource-import-valid` expected
+   `NATIVE_LIBRARY_NO_MATCH`, because its committed `.mfp` predated plan-46 and
+   carried no locators. Regenerating gives it locators, so the test now links and
+   runs — which is what its name always claimed. The stale package had been
+   silently documenting a failure.
 
 ## Validation Plan
 

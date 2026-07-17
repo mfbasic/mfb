@@ -381,7 +381,13 @@ Acceptance: the unit tests reproduce gcc's `SF_INFO` (32/8, `[0,8,12,16,20,24]`)
 and `SF_FORMAT_INFO` (24/8, `[0,8,16]`) exactly; each §4.4 condition is rejected
 with its rule on both the source and package paths; `scripts/test-accept.sh` is
 green with zero golden churn for every existing binding.
-Commit: —
+Commit: `f52e1de8`
+
+**Landed note.** `NATIVE_CSTRUCT_ESCAPE` is mostly pre-empted on the source path:
+the resolver rejects a `CSTRUCT` name as an unknown type before syntaxcheck runs.
+It earns its keep in two places the resolver cannot help — when a `TYPE` and a
+`CSTRUCT` share a name (the signature is then ambiguous, and that is the shipped
+fixture), and on the package path, which never ran the resolver.
 
 ## Validation Plan
 

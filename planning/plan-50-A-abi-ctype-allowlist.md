@@ -308,7 +308,15 @@ compile with `NATIVE_ABI_UNKNOWN_CTYPE` naming slot `n`; the same link table fed
 through a crafted `.mfp` is rejected by `ir::verify`; `bindings/sqlite3` rebuilds
 and `tests/rt-behavior/native/native-link-sqlite-rt` still passes with an
 unchanged golden; `scripts/test-accept.sh` is green with **zero** golden churn.
-Commit: —
+Commit: `e98645c7`
+
+**Landed note.** The drift guard found a real gap on its first run: `CString` was
+in the allow-list but has **no return arm**, because a `char *` return is spelled
+`CPtr` + a `String` wrapper. So the predicate split in two —
+`abi_ctype_valid_as_argument` (everything but `CVoid`) and
+`abi_ctype_valid_as_return` (everything but `CString`) — and an `OUT` slot is
+checked as a return, since it is a produced value. That position rule was not in
+the plan; the test found it.
 
 ## Validation Plan
 
