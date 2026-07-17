@@ -977,6 +977,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a resource's STATE type is fixed at its owning binding and every other declaration of it must agree",
     },
     Rule {
+        code: "2-203-0130",
+        name: "NATIVE_BIND_STATE_INVALID",
+        severity: Severity::Error,
+        message: "a BIND STATE must name the native function's stateful resource return and an OUT CSTRUCT slot whose record is the resource's STATE type",
+    },
+    Rule {
         code: "2-203-0089",
         name: "RESOURCE_CLOSE_NOT_NATIVE",
         severity: Severity::Error,

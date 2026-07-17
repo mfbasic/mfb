@@ -1,0 +1,13 @@
+{
+  "name": "native_bind_state_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "sqlite3": [
+      { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
+      { "os": "linux", "type": "system", "source": "libsqlite3.so.0" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

@@ -137,6 +137,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // filters it out and it surfaces only via the package path's `check()`, which
     // renders unlocated (`error: TYPE_STATE_MISMATCH: …`, no file:line).
     "TYPE_STATE_MISMATCH",
+    // Likewise ir::verify is the sole implementer of the BIND STATE validation
+    // (plan-53-B) — syntaxcheck never inspects a `LINK` function's BIND STATE.
+    "NATIVE_BIND_STATE_INVALID",
     "TYPE_RESULT_NOT_MATCHABLE",
     "TYPE_RESULT_IS_IMPLICIT",
     "TYPE_THREAD_RESULT_REMOVED",
@@ -3122,6 +3125,50 @@ impl TypeEnv {
                             function.name
                         ),
                     );
+                }
+            }
+            // plan-53-B: validate `BIND STATE <res> = <out-struct-slot>` at the
+            // declaration, not later at thunk emission (a package build never emits
+            // the thunk, so a malformed one would otherwise reach a consumer as a
+            // hard codegen error rather than a diagnostic). The named slot must be
+            // an OUT/INOUT CSTRUCT slot whose mapped record is the resource's STATE
+            // type, and the function must actually return that stateful resource.
+            if let Some(struct_slot) = &function.bind_state {
+                let slot = function.abi_slots.iter().find(|s| &s.name == struct_slot);
+                let cstruct = slot.and_then(|s| {
+                    project
+                        .link_cstructs
+                        .iter()
+                        .find(|c| c.alias == function.alias && c.name == s.ctype)
+                });
+                let writes_back = slot.is_some_and(|s| s.direction.writes_back());
+                if slot.is_none() || cstruct.is_none() || !writes_back {
+                    self.emit(
+                        "NATIVE_BIND_STATE_INVALID",
+                        format!(
+                            "Native function `{}` BIND STATE names `{struct_slot}`, which is not an OUT CSTRUCT slot.",
+                            function.name
+                        ),
+                    );
+                } else if !function.return_resource || function.return_state_type.is_none() {
+                    self.emit(
+                        "NATIVE_BIND_STATE_INVALID",
+                        format!(
+                            "Native function `{}` has a BIND STATE but does not return a resource with a STATE clause (`AS RES T STATE S`).",
+                            function.name
+                        ),
+                    );
+                } else if let (Some(cstruct), Some(state)) = (cstruct, &function.return_state_type)
+                {
+                    if &cstruct.maps_to != state {
+                        self.emit(
+                            "NATIVE_BIND_STATE_INVALID",
+                            format!(
+                                "Native function `{}` BIND STATE marshals `{}` (record `{}`) but the resource's STATE type is `{state}`.",
+                                function.name, cstruct.name, cstruct.maps_to
+                            ),
+                        );
+                    }
                 }
             }
             let _ = display;

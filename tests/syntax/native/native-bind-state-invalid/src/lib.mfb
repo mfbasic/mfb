@@ -1,0 +1,25 @@
+' plan-53-B: BIND STATE is validated at the native declaration, not deferred to
+' thunk emission (a package build never emits the thunk). Here `path` is an
+' ordinary CString param, not an OUT CSTRUCT slot, so it cannot supply a STATE
+' payload — rejected with NATIVE_BIND_STATE_INVALID rather than reaching a
+' consumer as a hard codegen error.
+EXPORT RESOURCE Db CLOSE BY sql::close
+
+EXPORT TYPE Info
+  x AS Integer
+END TYPE
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db STATE Info
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    BIND STATE db = path
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db STATE Info) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
