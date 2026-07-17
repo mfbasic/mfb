@@ -1,5 +1,60 @@
 IMPORT collections
 
+' ---------------------------------------------------------------------------
+' libsnd — a reusable native binding package for libsndfile.
+'
+' This is a *binding package*: it declares a LINK block and exports ordinary
+' MFBASIC wrapper functions around the native symbols. Importers never repeat
+' the LINK block — they IMPORT libsnd and call its wrappers.
+'
+' `SfFormatInfo` is a CSTRUCT: a description of libsndfile's C `SF_FORMAT_INFO`
+' layout, used only to marshal across the ABI. It never escapes this LINK block;
+' importers see `AudioFormat`, an ordinary record.
+' ---------------------------------------------------------------------------
+
+DOC
+  PACKAGE
+  DESC A reusable native binding package for libsndfile.
+  DESC
+  DESC Importers `IMPORT libsnd` and call its wrapper functions; they never
+  DESC repeat the underlying `LINK` block.
+  INFO The bundled libsndfile is loaded at startup, and it does NOT bundle its
+  INFO own dependencies. The target must provide libFLAC, libogg, libvorbis,
+  INFO libvorbisenc and libopus, or loading fails with
+  INFO `ErrNativeBindingUnavailable` (77030007) before `main` runs.
+  INFO
+  INFO The required FLAC soname varies by distribution — Alpine ships
+  INFO `libFLAC.so.12` where Kali and Ubuntu ship `libFLAC.so.14` — so a target
+  INFO that has FLAC installed can still fail to load if the major version
+  INFO differs from the one this build was linked against.
+  INFO
+  INFO linux/riscv64 is NOT buildable today. A Linux console build emits both a
+  INFO glibc and a musl executable, so both need a bundled library, and only the
+  INFO musl one exists — the binding is verified working on riscv64/musl, but
+  INFO `mfb build --target linux-riscv64` fails on the glibc half with
+  INFO `NATIVE_LIBRARY_NO_MATCH` (2-203-0118). The other five targets
+  INFO (macOS/aarch64, linux aarch64 and x86_64, each glibc and musl) are fine.
+  EXAMPLE
+    IMPORT io
+    IMPORT libsnd
+
+    FUNC main() AS Integer
+      FOR EACH f IN libsnd::getFormats()
+        io::print(f.extension & " | " & f.name)
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+
+DOC
+  TYPE AudioFormat
+  DESC One entry of libsndfile's simple-format table: a major container/encoding
+  DESC combination the library can read and write.
+  PROP format The libsndfile format code: the `SF_FORMAT_*` major and minor bits OR-ed together (for example WAV + 16-bit PCM). Pass it back to libsndfile to select this format.
+  PROP name A human-readable description, such as `WAV (Microsoft 16 bit PCM)`.
+  PROP extension The customary file extension, such as `wav`. NOT unique — several formats share one container, so `wav` appears more than once across the table.
+END DOC
 EXPORT TYPE AudioFormat
   format    AS Integer
   name      AS String
@@ -69,6 +124,29 @@ LINK "libsnd" AS sndLink
   ' END FUNC
 END LINK
 
+DOC
+  FUNC getFormats
+  GROUP Formats
+  DESC Read libsndfile's simple-format table: every major container/encoding
+  DESC combination the bundled library can read and write.
+  INFO The table is a property of how libsndfile was BUILT, not of this package.
+  INFO Optional codecs (MP3, Opus, Vorbis, FLAC) appear only when the bundled
+  INFO build enabled them, so the length and contents differ per platform. Treat
+  INFO it as a runtime query, never a fixed list.
+  RET Every supported format, in libsndfile's own order; extensions are not unique.
+  ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
+  EXAMPLE
+    IMPORT io
+    IMPORT libsnd
+
+    FUNC main() AS Integer
+      FOR EACH f IN libsnd::getFormats()
+        io::print(f.extension & " | " & f.name)
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC getFormats() AS List OF AudioFormat
   MUT formats AS List OF AudioFormat
   LET count = sndLink::getFormatCount()

@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",
+  "_comment": "musl locators are not decoration: they are what makes the per-arch proof reproducible (plan-50-F was validated on aarch64/x86_64/riscv64, glibc and musl). A Linux console build emits BOTH libc flavors, so both need a locator.",
   "libraries": {
     "c": [
       { "os": "macos", "type": "system", "source": "libSystem.B.dylib" },
-      { "os": "linux", "type": "system", "source": "libc.so.6" }
+      { "os": "linux", "libc": "glibc", "type": "system", "source": "libc.so.6" },
+      { "os": "linux", "arch": "riscv64", "libc": "musl", "type": "system", "source": "libc.musl-riscv64.so.1" },
+      { "os": "linux", "arch": "aarch64", "libc": "musl", "type": "system", "source": "libc.musl-aarch64.so.1" },
+      { "os": "linux", "arch": "x86_64", "libc": "musl", "type": "system", "source": "libc.musl-x86_64.so.1" }
     ]
   },
   "sources": [ { "root": "src", "role": "main", "include": ["**/*.mfb"] } ],

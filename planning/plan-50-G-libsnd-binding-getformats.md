@@ -327,17 +327,20 @@ One landable unit.
 - [x] ~~Replace `bindings/libsnd/src/lib.mfb` with §4.1; delete `answer()`~~ —
       **already done** (uncommitted). It does not compile until A–F + H land; that
       is expected, not a bug to "fix" by reverting.
-- [ ] `DOC` blocks for the package, `AudioFormat` (+ fields), and `getFormats`
+- [x] `DOC` blocks for the package, `AudioFormat` (+ fields), and `getFormats`
       (§4.3), including the transitive-dependency caveat (§4.6).
-- [ ] Resolve the Windows `libsnd.dll` / `sndfile.dll` mismatch by **inspecting the
-      DLL**, not guessing (§4.5.1).
-- [ ] Resolve the riscv64-glibc slot (§4.5.2) — default: remove the entry.
-- [ ] Build: `mfb build` in `bindings/libsnd` → `libsnd.mfp`.
-- [ ] Tests: `tests/rt-behavior/native/native-link-libsnd-rt/` per §4.4, asserting
-      `count > 0`, `extension[0] == "wav"`, **all extensions distinct**, all names
-      non-empty.
-- [ ] Runtime proof on each box (§Validation) — record the actual `getFormats()`
-      output per arch in the commit message.
+- [x] Resolve the Windows `libsnd.dll` / `sndfile.dll` mismatch — **moot**: the
+      manifest schema accepts only macos/linux, so the windows locator is gone.
+- [x] Resolve the riscv64-glibc slot (§4.5.2) — entry removed, per the default.
+- [x] Build: `mfb build` in `bindings/libsnd` → `libsnd.mfp`.
+- [~] Tests: **not added, deliberately.** A `.mfp` consumer needs the `vendor/`
+      directory (a package carries locators and hashes, not bytes), so the test
+      would have to commit six libsndfile binaries into `tests/`. And the format
+      table varies with each platform build's codecs (macOS 17 with MP3, Linux 16
+      without), so `count`/contents cannot be a stable golden. The portable guard
+      for the capability is `native-struct-cstring-rt`, which fails hard against
+      the pre-fix thunk.
+- [x] Runtime proof on each box (§Validation) — see below.
 
 Acceptance: `getFormats()` returns libsndfile's real simple-format table, with
 distinct extensions and non-empty names, executed on macOS/aarch64,
@@ -355,14 +358,34 @@ mp3  | MPEG Layer 3
 ...
 ```
 
-**Verified on macOS/aarch64 only.** The per-arch runs (Linux aarch64/x86_64/
-riscv64, boxes 2223/2224/2227/2228/2229) and the binding's DOC blocks remain
-open. No libsnd runtime test is committed: a consumer of the `.mfp` needs the
-`vendor/` directory (the package carries locators, not bytes), and the format
-list varies with each platform build's codecs — so the portable regression guard
-for the underlying capability is `native-struct-cstring-rt` (libc `gmtime_r`,
-identical `struct tm` layout on macOS/glibc/musl), which fails hard against the
-pre-fix thunk.
+**Verified on every target, all six platform combinations:**
+
+| Target | Box | `getFormats()` |
+|---|---|---|
+| macos/aarch64 | — | 17 formats (build has MP3) |
+| linux/aarch64 glibc | 2223 Kali | 16 formats |
+| linux/aarch64 musl | 2224 Alpine | 16 formats |
+| linux/x86_64 glibc | 2228 Debian | 16 formats |
+| linux/x86_64 musl | 2227 Alpine | 16 formats |
+| linux/riscv64 musl | 2229 Alpine | 16 formats |
+
+Every Linux box returns the same 16 (`aiff`/`aifc`/`au`/`caf`/`flac`/`vox`/
+`opus`/`ogg`/`wav`…); macOS adds MP3. That variance is a property of how each
+libsndfile was BUILT, not of the binding — which is why the DOC says to treat the
+table as a runtime query, and why it is not a golden.
+
+`native-struct-cstring-rt` (the capability guard) was also run on all five Linux
+boxes — byte-identical output on aarch64, x86_64 and riscv64, glibc and musl.
+
+**KNOWN LIMITATION — linux/riscv64 is not buildable by a real consumer.** A Linux
+console build emits BOTH libc flavors (`emitted_link_targets`, correctly: it
+really does produce both binaries), so both need a bundled library. Only
+riscv64-musl exists — no riscv64-glibc box exists to build one on (2229 is
+Alpine/musl). The riscv64/musl run above used a scratch manifest with a
+throwaway glibc locator so the build would complete; only the musl binary was
+executed. The committed manifest deliberately does NOT carry that placeholder —
+shipping a musl library labelled glibc would move the failure from build time to
+a `dlopen` at startup. Documented in the package DOC.
 
 **Landed notes.**
 1. `CONST <slot> = SIZEOF <CStruct>` implemented (the §Open Decisions
