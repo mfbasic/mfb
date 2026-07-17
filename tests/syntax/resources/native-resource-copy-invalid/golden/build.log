@@ -1,8 +1,8 @@
 $ mfb build -ast -ir tests/syntax/resources/native-resource-copy-invalid
-  17 |   RES a AS Db = demoLink::open(path)
-  18 |   RES b AS Db = a
-  19 |   demoLink::close(a)
+  18 |   RES a AS Db = demoLink::open(path)
+  19 |   RES b AS Db = a
+  20 |   demoLink::close(a)
      | ^
-tests/syntax/resources/native-resource-copy-invalid/src/lib.mfb:19 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+tests/syntax/resources/native-resource-copy-invalid/src/lib.mfb:20 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
                Binding `a` was moved and cannot be used again.
 [exit 1]

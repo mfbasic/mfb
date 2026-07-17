@@ -351,8 +351,18 @@ fn lower_link_thunk(
     let cretd_off = out_base + n_out * 8;
     let frame = align(cretd_off + 8 + 24, 16);
 
+    // plan-50-H: the wrapper's result is whatever `RETURN <expr>` names. A bare
+    // `RETURN <slot>` (an `IrLinkExpr::Var`) selects that slot's value; anything
+    // else is a computed expression. Both magic-name tests — `slot.name ==
+    // "return"` and `abi_return_name == "return"` — are gone.
+    let result_var: Option<&str> = match &function.result {
+        Some(IrLinkExpr::Var(name)) => Some(name.as_str()),
+        _ => None,
+    };
+
     // §12.3/§12.4 boundary validations that this signature needs.
-    let returns_value = function.abi_return_name == "return";
+    // The C return is the result exactly when `RETURN` names it.
+    let returns_value = result_var == Some(function.abi_return_name.as_str());
     let needs_range = function.abi_slots.iter().any(|slot| {
         !slot.direction.writes_back()
             && slot.ctype == "CInt32"
@@ -415,7 +425,7 @@ fn lower_link_thunk(
                 abi::add_immediate("%v9", abi::stack_pointer(), out_off),
                 abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
             ]);
-            if slot.name == "return" {
+            if result_var == Some(slot.name.as_str()) {
                 result_out_off = Some(out_off);
                 result_out_ctype = Some(slot.ctype.clone());
             }
@@ -630,7 +640,7 @@ fn lower_link_thunk(
                 ));
             }
         }
-    } else if function.abi_return_name == "return" {
+    } else if result_var == Some(function.abi_return_name.as_str()) {
         emit_return_passthrough(
             function,
             ReturnMarshal {

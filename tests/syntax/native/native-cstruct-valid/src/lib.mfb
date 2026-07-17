@@ -38,7 +38,8 @@ LINK "demo" AS demoLink
 
   FUNC version() AS Integer
     SYMBOL "demo_version"
-    ABI (return OUT CInt32) AS status CInt32
+    ABI (value OUT CInt32) AS status CInt32
+    RETURN value
     SUCCESS_ON status = 0
   END FUNC
 END LINK

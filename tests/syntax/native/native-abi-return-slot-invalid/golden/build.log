@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/native/native-abi-return-slot-invalid
+  10 |   FUNC opn(path AS String) AS Integer
+  11 |     SYMBOL "demo_open"
+  12 |     ABI (path CString, return OUT CInt32) AS status CInt32
+     |                        ^^^^^^
+tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:12 error[1-102-0003 MFB_PARSE_INVALID_IDENTIFIER]: identifier is invalid
+               Expected an ABI slot name.
+  10 |   FUNC opn(path AS String) AS Integer
+  11 |     SYMBOL "demo_open"
+  12 |     ABI (path CString, return OUT CInt32) AS status CInt32
+     |                        ^^^^^^
+tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:12 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after ABI.
+  10 |   FUNC opn(path AS String) AS Integer
+  11 |     SYMBOL "demo_open"
+  12 |     ABI (path CString, return OUT CInt32) AS status CInt32
+     |                                   ^^^^^^
+tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:12 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after RETURN.
+  10 |   FUNC opn(path AS String) AS Integer
+  11 |     SYMBOL "demo_open"
+  12 |     ABI (path CString, return OUT CInt32) AS status CInt32
+     |                                   ^^^^^^
+tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:12 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, or FREE clauses.
+   8 | '   RETURN db
+   9 | LINK "demo" AS demoLink
+  10 |   FUNC opn(path AS String) AS Integer
+     |   ^^^^
+tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:10 error[1-102-0009 MFB_PARSE_MISSING_NATIVE_ABI]: a native LINK function must declare its ABI signature
+               A native FUNC must declare its ABI signature.
+   7 | '   ABI (path CString, db OUT CPtr) AS status CInt32
+   8 | '   RETURN db
+   9 | LINK "demo" AS demoLink
+     | ^^^^
+tests/syntax/native/native-abi-return-slot-invalid/src/lib.mfb:9 error[1-102-0006 MFB_PARSE_UNTERMINATED_BLOCK]: parser reached end-of-file inside a block
+               LINK block reached end-of-file before its END LINK statement.
+[exit 1]

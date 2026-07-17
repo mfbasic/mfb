@@ -8,15 +8,15 @@
   "functions": [
   {
     "name": "ping",
-    "line": 12,
+    "line": 13,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 12, "type": "Integer", "default": null }
+    { "name": "value", "line": 13, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "demoLink.ping", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "return", "line": 14, "value": { "kind": "call", "type": "Integer", "target": "demoLink.ping", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   }
   ]

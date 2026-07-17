@@ -27,7 +27,7 @@
         "abi": {
           "slots": [
           { "name": "value", "ctype": "CInt32", "out": false, "line": 7 },
-          { "name": "return", "ctype": "CInt32", "out": true, "line": 7 }
+          { "name": "value", "ctype": "CInt32", "out": true, "line": 7 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -35,12 +35,12 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null,
+        "result": { "kind": "identifier", "value": "value" },
         "free": null
       }
       ]
     },
-    { "kind": "funcAlias", "visibility": "export", "name": "ping", "target": "demoLink.ping", "line": 12 }
+    { "kind": "funcAlias", "visibility": "export", "name": "ping", "target": "demoLink.ping", "line": 13 }
     ]
   }
   ]

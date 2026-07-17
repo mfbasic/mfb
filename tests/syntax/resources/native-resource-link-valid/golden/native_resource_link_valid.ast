@@ -29,7 +29,7 @@
         "abi": {
           "slots": [
           { "name": "path", "ctype": "CString", "out": false, "line": 9 },
-          { "name": "return", "ctype": "CPtr", "out": true, "line": 9 }
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 9 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -37,7 +37,7 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null,
+        "result": { "kind": "identifier", "value": "db" },
         "free": null
       },
       {
@@ -46,13 +46,13 @@
         "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
-        "line": 13,
+        "line": 14,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 13 }
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 14 }
         ],
         "abi": {
           "slots": [
-          { "name": "db", "ctype": "CPtr", "out": false, "line": 15 }
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 16 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -69,16 +69,16 @@
         "symbol": "sqlite3_prepare_v2",
         "returnResource": true,
         "returnType": "Stmt",
-        "line": 19,
+        "line": 20,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 19 },
-        { "name": "sql", "type": "String", "default": null, "line": 19 }
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 20 },
+        { "name": "sql", "type": "String", "default": null, "line": 20 }
         ],
         "abi": {
           "slots": [
-          { "name": "db", "ctype": "CPtr", "out": false, "line": 21 },
-          { "name": "sql", "ctype": "CString", "out": false, "line": 21 },
-          { "name": "return", "ctype": "CPtr", "out": true, "line": 21 }
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 22 },
+          { "name": "sql", "ctype": "CString", "out": false, "line": 22 },
+          { "name": "stmt", "ctype": "CPtr", "out": true, "line": 22 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -86,7 +86,7 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null,
+        "result": { "kind": "identifier", "value": "stmt" },
         "free": null
       },
       {
@@ -95,13 +95,13 @@
         "symbol": "sqlite3_finalize",
         "returnResource": false,
         "returnType": "Nothing",
-        "line": 25,
+        "line": 27,
         "params": [
-        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 25 }
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 27 }
         ],
         "abi": {
           "slots": [
-          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 27 }
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 29 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -114,7 +114,7 @@
       }
       ]
     },
-    { "kind": "funcAlias", "visibility": "export", "name": "close", "target": "demoLink.close", "line": 33 }
+    { "kind": "funcAlias", "visibility": "export", "name": "close", "target": "demoLink.close", "line": 35 }
     ]
   }
   ]

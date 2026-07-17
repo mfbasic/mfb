@@ -1144,7 +1144,7 @@ LINK "sqlite3" AS sqlite
     ABI (path CString, db OUT CPtr) AS ret CInt32
     CONST flags = 1
     SUCCESS_ON ret = 0
-    RESULT db
+    RETURN db
     FREE db
       SYMBOL "sqlite3_free"
       ABI (ptr CPtr) AS CVoid
@@ -1850,15 +1850,16 @@ fn native_func_missing_symbol_or_abi() {
 
 #[test]
 fn native_func_error_on_and_return_and_const() {
-    // ERROR_ON is stored as a NOT of SUCCESS_ON; CONST pin; `return` OUT slot.
+    // ERROR_ON is stored as a NOT of SUCCESS_ON; CONST pin; an OUT slot named by
+    // `RETURN` (plan-50-H — the slot name is ordinary, not magic).
     let src = r#"
 LINK "x" AS l
   FUNC f(a AS Integer) AS Integer
     SYMBOL "s"
-    ABI (a CInt32, return OUT CInt32) AS r CInt32
+    ABI (a CInt32, produced OUT CInt32) AS r CInt32
     CONST a = 7
     ERROR_ON r <> 0
-    RESULT r
+    RETURN r
   END FUNC
 END LINK
 "#;
@@ -1866,8 +1867,8 @@ END LINK
     // ERROR_ON becomes a NOT unary in successOn.
     assert!(json.contains("\"kind\": \"unary\", \"operator\": \"NOT\""));
     assert!(json.contains("\"slot\": \"a\""));
-    // The `return` OUT slot serializes with its literal name.
-    assert!(json.contains("\"name\": \"return\""));
+    // The OUT slot serializes with its own name, and is marked out.
+    assert!(json.contains("\"name\": \"produced\", \"ctype\": \"CInt32\", \"out\": true"));
 }
 
 #[test]
@@ -1877,8 +1878,8 @@ fn native_func_free_block_and_errors() {
 LINK "x" AS l
   FUNC f() AS RES Db
     SYMBOL "s"
-    ABI (return OUT CPtr) AS r CInt32
-    FREE return
+    ABI (produced OUT CPtr) AS r CInt32
+    FREE produced
       SYMBOL "free_it"
       ABI (ptr CPtr) AS CVoid
     END FREE
@@ -1888,12 +1889,12 @@ END LINK
     assert!(try_parse(src).is_ok());
     // FREE with an unknown clause.
     assert!(try_parse(
-        "LINK \"x\" AS l\n  FUNC f() AS RES Db\n    SYMBOL \"s\"\n    ABI (return OUT CPtr) AS r CInt32\n    FREE return\n      NONSENSE 1\n    END FREE\n  END FUNC\nEND LINK\n"
+        "LINK \"x\" AS l\n  FUNC f() AS RES Db\n    SYMBOL \"s\"\n    ABI (produced OUT CPtr) AS r CInt32\n    FREE produced\n      NONSENSE 1\n    END FREE\n  END FUNC\nEND LINK\n"
     )
     .is_err());
     // FREE END must name FREE.
     assert!(try_parse(
-        "LINK \"x\" AS l\n  FUNC f() AS RES Db\n    SYMBOL \"s\"\n    ABI (return OUT CPtr) AS r CInt32\n    FREE return\n      SYMBOL \"g\"\n      ABI (ptr CPtr) AS CVoid\n    END FUNC\n  END FUNC\nEND LINK\n"
+        "LINK \"x\" AS l\n  FUNC f() AS RES Db\n    SYMBOL \"s\"\n    ABI (produced OUT CPtr) AS r CInt32\n    FREE produced\n      SYMBOL \"g\"\n      ABI (ptr CPtr) AS CVoid\n    END FUNC\n  END FUNC\nEND LINK\n"
     )
     .is_err());
 }
@@ -2256,33 +2257,33 @@ fn abi_spec_malformed_paths() {
 
 #[test]
 fn free_block_malformed_abi_paths() {
-    let head = "LINK \"x\" AS l\n  FUNC f() AS RES Db\n    SYMBOL \"s\"\n    ABI (return OUT CPtr) AS r CInt32\n";
+    let head = "LINK \"x\" AS l\n  FUNC f() AS RES Db\n    SYMBOL \"s\"\n    ABI (produced OUT CPtr) AS r CInt32\n";
     let tail = "  END FUNC\nEND LINK\n";
     // FREE ABI missing `(`.
     assert!(try_parse(&format!(
-        "{head}    FREE return\n      SYMBOL \"g\"\n      ABI ptr CPtr\n    END FREE\n{tail}"
+        "{head}    FREE produced\n      SYMBOL \"g\"\n      ABI ptr CPtr\n    END FREE\n{tail}"
     ))
     .is_err());
     // FREE ABI missing `)`.
     assert!(try_parse(&format!(
-        "{head}    FREE return\n      SYMBOL \"g\"\n      ABI (ptr CPtr\n    END FREE\n{tail}"
+        "{head}    FREE produced\n      SYMBOL \"g\"\n      ABI (ptr CPtr\n    END FREE\n{tail}"
     ))
     .is_err());
     // FREE ABI missing AS.
     assert!(try_parse(&format!(
-        "{head}    FREE return\n      SYMBOL \"g\"\n      ABI (ptr CPtr) CVoid\n    END FREE\n{tail}"
+        "{head}    FREE produced\n      SYMBOL \"g\"\n      ABI (ptr CPtr) CVoid\n    END FREE\n{tail}"
     ))
     .is_err());
     // FREE missing SYMBOL must be diagnosed (bug-90): silently dropping the
     // block (`free = None`) let the declared deallocator vanish and leaked the
     // native return buffer on every call.
     assert!(try_parse(&format!(
-        "{head}    FREE return\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n{tail}"
+        "{head}    FREE produced\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n{tail}"
     ))
     .is_err());
     // FREE missing ABI must likewise be diagnosed, not silently dropped.
     assert!(try_parse(&format!(
-        "{head}    FREE return\n      SYMBOL \"g\"\n    END FREE\n{tail}"
+        "{head}    FREE produced\n      SYMBOL \"g\"\n    END FREE\n{tail}"
     ))
     .is_err());
 }

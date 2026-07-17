@@ -839,9 +839,14 @@ impl<'a> FileParser<'a> {
                 self.skip_separators();
                 continue;
             }
-            if self.match_identifier_ci("RESULT") {
+            // plan-50-H: `RETURN <expr>` is the ONE result clause. `RETURN db` is
+            // the degenerate case where the expression is a bare slot reference;
+            // `RETURN status = 100` is the computed case that used to spell
+            // RESULT. No grammar ambiguity: a native FUNC body holds clauses, not
+            // statements, so `Keyword::Return` here can only be this clause.
+            if self.match_keyword(Keyword::Return) {
                 result = self.parse_expression();
-                self.consume_statement_end("Expected end of statement after RESULT.");
+                self.consume_statement_end("Expected end of statement after RETURN.");
                 self.skip_separators();
                 continue;
             }
@@ -853,7 +858,7 @@ impl<'a> FileParser<'a> {
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RESULT, or FREE clauses.",
+                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, or FREE clauses.",
                 &token,
             );
             self.synchronize();
@@ -1045,10 +1050,12 @@ impl<'a> FileParser<'a> {
 
     /// Parse an ABI slot name: an identifier, or the `return` keyword (the
     /// wrapper-result marker, plan-link-update.md §5b).
+    /// An ABI slot name is an ordinary identifier.
+    ///
+    /// plan-50-H deleted the `return` special case: the result is named by the
+    /// `RETURN <expr>` clause, so `return` carries no meaning here and is simply
+    /// a keyword the parser will not accept as a name.
     pub(super) fn parse_abi_slot_name(&mut self) -> Option<String> {
-        if self.match_keyword(Keyword::Return) {
-            return Some("return".to_string());
-        }
         self.consume_identifier("Expected an ABI slot name.")
     }
 

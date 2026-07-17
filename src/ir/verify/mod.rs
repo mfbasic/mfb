@@ -2746,7 +2746,6 @@ impl TypeEnv {
                 .collect();
             let param_names: HashSet<&str> =
                 function.params.iter().map(|(n, _)| n.as_str()).collect();
-            let mut result_markers = 0;
             // plan-50-A: the slot ctype namespace is closed. An unknown name used
             // to fall through to a raw 64-bit marshal (`link_thunk`'s default
             // arm), so a typo compiled clean and silently moved the wrong width.
@@ -2776,19 +2775,6 @@ impl TypeEnv {
                         ),
                     );
                 }
-                if slot.name == "return" {
-                    result_markers += 1;
-                    if !slot.direction.writes_back() {
-                        self.emit(
-                            "NATIVE_ABI_RESULT_MARKER",
-                            format!(
-                                "Native function `{}` ABI slot `return` must be marked `OUT`.",
-                                function.name
-                            ),
-                        );
-                    }
-                    continue;
-                }
                 if const_slots.contains(slot.name.as_str()) {
                     if slot.direction.writes_back() {
                         self.emit(
@@ -2801,44 +2787,38 @@ impl TypeEnv {
                     }
                     continue;
                 }
+                // An OUT slot is native storage the callee fills; it needs no
+                // wrapper parameter. It is surfaced (if at all) by `RETURN`.
                 if slot.direction.writes_back() {
-                    self.emit(
-                        "NATIVE_ABI_UNBOUND_SLOT",
-                        format!(
-                            "Native function `{}` ABI slot `{}` is OUT but is not the `return` result marker.",
-                            function.name, slot.name
-                        ),
-                    );
                     continue;
                 }
                 if !param_names.contains(slot.name.as_str()) {
                     self.emit(
                         "NATIVE_ABI_UNBOUND_SLOT",
                         format!(
-                            "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or the result marker.",
+                            "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or an OUT buffer.",
                             function.name, slot.name
                         ),
                     );
                 }
             }
-            if function.abi_return_name == "return" {
-                result_markers += 1;
-            }
+            // plan-50-H: the result is whatever `RETURN <expr>` names. Both
+            // magic-name checks are gone.
             let wants_result = function.return_resource || function.return_type != "Nothing";
-            if wants_result && result_markers == 0 && function.result.is_none() {
+            if wants_result && function.result.is_none() {
                 self.emit(
                     "NATIVE_ABI_NO_RESULT",
                     format!(
-                        "Native function `{}` returns a value but no ABI slot is marked as the result (`return` or `RESULT`).",
+                        "Native function `{}` returns a value but declares no `RETURN <expr>` naming its result.",
                         function.name
                     ),
                 );
             }
-            if result_markers > 1 {
+            if !wants_result && function.result.is_some() {
                 self.emit(
                     "NATIVE_ABI_RESULT_MARKER",
                     format!(
-                        "Native function `{}` declares more than one `return` result marker.",
+                        "Native function `{}` returns Nothing but declares a `RETURN`.",
                         function.name
                     ),
                 );

@@ -12,15 +12,15 @@ Summary:
 
 Permissions:
   native
-    sql.open at src/main.mfb:53
-    sql.prepare at src/main.mfb:54
-    sql.bindText at src/main.mfb:55
-    sql.bindText at src/main.mfb:56
-    sql.expandedSql at src/main.mfb:60
-    sql.finalize at src/main.mfb:64
-    sql.close at src/main.mfb:65
+    sql.open at src/main.mfb:56
+    sql.prepare at src/main.mfb:57
+    sql.bindText at src/main.mfb:58
+    sql.bindText at src/main.mfb:59
+    sql.expandedSql at src/main.mfb:63
+    sql.finalize at src/main.mfb:67
+    sql.close at src/main.mfb:68
   terminal
-    io.print at src/main.mfb:63
+    io.print at src/main.mfb:66
 
 Native links:
   native_link_free_rt sqlite3_bind_text close= may_fail=true
@@ -35,14 +35,14 @@ Native resources:
   Stmt (package-private) in native_link_free_rt at src/main.mfb:9 (native, close sql.finalize, may fail, not thread-sendable, no pointer exposed)
 
 Control flow:
-  main at src/main.mfb:52 (fallible)
-    fallible call sql.open at src/main.mfb:53 -> return
-    fallible call sql.prepare at src/main.mfb:54 -> return
-    fallible call sql.bindText at src/main.mfb:55 -> return
-    fallible call sql.bindText at src/main.mfb:56 -> return
-    fallible call io.print at src/main.mfb:63 -> return
-    fallible call sql.finalize at src/main.mfb:64 -> return
-    fallible call sql.close at src/main.mfb:65 -> return
+  main at src/main.mfb:55 (fallible)
+    fallible call sql.open at src/main.mfb:56 -> return
+    fallible call sql.prepare at src/main.mfb:57 -> return
+    fallible call sql.bindText at src/main.mfb:58 -> return
+    fallible call sql.bindText at src/main.mfb:59 -> return
+    fallible call io.print at src/main.mfb:66 -> return
+    fallible call sql.finalize at src/main.mfb:67 -> return
+    fallible call sql.close at src/main.mfb:68 -> return
 
 Findings:
   info AUDIT-PERM-NATIVE project uses host capability: native
@@ -82,49 +82,49 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
     {
       "function": "main",
       "path": "src/main.mfb",
-      "line": 52,
+      "line": 55,
       "fallible": true,
       "trap": null,
       "calls": [
         {
           "callee": "sql.open",
-          "line": 53,
-          "propagation": "return",
-          "capability": "native"
-        },
-        {
-          "callee": "sql.prepare",
-          "line": 54,
-          "propagation": "return",
-          "capability": "native"
-        },
-        {
-          "callee": "sql.bindText",
-          "line": 55,
-          "propagation": "return",
-          "capability": "native"
-        },
-        {
-          "callee": "sql.bindText",
           "line": 56,
           "propagation": "return",
           "capability": "native"
         },
         {
+          "callee": "sql.prepare",
+          "line": 57,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.bindText",
+          "line": 58,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
+          "callee": "sql.bindText",
+          "line": 59,
+          "propagation": "return",
+          "capability": "native"
+        },
+        {
           "callee": "io.print",
-          "line": 63,
+          "line": 66,
           "propagation": "return",
           "capability": "terminal"
         },
         {
           "callee": "sql.finalize",
-          "line": 64,
+          "line": 67,
           "propagation": "return",
           "capability": "native"
         },
         {
           "callee": "sql.close",
-          "line": 65,
+          "line": 68,
           "propagation": "return",
           "capability": "native"
         }
@@ -200,7 +200,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.open",
       "path": "src/main.mfb",
-      "line": 53,
+      "line": 56,
       "kind": "native"
     },
     {
@@ -208,7 +208,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.prepare",
       "path": "src/main.mfb",
-      "line": 54,
+      "line": 57,
       "kind": "native"
     },
     {
@@ -216,7 +216,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.bindText",
       "path": "src/main.mfb",
-      "line": 55,
+      "line": 58,
       "kind": "native"
     },
     {
@@ -224,7 +224,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.bindText",
       "path": "src/main.mfb",
-      "line": 56,
+      "line": 59,
       "kind": "native"
     },
     {
@@ -232,7 +232,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.expandedSql",
       "path": "src/main.mfb",
-      "line": 60,
+      "line": 63,
       "kind": "native"
     },
     {
@@ -240,7 +240,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.finalize",
       "path": "src/main.mfb",
-      "line": 64,
+      "line": 67,
       "kind": "native"
     },
     {
@@ -248,7 +248,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "sql",
       "function": "sql.close",
       "path": "src/main.mfb",
-      "line": 65,
+      "line": 68,
       "kind": "native"
     },
     {
@@ -256,7 +256,7 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
       "package": "io",
       "function": "io.print",
       "path": "src/main.mfb",
-      "line": 63,
+      "line": 66,
       "kind": "standard"
     }
   ],

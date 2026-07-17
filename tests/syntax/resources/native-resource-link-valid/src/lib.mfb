@@ -6,7 +6,8 @@ RESOURCE Stmt CLOSE BY demoLink::finalize
 LINK "sqlite3" AS demoLink
   FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
     SUCCESS_ON status = 0
   END FUNC
 
@@ -18,7 +19,8 @@ LINK "sqlite3" AS demoLink
 
   FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
-    ABI (db CPtr, sql CString, return OUT CPtr) AS status CInt32
+    ABI (db CPtr, sql CString, stmt OUT CPtr) AS status CInt32
+    RETURN stmt
     SUCCESS_ON status = 0
   END FUNC
 

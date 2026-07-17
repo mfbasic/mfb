@@ -132,13 +132,15 @@ LINK "sqlite3" AS sqliteLink
 
   ' int sqlite3_open(const char *filename, sqlite3 **ppDb)
   ' The handle is produced through the OUT pointer; the C return is a status
-  ' code where 0 means success. The single OUT becomes the wrapper's `RES Db`.
+  ' code where 0 means success. `RETURN db` names that OUT slot as the wrapper's
+  ' `RES Db` result.
   ' This is the minimal single-OUT producer the plan uses as its canonical
   ' example; it always creates-or-opens. The package's higher-level `open`/
   ' `create` wrappers build on `openV2` below so they can choose that behavior.
   FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
     SUCCESS_ON status = 0
   END FUNC
 
@@ -151,8 +153,9 @@ LINK "sqlite3" AS sqliteLink
   ' (plan-link-update.md §5c).
   FUNC openV2(path AS String, flags AS Integer) AS RES Db
     SYMBOL "sqlite3_open_v2"
-    ABI (path CString, return OUT CPtr, flags CInt32, zVfs CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr, flags CInt32, zVfs CPtr) AS status CInt32
     CONST zVfs = NOTHING         ' NULL: use the default VFS
+    RETURN db
     SUCCESS_ON status = 0
   END FUNC
 
@@ -183,7 +186,8 @@ LINK "sqlite3" AS sqliteLink
   ' when no row has ever been inserted on the connection.
   FUNC lastInsertRowId(RES db AS Db) AS Integer
     SYMBOL "sqlite3_last_insert_rowid"
-    ABI (db CPtr) AS return CInt64
+    ABI (db CPtr) AS rowid CInt64
+    RETURN rowid
   END FUNC
 
   ' int sqlite3_changes(sqlite3*)
@@ -191,7 +195,8 @@ LINK "sqlite3" AS sqliteLink
   ' modified, inserted, or deleted. Borrows db; a plain value-returning call.
   FUNC changes(RES db AS Db) AS Integer
     SYMBOL "sqlite3_changes"
-    ABI (db CPtr) AS return CInt32
+    ABI (db CPtr) AS count CInt32
+    RETURN count
   END FUNC
 
   ' int sqlite3_exec(sqlite3*, const char *sql,
@@ -217,9 +222,10 @@ LINK "sqlite3" AS sqliteLink
   ' values the caller never supplies, pinned with CONST (plan-link-update.md §5c).
   FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
-    ABI (db CPtr, sql CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    ABI (db CPtr, sql CString, nByte CInt32, stmt OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1             ' read sql up to the terminating NUL
     CONST pzTail = NOTHING       ' NULL: discard the trailing-SQL pointer
+    RETURN stmt
     SUCCESS_ON status = 0
   END FUNC
 
@@ -274,12 +280,13 @@ LINK "sqlite3" AS sqliteLink
   ' int sqlite3_bind_parameter_index(sqlite3_stmt*, const char *zName)
   ' Maps a named parameter (":aValue", "@x", "$y" — the leading sigil INCLUDED) to
   ' its 1-based index, or 0 when the statement has no such parameter. Borrows stmt.
-  ' A plain value-returning call: the C return IS the result, surfaced straight
-  ' through `AS return CInt32` like sqlite3_column_count — no success gate, since 0
+  ' A plain value-returning call: the C return IS the result, named `idx` and
+  ' selected with `RETURN idx` like sqlite3_column_count — no success gate, since 0
   ' "not found" is a meaningful index the caller may inspect, not an error.
   FUNC bindParameterIndex(RES stmt AS Stmt, name AS String) AS Integer
     SYMBOL "sqlite3_bind_parameter_index"
-    ABI (stmt CPtr, name CString) AS return CInt32
+    ABI (stmt CPtr, name CString) AS idx CInt32
+    RETURN idx
   END FUNC
 
   ' int sqlite3_step(sqlite3_stmt*)
@@ -289,14 +296,15 @@ LINK "sqlite3" AS sqliteLink
   ' means "a row is available". Two clauses express the three-way outcome:
   '   SUCCESS_ON treats both 100 and 101 as non-errors (only a true error code
   '     auto-propagates) — the compound Boolean form, plan-link-update.md §5b;
-  '   RESULT maps the surviving status to the wrapper's Boolean: TRUE iff a row is
-  '     ready (100). RESULT (an expression-valued result marker, distinct from a
-  '     plain `AS return` passthrough) is the one ABI form still unratified — §5b.
+  '   RETURN maps the surviving status to the wrapper's Boolean: TRUE iff a row is
+  '     ready (100). This is the computed form of the same clause that spells a
+  '     plain passthrough `RETURN value` — the expression is just a bare slot
+  '     reference there.
   FUNC step(RES stmt AS Stmt) AS Boolean
     SYMBOL "sqlite3_step"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 100 OR status = 101
-    RESULT status = 100
+    RETURN status = 100
   END FUNC
 
   ' const unsigned char *sqlite3_column_text(sqlite3_stmt*, int iCol)
@@ -307,7 +315,8 @@ LINK "sqlite3" AS sqliteLink
   ' This is thunk codegen, not an ABI form: no per-call annotation is needed here.
   FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
-    ABI (stmt CPtr, col CInt32) AS return CPtr
+    ABI (stmt CPtr, col CInt32) AS text CPtr
+    RETURN text
   END FUNC
 
   ' const char *sqlite3_column_name(sqlite3_stmt*, int N)
@@ -317,7 +326,8 @@ LINK "sqlite3" AS sqliteLink
   ' (copy-and-leave). Borrows stmt. `queryMaps` keys each row by this name.
   FUNC columnName(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_name"
-    ABI (stmt CPtr, col CInt32) AS return CPtr
+    ABI (stmt CPtr, col CInt32) AS name CPtr
+    RETURN name
   END FUNC
 
   ' int sqlite3_column_type(sqlite3_stmt*, int iCol)
@@ -328,16 +338,18 @@ LINK "sqlite3" AS sqliteLink
   ' reader and therefore which `SqlValue` member each cell becomes.
   FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_type"
-    ABI (stmt CPtr, col CInt32) AS return CInt32
+    ABI (stmt CPtr, col CInt32) AS kind CInt32
+    RETURN kind
   END FUNC
 
   ' sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol)
   ' Reads an INTEGER column as a 64-bit value, surfaced straight through the C
-  ' return (`AS return CInt64`) into MFBASIC's `Integer`. Borrows stmt. `rows`
+  ' return (`AS value CInt64` + `RETURN value`) into MFBASIC's `Integer`. Borrows stmt. `rows`
   ' calls it only when `columnType` reported SQLITE_INTEGER.
   FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_int64"
-    ABI (stmt CPtr, col CInt32) AS return CInt64
+    ABI (stmt CPtr, col CInt32) AS value CInt64
+    RETURN value
   END FUNC
 
   ' double sqlite3_column_double(sqlite3_stmt*, int iCol)
@@ -347,7 +359,8 @@ LINK "sqlite3" AS sqliteLink
   ' when `columnType` reported SQLITE_FLOAT.
   FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
     SYMBOL "sqlite3_column_double"
-    ABI (stmt CPtr, col CInt32) AS return CDouble
+    ABI (stmt CPtr, col CInt32) AS value CDouble
+    RETURN value
   END FUNC
 
   ' int sqlite3_column_count(sqlite3_stmt*)
@@ -357,7 +370,8 @@ LINK "sqlite3" AS sqliteLink
   ' knowing the schema in advance.
   FUNC columnCount(RES stmt AS Stmt) AS Integer
     SYMBOL "sqlite3_column_count"
-    ABI (stmt CPtr) AS return CInt32
+    ABI (stmt CPtr) AS count CInt32
+    RETURN count
   END FUNC
 
   ' int sqlite3_finalize(sqlite3_stmt*)
@@ -378,8 +392,9 @@ LINK "sqlite3" AS sqliteLink
   ' `String` result. Borrows stmt.
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
-    ABI (stmt CPtr) AS return CPtr
-    FREE return
+    ABI (stmt CPtr) AS sql CPtr
+    RETURN sql
+    FREE sql
       SYMBOL "sqlite3_free"
       ABI (ptr CPtr) AS CVoid
     END FREE
@@ -402,7 +417,8 @@ LINK "sqlite3" AS sqliteLink
   ' return (no error) copies as the empty string. Borrows db.
   FUNC errmsg(RES db AS Db) AS String
     SYMBOL "sqlite3_errmsg"
-    ABI (db CPtr) AS return CPtr
+    ABI (db CPtr) AS message CPtr
+    RETURN message
   END FUNC
 
   ' int sqlite3_extended_errcode(sqlite3*)
@@ -411,7 +427,8 @@ LINK "sqlite3" AS sqliteLink
   ' primary code SQLITE_CONSTRAINT (19). Borrows db; a plain value-returning call.
   FUNC extendedErrcode(RES db AS Db) AS Integer
     SYMBOL "sqlite3_extended_errcode"
-    ABI (db CPtr) AS return CInt32
+    ABI (db CPtr) AS code CInt32
+    RETURN code
   END FUNC
 
   ' const char *sqlite3_errstr(int)
@@ -420,7 +437,8 @@ LINK "sqlite3" AS sqliteLink
   ' pointer is static storage; the thunk copies it and never frees it.
   FUNC errstr(code AS Integer) AS String
     SYMBOL "sqlite3_errstr"
-    ABI (code CInt32) AS return CPtr
+    ABI (code CInt32) AS message CPtr
+    RETURN message
   END FUNC
 END LINK
 

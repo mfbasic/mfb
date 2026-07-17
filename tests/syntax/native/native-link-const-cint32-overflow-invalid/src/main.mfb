@@ -11,7 +11,7 @@ LINK "sqlite3" AS sql
     SYMBOL "sqlite3_sleep"
     ABI (ms CInt32) AS status CInt32
     CONST ms = 5000000000
-    RESULT status
+    RETURN status
   END FUNC
 END LINK
 

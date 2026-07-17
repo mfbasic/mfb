@@ -111,7 +111,7 @@
         ],
         "abi": {
           "slots": [
-          { "name": "return", "ctype": "CInt32", "out": true, "line": 41 }
+          { "name": "value", "ctype": "CInt32", "out": true, "line": 41 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -119,7 +119,7 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null,
+        "result": { "kind": "identifier", "value": "value" },
         "free": null
       }
       ]

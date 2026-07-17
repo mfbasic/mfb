@@ -1,0 +1,15 @@
+' plan-50-H deleted the magic ABI slot name: a wrapper's result is named by the
+' `RETURN <expr>` clause, so `return` carries no special meaning in a slot
+' position — it is simply a keyword, and not a legal slot name.
+'
+' Before plan-50-H this declared the result. The migration is to name the slot
+' for its value and add `RETURN <name>`:
+'   ABI (path CString, db OUT CPtr) AS status CInt32
+'   RETURN db
+LINK "demo" AS demoLink
+  FUNC opn(path AS String) AS Integer
+    SYMBOL "demo_open"
+    ABI (path CString, return OUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

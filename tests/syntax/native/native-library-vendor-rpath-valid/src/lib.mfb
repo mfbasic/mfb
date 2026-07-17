@@ -4,7 +4,8 @@
 LINK "demolib" AS demoLink
   FUNC ping(value AS Integer) AS Integer
     SYMBOL "demo_ping"
-    ABI (value CInt32, return OUT CInt32) AS status CInt32
+    ABI (value CInt32, value OUT CInt32) AS status CInt32
+    RETURN value
     SUCCESS_ON status = 0
   END FUNC
 END LINK

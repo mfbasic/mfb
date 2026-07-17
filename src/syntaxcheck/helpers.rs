@@ -706,7 +706,7 @@ END FUNC
 LINK \"demo\" AS demoLink
   FUNC handle() AS CPtr
     SYMBOL \"demo_handle\"
-    ABI (return OUT CPtr) AS status CInt32
+    ABI (produced OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 END LINK

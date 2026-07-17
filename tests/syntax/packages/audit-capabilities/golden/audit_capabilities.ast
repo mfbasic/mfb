@@ -33,7 +33,7 @@
         "abi": {
           "slots": [
           { "name": "path", "ctype": "CString", "out": false, "line": 16 },
-          { "name": "return", "ctype": "CPtr", "out": true, "line": 16 }
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 16 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -41,7 +41,7 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null,
+        "result": { "kind": "identifier", "value": "db" },
         "free": null
       },
       {
@@ -50,13 +50,13 @@
         "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
-        "line": 19,
+        "line": 20,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 19 }
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 20 }
         ],
         "abi": {
           "slots": [
-          { "name": "db", "ctype": "CPtr", "out": false, "line": 21 }
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 22 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -74,29 +74,29 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 26,
+      "line": 27,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "home", "type": null, "value": { "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "HOME" }] }, "line": 27 },
-      { "kind": "binding", "mutable": false, "name": "pid", "type": null, "value": { "kind": "call", "callee": "os.pid", "arguments": [] }, "line": 28 },
-      { "kind": "binding", "mutable": false, "name": "roll", "type": null, "value": { "kind": "call", "callee": "math.rand", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "6" }] }, "line": 29 },
-      { "kind": "binding", "mutable": false, "name": "at", "type": null, "value": { "kind": "call", "callee": "datetime.now", "arguments": [] }, "line": 30 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "socket", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "9" }] }, "line": 31 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "socket" }] }, "line": 32 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 33 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 34 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "home" }] }, "line": 35 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "pid" }, "right": { "kind": "identifier", "value": "roll" } }] }] }, "line": 36 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.toMillis", "arguments": [{ "kind": "identifier", "value": "at" }] }] }] }, "line": 37 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 38 }
+      { "kind": "binding", "mutable": false, "name": "home", "type": null, "value": { "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "HOME" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "pid", "type": null, "value": { "kind": "call", "callee": "os.pid", "arguments": [] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "roll", "type": null, "value": { "kind": "call", "callee": "math.rand", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "6" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "at", "type": null, "value": { "kind": "call", "callee": "datetime.now", "arguments": [] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "socket", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "9" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "socket" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "home" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "pid" }, "right": { "kind": "identifier", "value": "roll" } }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.toMillis", "arguments": [{ "kind": "identifier", "value": "at" }] }] }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
       ],
       "trap": {
       "name": "err",
-      "line": 39,
+      "line": 40,
       "body": [
-      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 40 }
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 41 }
       ]
     }
     }

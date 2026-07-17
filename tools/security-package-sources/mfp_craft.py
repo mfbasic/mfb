@@ -20,6 +20,13 @@ from __future__ import annotations
 
 import hashlib
 import struct
+
+# Mirrors `BINARY_REPR_VERSION` in src/ir/binary.rs. The hand-encoded MFBR bodies
+# below reproduce that format byte for byte, so this must move with it — a stale
+# value makes every crafted fixture fail on the version gate instead of on the
+# corruption it is meant to prove. These bodies carry no LINK trailer, so the
+# v4->v5 slot-direction / Var-payload / CSTRUCT changes do not reach them.
+BINARY_REPR_VERSION = 5
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -409,7 +416,7 @@ def mutate_type_confusion(data: bytes) -> bytes:
     member access into an out-of-bounds field load in the victim's binary.
 
     The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 4):
-    `MFBR` + u16(4) + project{name, entry=None, bindings=[], types=[],
+    `MFBR` + u16(BINARY_REPR_VERSION) + project{name, entry=None, bindings=[], types=[],
     functions=[run]}` where `run`'s single op is
     `Return(MemberAccess(target=Const Integer "0", member="x"))`. Format v3
     (plan-20-A/B) appends a `loc` (u32 line + u32 column) to every op and to
@@ -449,7 +456,7 @@ def mutate_type_confusion(data: bytes) -> bytes:
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(4)  # BINARY_REPR_VERSION
+    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary.rs
     body += put_str(b"sec_confused")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -515,7 +522,7 @@ def mutate_type_confusion_computed(data: bytes) -> bytes:
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(4)  # BINARY_REPR_VERSION
+    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary.rs
     body += put_str(b"sec_confused_computed")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -571,7 +578,7 @@ def mutate_operator_confusion(data: bytes) -> bytes:
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(4)
+    body += _u16(BINARY_REPR_VERSION)
     body += put_str(b"sec_operator_confused")
     body += bytes([0])
     body += _u32(0)
@@ -596,7 +603,7 @@ def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     body = bytearray()
     body += MFPC_MAGIC[:0]  # no-op to keep bytearray typed
     body += b"MFBR"
-    body += _u16(4)  # BINARY_REPR_VERSION
+    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary.rs
     body += put_str(b"x")  # project name
     body += bytes([0])  # entry: None
     body += _u32(1)  # bindings: one

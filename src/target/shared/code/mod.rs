@@ -1109,8 +1109,12 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_rng_next());
         code_functions.push(lower_rng_seed_at());
     }
+    // plan-50-H: a wrapper copies a C string out when `RETURN` names the ABI
+    // return and that return is a `CPtr` surfaced as an owned `String`. This must
+    // agree exactly with `lower_link_thunk`'s `needs_encoding`, or the thunk
+    // references `_mfb_rt_validate_utf8` and the helper is never emitted.
     let link_returns_cstring = module.link_functions.iter().any(|function| {
-        function.abi_return_name == "return"
+        matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
             && function.abi_return_ctype == "CPtr"
             && function.return_type == "String"
     });

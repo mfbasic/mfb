@@ -10,10 +10,11 @@ LINK "demo" AS demoLink
   END FUNC
   FUNC describe(RES h AS Handle) AS String
     SYMBOL "demo_describe"
-    ABI (h CPtr) AS return CPtr
-    FREE return
+    ABI (h CPtr) AS text CPtr
+    FREE text
       SYMBOL "demo_free"
       ABI (ptr CInt32) AS CVoid
+    RETURN text
     END FREE
   END FUNC
 END LINK

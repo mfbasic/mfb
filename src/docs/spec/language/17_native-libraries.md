@@ -17,7 +17,7 @@ EXPORT RESOURCE Db CLOSE BY sqlite::close
 LINK "sqlite3" AS sqlite
   FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
@@ -87,7 +87,7 @@ Rejected as unlayoutable (`NATIVE_CSTRUCT_INVALID`): a struct with no fields, a 
 
 `SYMBOL "sqlite3_open"` gives the exact native symbol name to look up in the loaded library. The MFBASIC function name is the public wrapper name; it does not have to match the native symbol name.
 
-`ABI (...) AS ...` gives the native C-facing call shape. The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation. Each ABI slot is `name type` in native C argument order, and slots bind to wrapper parameters **by name** (so `path` in the ABI matches the `path` parameter). One slot may be named `return` to mark the wrapper's result (an `OUT` slot for a produced handle/value, or the native return slot after `AS`). Every wrapper parameter must map to an ABI slot of the same name, and every ABI slot must be satisfied by exactly one of: a wrapper parameter, the `return` result marker, or a `CONST` pin — otherwise `NATIVE_ABI_UNBOUND_PARAM` / `NATIVE_ABI_UNBOUND_SLOT`.
+`ABI (...) AS ...` gives the native C-facing call shape. The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation. Each ABI slot is `name type` in native C argument order, and slots bind to wrapper parameters **by name** (so `path` in the ABI matches the `path` parameter). The native return is named too, after `AS`. Every slot name is an ordinary identifier — none is magic. Every wrapper parameter must map to an ABI slot of the same name, and every ordinary (input) ABI slot must be satisfied by a wrapper parameter or a `CONST` pin — otherwise `NATIVE_ABI_UNBOUND_PARAM` / `NATIVE_ABI_UNBOUND_SLOT`. An `OUT` slot needs neither: it is native storage the callee fills, surfaced by naming it in `RETURN`.
 
 Native ABI types are separate from MFBASIC source types. The names below are the ones the marshaling backend acts on, and they are the **only** names an `ABI (...)` slot or return may use: a name outside this table is rejected with `NATIVE_ABI_UNKNOWN_CTYPE`, on both the source path and the `.mfp` package path. Two of them are position-restricted — `CVoid` is valid only as the ABI return (a C function takes no `void` argument), and `CString` only as an argument (it means "build a NUL-terminated copy of this `String` for the duration of the call"; a C function returning `char *` is declared `CPtr` and paired with a wrapper `AS String`, which drives the copy-out). An `OUT` slot is a produced value and so takes a return-shaped ctype. (A separate, narrower allow-list governs which C-ABI type names are rejected from a wrapper's MFBASIC-facing signature via `NATIVE_CPTR_ESCAPE`; it does **not** include `CBool`, `CByte`, or `CVoid`, and it answers the opposite question — do not confuse the two.) [[src/ir/link.rs:abi_slot_ctype_is_known]] [[src/ir/link.rs:abi_ctype_valid_as_return]] [[src/syntaxcheck/helpers.rs:is_c_abi_type]]
 
@@ -147,7 +147,9 @@ An identifier in `<expr>` names an `ABI (...)` slot or the ABI return, and is re
 
 > Implementation status: until plan-50-I, `<expr>` did not actually range over slot names — lowering collapsed *every* identifier onto a single nameless variable meaning "the native return". So `SUCCESS_ON typo = 0` silently meant `SUCCESS_ON status = 0`, and `SUCCESS_ON count = 5` over an `OUT` slot could not mean what it said. It never bit any in-tree binding, because the only name any of them used *was* the return name.
 
-**Result value mapping (`RESULT <expr>`).** When the wrapper's result is *derived from* the status (rather than passed straight through or produced via `OUT`), `RESULT <expr>` supplies it. For example SQLite's `sqlite3_step` returns `SQLITE_ROW` (100) or `SQLITE_DONE` (101); the wrapper returns `AS Boolean` meaning "a row is ready":
+**Naming the result (`RETURN <expr>`).** A wrapper's result is whatever `RETURN <expr>` names. There is exactly one such clause, and `<expr>` is the same expression language `SUCCESS_ON` uses — so `RETURN db` is the degenerate case where the expression is a bare slot reference, and `RETURN status = 100` is the computed case.
+
+`RETURN <slot>` over an `OUT` slot surfaces the value the callee produced (a handle, a count); `RETURN <abi-return-name>` passes the C return through, marshaled by its ctype; and any other expression computes the result from the named slots. For example SQLite's `sqlite3_step` returns `SQLITE_ROW` (100) or `SQLITE_DONE` (101); the wrapper returns `AS Boolean` meaning "a row is ready":
 
 ```basic
 FUNC step(RES stmt AS Stmt) AS Boolean
@@ -158,9 +160,11 @@ FUNC step(RES stmt AS Stmt) AS Boolean
 END FUNC
 ```
 
-A plain value-returning call needs neither gate nor mapping: name the native return slot `return` and the C return becomes the wrapper's result (e.g. `ABI (stmt CPtr, name CString) AS return CInt32`). A value-producing wrapper that marks no result (`return` / `RESULT`) is rejected (`NATIVE_ABI_NO_RESULT`).
+A plain value-returning call needs no gate: name the C return and hand it back, e.g. `ABI (stmt CPtr, name CString) AS value CInt32` + `RETURN value`. A value-producing wrapper with no `RETURN` is rejected (`NATIVE_ABI_NO_RESULT`); a `Nothing` wrapper with one is `NATIVE_ABI_RESULT_MARKER`.
 
-**Multiple outputs (`RETURN_OUT`) — not yet implemented.** The intended design is that when an ABI signature has more than one `OUT` slot, `RETURN_OUT` defines how those outputs become the success value, referencing slots by name. A single `OUT` slot named `return` is returned implicitly.
+> Implementation status: before plan-50-H the result was identified by a **magic slot name**. A slot literally named `return` (or an `AS return <ctype>` native return) *was* the result, and a separate `RESULT <expr>` clause supplied a computed one. That worked only because the compiler forced every `OUT` slot to be named `return`, making "is OUT", "is named `return`", and "is the result" indistinguishable — a coincidence `INOUT` struct slots break, since `sf_open` fills an `INOUT` slot whose value is *not* the result. `RETURN <expr>` replaced both spellings and absorbed `RESULT`, so `return` is a keyword again and not a legal slot name.
+
+**Multiple outputs — not implemented.** A wrapper surfaces exactly one result, so an ABI signature whose C function produces two independent outputs cannot express both. A binding works around it by splitting the call, or by using a follow-up query that returns the second value on its own (libsndfile's `sf_open` fills an `SF_INFO` *and* returns a handle; a binding takes the handle from `sf_open` and reads the info back with `SFC_GET_CURRENT_SF_INFO`).
 
 ```basic
 TYPE DivModResult
@@ -172,12 +176,12 @@ LINK "mylib" AS mylib
   FUNC divmod(a AS Integer, b AS Integer) AS DivModResult
     SYMBOL "divmod"
     ABI (a CInt32, b CInt32, quotient OUT CInt32, remainder OUT CInt32) AS CVoid
-    RETURN_OUT DivModResult[quotient, remainder]   ' DEFERRED ABI FORM
+    ' No way to name both OUT slots as the result — DEFERRED, not compilable.
   END FUNC
 END LINK
 ```
 
-> Implementation status: the current compiler does **not** support multiple `OUT` slots or `RETURN_OUT`. The parser's native-`FUNC` body accepts only `SYMBOL`, `ABI`, `CONST`, `SUCCESS_ON`, `ERROR_ON`, `RESULT`, and `FREE` — there is no `RETURN_OUT` clause — and the source checker rejects any `OUT` slot not named `return` with `NATIVE_ABI_UNBOUND_SLOT`. A wrapper may therefore declare at most one `OUT` slot, and it must be the result marker named `return`. The example above is documentation of the deferred form, not a compilable binding. [[src/ast/items.rs:parse_link_function]]
+> Implementation status: multiple `OUT` slots parse and marshal (each gets its own buffer), but only one can be named by `RETURN`, so the others are unreachable. An earlier design reserved a `RETURN_OUT DivModResult[quotient, remainder]` clause for this; it was **retired** by plan-50-H, whose `RETURN <expr>` covers the single-output case that `RETURN_OUT` was mostly there to spell. Reviving multi-output means extending `RETURN` to construct a record from several slots, not adding a second clause. [[src/ast/items.rs:parse_link_function]]
 
 **Freeing a caller-owned return (`FREE`).** A `CPtr` result mapped to an owned MFBASIC value (such as `AS String`) is **copied** out of the native buffer and the source pointer is then left untouched — *copy-and-leave*. That is correct when the native library **owns** the buffer and keeps it valid (a transient or static pointer), as with `sqlite3_column_text`. When the call instead returns a buffer the **caller owns and must release** — `sqlite3_expanded_sql`, `sqlite3_mprintf`, `strdup` — copy-and-leave would leak it. A `FREE` block names the produced slot and the deallocator that releases it:
 
@@ -185,8 +189,8 @@ END LINK
 LINK "sqlite3" AS sqlite
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
-    ABI (stmt CPtr) AS return CPtr
-    FREE return
+    ABI (stmt CPtr) AS text CPtr
+    FREE sql
       SYMBOL "sqlite3_free"
       ABI (ptr CPtr) AS CVoid
     END FREE
@@ -194,7 +198,7 @@ LINK "sqlite3" AS sqlite
 END LINK
 ```
 
-`FREE return` means: after the wrapper has copied the `return` slot into its owned MFBASIC result, pass the **original** native pointer to the named deallocator. The nested `SYMBOL`/`ABI` declare that deallocator — exactly one pointer parameter and a `CVoid` return. The freed slot is the produced pointer: the C `return`, or a named `OUT` slot. The deallocator runs **once, after the copy, on the success path only**; if the wrapper fails before the value is produced (a failed `SUCCESS_ON` gate, a marshaling error), nothing is freed. A NULL produced pointer is passed to the deallocator unchanged, because deallocators such as `sqlite3_free` define NULL as a no-op. The original pointer is never surfaced as an MFBASIC value, so `FREE` is the only sanctioned way to release a caller-owned native return — a raw `CPtr` cannot be handed back to source code to free by hand (`NATIVE_CPTR_ESCAPE`). A binding with more than one caller-owned pointer (for example several `OUT` buffers) states one `FREE` block per slot.
+`FREE sql` means: after the wrapper has copied the `return` slot into its owned MFBASIC result, pass the **original** native pointer to the named deallocator. The nested `SYMBOL`/`ABI` declare that deallocator — exactly one pointer parameter and a `CVoid` return. The freed slot is the produced pointer: the C `return`, or a named `OUT` slot. The deallocator runs **once, after the copy, on the success path only**; if the wrapper fails before the value is produced (a failed `SUCCESS_ON` gate, a marshaling error), nothing is freed. A NULL produced pointer is passed to the deallocator unchanged, because deallocators such as `sqlite3_free` define NULL as a no-op. The original pointer is never surfaced as an MFBASIC value, so `FREE` is the only sanctioned way to release a caller-owned native return — a raw `CPtr` cannot be handed back to source code to free by hand (`NATIVE_CPTR_ESCAPE`). A binding with more than one caller-owned pointer (for example several `OUT` buffers) states one `FREE` block per slot.
 
 Rules:
 
@@ -205,7 +209,7 @@ Rules:
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
 - Native functions may accept and return MFBASIC primitive values, strings, byte lists, and declared resource types through an explicit `ABI` mapping. Other conversions are implementation-defined unless specified by the binding.
-- A value-returning native function must surface exactly one result: either an ABI slot named `return` (the C return slot, or a single `OUT return` slot) or a `RESULT <expr>` mapping; otherwise it is rejected with `NATIVE_ABI_NO_RESULT`. (The multi-`OUT` `RETURN_OUT` form is the deferred design above and is not accepted by the current compiler.)
+- A value-returning native function must name its result with exactly one `RETURN <expr>`; otherwise it is rejected with `NATIVE_ABI_NO_RESULT`. A `Nothing` wrapper must not declare one (`NATIVE_ABI_RESULT_MARKER`). A slot named `return` does not parse — the name carries no meaning and is a keyword.
 - A `FREE` block must name a `CPtr`-typed produced slot — the `return` slot or a declared `OUT` slot — and its deallocator must declare exactly one pointer parameter and a `CVoid` return. The deallocator is called once on the success path, after the produced value is copied into the wrapper's owned MFBASIC result, with the original (possibly NULL) native pointer; it is not called on a failed call. Without a `FREE` block a `CPtr` result is copied and the source pointer is left untouched (copy-and-leave), which leaks a caller-owned buffer — `FREE` is the only way to release one.
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
@@ -227,13 +231,13 @@ RESOURCE Stmt CLOSE BY sqliteLink::finalize
 LINK "sqlite3" AS sqliteLink
   FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
   FUNC openV2(path AS String, flags AS Integer) AS RES Db
     SYMBOL "sqlite3_open_v2"
-    ABI (path CString, return OUT CPtr, flags CInt32, zVfs CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr, flags CInt32, zVfs CPtr) AS status CInt32
     CONST zVfs = NOTHING         ' NULL: use the default VFS
     SUCCESS_ON status = 0
   END FUNC
@@ -261,7 +265,7 @@ LINK "sqlite3" AS sqliteLink
 
   FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
-    ABI (db CPtr, sql CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    ABI (db CPtr, sql CString, nByte CInt32, db OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1             ' read sql up to the terminating NUL
     CONST pzTail = NOTHING       ' NULL: discard the trailing-SQL pointer
     SUCCESS_ON status = 0
@@ -277,7 +281,7 @@ LINK "sqlite3" AS sqliteLink
 
   FUNC bindParameterIndex(RES stmt AS Stmt, name AS String) AS Integer
     SYMBOL "sqlite3_bind_parameter_index"
-    ABI (stmt CPtr, name CString) AS return CInt32
+    ABI (stmt CPtr, name CString) AS value CInt32
   END FUNC
 
   FUNC step(RES stmt AS Stmt) AS Boolean
@@ -289,27 +293,27 @@ LINK "sqlite3" AS sqliteLink
 
   FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
-    ABI (stmt CPtr, col CInt32) AS return CPtr
+    ABI (stmt CPtr, col CInt32) AS text CPtr
   END FUNC
 
   FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_type"
-    ABI (stmt CPtr, col CInt32) AS return CInt32
+    ABI (stmt CPtr, col CInt32) AS value CInt32
   END FUNC
 
   FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_int64"
-    ABI (stmt CPtr, col CInt32) AS return CInt64
+    ABI (stmt CPtr, col CInt32) AS value CInt64
   END FUNC
 
   FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
     SYMBOL "sqlite3_column_double"
-    ABI (stmt CPtr, col CInt32) AS return CDouble
+    ABI (stmt CPtr, col CInt32) AS value CDouble
   END FUNC
 
   FUNC columnCount(RES stmt AS Stmt) AS Integer
     SYMBOL "sqlite3_column_count"
-    ABI (stmt CPtr) AS return CInt32
+    ABI (stmt CPtr) AS value CInt32
   END FUNC
 
   FUNC finalize(RES stmt AS Stmt) AS Nothing
@@ -320,8 +324,8 @@ LINK "sqlite3" AS sqliteLink
 
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
-    ABI (stmt CPtr) AS return CPtr
-    FREE return
+    ABI (stmt CPtr) AS text CPtr
+    FREE sql
       SYMBOL "sqlite3_free"
       ABI (return CPtr) AS CVoid
     END FREE
@@ -329,17 +333,17 @@ LINK "sqlite3" AS sqliteLink
 
   FUNC errmsg(RES db AS Db) AS String
     SYMBOL "sqlite3_errmsg"
-    ABI (db CPtr) AS return CPtr
+    ABI (db CPtr) AS text CPtr
   END FUNC
 
   FUNC extendedErrcode(RES db AS Db) AS Integer
     SYMBOL "sqlite3_extended_errcode"
-    ABI (db CPtr) AS return CInt32
+    ABI (db CPtr) AS value CInt32
   END FUNC
 
   FUNC errstr(code AS Integer) AS String
     SYMBOL "sqlite3_errstr"
-    ABI (code CInt32) AS return CPtr
+    ABI (code CInt32) AS text CPtr
   END FUNC
 END LINK
 ```

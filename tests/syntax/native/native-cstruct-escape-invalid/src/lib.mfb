@@ -18,7 +18,8 @@ LINK "demo" AS demoLink
 
   FUNC leak(info AS CInfo) AS CInfo
     SYMBOL "demo_leak"
-    ABI (info CInt32, return OUT CInt32) AS status CInt32
+    ABI (info CInt32, produced OUT CInt32) AS status CInt32
+    RETURN produced
     SUCCESS_ON status = 0
   END FUNC
 END LINK

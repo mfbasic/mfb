@@ -14,13 +14,13 @@ LINK "sqlite3" AS sql
     SYMBOL "sqlite3_soft_heap_limit64"
     ABI (n CInt64) AS previous CInt64
     CONST n = 1234
-    RESULT previous
+    RETURN previous
   END FUNC
   FUNC query() AS Integer
     SYMBOL "sqlite3_soft_heap_limit64"
     ABI (n CInt64) AS current CInt64
     CONST n = 0xFFFFFFFFFFFFFFFF
-    RESULT current
+    RETURN current
   END FUNC
 END LINK
 

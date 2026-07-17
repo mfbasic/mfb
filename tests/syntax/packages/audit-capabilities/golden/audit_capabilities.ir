@@ -171,31 +171,31 @@
   "functions": [
   {
     "name": "main",
-    "line": 26,
+    "line": 27,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 27, "mutable": false, "name": "home", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }] } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "pid", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "os.pid", "args": [] } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "roll", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "math.rand", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
-    { "op": "bind", "line": 30, "mutable": false, "name": "at", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_now", "args": [] } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "socket", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
-    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "net.close", "args": [{ "kind": "local", "name": "socket" }] } },
-    { "op": "bind", "line": 33, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
-    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } },
-    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "home" }] } },
-    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pid" }, "right": { "kind": "local", "name": "roll" } }] }] } },
-    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#datetime_toMillis", "args": [{ "kind": "local", "name": "at" }] }] }] } },
-    { "op": "return", "line": 38, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "home", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "pid", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "os.pid", "args": [] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "roll", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "math.rand", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "at", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_now", "args": [] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "socket", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "net.close", "args": [{ "kind": "local", "name": "socket" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "home" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pid" }, "right": { "kind": "local", "name": "roll" } }] }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#datetime_toMillis", "args": [{ "kind": "local", "name": "at" }] }] }] } },
+    { "op": "return", "line": 39, "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "trap",
-      "line": 39,
+      "line": 40,
       "name": "err",
       "body": [
-      { "op": "return", "line": 40, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 41, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ]
     }
     ]

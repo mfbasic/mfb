@@ -17,14 +17,16 @@ RESOURCE Stmt CLOSE BY sql::finalize
 LINK "sqlite3" AS sql
   FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
     SUCCESS_ON status = 0
   END FUNC
   FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
-    ABI (db CPtr, statement CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    ABI (db CPtr, statement CString, nByte CInt32, stmt OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1
     CONST pzTail = NOTHING
+    RETURN stmt
     SUCCESS_ON status = 0
   END FUNC
   FUNC columnCount(RES stmt AS Stmt) AS Integer
@@ -33,7 +35,7 @@ LINK "sqlite3" AS sql
     ' Var=2 (10b) AND Compare=1 (01b): bitwise 2 & 1 = 0 (buggy failure);
     ' logical: both truthy => success.
     SUCCESS_ON status AND (status <> 0)
-    RESULT status
+    RETURN status
   END FUNC
   FUNC finalize(RES stmt AS Stmt) AS Nothing
     SYMBOL "sqlite3_finalize"

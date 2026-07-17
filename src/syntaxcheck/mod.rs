@@ -570,23 +570,10 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let mut result_markers = 0;
+        // plan-50-H: the result is named by `RETURN <expr>`. Both magic-name
+        // checks are gone — a slot named `return` no longer parses, and the ABI
+        // return is an ordinary name.
         for slot in &function.abi.slots {
-            if slot.name == "return" {
-                result_markers += 1;
-                if !slot.direction.writes_back() {
-                    self.report(
-                        "NATIVE_ABI_RESULT_MARKER",
-                        &format!(
-                            "Native function `{}` ABI slot `return` must be marked `OUT`.",
-                            function.name
-                        ),
-                        file,
-                        slot.line,
-                    );
-                }
-                continue;
-            }
             // A CONST pin satisfies the slot and is input-only.
             if const_slots.contains(slot.name.as_str()) {
                 if slot.direction.writes_back() {
@@ -602,18 +589,9 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 continue;
             }
-            // An OUT slot not named `return` is unsupported here (multi-out
-            // RETURN_OUT is a deferred ABI form, plan-link-update.md §5b).
+            // An OUT slot is native storage the callee fills; it needs no wrapper
+            // parameter. It is surfaced (if at all) by naming it in `RETURN`.
             if slot.direction.writes_back() {
-                self.report(
-                    "NATIVE_ABI_UNBOUND_SLOT",
-                    &format!(
-                        "Native function `{}` ABI slot `{}` is OUT but is not the `return` result marker.",
-                        function.name, slot.name
-                    ),
-                    file,
-                    slot.line,
-                );
                 continue;
             }
             // An ordinary input slot must bind to a wrapper parameter by name.
@@ -621,7 +599,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.report(
                     "NATIVE_ABI_UNBOUND_SLOT",
                     &format!(
-                        "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or the result marker.",
+                        "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or an OUT buffer.",
                         function.name, slot.name
                     ),
                     file,
@@ -630,12 +608,7 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        // The native return slot named `return` is also a result marker.
-        if function.abi.return_name == "return" {
-            result_markers += 1;
-        }
-
-        // plan-50-I: an identifier in a SUCCESS_ON/ERROR_ON/RESULT expression must
+        // plan-50-I: an identifier in a SUCCESS_ON/ERROR_ON/RETURN expression must
         // name a real ABI slot (or the ABI return). Before I, `lower_link_expr`
         // mapped EVERY identifier onto one nameless "native return" variable, so
         // `SUCCESS_ON typo = 0` silently meant `status = 0`, and an expression
@@ -669,7 +642,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.report(
                     "NATIVE_ABI_UNBOUND_SLOT",
                     &format!(
-                        "Native function `{}` SUCCESS_ON/RESULT expression reads `{name}`, which is not an ABI slot or the ABI return.",
+                        "Native function `{}` SUCCESS_ON/RETURN expression reads `{name}`, which is not an ABI slot or the ABI return.",
                         function.name
                     ),
                     file,
@@ -685,22 +658,23 @@ impl<'a> SyntaxChecker<'a> {
                 .return_type
                 .as_deref()
                 .is_some_and(|return_type| return_type != "Nothing");
-        if wants_result && result_markers == 0 && function.result.is_none() {
+        if wants_result && function.result.is_none() {
             self.report(
                 "NATIVE_ABI_NO_RESULT",
                 &format!(
-                    "Native function `{}` returns a value but no ABI slot is marked as the result (`return` or `RESULT`).",
+                    "Native function `{}` returns a value but declares no `RETURN <expr>` naming its result.",
                     function.name
                 ),
                 file,
                 function.line,
             );
         }
-        if result_markers > 1 {
+        // A `Nothing` wrapper surfaces no value, so a RETURN has nothing to name.
+        if !wants_result && function.result.is_some() {
             self.report(
                 "NATIVE_ABI_RESULT_MARKER",
                 &format!(
-                    "Native function `{}` declares more than one `return` result marker.",
+                    "Native function `{}` returns Nothing but declares a `RETURN`.",
                     function.name
                 ),
                 file,
@@ -745,13 +719,20 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         // A FREE block releases a caller-owned native return after it is copied
-        // out (mfbasic.md §17). The implemented form frees the `return` CPtr
-        // produced slot through a deallocator that takes one CPtr and returns
-        // CVoid (e.g. `sqlite3_free`). Anything else is rejected.
+        // out (mfbasic.md §17). The implemented form frees the produced CPtr —
+        // the C return, named by `RETURN` — through a deallocator that takes one
+        // CPtr and returns CVoid (e.g. `sqlite3_free`). Anything else is rejected.
         if let Some(free) = &function.free {
             let mut ok = true;
-            // The freed slot must be the `return` C-return pointer.
-            if free.slot != "return" || function.abi.return_name != "return" {
+            // plan-50-H: `FREE <slot>` names the real slot rather than the magic
+            // `return`. The freed slot must be the C return, and that return must
+            // be what `RETURN` surfaces — freeing a value the wrapper never
+            // produced would release a pointer nothing copied.
+            let returns_the_c_value = matches!(
+                &function.result,
+                Some(crate::ast::Expression::Identifier(name)) if *name == function.abi.return_name
+            );
+            if free.slot != function.abi.return_name || !returns_the_c_value {
                 ok = false;
             }
             // That return must be a CPtr copied into an owned wrapper value.
@@ -769,7 +750,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.report(
                     "NATIVE_FREE_INVALID",
                     &format!(
-                        "Native function `{}` has a malformed FREE block: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid.",
+                        "Native function `{}` has a malformed FREE block: it must name the CPtr produced slot that `RETURN` surfaces, and its deallocator must take one CPtr parameter and return CVoid.",
                         function.name
                     ),
                     file,
@@ -2590,7 +2571,7 @@ mod checker_tests {
     #[test]
     fn link_cptr_escape_return() {
         assert!(rejects_with(
-            &link_wrap("  FUNC leak() AS CPtr\n    SYMBOL \"demo_leak\"\n    ABI () AS return CPtr\n  END FUNC\n"),
+            &link_wrap("  FUNC leak() AS CPtr\n    SYMBOL \"demo_leak\"\n    ABI () AS produced CPtr\n  END FUNC\n"),
             "NATIVE_CPTR_ESCAPE"
         ));
     }
@@ -2606,7 +2587,7 @@ mod checker_tests {
     #[test]
     fn link_free_invalid() {
         assert!(rejects_with(
-            &link_wrap("  FUNC describe(RES db AS Db) AS String\n    SYMBOL \"demo_describe\"\n    ABI (db CPtr) AS return CPtr\n    FREE return\n      SYMBOL \"demo_free\"\n      ABI (ptr CInt32) AS CVoid\n    END FREE\n  END FUNC\n"),
+            &link_wrap("  FUNC describe(RES db AS Db) AS String\n    SYMBOL \"demo_describe\"\n    ABI (db CPtr) AS produced CPtr\n    FREE produced\n      SYMBOL \"demo_free\"\n      ABI (ptr CInt32) AS CVoid\n    END FREE\n  END FUNC\n"),
             "NATIVE_FREE_INVALID"
         ));
     }
@@ -2621,9 +2602,9 @@ mod checker_tests {
 
     #[test]
     fn link_out_return_producer_valid() {
-        // `return OUT CPtr` result marker on a resource producer.
+        // A resource producer: an OUT slot holds the handle, and `RETURN` names it.
         assert!(accepts(&link_wrap(
-            "  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, return OUT CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"
+            "  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, produced OUT CPtr) AS status CInt32\n    RETURN produced\n    SUCCESS_ON status = 0\n  END FUNC\n"
         )));
     }
 
@@ -2670,20 +2651,25 @@ mod checker_tests {
     }
 
     #[test]
-    fn link_result_marker_not_out_rejected() {
-        // An ABI slot named `return` that is not marked OUT.
+    fn link_return_on_a_nothing_wrapper_rejected() {
+        // plan-50-H: a `Nothing` wrapper surfaces no value, so RETURN names nothing.
         assert!(rejects_with(
-            &link_wrap("  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, return CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
+            &link_wrap("  FUNC opn(statement AS String) AS Nothing\n    SYMBOL \"demo_open\"\n    ABI (statement CString) AS status CInt32\n    RETURN status\n  END FUNC\n"),
             "NATIVE_ABI_RESULT_MARKER"
         ));
     }
 
+    // A slot named `return` is now a PARSE error, so it cannot be exercised
+    // through this checker (which requires its source to parse). It is covered
+    // end-to-end by tests/syntax/native/native-abi-return-slot-invalid.
+
     #[test]
-    fn link_out_slot_not_return_rejected() {
-        // An OUT slot not named `return` (multi-out RETURN_OUT is unsupported).
+    fn link_value_wrapper_without_return_rejected() {
+        // plan-50-H: an OUT slot no longer needs to be named `return`, but a
+        // value-returning wrapper must still name its result.
         assert!(rejects_with(
             &link_wrap("  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, extra OUT CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_ABI_UNBOUND_SLOT"
+            "NATIVE_ABI_NO_RESULT"
         ));
     }
 
@@ -2691,7 +2677,7 @@ mod checker_tests {
     fn link_free_wrong_return_ctype_rejected() {
         // FREE on a non-CPtr `return` produced slot is malformed.
         assert!(rejects_with(
-            &link_wrap("  FUNC describe(RES db AS Db) AS Integer\n    SYMBOL \"demo_describe\"\n    ABI (db CPtr) AS return CInt32\n    FREE return\n      SYMBOL \"demo_free\"\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n  END FUNC\n"),
+            &link_wrap("  FUNC describe(RES db AS Db) AS Integer\n    SYMBOL \"demo_describe\"\n    ABI (db CPtr) AS produced CInt32\n    FREE produced\n      SYMBOL \"demo_free\"\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n  END FUNC\n"),
             "NATIVE_FREE_INVALID"
         ));
     }
@@ -2701,7 +2687,7 @@ mod checker_tests {
         // A FREE block with an empty deallocator symbol is malformed (the symbol
         // check arm of the FREE validation).
         assert!(rejects_with(
-            &link_wrap("  FUNC describe(RES db AS Db) AS String\n    SYMBOL \"demo_describe\"\n    ABI (db CPtr) AS return CPtr\n    FREE return\n      SYMBOL \"\"\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n  END FUNC\n"),
+            &link_wrap("  FUNC describe(RES db AS Db) AS String\n    SYMBOL \"demo_describe\"\n    ABI (db CPtr) AS produced CPtr\n    FREE produced\n      SYMBOL \"\"\n      ABI (ptr CPtr) AS CVoid\n    END FREE\n  END FUNC\n"),
             "NATIVE_FREE_INVALID"
         ));
     }

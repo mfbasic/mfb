@@ -4,7 +4,8 @@
 LINK "demo" AS demoLink
   FUNC scale(n AS Integer, len AS Integer) AS Integer
     SYMBOL "demo_scale"
-    ABI (n CIint32, len CSize, return OUT CInt32) AS status CInt32
+    ABI (n CIint32, len CSize, value OUT CInt32) AS status CInt32
+    RETURN value
     SUCCESS_ON status = 0
   END FUNC
 END LINK

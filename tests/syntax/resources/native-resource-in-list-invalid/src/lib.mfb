@@ -5,7 +5,8 @@ EXPORT RESOURCE Db CLOSE BY demoLink::close
 LINK "demo" AS demoLink
   FUNC open(path AS String) AS RES Db
     SYMBOL "demo_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
     SUCCESS_ON status = 0
   END FUNC
   FUNC close(RES db AS Db) AS Nothing

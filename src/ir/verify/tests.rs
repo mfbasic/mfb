@@ -2570,11 +2570,13 @@ fn link_fn() -> crate::ir::IrLinkFunction {
             ctype: "CString".to_string(),
             direction: crate::ir::AbiDirection::In,
         }],
-        abi_return_name: "return".to_string(),
+        abi_return_name: "value".to_string(),
         abi_return_ctype: "CInt32".to_string(),
         consts: vec![],
         success_on: None,
-        result: None,
+        // plan-50-H: the result is whatever `RETURN <expr>` names; a bare Var over
+        // the ABI return is the `AS value CInt32` + `RETURN value` passthrough.
+        result: Some(crate::ir::IrLinkExpr::Var("value".to_string())),
         free: None,
     }
 }
@@ -2729,7 +2731,7 @@ fn accepts_link_expr_naming_the_abi_return() {
     let mut lf = link_fn();
     lf.success_on = Some(crate::ir::IrLinkExpr::Compare {
         op: "=".to_string(),
-        lhs: Box::new(crate::ir::IrLinkExpr::Var("return".to_string())),
+        lhs: Box::new(crate::ir::IrLinkExpr::Var("value".to_string())),
         rhs: Box::new(crate::ir::IrLinkExpr::Int(0)),
     });
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -2815,7 +2817,9 @@ fn rejects_link_cptr_escape_in_return() {
 }
 
 #[test]
-fn rejects_link_result_marker_not_out() {
+fn rejects_link_unbound_input_slot() {
+    // plan-50-H: a slot named `return` carries no meaning, so an input slot that
+    // binds to no parameter and no CONST pin is just an unbound slot.
     let mut lf = link_fn();
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
@@ -2824,15 +2828,14 @@ fn rejects_link_result_marker_not_out() {
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
-            name: "return".to_string(),
+            name: "stray".to_string(),
             ctype: "CInt32".to_string(),
             direction: crate::ir::AbiDirection::In,
         },
     ];
-    lf.abi_return_name = "status".to_string();
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
-    expect_rule(&p, "NATIVE_ABI_RESULT_MARKER");
+    expect_rule(&p, "NATIVE_ABI_UNBOUND_SLOT");
 }
 
 #[test]
@@ -2905,7 +2908,8 @@ fn rejects_link_no_result() {
         ctype: "CString".to_string(),
         direction: crate::ir::AbiDirection::In,
     }];
-    lf.abi_return_name = "status".to_string();
+    // A value-returning wrapper with no RETURN clause names no result.
+    lf.result = None;
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     expect_rule(&p, "NATIVE_ABI_NO_RESULT");
@@ -3401,21 +3405,13 @@ fn func_missing_return_when_match_not_exhaustive() {
 // --- link: more than one result marker -------------------------------------
 
 #[test]
-fn rejects_link_multiple_result_markers() {
+fn rejects_link_return_on_a_nothing_wrapper() {
+    // plan-50-H: "more than one result marker" is now unrepresentable — there is a
+    // single RETURN clause. The surviving RESULT_MARKER case is a wrapper that
+    // surfaces no value yet names one.
     let mut lf = link_fn();
-    lf.abi_slots = vec![
-        crate::ir::IrAbiSlot {
-            name: "path".to_string(),
-            ctype: "CString".to_string(),
-            direction: crate::ir::AbiDirection::In,
-        },
-        crate::ir::IrAbiSlot {
-            name: "return".to_string(),
-            ctype: "CInt32".to_string(),
-            direction: crate::ir::AbiDirection::Out,
-        },
-    ];
-    // abi_return_name is also "return" -> two markers.
+    lf.return_type = "Nothing".to_string();
+    lf.result = Some(crate::ir::IrLinkExpr::Var("value".to_string()));
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     expect_rule(&p, "NATIVE_ABI_RESULT_MARKER");

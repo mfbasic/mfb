@@ -9,6 +9,6 @@ LINK "demo" AS demoLink
     SYMBOL "demo_probe"
     ABI (n CInt32) AS status CInt32
     SUCCESS_ON typo = 0
-    RESULT status = 1
+    RETURN status = 1
   END FUNC
 END LINK

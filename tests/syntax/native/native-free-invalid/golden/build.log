@@ -1,8 +1,8 @@
 $ mfb build -ast -ir tests/syntax/native/native-free-invalid
-  12 |     SYMBOL "demo_describe"
-  13 |     ABI (h CPtr) AS return CPtr
-  14 |     FREE return
-     | ^
-tests/syntax/native/native-free-invalid/src/lib.mfb:14 error[2-203-0099 NATIVE_FREE_INVALID]: a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid
-               Native function `describe` has a malformed FREE block: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid.
+  15 |       SYMBOL "demo_free"
+  16 |       ABI (ptr CInt32) AS CVoid
+  17 |     RETURN text
+     |     ^^^^^^
+tests/syntax/native/native-free-invalid/src/lib.mfb:17 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               A FREE block may only contain SYMBOL and ABI clauses.
 [exit 1]

@@ -1838,7 +1838,7 @@ mod tests {
             "LINK \"sqlite3\" AS dbLink\n",
             "  FUNC open(path AS String) AS RES Db\n",
             "    SYMBOL \"sqlite3_open\"\n",
-            "    ABI (path CString, return OUT CPtr) AS status CInt32\n",
+            "    ABI (path CString, produced OUT CPtr) AS status CInt32\n",
             "    SUCCESS_ON status = 0\n",
             "  END FUNC\n\n",
             "  FUNC close(RES db AS Db) AS Nothing\n",

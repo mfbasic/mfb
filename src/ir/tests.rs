@@ -2013,7 +2013,7 @@ mod lower_tests {
              LINK \"sqlite3\" AS demoLink\n\
                FUNC open(path AS String) AS RES Db\n\
                  SYMBOL \"sqlite3_open\"\n\
-                 ABI (path CString, return OUT CPtr) AS status CInt32\n\
+                 ABI (path CString, produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
                FUNC close(RES db AS Db) AS Nothing\n\
@@ -2055,10 +2055,10 @@ mod lower_tests {
              LINK \"c\" AS lib\n\
                FUNC make() AS RES Handle\n\
                  SYMBOL \"make\"\n\
-                 ABI (flags CInt32, return OUT CPtr) AS status CInt32\n\
+                 ABI (flags CInt32, produced OUT CPtr) AS status CInt32\n\
                  CONST flags = 0\n\
                  SUCCESS_ON status = 0\n\
-                 RESULT NOT (status < 0)\n\
+                 RETURN NOT (status < 0)\n\
                END FUNC\n\
                FUNC shut(RES h AS Handle) AS Nothing\n\
                  SYMBOL \"shut\"\n\
@@ -2066,7 +2066,7 @@ mod lower_tests {
                END FUNC\n\
              END LINK\n\
              SUB main\nEND SUB\n";
-        let ir = try_lower_src(src).expect("link CONST/RESULT program should lower");
+        let ir = try_lower_src(src).expect("link CONST/RETURN program should lower");
         let make = ir
             .link_functions
             .iter()
@@ -2383,24 +2383,24 @@ mod lower_tests {
              LINK \"c\" AS lib\n\
                FUNC make() AS RES H\n\
                  SYMBOL \"make\"\n\
-                 ABI (a CInt32, b CInt32, c CInt32, return OUT CPtr) AS status CInt32\n\
+                 ABI (a CInt32, b CInt32, c CInt32, produced OUT CPtr) AS status CInt32\n\
                  CONST a = -1\n\
                  CONST b = TRUE\n\
                  CONST c = NOTHING\n\
                  SUCCESS_ON status >= 0 AND status <> 5\n\
-                 RESULT status OR NOT (status < 0)\n\
+                 RETURN status OR NOT (status < 0)\n\
                END FUNC\n\
                FUNC probe() AS RES H\n\
                  SYMBOL \"probe\"\n\
-                 ABI (return OUT CPtr) AS status CInt32\n\
+                 ABI (produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status\n\
-                 RESULT -status\n\
+                 RETURN -status\n\
                END FUNC\n\
                FUNC probe2() AS RES H\n\
                  SYMBOL \"probe2\"\n\
-                 ABI (return OUT CPtr) AS status CInt32\n\
+                 ABI (produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status <> NOTHING\n\
-                 RESULT status + 1\n\
+                 RETURN status + 1\n\
                END FUNC\n\
                FUNC done(RES h AS H) AS Nothing\n\
                  SYMBOL \"done\"\n\
@@ -2409,7 +2409,7 @@ mod lower_tests {
                END FUNC\n\
              END LINK\n\
              SUB main\nEND SUB\n";
-        let ir = try_lower_src(src).expect("link SUCCESS_ON/RESULT program should lower");
+        let ir = try_lower_src(src).expect("link SUCCESS_ON/RETURN program should lower");
         let make = ir
             .link_functions
             .iter()
@@ -2419,7 +2419,7 @@ mod lower_tests {
         assert!(make.result.is_some());
         // CONST pins were evaluated: a=-1, b=TRUE(1), c=NOTHING(0).
         assert_eq!(make.consts.len(), 3);
-        // probe2's SUCCESS_ON/RESULT lowered (NOTHING comparison + non-logic
+        // probe2's SUCCESS_ON/RETURN lowered (NOTHING comparison + non-logic
         // binary).
         assert!(ir
             .link_functions
@@ -2436,7 +2436,7 @@ mod lower_tests {
              LINK \"c\" AS lib\n\
                FUNC make() AS RES H\n\
                  SYMBOL \"make\"\n\
-                 ABI (a CInt64, b CInt64, c CInt64, d CInt64, return OUT CPtr) AS status CInt32\n\
+                 ABI (a CInt64, b CInt64, c CInt64, d CInt64, produced OUT CPtr) AS status CInt32\n\
                  CONST a = 0xFFFFFFFFFFFFFFFF\n\
                  CONST b = 9223372036854775808\n\
                  CONST c = -9223372036854775808\n\
@@ -3166,7 +3166,7 @@ mod lower_tests {
              LINK \"c\" AS lib\n\
                FUNC open() AS RES Db\n\
                  SYMBOL \"open\"\n\
-                 ABI (return OUT CPtr) AS status CInt32\n\
+                 ABI (produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
                FUNC close(RES db AS Db) AS Nothing\n\
@@ -3175,7 +3175,7 @@ mod lower_tests {
                END FUNC\n\
                FUNC makeCache() AS RES Cache\n\
                  SYMBOL \"mk\"\n\
-                 ABI (return OUT CPtr) AS status CInt32\n\
+                 ABI (produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
                FUNC freeCache(RES c AS Cache) AS Nothing\n\
@@ -4465,7 +4465,7 @@ PRIVATE RESOURCE Stmt CLOSE BY demoLink::finalize
 LINK "sqlite3" AS demoLink
   FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
+    ABI (path CString, produced OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
     CONST flags = 6
   END FUNC
@@ -4516,7 +4516,8 @@ END FUNC
 
     #[test]
     fn lowers_link_const_and_result_expression_forms() {
-        // RESULT with a boolean/compare/NOT/AND/OR expression, and CONST forms:
+        // RETURN with a boolean/compare/NOT/AND/OR expression (the computed form
+        // that used to spell RESULT), and CONST forms:
         // NOTHING, boolean, unary minus/plus.
         let ir = lower_src(
             "link_expr",
@@ -4526,9 +4527,9 @@ RESOURCE Handle CLOSE BY natLink::shut
 LINK "c" AS natLink
   FUNC grab() AS RES Handle
     SYMBOL "grab_it"
-    ABI (return OUT CPtr, a CPtr, b CInt32, c CInt32, d CInt32) AS rc CInt32
+    ABI (produced OUT CPtr, a CPtr, b CInt32, c CInt32, d CInt32) AS rc CInt32
     SUCCESS_ON NOT rc = 5 AND rc <> 6 OR rc = 0
-    RESULT rc
+    RETURN produced
     CONST a = NOTHING
     CONST b = TRUE
     CONST c = -3
@@ -4537,36 +4538,36 @@ LINK "c" AS natLink
 
   FUNC probe() AS Integer
     SYMBOL "probe_it"
-    ABI (return CInt32) AS rc CInt32
+    ABI () AS rc CInt32
     SUCCESS_ON rc < 10 OR rc > 20
-    RESULT -rc
+    RETURN -rc
   END FUNC
 
   FUNC booly() AS Integer
     SYMBOL "booly_it"
-    ABI (return CInt32) AS rc CInt32
+    ABI () AS rc CInt32
     SUCCESS_ON TRUE
-    RESULT rc + 1
+    RETURN rc + 1
   END FUNC
 
   FUNC nothingy() AS Integer
     SYMBOL "nothingy_it"
-    ABI (return CInt32) AS rc CInt32
+    ABI () AS rc CInt32
     SUCCESS_ON rc = 0
-    RESULT NOTHING
+    RETURN NOTHING
   END FUNC
 
   FUNC negconst() AS Integer
     SYMBOL "neg_it"
-    ABI (return CInt32) AS rc CInt32
-    RESULT -5
+    ABI () AS rc CInt32
+    RETURN -5
   END FUNC
 
   FUNC weird() AS Integer
     SYMBOL "weird_it"
-    ABI (return CInt32, s CInt32) AS rc CInt32
+    ABI (s CInt32) AS rc CInt32
     SUCCESS_ON rc = 0
-    RESULT "x"
+    RETURN "x"
     CONST s = "literal"
   END FUNC
 
@@ -5189,7 +5190,7 @@ RESOURCE Conn CLOSE BY dbLink::disconnect
 LINK "db" AS dbLink
   FUNC version() AS Integer
     SYMBOL "db_version"
-    ABI (return CInt32) AS rc CInt32
+    ABI () AS rc CInt32
   END FUNC
   FUNC disconnect(RES c AS Conn) AS Nothing
     SYMBOL "db_close"
