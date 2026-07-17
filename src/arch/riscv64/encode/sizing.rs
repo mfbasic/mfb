@@ -142,6 +142,7 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
         | CodeOp::LdrU8
         | CodeOp::StrU64
         | CodeOp::StrU32
+        | CodeOp::StrU16
         | CodeOp::StrU8
         | CodeOp::LdrD
         | CodeOp::StrD => sized_memory(immediate(field(instruction, "offset")?)?),

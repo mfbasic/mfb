@@ -242,6 +242,11 @@ impl Encoder {
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
             ),
+            "str_u16" => self.emit_str_u16(
+                reg(field(instruction, "src")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
             "str_u8" => self.emit_str_u8(
                 reg(field(instruction, "src")?)?,
                 reg(field(instruction, "base")?)?,
@@ -1049,6 +1054,24 @@ impl Encoder {
         let scratch = scratch_excluding(rt, rn);
         self.emit_add_imm(scratch, rn, offset)?;
         self.emit_word(0xb900_0000 | ((scratch as u32) << 5) | rt as u32)
+    }
+
+    /// 16-bit `STRH Wt, [Xn, #offset]` — offset scaled by 2 (plan-50-D).
+    ///
+    /// Load/store register, unsigned immediate: `size(2) 111 V 01 opc(2) imm12 Rn Rt`.
+    /// `STRH` is size=01 opc=00 → `0x7900_0000`, the store counterpart of
+    /// `LDRH`'s `0x7940_0000` and the halfword sibling of `STR`/`STRB`
+    /// (`0xb900_0000` / `0x3900_0000`).
+    fn emit_str_u16(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 2 != 0 {
+            return Err(format!("unaligned AArch64 str u16 offset {offset}"));
+        }
+        if let Ok(imm) = checked_imm12(offset / 2) {
+            return self.emit_word(0x7900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0x7900_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_ldr_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {

@@ -30,13 +30,13 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
                 8,
             ));
         }
-        CodeOp::LdrU32 => {
+        CodeOp::LdrU32 | CodeOp::StrU32 => {
             return Ok(sized_memory_imm(
                 immediate(field(instruction, "offset")?)?,
                 4,
             ));
         }
-        CodeOp::LdrU16 => {
+        CodeOp::LdrU16 | CodeOp::StrU16 => {
             return Ok(sized_memory_imm(
                 immediate(field(instruction, "offset")?)?,
                 2,

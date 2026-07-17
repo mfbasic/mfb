@@ -565,7 +565,7 @@ fn every_scalar_op_encodes() {
 #[test]
 fn memory_ops_encode_all_widths() {
     for op in [
-        "ldr_u64", "ldr_u32", "ldr_u16", "ldr_u8", "str_u64", "str_u32", "str_u8",
+        "ldr_u64", "ldr_u32", "ldr_u16", "ldr_u8", "str_u64", "str_u32", "str_u16", "str_u8",
     ] {
         let field = if op.starts_with("ldr") { "dst" } else { "src" };
         assert_eq!(
@@ -584,15 +584,40 @@ fn memory_ops_encode_all_widths() {
     );
 }
 
+/// plan-50-D: `STRH Wt, [Xn, #imm12*2]`, the store counterpart of `LDRH`.
+/// Asserted as exact words against the ARM ARM, not merely "encodes without
+/// error" — a wrong width or opcode still produces a valid instruction.
+#[test]
+fn str_u16_encodes_strh() {
+    // STRH w0, [x1, #0]  ->  0x79000020
+    assert_eq!(
+        emit_words("str_u16", &[("src", "x0"), ("base", "x1"), ("offset", "0")]),
+        [0x7900_0020]
+    );
+    // STRH w2, [x3, #4]  -> imm12 = 4/2 = 2  ->  0x79000862
+    assert_eq!(
+        emit_words("str_u16", &[("src", "x2"), ("base", "x3"), ("offset", "4")]),
+        [0x7900_0862]
+    );
+    // It must differ from LDRH by exactly the load bit (0x00400000).
+    let strh = emit_words("str_u16", &[("src", "x0"), ("base", "x1"), ("offset", "2")])[0];
+    let ldrh = emit_words("ldr_u16", &[("dst", "x0"), ("base", "x1"), ("offset", "2")])[0];
+    assert_eq!(ldrh - strh, 0x0040_0000);
+    // ...and from STR (32-bit) by exactly the size field (bits 31:30): STRH is
+    // size=01, STR(32) is size=10.
+    let str32 = emit_words("str_u32", &[("src", "x0"), ("base", "x1"), ("offset", "4")])[0];
+    assert_eq!(str32 & 0xc000_0000, 0x8000_0000);
+    assert_eq!(strh & 0xc000_0000, 0x4000_0000);
+}
+
 #[test]
 fn memory_ops_use_scratch_for_large_offsets() {
     // An offset beyond the scaled imm12 ceiling materializes an address in a
     // scratch register first (2 words), for every width.
     let big = "40000";
-    // str_u32/str_u16 have no dedicated sizing arm, so their large-offset path is
-    // exercised via the pipeline elsewhere; the rest funnel the scratch fallback.
     for op in [
-        "ldr_u64", "str_u64", "ldr_u32", "ldr_u16", "ldr_u8", "str_u8", "ldr_d", "str_d",
+        "ldr_u64", "str_u64", "ldr_u32", "str_u32", "ldr_u16", "str_u16", "ldr_u8", "str_u8",
+        "ldr_d", "str_d",
     ] {
         let field = if op.starts_with("ldr") { "dst" } else { "src" };
         let regv = if op.ends_with('d') { "d0" } else { "x0" };
@@ -618,6 +643,7 @@ fn unaligned_memory_offsets_error() {
     assert!(enc.emit_instruction(&bad("ldr_u32", "dst", "x0")).is_err());
     assert!(enc.emit_instruction(&bad("str_u32", "src", "x0")).is_err());
     assert!(enc.emit_instruction(&bad("ldr_u16", "dst", "x0")).is_err());
+    assert!(enc.emit_instruction(&bad("str_u16", "src", "x0")).is_err());
     assert!(enc.emit_instruction(&bad("ldr_d", "dst", "d0")).is_err());
     assert!(enc.emit_instruction(&bad("str_d", "src", "d0")).is_err());
 }

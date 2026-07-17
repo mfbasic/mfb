@@ -229,8 +229,10 @@ impl Encoder {
             "ldr_u16" => self.emit_load(0b101, r("dst")?, r("base")?, imm("offset")?), // lhu
             "ldr_u8" => self.emit_load(0b100, r("dst")?, r("base")?, imm("offset")?),  // lbu
             "str_u64" => self.emit_store(0b011, r("src")?, r("base")?, imm("offset")?),
-            "str_u32" => self.emit_store(0b010, r("src")?, r("base")?, imm("offset")?),
-            "str_u8" => self.emit_store(0b000, r("src")?, r("base")?, imm("offset")?),
+            "str_u32" => self.emit_store(0b010, r("src")?, r("base")?, imm("offset")?), // sw
+            // S-type funct3: sb=000, sh=001, sw=010, sd=011 (plan-50-D).
+            "str_u16" => self.emit_store(0b001, r("src")?, r("base")?, imm("offset")?), // sh
+            "str_u8" => self.emit_store(0b000, r("src")?, r("base")?, imm("offset")?),  // sb
             "ldr_d" => self.emit_load_fp(0b011, f("dst")?, r("base")?, imm("offset")?),
             "str_d" => self.emit_store_fp(0b011, f("src")?, r("base")?, imm("offset")?),
             "b" => self.emit_jal_label(ZERO, field(instruction, "target")?),

@@ -610,6 +610,9 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "ldr_u8" => mem_load(instruction, MemWidth::U8),
         "str_u64" => mem_store(instruction, MemWidth::U64),
         "str_u32" => mem_store(instruction, MemWidth::U32),
+        // plan-50-D. `MemWidth::U16` already drives the 0x66 operand-size prefix
+        // on the load side (`ldr_u16`), so the store needs only this arm.
+        "str_u16" => mem_store(instruction, MemWidth::U16),
         "str_u8" => mem_store(instruction, MemWidth::U8),
         "b" => jmp_label(instruction, JccKind::Jmp),
         "b.eq" => jmp_label(instruction, JccKind::Je),

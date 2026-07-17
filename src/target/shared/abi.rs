@@ -821,6 +821,17 @@ pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction
         .field("offset", &offset.to_string())
 }
 
+/// 16-bit store (plan-50-D). Needed by struct-field marshaling for a
+/// `CInt16`/`CUInt16` member; `ldr_u16` has always been encodable, this is its
+/// missing counterpart.
+#[allow(dead_code)]
+pub(crate) fn store_u16(src: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("str_u16")
+        .field("src", src)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
 pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u8")
         .field("src", src)

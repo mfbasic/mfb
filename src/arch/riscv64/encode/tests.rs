@@ -787,7 +787,7 @@ fn load_store_variants_and_large_offsets() {
         ]));
         assert_eq!(w[0] & 0x7f, 0x03, "{op} is a LOAD");
     }
-    for op in ["str_u32", "str_u8"] {
+    for op in ["str_u32", "str_u16", "str_u8"] {
         let w = words(&encode_text(vec![
             ci(op, &[("src", "a0"), ("base", "sp"), ("offset", "8")]),
             ci("ret", &[]),

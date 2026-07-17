@@ -144,7 +144,7 @@ mir_ops!(
         // `from_code`); listed here only so the `CodeOp`→`MirOp` map stays total
         // (plan-99).
         RvBr, RvFcmp, Slt, Sltu,
-        LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
+        LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU16, StrU8, LdrD, StrD, Adrp, AddPageOff,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,
     }
