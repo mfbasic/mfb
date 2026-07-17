@@ -364,7 +364,12 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                         consts: native
                             .consts
                             .iter()
-                            .map(|pin| (pin.slot.clone(), eval_link_const(&pin.value, &link.cstructs)))
+                            .map(|pin| {
+                                (
+                                    pin.slot.clone(),
+                                    eval_link_const(&pin.value, &link.cstructs),
+                                )
+                            })
                             .collect(),
                         bind_in: native
                             .bind_in
@@ -378,14 +383,8 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                                     .collect(),
                             })
                             .collect(),
-                        success_on: native
-                            .success_on
-                            .as_ref()
-                            .map(lower_link_expr),
-                        result: native
-                            .result
-                            .as_ref()
-                            .map(lower_link_expr),
+                        success_on: native.success_on.as_ref().map(lower_link_expr),
+                        result: native.result.as_ref().map(lower_link_expr),
                         free: native.free.as_ref().map(|f| IrFree {
                             slot: f.slot.clone(),
                             symbol: f.symbol.clone(),

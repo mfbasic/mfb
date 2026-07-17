@@ -164,7 +164,9 @@ pub(crate) fn link_expr_var_names<'a>(expr: &'a IrLinkExpr, out: &mut Vec<&'a st
     match expr {
         IrLinkExpr::Var(name) => out.push(name.as_str()),
         IrLinkExpr::Int(_) => {}
-        IrLinkExpr::Compare { lhs, rhs, .. } | IrLinkExpr::And(lhs, rhs) | IrLinkExpr::Or(lhs, rhs) => {
+        IrLinkExpr::Compare { lhs, rhs, .. }
+        | IrLinkExpr::And(lhs, rhs)
+        | IrLinkExpr::Or(lhs, rhs) => {
             link_expr_var_names(lhs, out);
             link_expr_var_names(rhs, out);
         }
@@ -182,8 +184,8 @@ pub(crate) fn cstruct_field_mfb_type(ctype: &str) -> Option<&'static str> {
         // Every narrow integer widens into MFBASIC's 64-bit `Integer`.
         // `CUInt64` reinterprets: MFBASIC has no unsigned 64-bit type, so a value
         // above i64::MAX wraps. Documented rather than rejected.
-        "CInt8" | "CInt16" | "CInt32" | "CInt64" | "CUInt8" | "CUInt16" | "CUInt32"
-        | "CUInt64" | "CByte" => Some("Integer"),
+        "CInt8" | "CInt16" | "CInt32" | "CInt64" | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64"
+        | "CByte" => Some("Integer"),
         "CBool" => Some("Boolean"),
         "CFloat" | "CDouble" => Some("Float"),
         // A `const char *` field, copied out into an owned String (plan-50-F).
@@ -627,7 +629,10 @@ mod tests {
             "macos-aarch64",
         )
         .unwrap();
-        assert_eq!((layout.size, layout.align, layout.offsets), (16, 8, vec![0, 8]));
+        assert_eq!(
+            (layout.size, layout.align, layout.offsets),
+            (16, 8, vec![0, 8])
+        );
     }
 
     /// A trailing small field still pads the struct out to its alignment.
@@ -638,7 +643,10 @@ mod tests {
             "macos-aarch64",
         )
         .unwrap();
-        assert_eq!((layout.size, layout.align, layout.offsets), (16, 8, vec![0, 8]));
+        assert_eq!(
+            (layout.size, layout.align, layout.offsets),
+            (16, 8, vec![0, 8])
+        );
     }
 
     #[test]
@@ -648,7 +656,10 @@ mod tests {
             "macos-aarch64",
         )
         .unwrap();
-        assert_eq!((layout.size, layout.align, layout.offsets), (3, 1, vec![0, 1, 2]));
+        assert_eq!(
+            (layout.size, layout.align, layout.offsets),
+            (3, 1, vec![0, 1, 2])
+        );
     }
 
     #[test]
@@ -658,7 +669,10 @@ mod tests {
             "macos-aarch64",
         )
         .unwrap();
-        assert_eq!((layout.size, layout.align, layout.offsets), (8, 4, vec![0, 2, 4]));
+        assert_eq!(
+            (layout.size, layout.align, layout.offsets),
+            (8, 4, vec![0, 2, 4])
+        );
     }
 
     #[test]
@@ -683,7 +697,12 @@ mod tests {
             ("extension", "CString"),
         ]);
         let a = compute_c_layout(&f, "macos-aarch64").unwrap();
-        for target in ["linux-x86_64", "linux-aarch64", "linux-riscv64", "windows-x86_64"] {
+        for target in [
+            "linux-x86_64",
+            "linux-aarch64",
+            "linux-riscv64",
+            "windows-x86_64",
+        ] {
             assert_eq!(compute_c_layout(&f, target).unwrap(), a, "{target} differs");
         }
     }

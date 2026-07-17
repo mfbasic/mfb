@@ -155,11 +155,10 @@ mod verify;
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
 pub(crate) use json::visibility_name;
 pub(crate) use link::{
-    AbiDirection, IrAbiSlot, IrBindIn, IrBindInField, IrCStruct, IrCStructField, IrFree,
-    IrLinkExpr, IrLinkFunction, IrNativeResource, abi_ctype_valid_as_argument,
-    CLayout, CSTRING_STRUCT_FIELDS, abi_ctype_valid_as_return, check_cstruct, check_struct_slot,
-    compute_c_layout,
-    link_expr_var_names, StructSlotView,
+    abi_ctype_valid_as_argument, abi_ctype_valid_as_return, check_cstruct, check_struct_slot,
+    compute_c_layout, link_expr_var_names, AbiDirection, CLayout, IrAbiSlot, IrBindIn,
+    IrBindInField, IrCStruct, IrCStructField, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource,
+    StructSlotView, CSTRING_STRUCT_FIELDS,
 };
 pub(crate) use lower::collect_project_docs;
 pub use lower::{lower_project_with_external_functions, write_ir};

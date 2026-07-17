@@ -2662,9 +2662,11 @@ impl TypeEnv {
                 else {
                     continue;
                 };
-                let Some(rec) = project.types.iter().find(|t| {
-                    t.name == decl.maps_to && (t.kind == "type" || t.kind == "record")
-                }) else {
+                let Some(rec) = project
+                    .types
+                    .iter()
+                    .find(|t| t.name == decl.maps_to && (t.kind == "type" || t.kind == "record"))
+                else {
                     self.emit(
                         "NATIVE_STRUCT_FIELD_MISMATCH",
                         format!(
@@ -2995,7 +2997,10 @@ impl TypeEnv {
             // could read any other slot — despite the spec saying it could.
             {
                 let mut names = Vec::new();
-                for expr in [&function.success_on, &function.result].into_iter().flatten() {
+                for expr in [&function.success_on, &function.result]
+                    .into_iter()
+                    .flatten()
+                {
                     crate::ir::link_expr_var_names(expr, &mut names);
                 }
                 for name in names {

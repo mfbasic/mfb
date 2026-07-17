@@ -579,8 +579,11 @@ impl<'a> SyntaxChecker<'a> {
                         function.params.iter().any(|p| p.name == *name)
                     }
                     crate::ast::Expression::Number(_) | crate::ast::Expression::Boolean(_) => true,
-                    crate::ast::Expression::Unary { operator, operand, .. } => {
-                        operator == "-" && matches!(operand.as_ref(), crate::ast::Expression::Number(_))
+                    crate::ast::Expression::Unary {
+                        operator, operand, ..
+                    } => {
+                        operator == "-"
+                            && matches!(operand.as_ref(), crate::ast::Expression::Number(_))
                     }
                     _ => false,
                 };
@@ -844,7 +847,10 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
             let mut names: Vec<String> = Vec::new();
-            for expr in [&function.success_on, &function.result].into_iter().flatten() {
+            for expr in [&function.success_on, &function.result]
+                .into_iter()
+                .flatten()
+            {
                 idents(expr, &mut names);
             }
             for name in names {

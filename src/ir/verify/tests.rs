@@ -2688,7 +2688,10 @@ fn rejects_oversized_cstruct() {
     for (i, field) in decl.fields.iter_mut().enumerate() {
         field.name = format!("f{i}");
     }
-    expect_rule(&project_with_cstructs(vec![decl]), "NATIVE_CSTRUCT_TOO_LARGE");
+    expect_rule(
+        &project_with_cstructs(vec![decl]),
+        "NATIVE_CSTRUCT_TOO_LARGE",
+    );
 }
 
 /// A crafted package never ran the resolver, so this is the only gate keeping a
@@ -2772,7 +2775,10 @@ fn rejects_struct_slot_with_uncovered_record_field() {
     lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
     let mut p = project(
         vec![func_returns("run", "Nothing", vec![], vec![])],
-        vec![record_typed("Rec", &[("a", "Integer"), ("extra", "Integer")])],
+        vec![record_typed(
+            "Rec",
+            &[("a", "Integer"), ("extra", "Integer")],
+        )],
     );
     p.link_cstructs = vec![cstruct("S", &[("a", "CInt32")])];
     p.link_functions = vec![lf];
