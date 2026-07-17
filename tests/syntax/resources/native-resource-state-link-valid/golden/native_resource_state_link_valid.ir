@@ -6,30 +6,30 @@
   "types": [
   {
     "kind": "type",
-    "line": 7,
+    "line": 15,
     "visibility": "export",
     "name": "FileInfo",
     "fields": [
-    { "visibility": null, "line": 8, "name": "frames", "type": "Integer" },
-    { "visibility": null, "line": 9, "name": "samplerate", "type": "Integer" }
+    { "visibility": null, "line": 16, "name": "frames", "type": "Integer" },
+    { "visibility": null, "line": 17, "name": "samplerate", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "openFile",
-    "line": 28,
+    "line": 38,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "path", "line": 28, "type": "String", "default": null }
+    { "name": "path", "line": 38, "type": "String", "default": null }
     ],
     "returns": "SfFile STATE FileInfo",
     "body": [
-    { "op": "bind", "line": 29, "mutable": false, "name": "f", "type": "SfFile STATE FileInfo", "value": { "kind": "call", "type": "SfFile", "target": "sndLink.open", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "stateAssign", "line": 30, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "frames", "value": { "kind": "const", "type": "Integer", "value": "1024" } }] } },
-    { "op": "stateAssign", "line": 31, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "samplerate", "value": { "kind": "const", "type": "Integer", "value": "44100" } }] } },
-    { "op": "return", "line": 32, "value": { "kind": "local", "name": "f" } }
+    { "op": "bind", "line": 39, "mutable": false, "name": "f", "type": "SfFile STATE FileInfo", "value": { "kind": "call", "type": "SfFile", "target": "sndLink.open", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 40, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "frames", "value": { "kind": "const", "type": "Integer", "value": "1024" } }] } },
+    { "op": "stateAssign", "line": 41, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "samplerate", "value": { "kind": "const", "type": "Integer", "value": "44100" } }] } },
+    { "op": "return", "line": 42, "value": { "kind": "local", "name": "f" } }
     ]
   }
   ]

@@ -6,22 +6,22 @@
     "imports": [
     ],
     "items": [
-    { "kind": "resource", "visibility": "export", "name": "SfFile", "closeFn": "sndLink.close", "threadSendable": false, "line": 5 },
+    { "kind": "resource", "visibility": "export", "name": "SfFile", "closeFn": "sndLink.close", "threadSendable": false, "line": 13 },
     {
       "kind": "type",
       "visibility": "export",
       "name": "FileInfo",
-      "line": 7,
+      "line": 15,
       "fields": [
-      { "visibility": null, "name": "frames", "type": "Integer", "line": 8 },
-      { "visibility": null, "name": "samplerate", "type": "Integer", "line": 9 }
+      { "visibility": null, "name": "frames", "type": "Integer", "line": 16 },
+      { "visibility": null, "name": "samplerate", "type": "Integer", "line": 17 }
       ]
     },
     {
       "kind": "link",
       "library": "sqlite3",
       "alias": "sndLink",
-      "line": 12,
+      "line": 20,
       "cstructs": [
       ],
       "functions": [
@@ -31,14 +31,14 @@
         "symbol": "sqlite3_open",
         "returnResource": true,
         "returnType": "SfFile",
-        "line": 13,
+        "line": 21,
         "params": [
-        { "name": "path", "type": "String", "default": null, "line": 13 }
+        { "name": "path", "type": "String", "default": null, "line": 21 }
         ],
         "abi": {
           "slots": [
-          { "name": "path", "ctype": "CString", "out": false, "line": 15 },
-          { "name": "db", "ctype": "CPtr", "out": true, "line": 15 }
+          { "name": "path", "ctype": "CString", "out": false, "line": 23 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 23 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -55,13 +55,13 @@
         "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
-        "line": 20,
+        "line": 28,
         "params": [
-        { "name": "db", "type": "SfFile", "resource": true, "state": null, "default": null, "line": 20 }
+        { "name": "db", "type": "SfFile", "resource": true, "state": "FileInfo", "default": null, "line": 28 }
         ],
         "abi": {
           "slots": [
-          { "name": "db", "ctype": "CPtr", "out": false, "line": 22 }
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 30 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -79,16 +79,16 @@
       "visibility": "export",
       "isolated": false,
       "name": "openFile",
-      "line": 28,
+      "line": 38,
       "params": [
-      { "name": "path", "type": "String", "default": null, "line": 28 }
+      { "name": "path", "type": "String", "default": null, "line": 38 }
       ],
       "returnType": "SfFile", "returnResource": true, "returnState": "FileInfo",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "f", "type": "SfFile", "value": { "kind": "call", "callee": "sndLink.open", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 29 },
-      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "frames", "value": { "kind": "number", "value": "1024" } }] }, "line": 30 },
-      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "samplerate", "value": { "kind": "number", "value": "44100" } }] }, "line": 31 },
-      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 32 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "f", "type": "SfFile", "value": { "kind": "call", "callee": "sndLink.open", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 39 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "frames", "value": { "kind": "number", "value": "1024" } }] }, "line": 40 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "samplerate", "value": { "kind": "number", "value": "44100" } }] }, "line": 41 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 42 }
       ]
     }
     ]

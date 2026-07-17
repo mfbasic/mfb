@@ -1,7 +1,15 @@
-' plan-52-D Phase 3: bindings/libsnd's `openFile` WRAPPER shape, on a native
-' LINK resource (SfFile is a LINK resource, not a built-in File).
-' The LINK native returns a BARE resource (no STATE clause — that stays a
-' non-goal); an ordinary EXPORT FUNC wraps it and carries the STATE.
+' plan-53-A: a native LINK resource declared with a STATE clause is an 80-byte
+' RECORD, so it can carry STATE without corrupting the native handle.
+'
+' History worth keeping: plan-52-D committed this fixture with a WRAPPER shape —
+' a bare LINK `open() AS RES SfFile` plus an EXPORT FUNC doing `f.state.frames =
+' 1024`. That COMPILED but would corrupt at runtime: a bare native resource is a
+' raw handle with no STATE slot, so `.state` wrote at offset 16 of the handle's
+' own memory. The fixture had no `.run` golden, so nothing caught it. plan-53-A
+' makes the fix: the LINK producer declares the STATE (`AS RES SfFile STATE
+' FileInfo`), so SfFile is a record and the wrapper's state writes are sound.
+' The runtime proof of this exact pattern is
+' tests/rt-behavior/native/native-resource-state-rt (against real sqlite3).
 EXPORT RESOURCE SfFile CLOSE BY sndLink::close
 
 EXPORT TYPE FileInfo
@@ -10,21 +18,23 @@ EXPORT TYPE FileInfo
 END TYPE
 
 LINK "sqlite3" AS sndLink
-  FUNC open(path AS String) AS RES SfFile
+  FUNC open(path AS String) AS RES SfFile STATE FileInfo
     SYMBOL "sqlite3_open"
     ABI (path CString, db OUT CPtr) AS status CInt32
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC close(RES db AS SfFile) AS Nothing
+  FUNC close(RES db AS SfFile STATE FileInfo) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 END LINK
 
-' The wrapper: hands back a native handle CARRYING its info.
+' A wrapper that hands back a native handle carrying its info. Sound now that
+' SfFile is a record (the LINK producer declares the STATE): `f.state` writes to
+' the record's STATE payload, not the handle's memory.
 EXPORT FUNC openFile(path AS String) AS RES SfFile STATE FileInfo
   RES f AS SfFile STATE FileInfo = sndLink::open(path)
   f.state.frames = 1024
