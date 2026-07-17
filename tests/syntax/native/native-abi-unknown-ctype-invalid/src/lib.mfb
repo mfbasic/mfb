@@ -1,0 +1,10 @@
+' An ABI slot's C type must name a type the marshaling backend implements
+' (plan-50-A). A typo like `CIint32` used to compile clean and silently marshal
+' as a raw 64-bit value; `CSize` is a real C spelling the ABI does not carry.
+LINK "demo" AS demoLink
+  FUNC scale(n AS Integer, len AS Integer) AS Integer
+    SYMBOL "demo_scale"
+    ABI (n CIint32, len CSize, return OUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

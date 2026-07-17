@@ -454,6 +454,41 @@ impl<'a> SyntaxChecker<'a> {
             .map(|param| param.name.as_str())
             .collect();
 
+        // plan-50-A: the slot ctype namespace is closed. An unknown name used to
+        // fall through to a raw 64-bit marshal in the thunk's default arm, so a
+        // typo compiled clean and silently moved the wrong width.
+        if !crate::ir::abi_ctype_valid_as_return(&function.abi.return_ctype) {
+            self.report(
+                "NATIVE_ABI_UNKNOWN_CTYPE",
+                &format!(
+                    "Native function `{}` ABI return `{}` uses C type `{}`, which is not a valid ABI return type.",
+                    function.name, function.abi.return_name, function.abi.return_ctype
+                ),
+                file,
+                function.abi.line,
+            );
+        }
+        for slot in &function.abi.slots {
+            // An OUT slot is a produced *value*, so it carries a return-shaped
+            // ctype; an ordinary slot is a C argument.
+            let ok = if slot.is_out {
+                crate::ir::abi_ctype_valid_as_return(&slot.ctype)
+            } else {
+                crate::ir::abi_ctype_valid_as_argument(&slot.ctype)
+            };
+            if !ok {
+                self.report(
+                    "NATIVE_ABI_UNKNOWN_CTYPE",
+                    &format!(
+                        "Native function `{}` ABI slot `{}` uses C type `{}`, which is not valid in that position.",
+                        function.name, slot.name, slot.ctype
+                    ),
+                    file,
+                    slot.line,
+                );
+            }
+        }
+
         let mut result_markers = 0;
         for slot in &function.abi.slots {
             if slot.name == "return" {

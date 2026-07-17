@@ -821,6 +821,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "two declaring units vendor different native libraries that copy to the same output filename",
     },
     Rule {
+        code: "2-203-0123",
+        name: "NATIVE_ABI_UNKNOWN_CTYPE",
+        severity: Severity::Error,
+        message: "an ABI slot or return names a C type the marshaling backend does not implement",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

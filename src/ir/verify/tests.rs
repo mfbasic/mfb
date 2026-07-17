@@ -2585,6 +2585,45 @@ fn accepts_valid_link_function() {
     accept(&p);
 }
 
+/// plan-50-A: the package path is a marshaling-safety gate — a crafted `.mfp`
+/// link table drives raw C calls, and an unknown slot ctype used to fall through
+/// to a raw 64-bit marshal in the thunk's default arm.
+#[test]
+fn rejects_link_unknown_slot_ctype() {
+    let mut lf = link_fn();
+    lf.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "path".to_string(),
+        ctype: "CIint32".to_string(),
+        is_out: false,
+    }];
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
+}
+
+#[test]
+fn rejects_link_unknown_return_ctype() {
+    let mut lf = link_fn();
+    lf.abi_return_ctype = "CFloat32".to_string();
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
+}
+
+/// `CVoid` is a return-only type; a void *argument* is meaningless.
+#[test]
+fn rejects_link_cvoid_argument_slot() {
+    let mut lf = link_fn();
+    lf.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "path".to_string(),
+        ctype: "CVoid".to_string(),
+        is_out: false,
+    }];
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
+}
+
 #[test]
 fn rejects_link_cptr_escape_in_param() {
     let mut lf = link_fn();

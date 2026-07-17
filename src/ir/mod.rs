@@ -150,7 +150,10 @@ mod verify;
 
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
 pub(crate) use json::visibility_name;
-pub(crate) use link::{IrAbiSlot, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource};
+pub(crate) use link::{
+    IrAbiSlot, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource, abi_ctype_valid_as_argument,
+    abi_ctype_valid_as_return, abi_slot_ctype_is_known,
+};
 pub(crate) use lower::collect_project_docs;
 pub use lower::{lower_project_with_external_functions, write_ir};
 pub(crate) use op::IrOp;

@@ -399,6 +399,7 @@ Scheme*).
 | `2-203-0120` | `NATIVE_LIBRARY_FILE_MISSING` | error | a resolved `vendor` native library is missing from the consumer project's `vendor/` directory |
 | `2-203-0121` | `NATIVE_LIBRARY_HASH_MISMATCH` | error | a resolved `vendor` native library does not match the sha256 the binding recorded for it |
 | `2-203-0122` | `NATIVE_LIBRARY_VENDOR_COLLISION` | error | two declaring units vendor different native libraries that copy to the same output filename |
+| `2-203-0123` | `NATIVE_ABI_UNKNOWN_CTYPE` | error | an ABI slot or return names a C type the marshaling backend does not implement |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |

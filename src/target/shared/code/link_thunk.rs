@@ -619,7 +619,7 @@ fn lower_link_thunk(
             &symbol,
             &mut instructions,
             &mut relocations,
-        );
+        )?;
     } else if let Some(result) = &function.result {
         let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
@@ -783,7 +783,7 @@ fn emit_return_passthrough(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-) {
+) -> Result<(), String> {
     let cret_off = m.cret_off;
     let status_off = m.status_off;
     match function.abi_return_ctype.as_str() {
@@ -853,14 +853,29 @@ fn emit_return_passthrough(
                 abi::and_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
             ]);
         }
-        _ => {
+        // The narrow integers carry no return-side normalization: the C ABI
+        // already delivers them in the low bits of the return register, and the
+        // wrapper's MFBASIC type is `Integer`. Listed explicitly (rather than
+        // left to a default arm) so an unknown ctype is a hard error — plan-50-A.
+        "CInt8" | "CInt16" | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64" | "CFloat" => {
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
                 cret_off,
             ));
         }
+        other => {
+            // Unreachable: `abi_slot_ctype_is_known` gates this at syntaxcheck and
+            // at `ir::verify` (both paths). This exists so a ctype added to the
+            // allow-list without a marshaling arm fails loudly at build time
+            // instead of silently moving a raw 64-bit value.
+            return Err(format!(
+                "LINK function '{}.{}' has unknown ABI return ctype '{other}'",
+                function.alias, function.name
+            ));
+        }
     }
+    Ok(())
 }
 
 /// Copy the NUL-free MFBASIC `String` at `[sp + str_off]` into a freshly arena
@@ -1127,4 +1142,103 @@ fn emit_link_bool(
         abi::label(&end),
     ]);
     dst
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{
+        IrAbiSlot, IrLinkFunction, abi_ctype_valid_as_argument, abi_ctype_valid_as_return,
+        abi_slot_ctype_is_known,
+    };
+
+    /// Every ctype the allow-list accepts must reach a real marshaling arm.
+    ///
+    /// plan-50-A closed the slot-ctype namespace and turned `emit_return_passthrough`'s
+    /// default arm into an `Err`. The allow-list is hand-written (Rust cannot
+    /// enumerate match arms), so this walks every accepted name through
+    /// `lower_link_thunk` and asserts none of them lands on that arm. Without it,
+    /// adding a ctype to the list without a marshaling arm would only fail at the
+    /// first binding that used it.
+    #[test]
+    fn every_known_ctype_lowers() {
+        // Lowering reads the active backend for register/instruction shapes; the
+        // ctype set under test is backend-independent, so any backend serves.
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+
+        // The full accepted set, mirrored from `abi_slot_ctype_is_known`. Asserted
+        // below to be exhaustive, so a name added there fails here until listed.
+        const CTYPES: &[&str] = &[
+            "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
+            "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
+        ];
+        for ctype in CTYPES {
+            assert!(
+                abi_slot_ctype_is_known(ctype),
+                "{ctype} is listed here but rejected by abi_slot_ctype_is_known"
+            );
+        }
+
+        // Every ctype valid as an ABI *return* must reach a return arm. This is the
+        // arm that can `Err`, and it is how the guard caught `CString` having no
+        // return meaning at all (a `char *` return is `CPtr` + a `String` wrapper).
+        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_return(c)) {
+            let returns_value = *ctype != "CVoid";
+            let function = IrLinkFunction {
+                alias: "lib".to_string(),
+                name: format!("ret_{ctype}"),
+                library: "demo".to_string(),
+                symbol: "demo_f".to_string(),
+                params: vec![],
+                // A `CPtr` return with an `Integer` wrapper takes the raw path; the
+                // `String` copy-out path is covered by the sqlite3 runtime tests.
+                return_type: if returns_value { "Integer" } else { "Nothing" }.to_string(),
+                return_resource: false,
+                abi_slots: vec![],
+                abi_return_name: if returns_value { "return" } else { "status" }.to_string(),
+                abi_return_ctype: (*ctype).to_string(),
+                consts: vec![],
+                success_on: None,
+                result: None,
+                free: None,
+            };
+            let lowered = lower_link_thunk(&function, 0, 0, None);
+            assert!(
+                lowered.is_ok(),
+                "accepted return ctype {ctype} does not lower: {:?}",
+                lowered.err()
+            );
+        }
+
+        // Every ctype valid as an ABI *argument* must stage without error. Pinned
+        // with CONST so the slot needs no wrapper parameter.
+        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_argument(c)) {
+            let function = IrLinkFunction {
+                alias: "lib".to_string(),
+                name: format!("arg_{ctype}"),
+                library: "demo".to_string(),
+                symbol: "demo_f".to_string(),
+                params: vec![],
+                return_type: "Nothing".to_string(),
+                return_resource: false,
+                abi_slots: vec![IrAbiSlot {
+                    name: "pinned".to_string(),
+                    ctype: (*ctype).to_string(),
+                    is_out: false,
+                }],
+                abi_return_name: "status".to_string(),
+                abi_return_ctype: "CInt32".to_string(),
+                consts: vec![("pinned".to_string(), 0)],
+                success_on: None,
+                result: None,
+                free: None,
+            };
+            let lowered = lower_link_thunk(&function, 0, 0, None);
+            assert!(
+                lowered.is_ok(),
+                "accepted argument ctype {ctype} does not lower: {:?}",
+                lowered.err()
+            );
+        }
+    }
 }

@@ -1,0 +1,7 @@
+{
+  "name": "native_abi_unknown_ctype_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

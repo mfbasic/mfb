@@ -1,3 +1,58 @@
+/// Whether `ctype` is a C ABI type the marshaling backend implements for an
+/// `ABI (...)` slot or the ABI return (plan-50-A).
+///
+/// This is the **slot** namespace. It is deliberately distinct from
+/// `is_c_abi_type` (`syntaxcheck::helpers` / `ir::verify`), which answers the
+/// opposite question — which names are *banned* from a wrapper's MFBASIC-facing
+/// signature (`NATIVE_CPTR_ESCAPE`) — and which excludes `CBool`/`CByte`/`CVoid`
+/// on purpose. Do not merge the two lists.
+///
+/// The set is enumerated from what `lower_link_thunk` actually implements, not
+/// from the spec prose; `link_thunk::tests::every_known_ctype_lowers` walks every
+/// name here through the thunk to keep the two in step.
+///
+/// Two names are position-restricted; see [`abi_ctype_valid_as_argument`] and
+/// [`abi_ctype_valid_as_return`].
+pub(crate) fn abi_slot_ctype_is_known(ctype: &str) -> bool {
+    matches!(
+        ctype,
+        "CPtr"
+            | "CString"
+            | "CInt8"
+            | "CInt16"
+            | "CInt32"
+            | "CInt64"
+            | "CUInt8"
+            | "CUInt16"
+            | "CUInt32"
+            | "CUInt64"
+            | "CBool"
+            | "CByte"
+            | "CFloat"
+            | "CDouble"
+            | "CVoid"
+    )
+}
+
+/// Whether `ctype` may appear on an `ABI (...)` argument slot.
+///
+/// Everything but `CVoid`: a C function takes no `void` argument, so a `CVoid`
+/// slot is meaningless. `CVoid` is valid only as the ABI return.
+pub(crate) fn abi_ctype_valid_as_argument(ctype: &str) -> bool {
+    abi_slot_ctype_is_known(ctype) && ctype != "CVoid"
+}
+
+/// Whether `ctype` may appear as the ABI return (`AS <name> <ctype>`).
+///
+/// Everything but `CString`: `CString` is the *argument* direction — "build a
+/// NUL-terminated copy of this MFBASIC `String` for the duration of the call".
+/// A C function that returns `char *` is declared `CPtr` and paired with a
+/// wrapper `AS String`, which drives the copy-out (`emit_copy_cstring_to_string`).
+/// There is no return-side meaning for `CString` and no arm implementing one.
+pub(crate) fn abi_ctype_valid_as_return(ctype: &str) -> bool {
+    abi_slot_ctype_is_known(ctype) && ctype != "CString"
+}
+
 /// A native `LINK` resource declaration carried through to package metadata.
 #[derive(Clone)]
 pub(crate) struct IrNativeResource {
