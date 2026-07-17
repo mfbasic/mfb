@@ -9,3 +9,6 @@
 - ssh -p 2228 test@127.0.0.1 # Ubuntu x86_64 gtk (libc)
 - ssh -p 2229 test@127.0.0.1 # Alipine riscv64 (musl)
 - ssh -p 2230 test@127.0.0.1 # Win11 x86_64
+- ssh -p 2231 test@127.0.0.1 # Android aarch64
+- ssh -p 2232 test@127.0.0.1 # Debian riscv64 (libc)
+

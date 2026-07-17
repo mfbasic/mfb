@@ -367,6 +367,7 @@ mp3  | MPEG Layer 3
 | linux/aarch64 musl | 2224 Alpine | 16 formats |
 | linux/x86_64 glibc | 2228 Debian | 16 formats |
 | linux/x86_64 musl | 2227 Alpine | 16 formats |
+| linux/riscv64 glibc | 2232 Debian 13 | 16 formats |
 | linux/riscv64 musl | 2229 Alpine | 16 formats |
 
 Every Linux box returns the same 16 (`aiff`/`aifc`/`au`/`caf`/`flac`/`vox`/
@@ -377,15 +378,18 @@ table as a runtime query, and why it is not a golden.
 `native-struct-cstring-rt` (the capability guard) was also run on all five Linux
 boxes — byte-identical output on aarch64, x86_64 and riscv64, glibc and musl.
 
-**KNOWN LIMITATION — linux/riscv64 is not buildable by a real consumer.** A Linux
-console build emits BOTH libc flavors (`emitted_link_targets`, correctly: it
-really does produce both binaries), so both need a bundled library. Only
-riscv64-musl exists — no riscv64-glibc box exists to build one on (2229 is
-Alpine/musl). The riscv64/musl run above used a scratch manifest with a
-throwaway glibc locator so the build would complete; only the musl binary was
-executed. The committed manifest deliberately does NOT carry that placeholder —
-shipping a musl library labelled glibc would move the failure from build time to
-a `dlopen` at startup. Documented in the package DOC.
+**Every (os, arch, libc) slot is covered — no limitation remains.** The
+riscv64-glibc gap is closed: box **2232** (Debian 13 riscv64, glibc 2.41) exists
+and already had libsndfile built, so `libsndfile.so.1.0.37-riscv64-glibc` is
+vendored (sha256 `f2dcd852…`, verified against the box) and the manifest carries
+a real locator. `mfb build --target linux-riscv64` now succeeds from the
+committed manifest with no scratch placeholder, and BOTH riscv64 binaries were
+executed on real hardware — glibc on 2232, musl on 2229, 16 formats each.
+
+The earlier claim that riscv64 was unbuildable was wrong: it rested on
+`.ai/remote_systems.md` listing no riscv64-glibc box, which was a stale reading —
+2232 is in that file. The lesson is the plan's own: verify against the machine,
+not against a remembered inventory.
 
 **Landed notes.**
 1. `CONST <slot> = SIZEOF <CStruct>` implemented (the §Open Decisions

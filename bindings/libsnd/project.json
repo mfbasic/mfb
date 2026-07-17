@@ -42,6 +42,13 @@
                 "os": "linux",
                 "arch": "riscv64",
                 "type": "vendor",
+                "libc": "glibc",
+                "source": "libsndfile.so.1.0.37-riscv64-glibc"
+            },
+            {
+                "os": "linux",
+                "arch": "riscv64",
+                "type": "vendor",
                 "libc": "musl",
                 "source": "libsndfile.so.1.0.37-riscv64-musl"
             }

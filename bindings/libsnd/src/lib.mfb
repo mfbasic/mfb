@@ -28,12 +28,9 @@ DOC
   INFO that has FLAC installed can still fail to load if the major version
   INFO differs from the one this build was linked against.
   INFO
-  INFO linux/riscv64 is NOT buildable today. A Linux console build emits both a
-  INFO glibc and a musl executable, so both need a bundled library, and only the
-  INFO musl one exists — the binding is verified working on riscv64/musl, but
-  INFO `mfb build --target linux-riscv64` fails on the glibc half with
-  INFO `NATIVE_LIBRARY_NO_MATCH` (2-203-0118). The other five targets
-  INFO (macOS/aarch64, linux aarch64 and x86_64, each glibc and musl) are fine.
+  INFO Every supported target is covered: macOS/aarch64, and linux aarch64,
+  INFO x86_64 and riscv64 in both glibc and musl. A Linux console build emits
+  INFO both libc flavors, and a bundled library is present for each.
   EXAMPLE
     IMPORT io
     IMPORT libsnd
