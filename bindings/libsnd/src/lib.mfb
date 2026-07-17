@@ -58,15 +58,15 @@ EXPORT TYPE AudioFormat
   extension AS String
 END TYPE
 
-' RESOURCE SfFile CLOSE BY sndLink::closeFile
+RESOURCE SoundFile CLOSE BY sndLink::closeFile
 
-' TYPE FileInfo
-'   samplerate AS Integer
-'   channels   AS Integer
-'   format     AS Integer
-'   sections   AS Integer
-'   seekable   AS Integer
-' END TYPE
+TYPE FileInfo
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
 
 LINK "libsnd" AS sndLink
   CSTRUCT SfFormatInfo AS AudioFormat
@@ -75,13 +75,13 @@ LINK "libsnd" AS sndLink
     extension  CString
   END CSTRUCT
 
-  ' CSTRUCT SfInfo AS FileInfo
-  '   samplerate CInt32
-  '   channels   CInt32
-  '   format     CInt32
-  '   sections   CInt32
-  '   seekable   CInt32
-  ' END CSTRUCT
+  CSTRUCT SfFileInfo AS FileInfo
+    samplerate CInt32
+    channels   CInt32
+    format     CInt32
+    sections   CInt32
+    seekable   CInt32
+  END CSTRUCT
 
   FUNC getFormatCount() AS Integer
     SYMBOL "sf_command"
@@ -106,20 +106,38 @@ LINK "libsnd" AS sndLink
     SUCCESS_ON status = 0
   END FUNC
 
-  ' FUNC openFile(sndfile AS String) AS RES SfFile STATE FileInfo
-  '   SYMBOL "sf_open"
-  '   ABI (sndfile CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
-  '   CONST mode = 16 ' SFM_READ (0x0010)
-  '   BIND STATE file AS RES SfFile STATE FileInfo = info
-  '   ERROR_ON file = NOTHING
-  '   RETURN file
-  ' END FUNC
+  FUNC openFile(sndfile AS String) AS RES SoundFile STATE FileInfo
+    SYMBOL "sf_open"
+    ABI (sndfile CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+    CONST mode = 16 ' SFM_READ (0x0010)
+    BIND STATE file = info
+    ERROR_ON file = NOTHING
+    RETURN file
+  END FUNC
 
-  ' FUNC closeFile(RES sndfile AS SfFile STATE FileInfo) AS Nothing
-  '   SYMBOL "sf_close"
-  '   ABI (sndfile CPtr)
-  ' END FUNC
+  FUNC closeFile(RES sndfile AS SoundFile) AS Nothing
+    SYMBOL "sf_close"
+    ABI (sndfile CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC errNum(RES sndfile AS SoundFile) AS Integer
+    SYMBOL "sf_error"
+    ABI (sndfile CPtr) AS status CInt32
+    RETURN status
+  END FUNC
+
+  FUNC errMessage(errNum AS Integer) AS String
+    SYMBOL "sf_error"
+    ABI (errNum CInt32) AS message CPtr
+    RETURN message
+  END FUNC
 END LINK
+
+FUNC sndError(RES sndfile AS SoundFile) AS Error
+  LET err AS Integer = sndLink::errNum(sndfile)
+  RETURN error(err, "sqlite3: " & sndLink::errMessage(err))
+END FUNC
 
 DOC
   FUNC getFormats
