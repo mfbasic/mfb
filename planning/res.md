@@ -5,6 +5,27 @@ Status: **THINKING — not a plan.** No design is committed here. This captures 
 was established, what was disproved, and what is still open, so the thinking does
 not have to be redone.
 
+> **Track A is DONE.** `plan-52-A..D` are implemented and archived to
+> `planning/old-plans/`. §4's table is now spec §15.5; §10's reclamation is real
+> (961 MB → 31 MB on a 20k-cycle loop); the §2 fact table below still holds except
+> where noted inline. **Track B (§1/§3, resource-scoped ownership) remains open and
+> unaffected** — plan-52 forecloses nothing.
+>
+> Three things this doc got wrong, corrected by implementation:
+> - **Fact #10's "nothing frees the record"** is still true of the *record* (by
+>   design — it is the tombstone) but no longer of what it points at.
+> - **§5 Q1** ("does the STATE payload follow the record's rule?") — resolved: the
+>   state is freed at **drop**, the record is not. No double-free question arises;
+>   the blocks are reachable only through the record, so nulling-as-we-free gives
+>   once-only.
+> - The **disclosure primitive** §6 worried about (via plan-52-C §2) **does not
+>   exist**: a record's String field is a block-relative offset, so reading it as an
+>   Integer leaks the constant `8`, not an address.
+>
+> Two new defects came out of doing the work: `bugs/bug-257` (thread::transfer
+> admits a cross-thread STATE disagreement — **open**, and §5 Q5 is its ancestor)
+> and `bugs/bug-256`/`bug-258` (both fixed).
+
 Grew out of a review of `bindings/libsnd`'s `openFile` (wanting `sf_open` to hand
 back an `SNDFILE*` carrying its `SF_INFO`). That question opened a much larger one:
 **is a resource owned by a binding, or by a scope?**
@@ -218,25 +239,37 @@ If both are wanted, this needs re-derivation. **Unresolved.**
 
 ## 5. Open questions
 
-1. **Does the STATE payload follow the record's rule?** The user states **resources own
-   their state** — implying the state lives as long as the record, i.e. to arena
-   teardown. But `resource-state-drop-valid`'s comment claims scope-drop "structurally
-   frees the attached STATE." If the state *is* freed while the record is not, the
-   double-free question returns **for STATE specifically** — which is where this whole
-   thread started. **Resolve this first**; it is cheap and it gates §3.1's conclusion.
-2. **Is per-thread retention actually bounded in practice?** A loop opening a million
-   files retains a million records until thread exit. Bounded ≠ acceptable. Measure
-   before assuming; if it grows unboundedly within a long-lived thread that is its own
-   bug, independent of everything here.
+1. ~~**Does the STATE payload follow the record's rule?**~~ **RESOLVED (plan-52-B).** No:
+   the state is freed at **drop**; the record is not. The double-free question does not
+   return, because the payload is reachable **only through the record**, so nulling the
+   pointer as it is freed gives once-only with no aliasing analysis — unlike
+   `OwnedValue`'s `arena_free`, whose soundness needs copy-insertion's unaliased
+   guarantee. `resource-state-drop-valid`'s comment was aspirational when written; it is
+   true now.
+2. ~~**Is per-thread retention actually bounded in practice?**~~ **MEASURED
+   (plan-52-B).** It was worse than suspected and is now bounded per resource: 961 MB →
+   31 MB on a 20 000-cycle loop, i.e. ~48 KiB/cycle → ~1.1 KiB/cycle, of which the two
+   80-byte tombstones are 160 B and the rest is arena bookkeeping. Retention no longer
+   scales with the I/O a resource did. The remaining 80-bytes-per-resource-ever-opened
+   is the deliberate tombstone cost (§10); revisit only with a real workload.
 3. **Does the resource-scoped model survive the §4 table?** Per §4's note. The most
    likely resolution: keep the borrow rule (so §4 stands) and *don't* pursue §3 —
    i.e. the two are alternatives, not a package.
 4. **Is losing static use-after-close acceptable?** The honest trade. Aliased handles
    are how the underlying C libraries work anyway.
-5. **`thread::transfer`** — still unresolved; audited by plan-52-A Phase 3. The resource plane
-   moves the state pointer (`builder_arena_transfer.rs:336-337`) without consulting
-   either side's type string. Arenas are per-thread, so a transferred record crosses
-   arenas: **who retains it, and against which arena's teardown?**
+5. **`thread::transfer`** — **audited (plan-52-A Phase 3); now `bugs/bug-257`, OPEN.** The
+   suspicion was right: the plane copies the state pointer without consulting either
+   side's type string, and a sender/worker STATE disagreement type-confuses across the
+   boundary (verified at runtime). **plan-52 does not close it** — `thread::accept` is
+   statically a bare `File`, so no static rule over type strings can see the STATE
+   arriving. Needs the STATE on the plane type: its own plan.
+
+   The "who retains it" half is also answered, and is the sharper part: the transfer
+   allocates a **fresh record in the receiver's arena** but copies the STATE **pointer**
+   verbatim, so the payload still lives in the **sender's** arena. The receiver holds a
+   cross-arena pointer whose lifetime is the sender thread's. plan-52-B's `moved` bit
+   stops the sender's drop freeing it; nothing stops the sender's *arena teardown*.
+   Recorded in bug-257.
 
 ---
 
@@ -270,6 +303,10 @@ position and generalizing to all four.
 ---
 
 ## 7. The three defects — now plan-52, not bugs
+
+**All three are fixed** (`plan-52-A..D`, archived to `planning/old-plans/`). The section
+below is kept as written, for the reasoning about *why* they were tracked as plan work
+rather than as bugs.
 
 These were filed as `bug-252/253/254` and then **removed**. Nothing was fixed and nothing
 was lost: their entire work-plan became `planning/plan-52-A..D`, so keeping them as open
@@ -334,9 +371,14 @@ for you*. That is the trade, and neither side is obviously right.
 
 Two independent tracks, and they should probably stay independent:
 
-**Track A — finish STATE (`plan-52-A..D`).** The §4 table, made real. Well
-understood, mostly mechanical, unblocks `bindings/libsnd`. Depends on the borrow rule
-staying as it is.
+**Track A — finish STATE (`plan-52-A..D`). DONE.** The §4 table, made real: it is spec
+§15.5, the rules are enforced, and `bindings/libsnd`'s wrapper shape compiles. Depends
+on the borrow rule staying as it is — which it does.
+
+"Mostly mechanical" was optimistic. The model and the rules were; what the work actually
+cost was everything the type string touched once a *return* could carry a STATE — the
+`.mfp` ABI export encoding, syntaxcheck's `Type`, the native storage class, and the
+poison in a non-`File` record's buffer words. See the archived sub-plans' Status headers.
 
 **Track B — resource-scoped ownership (§1, §3).** A language-design change. Cheaper
 than it looked (§3.1), costs static use-after-close (§3.2), needs runtime pointer
@@ -347,18 +389,31 @@ afterward. The reason to consider B at all is that the current model cannot expr
 "take a handle, give it back," and the float rule's collection-only fence is arbitrary
 from the outside.
 
-**Track A is now written: `planning/plan-52-A..D`.** It carries the STATE model
+**Track A is now DONE: `planning/old-plans/plan-52-A..D`.** It carried the STATE model
 (§4), bugs 252/253/254, and the reclamation work (§10 below) — and explicitly
-excludes Track B. plan-52-B assumes the current borrow rule but does not depend on it,
+excluded Track B. plan-52-B assumes the current borrow rule but does not depend on it,
 so it stands either way.
 
-Track B is still mulling. Nothing in plan-52 forecloses it.
+Track B is still mulling. **Nothing in plan-52 forecloses it** — but note what doing A
+first bought: §3.1's central argument (that resources are never freed, so the
+double-free objection is void) is now *half* false. The record is still never freed, so
+the argument survives where it matters — but the STATE payload and the buffers now ARE
+freed at drop, and their once-only property rests on being reachable **only through the
+record**. If Track B makes bindings plain pointers to a shared record, that property is
+unchanged (the blocks still hang off one record) — so B's cost is still §3.2's static
+use-after-close, not a free problem. Re-derive §4 before starting B either way.
+
+`bugs/bug-257` is a live argument *for* thinking about B's neighbourhood: the resource
+plane already aliases a record across arenas, unchecked.
 
 ---
 
 ## 10. Record retention — decided
 
-Settled while working §5 Q2. Now implemented by **plan-52-B**.
+Settled while working §5 Q2. **Implemented by plan-52-B** — the decision below is what
+shipped, and it held up: measured 961 MB → 31 MB on a 20 000-cycle open/close loop. The
+"What leaks today" past tense below is now historical; what remains retained is the
+80-byte record, deliberately.
 
 **What leaks today.** Nothing frees the 80-byte record
 (`RESOURCE_RECORD_SIZE_BYTES = 80`, `error_constants.rs:689` — one uniform size for
