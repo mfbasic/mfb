@@ -522,6 +522,28 @@ fn lower_link_thunk(
     }
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), STATUS_OFF));
 
+    // plan-50-I: every name a `Var` may hold, mapped to the frame slot holding
+    // its value. The ABI return maps to STATUS_OFF, NOT CRET_OFF — STATUS_OFF
+    // holds the sign-extended value, which is what `SUCCESS_ON status = -1` must
+    // compare against.
+    let mut expr_offsets: HashMap<&str, usize> = HashMap::new();
+    expr_offsets.insert(function.abi_return_name.as_str(), STATUS_OFF);
+    {
+        let mut seq = 0usize;
+        for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
+            let off = if slot.direction.writes_back() {
+                let o = out_base + seq * 8;
+                seq += 1;
+                o
+            } else {
+                cslot_base + slot_idx * 8
+            };
+            // The ABI return name wins a collision: it is the older meaning and
+            // `SUCCESS_ON status = 0` must keep resolving to the status.
+            expr_offsets.entry(slot.name.as_str()).or_insert(off);
+        }
+    }
+
     // One label counter shared across the SUCCESS_ON gate and the RESULT
     // expression: a per-block counter restarted at 0 in each, so a thunk whose
     // SUCCESS_ON and RESULT both emit a comparison/NOT produced two identically
@@ -534,7 +556,7 @@ fn lower_link_thunk(
         let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
             success,
-            STATUS_OFF,
+            &expr_offsets,
             &mut vreg,
             &symbol,
             &mut counter,
@@ -628,7 +650,7 @@ fn lower_link_thunk(
         let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
             result,
-            STATUS_OFF,
+            &expr_offsets,
             &mut vreg,
             &symbol,
             &mut counter,
@@ -1021,9 +1043,15 @@ const LINK_EXPR_VREG_BASE: usize = 64;
 /// arena-base register, corrupting the arena program-wide (bug-56). Vregs never
 /// touch reserved/callee-saved registers the thunk does not save. Returns the
 /// name of the vreg holding the expression's value (0/1 for comparisons).
+/// Emit a `SUCCESS_ON`/`RESULT` expression, resolving each `Var(name)` through
+/// `offsets` to the frame slot holding that value (plan-50-I).
+///
+/// `offsets` maps every ABI slot name, and the ABI return name, to its frame
+/// offset. An absent name is unreachable: both checkers reject a `Var` naming no
+/// slot before codegen runs.
 fn emit_link_expr(
     expr: &IrLinkExpr,
-    status_off: usize,
+    offsets: &HashMap<&str, usize>,
     vreg: &mut usize,
     symbol: &str,
     counter: &mut usize,
@@ -1039,15 +1067,14 @@ fn emit_link_expr(
                 &(*value as u64).to_string(),
             ));
         }
-        // plan-50-C carries the slot name on the wire; plan-50-I gives this a real
-        // name->offset map. Until then every in-tree expression names the ABI
-        // return, which is exactly what `status_off` holds — so this is today's
-        // behavior unchanged, and the emitted code is byte-identical.
-        IrLinkExpr::Var(_) => {
-            instructions.push(abi::load_u64(&dst, abi::stack_pointer(), status_off));
+        IrLinkExpr::Var(name) => {
+            let off = offsets.get(name.as_str()).copied().unwrap_or_else(|| {
+                unreachable!("LINK expr names slot `{name}`, which verification should have rejected")
+            });
+            instructions.push(abi::load_u64(&dst, abi::stack_pointer(), off));
         }
         IrLinkExpr::Not(inner) => {
-            let inner_reg = emit_link_expr(inner, status_off, vreg, symbol, counter, instructions);
+            let inner_reg = emit_link_expr(inner, offsets, vreg, symbol, counter, instructions);
             let id = *counter;
             *counter += 1;
             let set = format!("{symbol}_not{id}_zero");
@@ -1063,8 +1090,8 @@ fn emit_link_expr(
             ]);
         }
         IrLinkExpr::Compare { op, lhs, rhs } => {
-            let lhs_reg = emit_link_expr(lhs, status_off, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_expr(rhs, status_off, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_expr(lhs, offsets, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, offsets, vreg, symbol, counter, instructions);
             let id = *counter;
             *counter += 1;
             let end = format!("{symbol}_cmp{id}_end");
@@ -1091,13 +1118,13 @@ fn emit_link_expr(
             // `0`/`1` first so bitwise coincides with logical (bug-66). Comparison /
             // logical sub-expressions already yield `0`/`1`, so they pass through
             // unchanged and `AND`/`OR`-of-comparisons stays byte-identical.
-            let lhs_reg = emit_link_bool(lhs, status_off, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_bool(rhs, status_off, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_bool(lhs, offsets, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_bool(rhs, offsets, vreg, symbol, counter, instructions);
             instructions.push(abi::and_registers(&dst, &lhs_reg, &rhs_reg));
         }
         IrLinkExpr::Or(lhs, rhs) => {
-            let lhs_reg = emit_link_bool(lhs, status_off, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_bool(rhs, status_off, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_bool(lhs, offsets, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_bool(rhs, offsets, vreg, symbol, counter, instructions);
             instructions.push(abi::or_registers(&dst, &lhs_reg, &rhs_reg));
         }
     }
@@ -1124,13 +1151,13 @@ fn link_expr_is_boolean(expr: &IrLinkExpr) -> bool {
 /// becomes `1` (bug-66).
 fn emit_link_bool(
     expr: &IrLinkExpr,
-    status_off: usize,
+    offsets: &HashMap<&str, usize>,
     vreg: &mut usize,
     symbol: &str,
     counter: &mut usize,
     instructions: &mut Vec<CodeInstruction>,
 ) -> String {
-    let value = emit_link_expr(expr, status_off, vreg, symbol, counter, instructions);
+    let value = emit_link_expr(expr, offsets, vreg, symbol, counter, instructions);
     if link_expr_is_boolean(expr) {
         return value;
     }

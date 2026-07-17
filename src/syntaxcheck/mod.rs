@@ -635,6 +635,49 @@ impl<'a> SyntaxChecker<'a> {
             result_markers += 1;
         }
 
+        // plan-50-I: an identifier in a SUCCESS_ON/ERROR_ON/RESULT expression must
+        // name a real ABI slot (or the ABI return). Before I, `lower_link_expr`
+        // mapped EVERY identifier onto one nameless "native return" variable, so
+        // `SUCCESS_ON typo = 0` silently meant `status = 0`, and an expression
+        // could not read any other slot despite the spec saying it could.
+        {
+            /// Every identifier a link expression reads. `Expression::Identifier`
+            /// carries no line, so callers report at the ABI line.
+            fn idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
+                match expr {
+                    crate::ast::Expression::Identifier(name) => out.push(name.clone()),
+                    crate::ast::Expression::Binary { left, right, .. } => {
+                        idents(left, out);
+                        idents(right, out);
+                    }
+                    crate::ast::Expression::Unary { operand, .. } => idents(operand, out),
+                    _ => {}
+                }
+            }
+            let mut names: Vec<String> = Vec::new();
+            for expr in [&function.success_on, &function.result].into_iter().flatten() {
+                idents(expr, &mut names);
+            }
+            for name in names {
+                // `NOTHING` is a literal, not a slot.
+                if name == "NOTHING"
+                    || name == function.abi.return_name
+                    || function.abi.slots.iter().any(|slot| slot.name == name)
+                {
+                    continue;
+                }
+                self.report(
+                    "NATIVE_ABI_UNBOUND_SLOT",
+                    &format!(
+                        "Native function `{}` SUCCESS_ON/RESULT expression reads `{name}`, which is not an ABI slot or the ABI return.",
+                        function.name
+                    ),
+                    file,
+                    function.abi.line,
+                );
+            }
+        }
+
         // A producer (`AS RES X`) and any non-Nothing value-returning wrapper must
         // surface exactly one result; a `Nothing` wrapper surfaces none.
         let wants_result = function.return_resource

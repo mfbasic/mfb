@@ -1,0 +1,14 @@
+' A SUCCESS_ON/RESULT expression ranges over the function's ABI slot names and
+' its ABI return name. An identifier naming neither is rejected (plan-50-I).
+'
+' Before plan-50-I this compiled clean: lowering mapped EVERY identifier onto one
+' nameless "the native return" variable, so `SUCCESS_ON typo = 0` silently meant
+' `SUCCESS_ON status = 0` — a gate that reads nothing like what it says.
+LINK "demo" AS demoLink
+  FUNC probe(n AS Integer) AS Boolean
+    SYMBOL "demo_probe"
+    ABI (n CInt32) AS status CInt32
+    SUCCESS_ON typo = 0
+    RESULT status = 1
+  END FUNC
+END LINK

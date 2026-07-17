@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-link-expr-unknown-name-invalid
+   8 |   FUNC probe(n AS Integer) AS Boolean
+   9 |     SYMBOL "demo_probe"
+  10 |     ABI (n CInt32) AS status CInt32
+     | ^
+tests/syntax/native/native-link-expr-unknown-name-invalid/src/lib.mfb:10 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
+               Native function `probe` SUCCESS_ON/RESULT expression reads `typo`, which is not an ABI slot or the ABI return.
+[exit 1]

@@ -1,0 +1,35 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_cstruct_valid",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "line": 5,
+    "visibility": "export",
+    "name": "AudioFormat",
+    "fields": [
+    { "visibility": null, "line": 6, "name": "format", "type": "Integer" },
+    { "visibility": null, "line": 7, "name": "name", "type": "String" },
+    { "visibility": null, "line": 8, "name": "extension", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "export",
+    "name": "SoundInfo",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "frames", "type": "Integer" },
+    { "visibility": null, "line": 13, "name": "samplerate", "type": "Integer" },
+    { "visibility": null, "line": 14, "name": "channels", "type": "Integer" },
+    { "visibility": null, "line": 15, "name": "format", "type": "Integer" },
+    { "visibility": null, "line": 16, "name": "sections", "type": "Integer" },
+    { "visibility": null, "line": 17, "name": "seekable", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  ]
+}

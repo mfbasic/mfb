@@ -1,0 +1,130 @@
+{
+  "project": "native_cstruct_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "AudioFormat",
+      "line": 5,
+      "fields": [
+      { "visibility": null, "name": "format", "type": "Integer", "line": 6 },
+      { "visibility": null, "name": "name", "type": "String", "line": 7 },
+      { "visibility": null, "name": "extension", "type": "String", "line": 8 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "SoundInfo",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "frames", "type": "Integer", "line": 12 },
+      { "visibility": null, "name": "samplerate", "type": "Integer", "line": 13 },
+      { "visibility": null, "name": "channels", "type": "Integer", "line": 14 },
+      { "visibility": null, "name": "format", "type": "Integer", "line": 15 },
+      { "visibility": null, "name": "sections", "type": "Integer", "line": 16 },
+      { "visibility": null, "name": "seekable", "type": "Integer", "line": 17 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "demo",
+      "alias": "demoLink",
+      "line": 20,
+      "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "SfFormatInfo",
+        "mapsTo": "AudioFormat",
+        "line": 22,
+        "fields": [
+        {
+          "name": "format",
+          "ctype": "CInt32",
+          "line": 23
+        },
+        {
+          "name": "name",
+          "ctype": "CString",
+          "line": 24
+        },
+        {
+          "name": "extension",
+          "ctype": "CString",
+          "line": 25
+        }
+        ]
+      },
+      {
+        "kind": "cstruct",
+        "name": "SfInfo",
+        "mapsTo": "SoundInfo",
+        "line": 30,
+        "fields": [
+        {
+          "name": "frames",
+          "ctype": "CInt64",
+          "line": 31
+        },
+        {
+          "name": "samplerate",
+          "ctype": "CInt32",
+          "line": 32
+        },
+        {
+          "name": "channels",
+          "ctype": "CInt32",
+          "line": 33
+        },
+        {
+          "name": "format",
+          "ctype": "CInt32",
+          "line": 34
+        },
+        {
+          "name": "sections",
+          "ctype": "CInt32",
+          "line": 35
+        },
+        {
+          "name": "seekable",
+          "ctype": "CInt32",
+          "line": 36
+        }
+        ]
+      }
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "version",
+        "symbol": "demo_version",
+        "returnResource": false,
+        "returnType": "Integer",
+        "line": 39,
+        "params": [
+        ],
+        "abi": {
+          "slots": [
+          { "name": "return", "ctype": "CInt32", "out": true, "line": 41 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

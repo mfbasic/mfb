@@ -2870,6 +2870,28 @@ impl TypeEnv {
                     );
                 }
             }
+            // plan-50-I: an identifier in a SUCCESS_ON/RESULT expression must name
+            // a real slot (or the ABI return). Before I, `lower_link_expr` mapped
+            // EVERY identifier onto one nameless "native return" variable, so
+            // `SUCCESS_ON typo = 0` silently meant `status = 0` and no expression
+            // could read any other slot — despite the spec saying it could.
+            {
+                let mut names = Vec::new();
+                for expr in [&function.success_on, &function.result].into_iter().flatten() {
+                    crate::ir::link_expr_var_names(expr, &mut names);
+                }
+                for name in names {
+                    if name != function.abi_return_name && !abi_slot_names.contains(name) {
+                        self.emit(
+                            "NATIVE_ABI_UNBOUND_SLOT",
+                            format!(
+                                "Native function `{}` SUCCESS_ON/RESULT expression reads `{name}`, which is not an ABI slot or the ABI return.",
+                                function.name
+                            ),
+                        );
+                    }
+                }
+            }
             // The IR's FREE form keeps only slot+symbol (the deallocator's
             // signature check stays in syntaxcheck): the symbol must be present.
             if let Some(free) = &function.free {

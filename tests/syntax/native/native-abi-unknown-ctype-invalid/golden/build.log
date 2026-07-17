@@ -4,11 +4,11 @@ $ mfb build -ast -ir tests/syntax/native/native-abi-unknown-ctype-invalid
    7 |     ABI (n CIint32, len CSize, return OUT CInt32) AS status CInt32
      | ^
 tests/syntax/native/native-abi-unknown-ctype-invalid/src/lib.mfb:7 error[2-203-0123 NATIVE_ABI_UNKNOWN_CTYPE]: an ABI slot or return names a C type the marshaling backend does not implement
-               Native function `scale` ABI slot `n` uses unknown C type `CIint32`.
+               Native function `scale` ABI slot `n` uses C type `CIint32`, which is not valid in that position.
    5 |   FUNC scale(n AS Integer, len AS Integer) AS Integer
    6 |     SYMBOL "demo_scale"
    7 |     ABI (n CIint32, len CSize, return OUT CInt32) AS status CInt32
      | ^
 tests/syntax/native/native-abi-unknown-ctype-invalid/src/lib.mfb:7 error[2-203-0123 NATIVE_ABI_UNKNOWN_CTYPE]: an ABI slot or return names a C type the marshaling backend does not implement
-               Native function `scale` ABI slot `len` uses unknown C type `CSize`.
+               Native function `scale` ABI slot `len` uses C type `CSize`, which is not valid in that position.
 [exit 1]

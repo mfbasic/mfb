@@ -155,6 +155,23 @@ pub(crate) fn compute_c_layout(
     })
 }
 
+/// Collect every slot name a link expression reads (plan-50-I).
+///
+/// Shared by both checkers so a crafted `.mfp` gets the same rejection source
+/// does. `IrLinkExpr::Var` carries the identifier verbatim from lowering, which
+/// cannot emit diagnostics, so this is where an unknown name is caught.
+pub(crate) fn link_expr_var_names<'a>(expr: &'a IrLinkExpr, out: &mut Vec<&'a str>) {
+    match expr {
+        IrLinkExpr::Var(name) => out.push(name.as_str()),
+        IrLinkExpr::Int(_) => {}
+        IrLinkExpr::Compare { lhs, rhs, .. } | IrLinkExpr::And(lhs, rhs) | IrLinkExpr::Or(lhs, rhs) => {
+            link_expr_var_names(lhs, out);
+            link_expr_var_names(rhs, out);
+        }
+        IrLinkExpr::Not(inner) => link_expr_var_names(inner, out),
+    }
+}
+
 /// One reason a `CSTRUCT` declaration is not usable, paired with the rule that
 /// reports it (plan-50-B §4.4).
 pub(crate) struct CStructFault {

@@ -2704,6 +2704,54 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
     expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
 }
 
+// --- link expressions (plan-50-I) -------------------------------------------
+
+/// The bug plan-50-I fixes: `lower_link_expr` mapped every identifier onto one
+/// nameless "native return" variable, so a typo in a gate silently compared the
+/// status instead. Now the name is carried and must resolve.
+#[test]
+fn rejects_link_expr_naming_no_slot() {
+    let mut lf = link_fn();
+    lf.success_on = Some(crate::ir::IrLinkExpr::Compare {
+        op: "=".to_string(),
+        lhs: Box::new(crate::ir::IrLinkExpr::Var("typo".to_string())),
+        rhs: Box::new(crate::ir::IrLinkExpr::Int(0)),
+    });
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+/// A gate may name the ABI return — the only shape that worked before plan-50-I,
+/// and the one every in-tree binding uses.
+#[test]
+fn accepts_link_expr_naming_the_abi_return() {
+    let mut lf = link_fn();
+    lf.success_on = Some(crate::ir::IrLinkExpr::Compare {
+        op: "=".to_string(),
+        lhs: Box::new(crate::ir::IrLinkExpr::Var("return".to_string())),
+        rhs: Box::new(crate::ir::IrLinkExpr::Int(0)),
+    });
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    accept(&p);
+}
+
+/// A gate may now name an ordinary ABI slot — impossible to express before
+/// plan-50-I, where it silently read the status.
+#[test]
+fn accepts_link_expr_naming_an_abi_slot() {
+    let mut lf = link_fn();
+    lf.success_on = Some(crate::ir::IrLinkExpr::Compare {
+        op: "=".to_string(),
+        lhs: Box::new(crate::ir::IrLinkExpr::Var("path".to_string())),
+        rhs: Box::new(crate::ir::IrLinkExpr::Int(0)),
+    });
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    accept(&p);
+}
+
 /// plan-50-A: the package path is a marshaling-safety gate — a crafted `.mfp`
 /// link table drives raw C calls, and an unknown slot ctype used to fall through
 /// to a raw 64-bit marshal in the thunk's default arm.

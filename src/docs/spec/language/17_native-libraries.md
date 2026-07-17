@@ -143,6 +143,10 @@ END FUNC
 
 `<expr>` is any Boolean expression over slot names, including compound conditions: `SUCCESS_ON status = 0`, `SUCCESS_ON status >= 0`, or `SUCCESS_ON status = 100 OR status = 101`. Comparisons bind tighter than `AND`/`OR` (§11), so the compound form needs no parentheses. `SUCCESS_ON status = 0` is common for libraries such as SQLite; `ERROR_ON status = -1` is common for POSIX-style APIs. When the gate fails, the wrapper produces `ErrNativeBindingCallFailed` (`77030008`), which auto-propagates like any other call failure.
 
+An identifier in `<expr>` names an `ABI (...)` slot or the ABI return, and is resolved against them: a name that is neither is rejected with `NATIVE_ABI_UNBOUND_SLOT`. The ABI return resolves to the **sign-extended** status, so `ERROR_ON status = -1` compares against `-1` and not `4294967295`. An `OUT` slot resolves to its produced value, so a gate may read what the callee wrote. [[src/ir/lower.rs:lower_link_expr]] [[src/target/shared/code/link_thunk.rs:emit_link_expr]]
+
+> Implementation status: until plan-50-I, `<expr>` did not actually range over slot names — lowering collapsed *every* identifier onto a single nameless variable meaning "the native return". So `SUCCESS_ON typo = 0` silently meant `SUCCESS_ON status = 0`, and `SUCCESS_ON count = 5` over an `OUT` slot could not mean what it said. It never bit any in-tree binding, because the only name any of them used *was* the return name.
+
 **Result value mapping (`RESULT <expr>`).** When the wrapper's result is *derived from* the status (rather than passed straight through or produced via `OUT`), `RESULT <expr>` supplies it. For example SQLite's `sqlite3_step` returns `SQLITE_ROW` (100) or `SQLITE_DONE` (101); the wrapper returns `AS Boolean` meaning "a row is ready":
 
 ```basic
