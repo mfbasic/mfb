@@ -408,6 +408,11 @@ pub(crate) struct IrLinkFunction {
     pub(crate) return_type: String,
     /// Whether the return was declared `RES` (a produced resource handle).
     pub(crate) return_resource: bool,
+    /// The `STATE T` on a `RES` return (plan-53-A): this native func produces a
+    /// resource RECORD carrying a `T` payload, not a bare scalar handle. Drives
+    /// the producing thunk's 80-byte record allocation and STATE init. `None` for
+    /// a bare native resource (which stays a scalar handle).
+    pub(crate) return_state_type: Option<String>,
     /// ABI slots in native C argument order.
     pub(crate) abi_slots: Vec<IrAbiSlot>,
     /// The native return-slot name (`return` ⇒ the C return is the wrapper result;

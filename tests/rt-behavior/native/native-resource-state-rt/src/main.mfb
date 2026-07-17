@@ -1,0 +1,67 @@
+' plan-53-A: a native LINK resource declared with a STATE clause is a real
+' 80-byte resource RECORD (handle@0, closed@8, STATE@16), not the raw CPtr
+' scalar every native resource was before. Without the record, attaching STATE
+' wrote into the native handle's own memory (offset 16 of a sqlite3*) — a String
+' STATE field + a real native call corrupted and failed `7-701-0001 Allocation
+' failed`. This fixture IS that repro, now passing.
+'
+' It proves, at runtime, that: the producing thunk builds the record; `.state`
+' (including a String field) survives writes; a BARE `RES db AS Db` param
+' (`exec`) loads the handle from FD@0 and reaches the real sqlite3* (the created
+' table proves the handle round-tripped); and drop closes it. Record-ness is
+' per-TYPE — `exec`'s param does not re-declare the STATE, yet must still see a
+' record — which is why the empty-STATE `exec` works.
+IMPORT io
+IMPORT fs
+
+RESOURCE Db CLOSE BY sql::close
+
+TYPE DbInfo
+  opens AS Integer
+  label AS String
+END TYPE
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db STATE DbInfo
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db STATE DbInfo) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  LET path AS String = "target/native_resource_state_rt.db"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  RES h AS Db STATE DbInfo = sql::open(path)
+  io::print("default opens=" & toString(h.state.opens))   ' 0 — record STATE default-inits
+  h.state.opens = 1
+  h.state.label = "primary"
+  ' Real native call through a BARE-param native func: `exec`'s `db` param does
+  ' not declare STATE, but Db is a record type, so the handle is loaded from
+  ' FD@0. The table is created iff the real sqlite3* reached the library.
+  sql::exec(h, "CREATE TABLE t(x)")
+  sql::exec(h, "INSERT INTO t(x) VALUES (42)")
+  ' STATE survived the native calls (it lives in the record, not the handle):
+  io::print("opens=" & toString(h.state.opens))            ' 1
+  io::print("label=" & h.state.label)                      ' primary
+  sql::close(h)
+  fs::deleteFile(path)
+  io::print("ok")
+  RETURN 0
+END FUNC

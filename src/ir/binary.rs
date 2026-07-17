@@ -480,6 +480,13 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         params: decode_vec(r, |r| Ok((r.string()?, r.string()?)))?,
         return_type: r.string()?,
         return_resource: r.bool()?,
+        // plan-53-A: `return_state_type` is consumed by the PRODUCING thunk, which
+        // the declaring package builds from in-memory IR — never from this decoded
+        // form. A CONSUMER that re-emits an imported stateful-native-resource thunk
+        // does need it; that is added with a BINARY_REPR_VERSION bump in plan-53-C
+        // (cross-package). Until then a decoded link function has no STATE — which
+        // is correct for every package in the wild today (none is stateful).
+        return_state_type: None,
         abi_slots: decode_vec(r, |r| {
             let name = r.string()?;
             let ctype = r.string()?;

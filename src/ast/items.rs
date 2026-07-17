@@ -768,11 +768,22 @@ impl<'a> FileParser<'a> {
         } else {
             Vec::new()
         };
-        let (return_type, return_resource) = if self.match_keyword(Keyword::As) {
+        let (return_type, return_resource, return_state_type) = if self.match_keyword(Keyword::As) {
             let return_resource = self.match_keyword(Keyword::Res);
-            (self.parse_type_name(), return_resource)
+            let return_type = self.parse_type_name();
+            // A `RES` return may carry a `STATE T` clause (plan-53-A): the native
+            // func produces a resource record holding a `T` payload. Only after
+            // `RES`, mirroring the ordinary-func and param rules — a bare native
+            // return has no STATE (§15.5's escape rule holds at the native boundary
+            // too: only a `RES` producer can carry state out).
+            let return_state_type = if return_resource {
+                self.parse_optional_state()
+            } else {
+                None
+            };
+            (return_type, return_resource, return_state_type)
         } else {
-            (None, false)
+            (None, false, None)
         };
         self.consume_statement_end("Expected end of native function header.");
         self.skip_separators();
@@ -895,6 +906,7 @@ impl<'a> FileParser<'a> {
             params,
             return_type,
             return_resource,
+            return_state_type,
             symbol,
             abi,
             consts,

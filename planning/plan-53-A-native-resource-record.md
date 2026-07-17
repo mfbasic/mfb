@@ -1,5 +1,29 @@
 # plan-53-A: a stateful native resource becomes an 80-byte record
 
+Status: **CORE LANDED + validated.** The producing thunk builds the 80-byte record
+(handle@0, closed@8, STATE@16 null → bind default-inits it); a param whose resource
+TYPE is a stateful native resource loads the handle from FD@0 (bare-param `close`/
+`exec` included — record-ness is per-type). The corruption repro (`String` STATE +
+real native call) now runs clean: `native-resource-state-rt` opens a sqlite Db with
+STATE, sets state (incl. a String field), runs real `exec` through a bare param
+(the created table proves the handle round-tripped), reads state back, and closes.
+Artifact gate **0 diffs / 1143 goldens** — every existing native binding is
+byte-identical (the change is purely additive). 981 acceptance + 2901 unit green.
+
+**The model change §3(b) proposed was unnecessary.** Registering a stateful native
+resource as a `Reference` in `TypeModel` turned out not to be needed: the existing
+"scalar" treatment copies the resource VALUE (now a record pointer) as an opaque
+8-byte value, which is exactly right for a shared resource handle — copying a
+pointer is what a resource bind/return should do. `.state` reads offset 16 of that
+pointer (the record's STATE slot); the bind default-inits it; drop reclaims it
+(plan-52-B). No `validation.rs` change was made.
+
+**Remaining (Phase 1 guardrails, not yet landed):** the `TYPE_STATE_MISMATCH`
+extension rejecting two native declarations of one resource with disagreeing STATE
+types, and the syntax fixtures for the parse + that rejection. These are safety
+rails against a binding-author typo (the codegen uses the producer's STATE); the
+runtime feature is complete without them. Tracked below.
+
 Last updated: 2026-07-17
 Overall Effort: large (3h–1d)
 Effort: medium (1h–2h)

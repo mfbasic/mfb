@@ -1,0 +1,58 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_state_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 19,
+    "visibility": "public",
+    "name": "DbInfo",
+    "fields": [
+    { "visibility": null, "line": 20, "name": "opens", "type": "Integer" },
+    { "visibility": null, "line": 21, "name": "label", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 46,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 47, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/native_resource_state_rt.db" } },
+    {
+      "op": "if",
+      "line": 48,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] },
+      "then": [
+      { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 51, "mutable": false, "name": "h", "type": "Db STATE DbInfo", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "default opens=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "opens" }] } }] } },
+    { "op": "stateAssign", "line": 53, "resource": "h", "value": { "kind": "with", "type": "DbInfo", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "opens", "value": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "stateAssign", "line": 54, "resource": "h", "value": { "kind": "with", "type": "DbInfo", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "primary" } }] } },
+    { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t(x)" }] } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "INSERT INTO t(x) VALUES (42)" }] } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "opens=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "opens" }] } }] } },
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "label=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "label" } }] } },
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 66, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

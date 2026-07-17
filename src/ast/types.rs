@@ -315,6 +315,11 @@ pub struct LinkFunction {
     pub return_type: Option<String>,
     /// Whether the return type was declared with `RES` (produces a resource).
     pub return_resource: bool,
+    /// The `STATE T` clause on a `RES` return, if any (plan-53-A). A native func
+    /// that produces `AS RES SoundFile STATE FileInfo` hands back a resource record
+    /// carrying a `FileInfo` — populated from an `OUT` struct by `BIND STATE`
+    /// (plan-53-B), or default-initialized. Present only when `return_resource`.
+    pub return_state_type: Option<String>,
     /// The native C symbol, e.g. `"sqlite3_open"`.
     pub symbol: String,
     /// The named-slot ABI signature.

@@ -2565,6 +2565,7 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         params: vec![("path".to_string(), "String".to_string())],
         return_type: "Integer".to_string(),
         return_resource: false,
+        return_state_type: None,
         abi_slots: vec![crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),

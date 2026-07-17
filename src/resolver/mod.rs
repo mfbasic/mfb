@@ -747,6 +747,7 @@ mod tests {
                         params: vec![param("path", Some("CString"))],
                         return_type: Some("CPtr".into()),
                         return_resource: false,
+                        return_state_type: None,
                         symbol: "open".into(),
                         abi: crate::ast::AbiSpec {
                             slots: Vec::new(),
@@ -993,6 +994,7 @@ mod tests {
                 params: vec![param("h", Some("CPtr"))],
                 return_type: Some("Nothing".into()),
                 return_resource: false,
+                return_state_type: None,
                 symbol: "close".into(),
                 abi: crate::ast::AbiSpec {
                     slots: Vec::new(),
@@ -1041,6 +1043,7 @@ mod tests {
                 params: vec![param("h", Some("CPtr"))],
                 return_type: Some("Nothing".into()),
                 return_resource: false,
+                return_state_type: None,
                 symbol: "close".into(),
                 abi: crate::ast::AbiSpec {
                     slots: Vec::new(),

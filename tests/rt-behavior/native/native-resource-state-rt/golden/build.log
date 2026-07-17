@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/native/native-resource-state-rt
+Wrote AST to tests/rt-behavior/native/native-resource-state-rt/native_resource_state_rt.ast
+Wrote IR to tests/rt-behavior/native/native-resource-state-rt/native_resource_state_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/native/native-resource-state-rt
+Wrote executable to tests/rt-behavior/native/native-resource-state-rt/build/native_resource_state_rt.out
+[exit 0]
+$ tests/rt-behavior/native/native-resource-state-rt/build/native_resource_state_rt.out
+default opens=0
+opens=1
+label=primary
+ok
+[exit 0]

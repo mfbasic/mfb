@@ -328,6 +328,7 @@ fn link_function() -> IrLinkFunction {
         params: vec![("path".to_string(), "String".to_string())],
         return_type: "Db".to_string(),
         return_resource: true,
+        return_state_type: None,
         abi_slots: vec![
             IrAbiSlot {
                 name: "path".to_string(),

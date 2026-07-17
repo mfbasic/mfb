@@ -1,0 +1,148 @@
+{
+  "project": "native_resource_state_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 14 },
+    { "module": "fs", "line": 15 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 17 },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "DbInfo",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "name": "opens", "type": "Integer", "line": 20 },
+      { "visibility": null, "name": "label", "type": "String", "line": 21 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 24,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "line": 25,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 25 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 27 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 27 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "exec",
+        "symbol": "sqlite3_exec",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 31,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 31 },
+        { "name": "statement", "type": "String", "default": null, "line": 31 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 33 },
+          { "name": "statement", "ctype": "CString", "out": false, "line": 33 },
+          { "name": "callback", "ctype": "CPtr", "out": false, "line": 33 },
+          { "name": "arg", "ctype": "CPtr", "out": false, "line": 33 },
+          { "name": "errmsg", "ctype": "CPtr", "out": false, "line": 33 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "callback", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 34 },
+        { "slot": "arg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 35 },
+        { "slot": "errmsg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 36 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 39,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": "DbInfo", "default": null, "line": 39 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 41 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 46,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/native_resource_state_rt.db" }, "line": 47 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 48,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 49 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "DbInfo", "name": "h", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "default opens=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "opens" }] } }] }, "line": 52 },
+      { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "opens", "value": { "kind": "number", "value": "1" } }] }, "line": 53 },
+      { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "primary" } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "string", "value": "CREATE TABLE t(x)" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "string", "value": "INSERT INTO t(x) VALUES (42)" }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "opens=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "opens" }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "label=" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "label" } }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 65 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 66 }
+      ]
+    }
+    ]
+  }
+  ]
+}

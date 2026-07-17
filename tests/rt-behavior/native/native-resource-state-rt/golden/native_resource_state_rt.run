@@ -1,0 +1,4 @@
+default opens=0
+opens=1
+label=primary
+ok

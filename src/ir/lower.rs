@@ -335,13 +335,20 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                             .params
                             .iter()
                             .map(|param| {
-                                (
-                                    param.name.clone(),
-                                    param
-                                        .type_name
-                                        .clone()
-                                        .unwrap_or_else(|| "Unknown".to_string()),
-                                )
+                                let type_ = param
+                                    .type_name
+                                    .clone()
+                                    .unwrap_or_else(|| "Unknown".to_string());
+                                // plan-53-A: carry a `RES p AS R STATE S` param's
+                                // STATE inline (`R STATE S`), so the close thunk can
+                                // detect a stateful native resource param and load
+                                // the handle from FD@0 of its record instead of
+                                // passing the record pointer to the native symbol.
+                                let type_ = match (param.resource, &param.state_type) {
+                                    (true, Some(state)) => format!("{type_} STATE {state}"),
+                                    _ => type_,
+                                };
+                                (param.name.clone(), type_)
                             })
                             .collect(),
                         return_type: native
@@ -349,6 +356,7 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                             .clone()
                             .unwrap_or_else(|| "Nothing".to_string()),
                         return_resource: native.return_resource,
+                        return_state_type: native.return_state_type.clone(),
                         abi_slots: native
                             .abi
                             .slots

@@ -134,6 +134,7 @@ mod tests {
                     params: Vec::new(),
                     return_type: None,
                     return_resource: false,
+                    return_state_type: None,
                     symbol: name.to_string(),
                     abi: AbiSpec {
                         slots: Vec::new(),

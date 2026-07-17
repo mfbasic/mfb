@@ -171,6 +171,18 @@ pub(super) fn emit_link_support(
         }
     }
 
+    // plan-53-A: the resource TYPES that are represented as 80-byte records (a
+    // native func produces `AS RES R STATE S`). Record-ness is per-TYPE, not
+    // per-declaration: a BARE `RES db AS R` param of such a type still receives a
+    // record pointer and must load the handle from FD@0 before the native call
+    // (e.g. `close`/`exec` on a `SoundFile` whose `open` declared the STATE). This
+    // set is what lets a thunk tell a record-resource param from a scalar one.
+    let stateful_native_resources: HashSet<String> = link_functions
+        .iter()
+        .filter(|f| f.return_resource && f.return_state_type.is_some())
+        .map(|f| crate::builtins::resource::base_resource_name(&f.return_type).to_string())
+        .collect();
+
     let initializer = lower_link_initializer(
         link_functions,
         &library_index,
@@ -190,6 +202,7 @@ pub(super) fn emit_link_support(
             index,
             globals_base,
             free_slot,
+            &stateful_native_resources,
         )?);
     }
 
@@ -341,6 +354,7 @@ fn lower_link_thunk(
     index: usize,
     globals_base: usize,
     free_slot: Option<usize>,
+    stateful_native_resources: &HashSet<String>,
 ) -> Result<CodeFunction, String> {
     let symbol = link_thunk_symbol(&function.alias, &function.name);
     let n_params = function.params.len();
@@ -416,7 +430,12 @@ fn lower_link_thunk(
         .unwrap_or(0);
     let cursor_off = cstr_area + n_cstr * 16;
     let total_off = cursor_off + 8;
-    let frame = align(total_off + 8 + 24, 16);
+    // plan-53-A: two scratch slots for building a stateful native resource's
+    // 80-byte record after the call — one parks the native handle, one the record
+    // pointer, across the `arena_alloc` that clobbers all caller-saved registers.
+    let rec_handle_off = total_off + 8;
+    let rec_ptr_off = rec_handle_off + 8;
+    let frame = align(rec_ptr_off + 8 + 24, 16);
 
     // plan-50-H: the wrapper's result is whatever `RETURN <expr>` names. A bare
     // `RETURN <slot>` (an `IrLinkExpr::Var`) selects that slot's value; anything
@@ -616,6 +635,23 @@ fn lower_link_thunk(
                     abi::arithmetic_shift_right_immediate("%v10", "%v10", 32),
                     abi::compare_registers("%v9", "%v10"),
                     abi::branch_ne(&range_fail),
+                    abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                ]);
+            } else if slot.ctype == "CPtr"
+                && function.params.get(pidx).is_some_and(|(_, t)| {
+                    stateful_native_resources
+                        .contains(crate::builtins::resource::base_resource_name(t))
+                })
+            {
+                // plan-53-A: a param whose resource TYPE is a stateful native
+                // resource is a RECORD pointer, but the native symbol wants the
+                // handle it wraps. Load FD@0. Record-ness is per-TYPE: this fires
+                // for a BARE `RES db AS SoundFile` param too (e.g. `close`/`exec`),
+                // not only one that re-declares the STATE — without it the record
+                // pointer, not the handle, reaches the C library.
+                instructions.extend([
+                    abi::load_u64("%v9", abi::stack_pointer(), param_off),
+                    abi::load_u64("%v9", "%v9", FILE_OFFSET_FD),
                     abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
                 ]);
             } else {
@@ -847,6 +883,48 @@ fn lower_link_thunk(
         instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &value));
     } else {
         instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    }
+
+    // plan-53-A: a native func that produces `AS RES T STATE S` hands back a
+    // resource RECORD, not the bare handle. RESULT_VALUE_REGISTER currently holds
+    // the native handle; wrap it in an 80-byte resource record so the value the
+    // caller binds is a pointer to {FD@0, CLOSED@8, STATE@16, buffers…} — the exact
+    // shape a built-in `File STATE S` uses, so `.state`, drop-reclamation
+    // (plan-52-B), and the closed guard all work unchanged. STATE@16 is left NULL:
+    // the caller's `RES x AS T STATE S = …` bind runs `emit_resource_state_init`,
+    // which default-allocates the `S` record exactly as it does for a built-in
+    // resource (or `BIND STATE` populates it first — plan-53-B). Without this the
+    // handle IS the value and `.state` writes at offset 16 of the native handle's
+    // own memory — memory corruption (the defect this fixes).
+    if function.return_resource && function.return_state_type.is_some() {
+        instructions.extend([
+            // Park the handle; alloc clobbers every caller-saved register.
+            abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), rec_handle_off),
+            abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        ]);
+        emit_alloc(&symbol, &mut instructions, &mut relocations, &alloc_fail);
+        instructions.extend([
+            // record pointer (RET[1]) → scratch; reload handle; store handle@FD.
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), rec_ptr_off),
+            abi::load_u64("%v9", abi::stack_pointer(), rec_handle_off),
+            abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
+            abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
+            // Zero every other record word: CLOSED (open), STATE (bind inits it),
+            // and the File I/O buffer words a native resource never uses (they must
+            // be zero, not the arena-alloc's poison — plan-52-B).
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_CLOSED),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_STATE),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_PTR),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_FILLED),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_ENABLED),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_PTR),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_POS),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_FILL),
+            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_AT_EOF),
+            // The record pointer is the wrapper result.
+            abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
+        ]);
     }
 
     // FREE: release the caller-owned native return now that it is copied into the
@@ -1431,6 +1509,7 @@ mod tests {
                 // `String` copy-out path is covered by the sqlite3 runtime tests.
                 return_type: if returns_value { "Integer" } else { "Nothing" }.to_string(),
                 return_resource: false,
+                return_state_type: None,
                 abi_slots: vec![],
                 abi_return_name: if returns_value { "return" } else { "status" }.to_string(),
                 abi_return_ctype: (*ctype).to_string(),
@@ -1440,7 +1519,8 @@ mod tests {
                 result: None,
                 free: None,
             };
-            let lowered = lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None);
+            let lowered =
+                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
             assert!(
                 lowered.is_ok(),
                 "accepted return ctype {ctype} does not lower: {:?}",
@@ -1459,6 +1539,7 @@ mod tests {
                 params: vec![],
                 return_type: "Nothing".to_string(),
                 return_resource: false,
+                return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
                     name: "pinned".to_string(),
                     ctype: (*ctype).to_string(),
@@ -1472,7 +1553,8 @@ mod tests {
                 result: None,
                 free: None,
             };
-            let lowered = lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None);
+            let lowered =
+                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
             assert!(
                 lowered.is_ok(),
                 "accepted argument ctype {ctype} does not lower: {:?}",
