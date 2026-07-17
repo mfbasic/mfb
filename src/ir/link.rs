@@ -201,11 +201,11 @@ pub(crate) struct CStructFault {
 
 /// Whether a `CSTRUCT` may declare a `CString` (`const char *`) field.
 ///
-/// plan-50-E marshals scalar fields only; plan-50-F implements the pointer path
-/// (arena copy-out to an owned `String`, UTF-8 validation, copy-and-leave) and
-/// flips this to `true`. A single switch keeps the two checkers and the thunk
-/// from drifting while the capability lands.
-pub(crate) const CSTRING_STRUCT_FIELDS: bool = false;
+/// plan-50-F implements the pointer path, so this is now `true`. Kept as a named
+/// constant because it is what held the two checkers and the thunk in step while
+/// the capability landed, and it documents that the scalar and pointer paths are
+/// separable.
+pub(crate) const CSTRING_STRUCT_FIELDS: bool = true;
 
 /// A struct slot's shape, resolved for validation (plan-50-E).
 pub(crate) struct StructSlotView<'a> {

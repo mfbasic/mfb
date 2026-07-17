@@ -1,0 +1,67 @@
+{
+    "name": "libsnd",
+    "version": "1.2.2",
+    "mfb": "1.0",
+    "kind": "package",
+    "libraries": {
+        "libsnd": [
+            {
+                "os": "macos",
+                "type": "vendor",
+                "source": "libsndfile.1.0.37.dylib"
+            },
+            {
+                "os": "linux",
+                "arch": "aarch64",
+                "type": "vendor",
+                "libc": "glibc",
+                "source": "libsndfile.so.1.0.37-aarch64-glibc"
+            },
+            {
+                "os": "linux",
+                "arch": "aarch64",
+                "type": "vendor",
+                "libc": "musl",
+                "source": "libsndfile.so.1.0.37-aarch64-musl"
+            },
+            {
+                "os": "linux",
+                "arch": "x86_64",
+                "type": "vendor",
+                "libc": "glibc",
+                "source": "libsndfile.so.1.0.37-x86_64-glibc"
+            },
+            {
+                "os": "linux",
+                "arch": "x86_64",
+                "type": "vendor",
+                "libc": "musl",
+                "source": "libsndfile.so.1.0.37-x86_64-musl"
+            },
+            {
+                "os": "linux",
+                "arch": "riscv64",
+                "type": "vendor",
+                "libc": "musl",
+                "source": "libsndfile.so.1.0.37-riscv64-musl"
+            },
+            {
+                "os": "windows",
+                "type": "vendor",
+                "source": "sndfile.dll"
+            }
+        ]
+    },
+    "sources": [
+        {
+            "root": "src",
+            "role": "package",
+            "include": [
+                "**/*.mfb"
+            ]
+        }
+    ],
+    "config": {
+        "stdinLogCap": 4194304
+    }
+}
