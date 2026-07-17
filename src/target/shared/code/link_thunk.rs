@@ -398,13 +398,25 @@ fn lower_link_thunk(
         struct_slots.push((slot_idx, struct_cursor, layout.clone(), decl));
         struct_cursor += layout.size;
     }
-    // plan-50-F: two scratch words for per-field CString copy-out — the char*
-    // being copied, and the String the helper stashes. They must not share the
-    // record-pointer slot (RESULT_SAVE_OFF), which the record occupies for the
-    // whole of marshal_struct_out.
-    let fieldp_off = align(struct_cursor, 8);
-    let strsave_off = fieldp_off + 8;
-    let frame = align(strsave_off + 8 + 24, 16);
+    // plan-50-F / bug-255: a record with `String` fields does NOT hold String
+    // pointers — it INLINES each String's block into a trailing data region and
+    // stores the block-relative OFFSET in the field slot. See
+    // `record_field_is_inlined` / `emit_build_inlined_record`: only
+    // Address/Datagram/DatagramText/AudioDevice keep pointer strings, and a
+    // CSTRUCT can map to none of those. So the whole record must be built in one
+    // allocation whose size depends on every field's strlen — which means every
+    // length is measured BEFORE the record is allocated, and each needs a slot.
+    //
+    // Per CString field: [char* , len]. Then a cursor and the running total.
+    let cstr_area = align(struct_cursor, 8);
+    let n_cstr = struct_slots
+        .iter()
+        .map(|(_, _, _, decl)| decl.fields.iter().filter(|f| f.ctype == "CString").count())
+        .max()
+        .unwrap_or(0);
+    let cursor_off = cstr_area + n_cstr * 16;
+    let total_off = cursor_off + 8;
+    let frame = align(total_off + 8 + 24, 16);
 
     // plan-50-H: the wrapper's result is whatever `RETURN <expr>` names. A bare
     // `RETURN <slot>` (an `IrLinkExpr::Var`) selects that slot's value; anything
@@ -455,7 +467,9 @@ fn lower_link_thunk(
             .is_some_and(|c| c.fields.iter().any(|f| f.ctype == "CString"))
     });
     let needs_encoding = struct_has_cstring_field
-        || (returns_value && function.abi_return_ctype == "CPtr" && function.return_type == "String");
+        || (returns_value
+            && function.abi_return_ctype == "CPtr"
+            && function.return_type == "String");
     let needs_float = returns_value && function.abi_return_ctype == "CDouble";
 
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -733,8 +747,9 @@ fn lower_link_thunk(
             *buf_off,
             record_fields,
             &symbol,
-            fieldp_off,
-            strsave_off,
+            cstr_area,
+            cursor_off,
+            total_off,
             &alloc_fail,
             &encoding_fail,
             &nan_fail,
@@ -1121,6 +1136,20 @@ fn emit_copy_string_to_cstring(
 /// `String`, leaving the result pointer in `RESULT_VALUE_REGISTER`
 /// (plan-linker.md §12.4 copy-and-leave). A NULL pointer yields an empty
 /// `String`.
+/// The string-return scratch slot in the thunk frame.
+const RESULT_SAVE_OFF: usize = 24;
+
+/// The status slot, reused as length scratch by the whole-return string copy.
+/// Must track `STATUS_OFF`.
+const STATUS_SCRATCH_OFF: usize = 8;
+
+/// Copy the thunk's `const char *` return into an owned `String`, stashed in
+/// [`RESULT_SAVE_OFF`].
+///
+/// This is the whole-return path, which runs once and last: the status has been
+/// gated and nothing reads it again, so the STATUS slot is free length scratch.
+/// A record's `String` FIELD does not come through here — a field is an inlined
+/// sub-block of the record, not a separate String (see `marshal_struct_out`).
 fn emit_copy_cstring_to_string(
     symbol: &str,
     cret_off: usize,
@@ -1129,47 +1158,14 @@ fn emit_copy_cstring_to_string(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    emit_copy_cstring_to_string_tagged(
-        symbol,
-        "ret",
-        cret_off,
-        RESULT_SAVE_OFF,
-        alloc_fail,
-        encoding_fail,
-        instructions,
-        relocations,
-    );
-}
-
-/// The string-return scratch slot in the thunk frame.
-const RESULT_SAVE_OFF: usize = 24;
-
-/// As [`emit_copy_cstring_to_string`], but callable more than once per thunk
-/// (plan-50-F): `tag` disambiguates the emitted labels, and `save_off` names the
-/// frame slot the copy is stashed in.
-///
-/// A thunk with several `CString` struct fields runs this once per field, so a
-/// fixed label set would emit duplicates — which the encoder rejects outright
-/// (bug-79) — and a fixed save slot would collide with the result record's.
-#[allow(clippy::too_many_arguments)]
-fn emit_copy_cstring_to_string_tagged(
-    symbol: &str,
-    tag: &str,
-    cret_off: usize,
-    save_off: usize,
-    alloc_fail: &str,
-    encoding_fail: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) {
-    let null_label = format!("{symbol}_{tag}_null");
-    let len_loop = format!("{symbol}_{tag}_len");
-    let len_done = format!("{symbol}_{tag}_len_done");
-    let copy_loop = format!("{symbol}_{tag}_copy");
-    let copy_done = format!("{symbol}_{tag}_copy_done");
-    let ret_done = format!("{symbol}_{tag}_done");
-    let ret_off = save_off;
-    const LEN_OFF: usize = 8; // STATUS slot is free here (status already gated)
+    let null_label = format!("{symbol}_ret_null");
+    let len_loop = format!("{symbol}_ret_len");
+    let len_done = format!("{symbol}_ret_len_done");
+    let copy_loop = format!("{symbol}_ret_copy");
+    let copy_done = format!("{symbol}_ret_copy_done");
+    let ret_done = format!("{symbol}_ret_done");
+    let ret_off = RESULT_SAVE_OFF;
+    let len_off = STATUS_SCRATCH_OFF;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), cret_off),
         abi::compare_immediate("%v9", "0"),
@@ -1185,13 +1181,13 @@ fn emit_copy_cstring_to_string_tagged(
         abi::add_immediate("%v10", "%v10", 1),
         abi::branch(&len_loop),
         abi::label(&len_done),
-        abi::store_u64("%v10", abi::stack_pointer(), LEN_OFF),
+        abi::store_u64("%v10", abi::stack_pointer(), len_off),
         abi::add_immediate(abi::return_register(), "%v10", 9),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), LEN_OFF),
+        abi::load_u64("%v10", abi::stack_pointer(), len_off),
         abi::store_u64("%v10", abi::RET[1], 0),
         abi::store_u64(abi::RET[1], abi::stack_pointer(), ret_off),
         abi::load_u64("%v11", abi::stack_pointer(), cret_off),
@@ -1211,7 +1207,7 @@ fn emit_copy_cstring_to_string_tagged(
         // §12.4: returned bytes are validated as UTF-8 at the boundary.
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ret_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), 8),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), LEN_OFF),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), len_off),
     ]);
     emit_call_validate_utf8(symbol, encoding_fail, instructions, relocations);
     instructions.extend([
@@ -1279,7 +1275,9 @@ fn emit_link_expr(
         }
         IrLinkExpr::Var(name) => {
             let off = offsets.get(name.as_str()).copied().unwrap_or_else(|| {
-                unreachable!("LINK expr names slot `{name}`, which verification should have rejected")
+                unreachable!(
+                    "LINK expr names slot `{name}`, which verification should have rejected"
+                )
             });
             instructions.push(abi::load_u64(&dst, abi::stack_pointer(), off));
         }
@@ -1393,7 +1391,7 @@ fn emit_link_bool(
 mod tests {
     use super::*;
     use crate::ir::{
-        IrAbiSlot, IrLinkFunction, abi_ctype_valid_as_argument, abi_ctype_valid_as_return,
+        abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrLinkFunction,
     };
 
     /// Every ctype the allow-list accepts must reach a real marshaling arm.
@@ -1640,6 +1638,7 @@ fn narrow_signed_bits(ctype: &str) -> Option<u32> {
 /// Reading fields into registers and *then* allocating would lose them all — the
 /// `copy-record-register-aliasing` bug in miniature.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn marshal_struct_out(
     function: &IrLinkFunction,
     decl: &crate::ir::IrCStruct,
@@ -1647,8 +1646,9 @@ fn marshal_struct_out(
     buf_off: usize,
     record_fields: &HashMap<String, Vec<(String, String)>>,
     symbol: &str,
-    fieldp_off: usize,
-    strsave_off: usize,
+    cstr_area: usize,
+    cursor_off: usize,
+    total_off: usize,
     alloc_fail: &str,
     encoding_fail: &str,
     nan_fail: &str,
@@ -1663,20 +1663,20 @@ fn marshal_struct_out(
         )
     })?;
 
-    // A record is one word per field; field i lives at 8*i.
+    // bug-255: a record slot is one word at `8*i`, but a `String` field's word is
+    // NOT a pointer — it is the offset, relative to the record's own block, of an
+    // inlined `{len, bytes, NUL}` sub-block in a trailing data region
+    // (`emit_build_inlined_record`). The caller walks that region contiguously to
+    // size and copy the record, so the region must exist and be exact.
+    //
+    // That forces the shape of this routine: every length must be known BEFORE
+    // the single allocation, so pass 0 measures, pass 1 sizes and allocates, and
+    // pass 2 writes. There is no per-field allocation.
     const REC_OFF: usize = RESULT_SAVE_OFF;
-    instructions.extend([
-        abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &(8 * record.len()).to_string(),
-        ),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
-    ]);
-    emit_alloc(symbol, instructions, relocations, alloc_fail);
-    // Spill immediately: every later step may allocate.
-    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), REC_OFF));
+    const ALIGN8_MASK: &str = "18446744073709551608"; // !7u64
 
+    // Resolve each record field to its CSTRUCT field once.
+    let mut plan: Vec<(usize, &str, usize)> = Vec::new(); // (rec_idx, ctype, buf offset)
     for (rec_idx, (rname, _)) in record.iter().enumerate() {
         let Some(cpos) = decl.fields.iter().position(|f| f.name == *rname) else {
             return Err(format!(
@@ -1684,45 +1684,143 @@ fn marshal_struct_out(
                 function.alias, function.name, decl.maps_to
             ));
         };
-        let ctype = decl.fields[cpos].ctype.as_str();
-        let off = buf_off + layout.offsets[cpos];
+        plan.push((
+            rec_idx,
+            decl.fields[cpos].ctype.as_str(),
+            buf_off + layout.offsets[cpos],
+        ));
+    }
 
-        if ctype == "CString" {
-            // plan-50-F: a `const char *` field is copied into an owned String.
-            // Copy-and-leave: the pointer belongs to the C library (libsndfile's
-            // format names live in a `static const` table), so the source is never
-            // freed. There is no per-field FREE — a caller-owned pointer field is
-            // rejected rather than leaked.
-            //
-            // Register lifetime: this ALLOCATES, destroying x0-x17. Spill the
-            // pointer first, and reload the record pointer after — it did not
-            // survive.
+    // Pass 0: measure. For each CString field stash [char*, len] and validate the
+    // bytes as UTF-8 (§12.4). A NULL char* becomes the empty String, len 0.
+    let mut cstr_index: HashMap<usize, usize> = HashMap::new();
+    for (rec_idx, ctype, off) in &plan {
+        if *ctype != "CString" {
+            continue;
+        }
+        let k = cstr_index.len();
+        cstr_index.insert(*rec_idx, k);
+        let ptr_slot = cstr_area + k * 16;
+        let len_slot = ptr_slot + 8;
+        let null_label = format!("{symbol}_sf{rec_idx}_null");
+        let len_loop = format!("{symbol}_sf{rec_idx}_len");
+        let len_done = format!("{symbol}_sf{rec_idx}_len_done");
+        let measured = format!("{symbol}_sf{rec_idx}_measured");
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), *off),
+            abi::store_u64("%v9", abi::stack_pointer(), ptr_slot),
+            abi::move_immediate("%v10", "Integer", "0"),
+            abi::store_u64("%v10", abi::stack_pointer(), len_slot),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&null_label),
+            // strlen
+            abi::move_register("%v12", "%v9"),
+            abi::move_immediate("%v10", "Integer", "0"),
+            abi::label(&len_loop),
+            abi::load_u8("%v11", "%v12", 0),
+            abi::compare_immediate("%v11", "0"),
+            abi::branch_eq(&len_done),
+            abi::add_immediate("%v12", "%v12", 1),
+            abi::add_immediate("%v10", "%v10", 1),
+            abi::branch(&len_loop),
+            abi::label(&len_done),
+            abi::store_u64("%v10", abi::stack_pointer(), len_slot),
+            // Validate before anything is copied into the record.
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), ptr_slot),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), len_slot),
+        ]);
+        emit_call_validate_utf8(symbol, encoding_fail, instructions, relocations);
+        instructions.extend([
+            abi::branch(&measured),
+            abi::label(&null_label),
+            abi::label(&measured),
+        ]);
+    }
+
+    // Pass 1: size = 8*n, then each inlined block (8-aligned, `len + 9` bytes).
+    let fixed = 8 * record.len();
+    instructions.extend([
+        abi::move_immediate("%v9", "Integer", &fixed.to_string()),
+        abi::store_u64("%v9", abi::stack_pointer(), total_off),
+    ]);
+    for (rec_idx, ctype, _) in &plan {
+        if *ctype != "CString" {
+            continue;
+        }
+        let len_slot = cstr_area + cstr_index[rec_idx] * 16 + 8;
+        instructions.extend([
+            // total = align8(total)
+            abi::load_u64("%v9", abi::stack_pointer(), total_off),
+            abi::add_immediate("%v9", "%v9", 7),
+            abi::move_immediate("%v10", "Integer", ALIGN8_MASK),
+            abi::and_registers("%v9", "%v9", "%v10"),
+            // total += len + 9
+            abi::load_u64("%v11", abi::stack_pointer(), len_slot),
+            abi::add_immediate("%v11", "%v11", 9),
+            abi::add_registers("%v9", "%v9", "%v11"),
+            abi::store_u64("%v9", abi::stack_pointer(), total_off),
+        ]);
+    }
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), total_off),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    emit_alloc(symbol, instructions, relocations, alloc_fail);
+    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), REC_OFF));
+
+    // Pass 2: write each field. The record pointer is reloaded per field — it did
+    // not survive the allocation (`_mfb_arena_alloc` destroys x0-x17).
+    instructions.extend([
+        abi::move_immediate("%v9", "Integer", &fixed.to_string()),
+        abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
+    ]);
+    for (rec_idx, ctype, off) in &plan {
+        if *ctype == "CString" {
+            let k = cstr_index[rec_idx];
+            let ptr_slot = cstr_area + k * 16;
+            let len_slot = ptr_slot + 8;
+            let copy_loop = format!("{symbol}_sf{rec_idx}_copy");
+            let copy_done = format!("{symbol}_sf{rec_idx}_copy_done");
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), off),
-                abi::store_u64("%v9", abi::stack_pointer(), fieldp_off),
-            ]);
-            emit_copy_cstring_to_string_tagged(
-                symbol,
-                &format!("sf{rec_idx}"),
-                fieldp_off,
-                strsave_off,
-                alloc_fail,
-                encoding_fail,
-                instructions,
-                relocations,
-            );
-            // Read the String back from its save SLOT, not from
-            // RESULT_VALUE_REGISTER: that is a physical register, and this sits
-            // right after a label the allocator may route spills through.
-            instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), strsave_off),
+                // cursor = align8(cursor)
+                abi::load_u64("%v9", abi::stack_pointer(), cursor_off),
+                abi::add_immediate("%v9", "%v9", 7),
+                abi::move_immediate("%v10", "Integer", ALIGN8_MASK),
+                abi::and_registers("%v9", "%v9", "%v10"),
+                abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
+                // record[8*i] = cursor (the block-relative offset)
                 abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),
                 abi::store_u64("%v9", "%v10", 8 * rec_idx),
+                // dst = record + cursor; [dst] = len
+                abi::add_registers("%v11", "%v10", "%v9"),
+                abi::load_u64("%v10", abi::stack_pointer(), len_slot),
+                abi::store_u64("%v10", "%v11", 0),
+                // copy `len` bytes to dst+8, then NUL-terminate.
+                abi::load_u64("%v12", abi::stack_pointer(), ptr_slot),
+                abi::add_immediate("%v13", "%v11", 8),
+                abi::move_immediate("%v14", "Integer", "0"),
+                abi::label(&copy_loop),
+                abi::compare_registers("%v14", "%v10"),
+                abi::branch_eq(&copy_done),
+                abi::load_u8("%v15", "%v12", 0),
+                abi::store_u8("%v15", "%v13", 0),
+                abi::add_immediate("%v12", "%v12", 1),
+                abi::add_immediate("%v13", "%v13", 1),
+                abi::add_immediate("%v14", "%v14", 1),
+                abi::branch(&copy_loop),
+                abi::label(&copy_done),
+                abi::store_u8(abi::ZERO, "%v13", 0),
+                // cursor += len + 9
+                abi::load_u64("%v9", abi::stack_pointer(), cursor_off),
+                abi::load_u64("%v10", abi::stack_pointer(), len_slot),
+                abi::add_immediate("%v10", "%v10", 9),
+                abi::add_registers("%v9", "%v9", "%v10"),
+                abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
             ]);
             continue;
         }
-        instructions.push(load_field(ctype, "%v9", off));
-        match ctype {
+        instructions.push(load_field(ctype, "%v9", *off));
+        match *ctype {
             // Every load zero-extends, so a signed narrow field must be
             // sign-extended or -1 surfaces as its unsigned reading (bug-238).
             "CInt8" | "CInt16" | "CInt32" => {
@@ -1764,8 +1862,6 @@ fn marshal_struct_out(
             }
             _ => {}
         }
-        // Reload the record pointer per field: it did not survive any call above,
-        // and will not survive plan-50-F's per-field allocations.
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),
             abi::store_u64("%v9", "%v10", 8 * rec_idx),

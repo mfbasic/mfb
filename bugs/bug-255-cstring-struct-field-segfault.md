@@ -5,97 +5,103 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: — (the failing repro is below; it is NOT committed as a test,
-because a committed failing test would make the suite red)
+Status: Fixed
+Regression Test: `tests/rt-behavior/native/native-struct-cstring-rt`
 
-plan-50-F implemented `const char *` struct fields, and they compile, verify, and
-emit. But a wrapper whose struct slot has `CString` fields **segfaults when
-called**. `bindings/libsnd`'s `getFormats()` — the whole point of plan-50 — hits
+plan-50-F implemented `const char *` struct fields, and they compiled, verified,
+and emitted. But a wrapper whose struct slot had `CString` fields **crashed when
+called**. `bindings/libsnd`'s `getFormats()` — the whole point of plan-50 — hit
 it.
 
-## Repro
+## Root cause
+
+plan-50-F was built on a wrong model of records. It assumed a record field of
+type `String` holds a **pointer** to a String block, so `marshal_struct_out`
+allocated `8 * field_count` bytes, copied each `const char *` into its own arena
+String, and stored that pointer at `8*i`.
+
+A record does not work that way. Per `record_field_is_inlined`
+(`builder_collection_layout.rs:586`), only `Address`, `Datagram`,
+`DatagramText` and `AudioDevice` keep pointer strings — **every other record
+INLINES its `String` fields**, and a `CSTRUCT` can map to none of those four. The
+real layout, from `emit_build_inlined_record`:
+
+- the fixed area is `8 * field_count`;
+- a `String` field's word at `8*i` is **not a pointer** — it is the offset,
+  relative to the record's own block, of an inlined `{len, bytes, NUL}`
+  sub-block;
+- those sub-blocks live contiguously in a trailing data region, each 8-aligned,
+  each `len + 9` bytes.
+
+So the thunk wrote a pointer where the caller expected an offset, and allocated
+no data region at all. The caller then walked the missing region
+(`emit_record_block_size_to_slot` sizes a record by reading each inlined block's
+length **contiguously**, ignoring the stored offsets), read garbage as a length,
+and added 9 — which is precisely the reported faulting instruction:
 
 ```
-$ cd bindings/libsnd && mfb build          # builds fine
+ldr x11, [x10]        ; garbage "length"
+add x11, x11, #0x9    ; + 9  -> the String block size
 ```
 
-Then an importer calling `getFormats()`, or the smaller probe:
+Both symptoms follow: a garbage length that is huge fails the allocation
+("Allocation failed", 7-701-0001), and one that is merely wrong dereferences
+wild memory (SIGSEGV at a different address every run).
 
-```basic
-' In the binding:
-EXPORT FUNC probeOne(i AS Integer) AS AudioFormat
-  RETURN sndLink::getFormat(i)
-END FUNC
+## The fix
+
+`marshal_struct_out` now builds a real inlined record, mirroring
+`emit_build_inlined_record`:
+
+1. **Pass 0 — measure.** `strlen` every `CString` field, stash `[char*, len]` per
+   field, and validate the bytes as UTF-8 (§12.4) before anything is copied. A
+   NULL `char *` becomes the empty String (len 0), not a crash.
+2. **Pass 1 — size and allocate.** `total = 8*n`, then for each `CString` field
+   `total = align8(total) + len + 9`. **One** allocation, because every length is
+   known before it.
+3. **Pass 2 — write.** Scalars go to `8*i`; each `CString` field writes the
+   block-relative cursor to `8*i`, then `{len, bytes, NUL}` at `record + cursor`,
+   then advances the cursor.
+
+This also removes the per-field allocation entirely, so the old "record pointer
+must survive N allocations" hazard is gone.
+
+## Why it took a while to see
+
+Every narrower hypothesis was consistent with the evidence and wrong:
+
+- **Scalar struct fields worked** (`native-struct-scalar-rt`, `clock_gettime`
+  into a `timespec`, matching C exactly) — because a scalar-only record has no
+  data region, so `8*n` is exactly right. That is what made the layout look
+  proven.
+- **The pointer in the C struct was valid.** A probe declaring the same 24-byte
+  `SF_FORMAT_INFO` with `CInt64` in place of the two `CString`s returned real
+  pointers (`4344360535` / `4344360563`, 28 apart — adjacent statics), and read
+  the real format code. So the offsets, the buffer, `INOUT`, `BIND IN` and
+  `SIZEOF` were all correct.
+- **The emitted thunk read the right offsets**, confirmed against `-ncode`.
+- The frame was correct: 224 bytes, max slot touched 216. (An earlier
+  `add_sp #192` that suggested an overflow was a *different function's*
+  epilogue.)
+
+Two measurements broke it open, both by ruling out the size rather than
+inspecting more code:
+
+1. Clamping the length to a constant 8 still failed — so the **allocation
+   itself** was failing, not a huge `strlen`.
+2. Skipping the `CString` copy entirely, storing 0 in the field, **still**
+   failed — so a record with a `String` field was broken *regardless of what the
+   field contained*, which pointed at the record's shape rather than the copy.
+
+## Verified
+
+`bindings/libsnd`'s `getFormats()` returns 17 correct formats through the real
+libsndfile:
+
 ```
-
-```basic
-IMPORT io
-IMPORT libsnd
-FUNC main AS Integer
-  io::print("calling")
-  LET f = libsnd::probeOne(0)          ' <-- SIGSEGV here
-  io::print("format=" & toString(f.format))
-  RETURN 0
-END FUNC
+count=17
+aiff | AIFF (Apple/SGI 16 bit PCM)
+wav  | WAV (Microsoft 16 bit PCM)
+flac | FLAC 16 bit
+...
 ```
-
-```
-calling
-[exit 139]
-```
-
-The crash is `EXC_BAD_ACCESS` at `ldr x11, [x10]` / `add x11, x11, #0x9` — the
-`len + 9` of a **String copy**, dereferencing a garbage pointer. The faulting
-address is different every run (0xa16515bc065ba848, 0x4f98035915cf9678), so it is
-uninitialized memory, not a fixed bad offset. The record's `String` field holds
-garbage by the time the caller copies it.
-
-## What is already ruled out
-
-This is a narrow fault, not "struct marshaling is broken":
-
-- **Scalar struct fields work.** `tests/rt-behavior/native/native-struct-scalar-rt`
-  passes: `clock_gettime` fills a 16-byte `timespec` (OUT), read back as a record,
-  and the values match C exactly (`sec=1784257884` from both, same second).
-  `nanosleep` accepts a struct built by `BIND IN` (IN direction).
-- **The scalar OUT path works.** `getFormatCount()` returns `17` through
-  `count OUT CInt32`, so libsndfile loads, the dlopen/dlsym initializer runs, and
-  `sf_command` is called correctly.
-- **The emitted thunk reads the right offsets.** From `-ncode` on the importer:
-  the buffer address handed to C (`add_imm x8, sp, #96`) matches the bytes zeroed
-  (`str xzr, [sp,#96/#104/#112]` — 24 bytes); `format` is read with `ldr_u32
-  [sp,#96]`, sign-extended, and stored to `record[0]`; the copied String is stored
-  to `record[8]`; `extension`'s `char *` is read from `[sp,#112]`. The frame is
-  rebased by +16 for the spill area, **uniformly** — the `add_imm sp` and the
-  loads/stores agree, so that is not the fault.
-- **The save-slot/register question.** `emit_copy_cstring_to_string`'s NULL path
-  originally left its result only in `RESULT_VALUE_REGISTER` and never wrote
-  `ret_off`. That was fixed (both paths now store to the slot, and the caller
-  reads the slot rather than trusting a physical register across a label) — the
-  crash survives the fix, so it was a real latent bug but not this one.
-
-## Where to look next
-
-1. **The record's ownership/copy contract for `String` fields.** The scalar case
-   proves the `8*i` record layout is right. What differs here is that a field is
-   an owned arena value. A record returned across a package boundary is copied by
-   the caller (`collections::append` deep-copies; the crash is inside that copy),
-   so the question is whether a `String` the thunk allocated is a legal record
-   field value at that moment — e.g. whether copy-insertion/scope-drop expects
-   something the thunk does not establish.
-2. **Arena state across the two allocations.** `marshal_struct_out` allocates the
-   record, then allocates once per `CString` field. Check `_mfb_arena_alloc`'s
-   contract when a second allocation happens while an earlier block is live but
-   referenced only from a stack slot.
-3. **The `-ncode` dump is the fastest instrument.** `mfb build -ncode <importer>`
-   and read `_mfb_linker_sndLink_getFormat`; the labels are `..._sf<N>_*` per
-   field.
-
-## Why it is filed rather than fixed
-
-plan-50-A/B/C/D/E/F/H/I are landed and green (964 acceptance tests). This is the
-last gap, and it is specific enough to name precisely. Committing the libsnd
-runtime test in a failing state would make the suite red for everyone, so the
-test is held back with this document instead. The binding source, the manifest,
-and the `.mfp` are committed and build — only the runtime behavior is wrong.

@@ -261,18 +261,32 @@ for format index 0 on **aarch64, x86_64, and riscv64**; the wide multi-`CString`
 struct returns every field uncorrupted; `scripts/test-accept.sh` green;
 `scripts/artifact-gate.sh` shows no churn in thunks without struct `CString`
 fields.
-Commit: `fab685f0` — capability + static coverage only. **Acceptance NOT met:**
-see `bugs/bug-255`. A `CString` struct field compiles, verifies, and emits, but a
-wrapper with one **segfaults when called**. Scalar struct fields are proven
-(plan-50-E's `native-struct-scalar-rt` matches C exactly), so the fault is
-specific to the pointer path. The runtime test is held back rather than committed
-failing.
+Commits: `fab685f0` (capability + static coverage) and the bug-255 fix.
+**Acceptance MET.** `tests/rt-behavior/native/native-struct-cstring-rt` runs a
+real C-owned `const char *` field (`gmtime_r`'s `tm_zone`) back into a record
+and copies it; `bindings/libsnd`'s `getFormats()` returns 17 correct formats with
+two `CString` fields each. `scripts/test-accept.sh` green (964);
+`scripts/artifact-gate.sh` 0 diffs across 1125 goldens — no churn in thunks
+without struct `CString` fields.
 
-**Landed note.** `emit_copy_cstring_to_string` was single-use — fixed labels and a
-fixed save slot — so calling it per field emitted duplicate labels (bug-79) and
-collided with the record pointer. It now takes a label tag and a save slot. Its
-NULL path also never wrote that slot, leaving the caller reading garbage for an
-empty field; both paths now store it. Real bugs, but neither was the segfault.
+**Landed note — this sub-plan's first implementation was wrong, see `bugs/bug-255`.**
+It assumed a record's `String` field holds a **pointer**, so it allocated `8*n`
+and copied each `const char *` into its own arena String. Records do not work
+that way: every record except `Address`/`Datagram`/`DatagramText`/`AudioDevice`
+**inlines** its `String` fields as `{len, bytes, NUL}` sub-blocks in a trailing
+data region, and the word at `8*i` is the **block-relative offset** of that
+sub-block, not a pointer (`record_field_is_inlined`,
+`emit_build_inlined_record`). `marshal_struct_out` now measures every field's
+length first, makes **one** allocation sized `8*n + Σ align8(len+9)`, and writes
+the fixed slots plus the data region — mirroring the builder. The per-field
+allocation is gone with it, and so is the "record pointer must survive N
+allocations" hazard.
+
+The tagged-helper work this sub-plan added (a label tag + a save slot, so
+`emit_copy_cstring_to_string` could run per field) was **generality for a model
+that does not exist**; it has been collapsed back to the single-caller
+whole-return form. Its NULL-path fix — the path never wrote the save slot,
+leaving the caller reading garbage — was a real latent bug and is kept.
 
 ## Validation Plan
 

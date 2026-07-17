@@ -1,0 +1,179 @@
+{
+  "project": "native_struct_cstring_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 18 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "TimeValue",
+      "line": 20,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer", "line": 21 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "TimeParts",
+      "line": 24,
+      "fields": [
+      { "visibility": null, "name": "sec", "type": "Integer", "line": 25 },
+      { "visibility": null, "name": "min", "type": "Integer", "line": 26 },
+      { "visibility": null, "name": "hour", "type": "Integer", "line": 27 },
+      { "visibility": null, "name": "mday", "type": "Integer", "line": 28 },
+      { "visibility": null, "name": "mon", "type": "Integer", "line": 29 },
+      { "visibility": null, "name": "year", "type": "Integer", "line": 30 },
+      { "visibility": null, "name": "wday", "type": "Integer", "line": 31 },
+      { "visibility": null, "name": "yday", "type": "Integer", "line": 32 },
+      { "visibility": null, "name": "isdst", "type": "Integer", "line": 33 },
+      { "visibility": null, "name": "gmtoff", "type": "Integer", "line": 34 },
+      { "visibility": null, "name": "zone", "type": "String", "line": 35 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "c",
+      "alias": "libc",
+      "line": 38,
+      "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "CTime",
+        "mapsTo": "TimeValue",
+        "line": 41,
+        "fields": [
+        {
+          "name": "value",
+          "ctype": "CInt64",
+          "line": 42
+        }
+        ]
+      },
+      {
+        "kind": "cstruct",
+        "name": "CTm",
+        "mapsTo": "TimeParts",
+        "line": 45,
+        "fields": [
+        {
+          "name": "sec",
+          "ctype": "CInt32",
+          "line": 46
+        },
+        {
+          "name": "min",
+          "ctype": "CInt32",
+          "line": 47
+        },
+        {
+          "name": "hour",
+          "ctype": "CInt32",
+          "line": 48
+        },
+        {
+          "name": "mday",
+          "ctype": "CInt32",
+          "line": 49
+        },
+        {
+          "name": "mon",
+          "ctype": "CInt32",
+          "line": 50
+        },
+        {
+          "name": "year",
+          "ctype": "CInt32",
+          "line": 51
+        },
+        {
+          "name": "wday",
+          "ctype": "CInt32",
+          "line": 52
+        },
+        {
+          "name": "yday",
+          "ctype": "CInt32",
+          "line": 53
+        },
+        {
+          "name": "isdst",
+          "ctype": "CInt32",
+          "line": 54
+        },
+        {
+          "name": "gmtoff",
+          "ctype": "CInt64",
+          "line": 55
+        },
+        {
+          "name": "zone",
+          "ctype": "CString",
+          "line": 56
+        }
+        ]
+      }
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "gmtimeAt",
+        "symbol": "gmtime_r",
+        "returnResource": false,
+        "returnType": "TimeParts",
+        "line": 62,
+        "params": [
+        { "name": "t", "type": "Integer", "default": null, "line": 62 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "timep", "ctype": "CTime", "out": false, "line": 64 },
+          { "name": "result", "ctype": "CTm", "out": true, "line": 64 }
+          ],
+          "returnName": "out",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        ],
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "result" },
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 72,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": null, "value": { "kind": "call", "callee": "libc.gmtimeAt", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sec=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "sec" }] } }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "min=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "min" }] } }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hour=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "hour" }] } }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mday=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "mday" }] } }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mon=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "mon" }] } }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "year=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "year" }] } }] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "wday=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "wday" }] } }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "yday=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "yday" }] } }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "gmtoff=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "gmtoff" }] } }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zone is text=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "zone" }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isdst=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "isdst" }] } }] }, "line": 88 },
+      { "kind": "binding", "mutable": false, "name": "again", "type": null, "value": { "kind": "identifier", "value": "t" }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "copied zone matches=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "again" }, "member": "zone" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "zone" } }] } }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "copied year=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "again" }, "member": "year" }] } }] }, "line": 93 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 94 }
+      ]
+    }
+    ]
+  }
+  ]
+}

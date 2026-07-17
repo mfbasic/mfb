@@ -1,0 +1,95 @@
+' bug-255 / plan-50-F: a CSTRUCT field of type `CString` becomes an owned String
+' field of the mapped record.
+'
+' This is the regression guard for the record layout. A record does NOT hold a
+' String POINTER at 8*i: it holds the offset, relative to the record's own block,
+' of an inlined {len, bytes, NUL} sub-block in a trailing data region. A thunk
+' that stores a pointer instead produces a record the caller reads as garbage —
+' which is exactly what bug-255 was.
+'
+' `gmtime_r` is the portable vehicle: `struct tm` carries a real C-owned
+' `const char *tm_zone` after ten scalars, and its layout is identical on macOS,
+' glibc and musl (nine 4-byte ints, then `long tm_gmtoff` at 40 after alignment
+' padding, then `const char *tm_zone` at 48; size 56). Epoch 0 is a fixed
+' instant, so every scalar is an exact assertion. The zone TEXT is deliberately
+' not asserted — macOS and musl say "UTC", glibc says "GMT" — but it must be a
+' real, non-empty string, which is what proves the inlined block round-trips.
+
+IMPORT io
+
+TYPE TimeValue
+  value AS Integer
+END TYPE
+
+TYPE TimeParts
+  sec    AS Integer
+  min    AS Integer
+  hour   AS Integer
+  mday   AS Integer
+  mon    AS Integer
+  year   AS Integer
+  wday   AS Integer
+  yday   AS Integer
+  isdst  AS Integer
+  gmtoff AS Integer
+  zone   AS String
+END TYPE
+
+LINK "c" AS libc
+  ' time_t input, passed by address: IN means the buffer is filled from BIND IN
+  ' and never read back.
+  CSTRUCT CTime AS TimeValue
+    value CInt64
+  END CSTRUCT
+
+  CSTRUCT CTm AS TimeParts
+    sec    CInt32
+    min    CInt32
+    hour   CInt32
+    mday   CInt32
+    mon    CInt32
+    year   CInt32
+    wday   CInt32
+    yday   CInt32
+    isdst  CInt32
+    gmtoff CInt64
+    zone   CString
+  END CSTRUCT
+
+  ' gmtime_r(const time_t *timep, struct tm *result) -> struct tm *
+  ' The returned pointer aliases `result`, so it is ignored: RETURN names the
+  ' filled struct instead.
+  FUNC gmtimeAt(t AS Integer) AS TimeParts
+    SYMBOL "gmtime_r"
+    ABI (timep IN CTime, result OUT CTm) AS out CPtr
+    BIND IN timep
+      value = t
+    END BIND
+    RETURN result
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  ' Epoch 0 = 1970-01-01 00:00:00 UTC, a Thursday.
+  LET t = libc::gmtimeAt(0)
+  io::print("sec=" & toString(t.sec))
+  io::print("min=" & toString(t.min))
+  io::print("hour=" & toString(t.hour))
+  io::print("mday=" & toString(t.mday))
+  io::print("mon=" & toString(t.mon))
+  io::print("year=" & toString(t.year))
+  io::print("wday=" & toString(t.wday))
+  io::print("yday=" & toString(t.yday))
+  io::print("gmtoff=" & toString(t.gmtoff))
+  ' The String field: C-owned bytes, copied into the record's data region.
+  io::print("zone is text=" & toString(len(t.zone) > 0))
+  ' A scalar read AFTER the String field proves the fixed slots still line up
+  ' once a data region exists.
+  io::print("isdst=" & toString(t.isdst))
+
+  ' The record survives being copied out of the thunk and re-read.
+  LET again = t
+  io::print("copied zone matches=" & toString(again.zone = t.zone))
+  io::print("copied year=" & toString(again.year))
+  RETURN 0
+END FUNC

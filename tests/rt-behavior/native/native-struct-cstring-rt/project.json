@@ -1,0 +1,15 @@
+{
+  "name": "native_struct_cstring_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "libraries": {
+    "c": [
+      { "os": "macos", "type": "system", "source": "libSystem.B.dylib" },
+      { "os": "linux", "type": "system", "source": "libc.so.6" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "main", "include": ["**/*.mfb"] } ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -342,9 +342,27 @@ One landable unit.
 Acceptance: `getFormats()` returns libsndfile's real simple-format table, with
 distinct extensions and non-empty names, executed on macOS/aarch64,
 Linux/aarch64, Linux/x86_64, and Linux/riscv64; `scripts/test-accept.sh` green.
-Commit: `7fbff627` — the compiler work only. **Acceptance NOT met:** `getFormats()`
-segfaults (`bugs/bug-255`). The binding source, manifest, and `.mfp` are committed
-and build; `getFormatCount()` returns 17 correctly through the scalar OUT path.
+Commits: `7fbff627` (the compiler work) and the bug-255 fix. **`getFormats()`
+WORKS** — 17 formats through the real vendored libsndfile, each with a correct
+extension and name:
+
+```
+count=17
+aiff | AIFF (Apple/SGI 16 bit PCM)
+wav  | WAV (Microsoft 16 bit PCM)
+flac | FLAC 16 bit
+mp3  | MPEG Layer 3
+...
+```
+
+**Verified on macOS/aarch64 only.** The per-arch runs (Linux aarch64/x86_64/
+riscv64, boxes 2223/2224/2227/2228/2229) and the binding's DOC blocks remain
+open. No libsnd runtime test is committed: a consumer of the `.mfp` needs the
+`vendor/` directory (the package carries locators, not bytes), and the format
+list varies with each platform build's codecs — so the portable regression guard
+for the underlying capability is `native-struct-cstring-rt` (libc `gmtime_r`,
+identical `struct tm` layout on macOS/glibc/musl), which fails hard against the
+pre-fix thunk.
 
 **Landed notes.**
 1. `CONST <slot> = SIZEOF <CStruct>` implemented (the §Open Decisions
