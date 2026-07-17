@@ -18,11 +18,10 @@ pointer is what a resource bind/return should do. `.state` reads offset 16 of th
 pointer (the record's STATE slot); the bind default-inits it; drop reclaims it
 (plan-52-B). No `validation.rs` change was made.
 
-**Remaining (Phase 1 guardrails, not yet landed):** the `TYPE_STATE_MISMATCH`
-extension rejecting two native declarations of one resource with disagreeing STATE
-types, and the syntax fixtures for the parse + that rejection. These are safety
-rails against a binding-author typo (the codegen uses the producer's STATE); the
-runtime feature is complete without them. Tracked below.
+**Guardrails — LANDED.** `TYPE_STATE_MISMATCH` now rejects two native declarations
+of one resource with disagreeing STATE types (`check_link_functions`), with fixture
+`tests/syntax/native/native-resource-state-mismatch-invalid`. The grammar spec
+(`mfb spec language grammar`, `native-libraries`) documents STATE-on-native.
 
 Last updated: 2026-07-17
 Overall Effort: large (3h–1d)

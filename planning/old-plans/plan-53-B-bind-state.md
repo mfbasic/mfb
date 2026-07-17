@@ -17,10 +17,12 @@ libsndfile and is reproducible but not an in-tree CI fixture (no tests/ fixture
 vendors libsndfile; libsnd is validated out-of-tree). The BIND STATE codegen reuses
 `marshal_struct_out`, which is already proven by `getFormat`/`getFormats`.
 
-**Remaining (guardrails):** reject a `BIND STATE` whose OUT struct's `CSTRUCT AS S`
-disagrees with the resource's declared STATE type, and reject `BIND STATE` naming a
-non-OUT slot (the codegen currently errors at lowering for the latter). Syntax
-fixtures for those. Tracked in the plan phases below.
+**Guardrails — LANDED.** `NATIVE_BIND_STATE_INVALID` (`2-203-0130`) rejects, at the
+native declaration: a `BIND STATE` naming a non-OUT slot, a `CSTRUCT AS S` that
+disagrees with the resource's STATE type, and a `BIND STATE` on a func with no
+stateful resource return. Validated at declaration (a package build never emits the
+thunk). Fixture `tests/syntax/native/native-bind-state-invalid`; grammar +
+native-libraries + rule-codes spec updated.
 
 Last updated: 2026-07-17
 Effort: medium (1h–2h)
