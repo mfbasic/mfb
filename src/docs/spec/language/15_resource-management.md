@@ -47,7 +47,7 @@ s.state = WITH s.state { pos := 10 }                         ' or replace the wh
 
 `T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource **drops**. `STATE` is optional. An explicit close (`fs::close(s)`) releases the OS handle but reclaims no memory, so `s.state` still reads its payload after one; drop is what frees it.
 
-`s.state` reads the state record. It is updated either by assigning a single field in place (`s.state.field = value`) or by assigning a whole-state `WITH` update (`s.state = WITH s.state { field := value }`); the former is shorthand for the latter. These are the only member-target assignments in the language. Because a resource value is a shared handle, a state update made through a borrowed `RES` parameter is visible to the owner after the call.
+`s.state` reads the state record. It is updated either by assigning a single field in place (`s.state.field = value`) or by assigning a whole-state `WITH` update (`s.state = WITH s.state { field := value }`); the former is shorthand for the latter. These are the only member-target assignments in the language. Because a `RES` is an alias to one live resource, a state update made through a `RES` parameter (an alias, not a copy) is visible to the owner after the call.
 
 ## 15.5 What `STATE` means in each position
 
@@ -59,11 +59,13 @@ A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFi
 | **Return** | returns a resource carrying **no** state | returns a resource **carrying** a `FileInfo` |
 | **Binding** | binds a resource carrying **no** state | **attaches** a default-initialized `FileInfo` (when the value carries none), or **adopts** the one the value already carries |
 
-Bare therefore reads two ways: **"opaque"** at a parameter, and **"none"** at a return or a binding. The rule behind the asymmetry:
+Bare therefore reads two ways: **"opaque"** at a parameter, and **"none"** at a return or a binding. The rule behind the asymmetry is **escape**, not ownership words:
 
-> Bare erases `STATE` only where the resource **cannot escape**. A parameter is a borrow and is confined to the frame that borrowed it (`TYPE_RESOURCE_BORROW_INVALIDATE`, §15), so forgetting the state there is unobservable to anyone else. A return and a binding are owners and **can** escape, so bare there means *provably no state*.
+> A `RES` is an **alias** to one live resource — never a copy. Bare erases `STATE` only where that alias **cannot escape** the frame it appears in. A **parameter** is a non-owning alias confined to the callee's frame (it cannot close, `RETURN`, or transfer the resource — `TYPE_RESOURCE_BORROW_INVALIDATE`, §15), so the owner keeps the resource under its real STATE type and nothing is ever re-read as a different type; erasing STATE there ("opaque") is therefore unobservable. A **return** and a **binding** hand the resource to a new owner that re-declares its type — the resource **escapes to a re-typer** — so bare there must mean *provably no state*, or a stateful payload would be silently re-typed.
 
-The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(RES db AS Db)` names no `STATE` and works for every `Db`.
+So "bare accepts any state" is exactly and only the **non-escaping alias** case (a parameter). Every position where the resource escapes to a context that re-declares its type — a return, a binding, and (once enforced) a `thread::transfer` across the thread boundary — instead requires the STATE to be named in the contract, because the escape is a *move to a re-typer*, not an in-frame alias. See `./mfb spec architecture escape-analysis`.
+
+The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(RES db AS Db)` names no `STATE` and works for every `Db`, precisely because that alias never escapes to re-read `.state` under a new type.
 
 **Attachment happens exactly once, at the owning binding.** A parameter only observes: a `RES p AS File STATE Cursor` parameter given an argument that carries no `Cursor`, or that carries some other state type, is rejected (`TYPE_STATE_MISMATCH`) [[src/rules/table.rs:TYPE_STATE_MISMATCH]] rather than attaching or re-typing one. The payload carries no runtime type tag, so its type is fixed by the binding that created it and every later declaration must agree.
 
