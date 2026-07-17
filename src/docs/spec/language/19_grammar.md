@@ -12,9 +12,12 @@ resourceDecl   = declVis "RESOURCE" ident "CLOSE" "BY" qualifiedName
 funcAlias      = declVis "FUNC" ident "AS" qualifiedName ;
 linkDecl       = "LINK" string "AS" ident { nativeFuncDecl } "END" "LINK" ;
 (* The native FUNC name may be a keyword (e.g. `step`, colliding with `STEP`);
-   the parser accepts a keyword token in this position. The native return has no
-   STATE clause. *)
-nativeFuncDecl = "FUNC" name "(" [ params ] ")" [ "AS" [ "RES" ] type ]
+   the parser accepts a keyword token in this position. A `RES` native return may
+   carry a `STATE T` clause (plan-53): the native producer hands back a resource
+   RECORD carrying a `T` payload, populated by BIND STATE (below) or
+   default-initialized. STATE is honored only after `RES`, as on ordinary funcs. *)
+nativeFuncDecl = "FUNC" name "(" [ params ] ")"
+                   [ "AS" [ "RES" ] type [ "STATE" type ] ]
                    nativeFuncBody "END" "FUNC" ;
 name           = ident | keyword ;
 (* The body clauses may appear in any order; SYMBOL and ABI are required. There
@@ -23,10 +26,19 @@ nativeFuncBody = { "SYMBOL" string
                  | "ABI" "(" [ abiSlotList ] ")" "AS" abiReturn
                  | constPin
                  | nativeReturnRule
-                 | "RESULT" expr
+                 | "RETURN" expr
+                 | bindIn
+                 | bindState
                  | nativeFree } ;
 constPin       = "CONST" ident "=" expr ;
 nativeReturnRule = "SUCCESS_ON" expr | "ERROR_ON" expr ;
+(* BIND IN writes named struct fields into an IN/INOUT slot before the call;
+   BIND STATE (plan-53) marshals a filled OUT struct slot into the returned
+   resource's STATE payload after the call. `<res-slot>` is the native return
+   naming the produced resource; `<struct-slot>` is an OUT ABI slot whose
+   `CSTRUCT ... AS S` gives the resource's STATE type S. *)
+bindIn         = "BIND" "IN" ident { ident "=" expr } "END" "BIND" ;
+bindState      = "BIND" "STATE" ident "=" ident ;
 (* In a FREE block both clauses may appear in any order; the deallocator's
    ABI return after `AS` is a bare nativeType (no slot name). *)
 nativeFree     = "FREE" ( ident | "return" )

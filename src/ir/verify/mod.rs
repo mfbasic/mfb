@@ -3126,6 +3126,41 @@ impl TypeEnv {
             }
             let _ = display;
         }
+
+        // plan-53-A: a native resource's STATE type is fixed, so every native
+        // declaration that names it — a producer's `AS RES R STATE S`, a
+        // consumer's `RES x AS R STATE S` (e.g. the close op) — must agree on `S`.
+        // The payload carries no runtime tag, so a producer allocating `S` and a
+        // close reading `S2` is the same untagged type confusion plan-52-C closes
+        // at an ordinary parameter, at the native boundary. Collect (resource -> S)
+        // over all link functions and reject a second, different S.
+        let mut resource_state: HashMap<String, String> = HashMap::new();
+        let mut check = |base: &str, state: &str, env: &Self| {
+            match resource_state.get(base) {
+                Some(existing) if existing != state => env.emit(
+                    "TYPE_STATE_MISMATCH",
+                    format!(
+                        "native resource `{base}` is declared with STATE `{existing}` and also STATE `{state}`; a resource's STATE type is fixed and every native declaration of it must agree."
+                    ),
+                ),
+                Some(_) => {}
+                None => {
+                    resource_state.insert(base.to_string(), state.to_string());
+                }
+            }
+        };
+        for function in &project.link_functions {
+            if function.return_resource {
+                if let Some(state) = &function.return_state_type {
+                    check(resource_base_type(&function.return_type), state, self);
+                }
+            }
+            for (_, ptype) in &function.params {
+                if let Some(state) = crate::builtins::resource::state_type_name(ptype) {
+                    check(resource_base_type(ptype), state, self);
+                }
+            }
+        }
     }
 
     /// Whether a type contains a resource or thread handle anywhere (mirrors

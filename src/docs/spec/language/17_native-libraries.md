@@ -138,6 +138,23 @@ A parameter consumed by `BIND IN` needs no ABI slot of its own — it feeds a st
 
 `RETURN <struct-slot>` builds the `CSTRUCT`'s mapped record from the buffer the callee filled, so the wrapper must return that record type. `RETURN` on an `IN` struct slot is rejected: an input slot is zeroed and never read back. Field values marshal by width and signedness — a signed narrow field is sign-extended (so a `CInt32` of `-1` surfaces as `-1`, not `4294967295`), a `CBool` normalizes to `TRUE`/`FALSE`, and a `CDouble` that is NaN or infinite is rejected, since an MFBASIC `Float` is always finite. Writing a field range-checks the same way a `CInt32` argument does: a 64-bit `Integer` that does not fit the C field fails with `ErrOverflow` rather than truncating. [[src/target/shared/code/link_thunk.rs:marshal_struct_out]]
 
+**A native resource that carries `STATE` (`BIND STATE`).** A native `LINK` function that produces a resource may declare a `STATE T` clause on its `RES` return — `FUNC openFile(path) AS RES SoundFile STATE FileInfo` — exactly as an ordinary function does (§15.5). Such a resource is then a real 80-byte resource **record** (a handle plus a STATE payload pointer), not the bare `CPtr` a stateless native resource is, so it carries STATE the same way a built-in `File STATE T` does: `.state` reads it, a state update through a borrow is visible to the owner, and drop reclaims it. A stateless native resource is unchanged — still a bare handle.
+
+`BIND STATE <res-slot> = <out-struct-slot>` populates that STATE from a struct the native call filled through an `OUT` parameter: the thunk marshals the filled `CSTRUCT` (via its `AS S` record, exactly as `RETURN <struct-slot>` does) into the returned resource's STATE payload. This is the shape a library like libsndfile needs — `sf_open` hands back an `SNDFILE*` and fills an `SF_INFO`, which becomes the handle's state:
+
+```basic
+FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+  SYMBOL "sf_open"
+  ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+  CONST mode = 16
+  BIND STATE file = info        ' the returned resource carries the filled SF_INFO
+  ERROR_ON file = NOTHING
+  RETURN file
+END FUNC
+```
+
+Without `BIND STATE`, a stateful native return's STATE default-initializes (the caller's binding allocates it) exactly as a built-in resource's does. `<out-struct-slot>` must be an `OUT` `CSTRUCT` slot whose `AS S` record matches the resource's declared STATE type; a native FUNC may declare at most one `BIND STATE`. A resource's STATE type is fixed: every native declaration that names it — a producer's return, the close op's `RES` parameter — must agree on it (`TYPE_STATE_MISMATCH`), since the payload carries no runtime tag. The stateful return and its STATE ride an exported signature, so an importer binds the resource and reads its `.state` across the package boundary. [[src/target/shared/code/link_thunk.rs:lower_link_thunk]]
+
 **`CString` struct fields.** A `const char *` field marshals both ways. Coming **out**, the pointer is copied into an owned MFBASIC `String`, its bytes validated as UTF-8 (`ErrEncoding` if not), and a NULL yields `""`. Going **in**, a `String` field becomes a NUL-terminated C buffer that lives for the duration of the call.
 
 The out direction is **copy-and-leave**: the wrapper copies the bytes and never frees the source. That is correct when the C library owns the storage and keeps it valid — libsndfile's format names live in a `static const` table, so freeing them would be a wild free. There is deliberately **no per-field `FREE`**: the compiler cannot tell a library-owned pointer from a caller-owned one (it is a fact about the C API, not the type), so a struct field is always copy-and-leave. **Using a `CString` struct field for caller-owned storage therefore leaks it** — a binding that needs to release a returned pointer must take it as the wrapper's own `CPtr` result and use a `FREE` block. A `CPtr` field is rejected outright and always will be: a raw pointer may not surface in a record.

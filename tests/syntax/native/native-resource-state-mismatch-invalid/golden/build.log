@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/native/native-resource-state-mismatch-invalid
+tests/syntax/native/native-resource-state-mismatch-invalid/<generated>:1 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               native resource `Db` is declared with STATE `A` and also STATE `B`; a resource's STATE type is fixed and every native declaration of it must agree.
+[exit 1]
