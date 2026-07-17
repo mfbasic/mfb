@@ -1,5 +1,14 @@
 # plan-52-C: STATE agreement at parameters — close the type confusion
 
+Status: **COMPLETE.** `TYPE_STATE_MISMATCH` (`2-203-0129`) rejects both a re-typed and an
+attaching parameter; the bare-param opt-out survives (every close op still compiles, and
+the five pre-existing STATE fixtures pass unchanged). The type confusion this closes was
+observed at runtime first (plan-52-A Phase 3) and is now a compile error. Two of §2's
+claims were corrected against a green tree: the disclosure variant is **not** a disclosure
+primitive (it leaks a block-relative offset, not an address), and the `_mfb_str_empty`
+error was a live bug, not a stale-tree artifact (`bugs/bug-256`). `thread::transfer`
+remains open and is **not** closed by this sub-plan — `bugs/bug-257`.
+
 Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: plan-52-A (the model + the pending fixtures this flips green)
@@ -85,14 +94,22 @@ is the gap.
 interpreted as `Label{name:String}` and falls over with a bogus `Allocation failed` — the
 integer 42 read as a String header.
 
-**Not verified — do not claim it.** The reverse direction (allocate as
-`Label{name:String}`, read back as `Cursor{pos:Integer}`) would disclose a raw arena
-pointer as an `Integer` rather than faulting — a **disclosure primitive**, and a more
-serious finding than the confusion above. It has **never been demonstrated**. The attempt
-hit an unrelated `native code data relocation target '_mfb_str_empty' is not a data object
-or defined symbol` build error on the mid-plan-50 tree; the run that appeared to succeed
-was a **stale `build/*.out` from the previous test**. Nothing in this plan may describe
-this as a disclosure primitive until it is built on a green tree and observed.
+**RESOLVED — it is NOT a disclosure primitive.** The reverse direction (allocate as
+`Label{name:String}`, read back as `Cursor{pos:Integer}`) was suspected of disclosing a raw
+arena pointer as an `Integer` rather than faulting. It has now been **built on a green tree
+and observed**: it prints `pos as integer = 8`. A record's `String` field is a
+**block-relative offset** to an inlined sub-block, never a pointer, so the reverse read
+leaks the constant `8` — a structural offset, not an address. **The severity is not
+raised**; the `Cursor`→`Label` direction below remains the whole of the finding.
+
+Two things blocked this demonstration and both are now resolved:
+
+- The `native code data relocation target '_mfb_str_empty' is not a data object or defined
+  symbol` error was **not** a mid-plan-50 artifact — it reproduced on the green tree and
+  was a live bug: any `STATE` carrying a `String` field failed to link. Fixed as
+  `bugs/completed-bugs/bug-256`, which is what made this observation possible at all.
+- The stale-binary trap below is real and was re-confirmed; every run recorded here was
+  checked against `ls -la`/`date` on a freshly removed `build/`.
 
 > **Trap, generally:** a failed `mfb build` leaves the previous `build/<name>.out` in
 > place, and running it looks like a pass. `rm -rf build` and check the binary timestamp.
@@ -176,12 +193,21 @@ diagnostic gap, not a hole. Make the two paths say the same thing; flip plan-52-
 
 ### Phase 1 — the mismatch rule
 
-- [ ] Add `TYPE_STATE_MISMATCH` to `src/rules/table.rs` with a site-specific message
-      naming **both** types.
-- [ ] Implement the §3 table at the argument→param boundary, beside
-      `src/ir/verify/mod.rs:825-845`.
-- [ ] Keep bare params accepting anything — the opt-out is a Non-goal to preserve, and it
-      is the easiest thing to break here.
+- [x] Add `TYPE_STATE_MISMATCH` to `src/rules/table.rs` (`2-203-0129`) with a
+      site-specific message naming **both** types, plus the two spec registries
+      (`diagnostics rule-codes`, `package verifier-rules`).
+- [x] Implement the §3 table at the argument→param boundary —
+      `check_argument_state_agreement`, called from `check_call_argument_types`, which
+      already had both full type strings in hand (it strips STATE off each to compare
+      bases, so the relational data was right there).
+- [x] Keep bare params accepting anything — `state_type_name(param) == None` returns
+      early, so the opt-out is the rule's first line.
+- [x] **Also required, not in the plan:** add `TYPE_STATE_MISMATCH` to
+      `RELOCATED_TO_IR_VERIFY`. `collect_source_diagnostics` filters the source path to
+      that allowlist, so without the entry the rule fired but was **dropped on the source
+      path**, surfacing only through the package path's `check()` as an unlocated
+      `error: TYPE_STATE_MISMATCH: …` with no `file:line` and no rule code. ir::verify is
+      the sole implementer (syntaxcheck has no twin), so there is nothing to duplicate.
 
 Acceptance: plan-52-A rows 4 and 5 are rejected with `TYPE_STATE_MISMATCH`; rows 1, 2, 10
 still pass unchanged; `resource-state-field-assign-valid` and its four siblings pass
@@ -190,22 +216,43 @@ Commit: —
 
 ### Phase 2 — the `.state` read diagnostic
 
-- [ ] Give the read path a STATE-naming error, matching the write path's wording
-      (`src/ir/verify/mod.rs` / `src/syntaxcheck/`).
-- [ ] Update plan-52-A row 3's golden; drop its `TODO(plan-52-C)`.
+- [x] Give the read path a STATE-naming error, matching the write path's wording. Landed in
+      `check_member_access` (`src/ir/verify/mod.rs`), which already had the target's
+      inferred type in hand — the natural home, beside the `t.result` arm.
+- [x] Row 3's golden now carries `TYPE_STATE_INVALID` naming STATE.
 
-Acceptance: `p.state.pos` on a bare param names STATE, not `toString`'s argument types.
+Acceptance: met. `p.state.pos` on a bare param now reports
+
+    error[2-203-0085 TYPE_STATE_INVALID]: `File` here has no STATE to read; declare the
+    resource with `STATE T`. A bare `RES` parameter cannot read the state its caller
+    attached.
+
+`TYPE_CALL_ARGUMENT_MISMATCH` still appears alongside it (the `Unknown` still lands on
+`io.print`), so the fixture pins both: the point was that the diagnostic *names STATE*, not
+that the consumer error disappears. Removing the latter would mean suppressing a poisoned
+value's downstream error, which is a separate concern.
 Commit: —
 
 ### Phase 3 — validation
 
-- [ ] `scripts/artifact-gate.sh`; confirm the codegen delta is nil (front-end rules only).
-- [ ] Regenerate the goldens rows 3/4/5 shift; confirm the delta is only those.
-- [ ] Re-run the two-disagreeing-borrows runtime fixture: it must now **fail to build**.
+- [x] `scripts/artifact-gate.sh`: **967 tests, 1141 goldens, 0 diffs** — the codegen delta
+      is nil, as a front-end-rules-only change should be.
+- [x] Goldens: rows 3/4/5 shifted and nothing else.
+- [x] The two-disagreeing-borrows program now **fails to build** with
+      `TYPE_STATE_MISMATCH`. The runtime confusion proof is inverted, as planned.
 
-Acceptance: full suite green; golden deltas are exactly rows 3/4/5; the runtime confusion
-proof is now a compile error.
+Acceptance: **full suite green — 981 acceptance tests, 2901 unit tests, 0 failures.** The
+five pre-existing STATE fixtures pass unchanged (over-rejection would have shown up there
+first).
 Commit: —
+
+**One regression found and fixed here, worth recording:** the new `.state`-read rule also
+fired on the *write* path, because `s.state = WITH s.state { … }` reads `s.state` in its
+`WITH` target — so a stateless state-assign reported the same line twice, and the read
+message said "parameter" where `s` was a binding. Suppressed inside a state assignment (the
+assign arm's diagnostic is the precise one) and the wording no longer assumes a parameter.
+A diagnostic that fires on a sub-expression of a statement another rule already owns is a
+regression even when both messages are true.
 
 ## Validation Plan
 
@@ -226,11 +273,16 @@ Commit: —
 - **One code or three?** One `TYPE_STATE_MISMATCH` across param/return/binding with a
   site-specific message, vs. a code per site. Recommend **one** — the user's fix is the
   same shape everywhere. plan-52-D reuses it for the return and binding rows.
-- **`thread::transfer`** — still unresolved, audited in plan-52-A
-  Phase 3. If an `ISOLATED FUNC` entry can declare a different STATE than the sender's
-  binding, the same rule must cover the resource plane
-  (`src/target/shared/code/builder_arena_transfer.rs:336-337`), and a cross-thread type
-  confusion may warrant its own severity.
+- **`thread::transfer`** — **RESOLVED: yes, it can, and this sub-plan does not close it.**
+  Filed as `bugs/bug-257` (HIGH). Confirmed at runtime: a sender attaching
+  `Cursor{pos:Integer}=99` and a worker declaring `STATE Label{name:String}` build clean and
+  type-confuse across the thread boundary. It survives both C and D **by construction** —
+  `thread::accept`'s static return type is a bare `File`, so the receiver's binding reads as
+  a legal *attach* (plan-52-D's one true attach point) while `emit_resource_state_init`'s
+  null-check silently **adopts** the sender's payload and re-types it. The STATE arrives in
+  a pointer the type system never sees, so no static rule over type strings can catch it.
+  Closing it requires the STATE on the plane type (`Thread OF RES File STATE Cursor TO …`)
+  — a language-surface change, hence its own plan rather than scope creep here.
 
 ## Summary
 

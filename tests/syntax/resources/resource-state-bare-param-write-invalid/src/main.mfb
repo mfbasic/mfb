@@ -1,0 +1,20 @@
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-52-A row 2: a BARE `RES` parameter reads as "opaque" — `.state` is not
+' accessible through it, even when the caller's owner attached one. The WRITE
+' path says so precisely (`TYPE_STATE_INVALID`); its READ twin is
+' resource-state-bare-param-read-invalid. See §15.5.
+SUB touch(RES p AS File)
+  p.state.pos = 1
+END SUB
+
+FUNC main AS Integer
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-bare-param-write-invalid/src/main.mfb")
+  touch(f)
+  fs::close(f)
+  RETURN 0
+END FUNC

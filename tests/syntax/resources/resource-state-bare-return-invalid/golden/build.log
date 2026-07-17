@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-bare-return-invalid
+  12 | FUNC make() AS RES File
+  13 |   RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-bare-return-invalid/src/main.mfb")
+  14 |   RETURN f
+     | ^
+tests/syntax/resources/resource-state-bare-return-invalid/src/main.mfb:14 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type File STATE Cursor, expected File.
+[exit 1]

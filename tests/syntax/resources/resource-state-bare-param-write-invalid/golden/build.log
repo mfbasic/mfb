@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-bare-param-write-invalid
+  10 | ' resource-state-bare-param-read-invalid. See §15.5.
+  11 | SUB touch(RES p AS File)
+  12 |   p.state.pos = 1
+     | ^
+tests/syntax/resources/resource-state-bare-param-write-invalid/src/main.mfb:12 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               `p` has no STATE to assign; declare the resource with `STATE T`.
+[exit 1]

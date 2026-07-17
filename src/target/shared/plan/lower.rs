@@ -140,6 +140,15 @@ pub(super) fn storage_for_type(
     // A `RES`-marked collection element (`RES File`) stores exactly like the
     // bare resource it borrows: a pointer to the record (§15.6).
     let type_ = type_.strip_prefix("RES ").unwrap_or(type_);
+    // A resource carrying `STATE T` likewise stores exactly like its base: one
+    // pointer to the record, the state being a pointer *inside* it. Strip the
+    // clause before the lookup so a NATIVE `LINK` resource resolves — the
+    // built-in arm below tolerates a `File STATE T` name via `is_resource_type`,
+    // but a native resource lives in `type_storage` under its bare name and
+    // `is_user_type_name` rejects a name with spaces, so `SfFile STATE FileInfo`
+    // fell through to the error. That is `bindings/libsnd`'s exact shape
+    // (plan-52-D Phase 3).
+    let type_ = crate::builtins::resource::base_resource_name(type_);
     if let Some(storage) = type_storage.get(type_) {
         return Ok(storage.clone());
     }

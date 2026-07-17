@@ -13,6 +13,18 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn parse_type(&self, name: &str) -> Type {
+        // `Type` has no STATE concept: syntaxcheck carries a resource's `STATE T`
+        // beside the type, in `LocalInfo`/`ParamSig`, never inside it. So a type
+        // string that spells the STATE inline resolves to its base — a
+        // `File STATE Cursor` IS a `File` for every purpose `Type` serves.
+        //
+        // Only imported signatures arrive spelled that way (a locally declared
+        // `RES f AS File STATE Cursor` is parsed with the clause already split off
+        // by the parser). Without this the STATE rode inside `Type::User`, and
+        // every ordinary comparison against it failed — `fs::close(h)` on an
+        // imported stateful handle reported "argument type(s) (File STATE Cursor),
+        // expected File" (plan-52-D §4).
+        let name = crate::builtins::resource::base_resource_name(name);
         let name = builtins::thread::strip_type_group(name);
         // A package-qualified built-in type (`net.Url`, `http.Result`) resolves to
         // its bare internal id (plan-03-http.md §A.1/§B.2).

@@ -1,0 +1,21 @@
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-52-A row 6: a BARE return promises "no state", so returning a value that
+' carries one is rejected. Unlike a parameter, a return escapes the frame — the
+' opaque reading is unavailable to it, and the promise is load-bearing: a caller
+' binding `RES h AS File STATE Other = make()` attaches only because a bare
+' return provably carries nothing. See §15.5.
+FUNC make() AS RES File
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-bare-return-invalid/src/main.mfb")
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File = make()
+  fs::close(h)
+  RETURN 0
+END FUNC

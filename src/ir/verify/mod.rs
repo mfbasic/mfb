@@ -42,7 +42,7 @@
 //! lowered, so every path that produces IR — the source front end and the
 //! package decoder — is verified before any native code is emitted.
 
-use super::{IrField, IrOp, IrProject, IrType, IrValue};
+use super::{IrField, IrFunction, IrOp, IrProject, IrType, IrValue};
 use crate::builtins;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -131,6 +131,12 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RES_REQUIRES_RESOURCE",
     "TYPE_STATE_INVALID",
     "TYPE_UNION_STATE_FORBIDDEN",
+    // ir::verify is the SOLE implementer of the STATE-agreement rule (plan-52-C/D)
+    // — syntaxcheck has no twin of it to duplicate — so it is relocated from birth
+    // rather than after a reproduction pass. Without this entry the source path
+    // filters it out and it surfaces only via the package path's `check()`, which
+    // renders unlocated (`error: TYPE_STATE_MISMATCH: …`, no file:line).
+    "TYPE_STATE_MISMATCH",
     "TYPE_RESULT_NOT_MATCHABLE",
     "TYPE_RESULT_IS_IMPLICIT",
     "TYPE_THREAD_RESULT_REMOVED",
@@ -156,7 +162,22 @@ const PRIMITIVE_TYPES: &[&str] = &[
 /// checker never short-circuits, so a program with several violations yields
 /// them all.
 pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
-    let env = TypeEnv::build(project);
+    collect_diagnostics_with(project, false)
+}
+
+/// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
+/// path it is on — the one question its type tables cannot answer for themselves.
+///
+/// On the **source** path `build` lowers with deliberately empty external maps, so
+/// an importer's tables hold only its own types and every imported name misses. On
+/// the **package** path the merged IR carries the full type table and every name
+/// is decoded from an id that must exist in it. Same checker, different completeness
+/// of information — so a miss means "imported, cannot say" on one and "genuinely
+/// absent" on the other (bug-258).
+fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -> Vec<Diagnostic> {
+    let mut env = TypeEnv::build(project);
+    env.imported_types_unknown = imported_types_unknown;
+    let env = env;
     for function in &project.functions {
         env.current_file.replace(function.file.clone());
         env.current_return.replace(function.returns.clone());
@@ -168,6 +189,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         if !function.name.starts_with('$') {
             env.current_line.set(function.loc.line);
             env.check_collection_res_axis(resource_base_type(&function.returns));
+            env.check_return_state_declaration(function);
         }
         // A declared FUNC must name its return type (`AS T`); lowering stamps
         // `Unknown` when the annotation is absent. Synthesized `$lambda` bodies
@@ -364,7 +386,7 @@ pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics(project)
+    collect_diagnostics_with(project, true)
         .into_iter()
         .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
         .map(|d| crate::rules::PendingDiagnostic {
@@ -461,6 +483,16 @@ struct TypeEnv {
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
     /// where lowering stamped a nominal result type. Reset per checked value.
     poisoned: Cell<bool>,
+    /// Whether this run's type tables are missing the imported types (the source
+    /// path lowers with empty external maps; the package path does not). When set,
+    /// a type name absent from every table is treated as an unresolvable *import*
+    /// rather than as a positively-known-bad type — see `is_defaultable` (bug-258).
+    imported_types_unknown: bool,
+    /// Whether the value currently being checked is a state assignment's
+    /// right-hand side (`s.state = WITH s.state { … }`), whose `WITH` target reads
+    /// `s.state`. Suppresses the `.state`-read rule there so the assign path's more
+    /// precise diagnostic is the only one reported for the statement (plan-52-C).
+    checking_state_assign: Cell<bool>,
     /// The enclosing loop kinds, innermost last — an EXIT/CONTINUE must name a
     /// kind present here. Checking is sequential, so a RefCell stack suffices.
     loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
@@ -644,6 +676,11 @@ impl TypeEnv {
             current_return: RefCell::new(String::new()),
             current_kind: RefCell::new(String::new()),
             poisoned: Cell::new(false),
+            // Strict by default: the package path (and every unit test) builds the
+            // env directly and has the full merged type table. Only
+            // `collect_source_diagnostics` opts into the leniency.
+            imported_types_unknown: false,
+            checking_state_assign: Cell::new(false),
             loop_stack: RefCell::new(Vec::new()),
             allow_sub_call: Cell::new(false),
             current_owners: RefCell::new(HashSet::new()),
@@ -843,6 +880,9 @@ impl TypeEnv {
                                 );
                             }
                         }
+                        if is_resource {
+                            self.check_binding_state_agreement(name, type_, value, locals);
+                        }
                     }
                     // A collection `get`/`getOr` yields a *borrow* of a
                     // resource element; it cannot be RES-bound (§15.6) —
@@ -961,7 +1001,12 @@ impl TypeEnv {
                     resource, value, ..
                 } => {
                     self.check_value_captures(value, closure_slots);
+                    // The `WITH s.state { … }` target reads `s.state`; the arm below
+                    // diagnoses a missing STATE for this statement precisely, so
+                    // suppress the generic `.state`-read rule inside the value.
+                    self.checking_state_assign.set(true);
                     self.check_value(value, locals);
+                    self.checking_state_assign.set(false);
                     // `res.state = value` must match the declared `STATE T` type,
                     // carried in the local's type string (`File STATE T`); a
                     // resource declared without STATE has nothing to assign.
@@ -1782,6 +1827,37 @@ impl TypeEnv {
         let Some(type_name) = self.infer_type(target, locals) else {
             return;
         };
+        // Reading `.state` off a resource that declares none. Diagnosed here so it
+        // names STATE, matching the write path's `TYPE_STATE_INVALID` (plan-52-C
+        // §4). Without this the read degrades to `Unknown` and the error surfaces
+        // wherever that Unknown lands — observed as a `TYPE_CALL_ARGUMENT_MISMATCH`
+        // blaming `toString`'s argument types, which never mentions STATE and
+        // points at the wrong line. It was always *rejected*; it just said so
+        // unhelpfully.
+        //
+        // A bare `RES p AS File` parameter reaches this on purpose: bare means
+        // "opaque" at a parameter, so `.state` is inaccessible through it even
+        // though the caller's owner attached one (§15.5).
+        //
+        // Skipped inside a state ASSIGNMENT: `s.state = WITH s.state { … }` reads
+        // `s.state` as part of the update, so this rule would fire on the
+        // sub-expression and report the same line twice, alongside the assign
+        // path's more precise "`s` has no STATE to assign". One error per
+        // statement, from whichever rule knows the most.
+        if member == "state"
+            && !self.checking_state_assign.get()
+            && !type_name.contains(" STATE ")
+            && self.is_resource_or_resource_union(resource_base_type(&type_name))
+        {
+            let base = resource_base_type(&type_name);
+            self.emit(
+                "TYPE_STATE_INVALID",
+                format!(
+                    "`{base}` here has no STATE to read; declare the resource with `STATE T`. Bare means \"no state\" on an owner, and \"opaque\" on a `RES` parameter — a bare parameter cannot read the state its caller attached."
+                ),
+            );
+            return;
+        }
         // The `t.result` field is removed; worker outcomes come only through
         // `thread::waitFor(t)` (syntaxcheck's TYPE_THREAD_RESULT_REMOVED).
         if resource_base_type(&type_name).starts_with("Thread") && member == "result" {
@@ -2455,7 +2531,27 @@ impl TypeEnv {
         }
         let result = match self.record_field_lists.get(type_) {
             Some(fields) => fields.iter().all(|(_, ft)| self.is_defaultable(ft, seen)),
-            None => false,
+            // On the SOURCE path a name this table has never heard of is an
+            // IMPORTED type, not an undefaultable one, and the difference is not
+            // observable from here: `build` lowers with deliberately empty external
+            // maps, so an importer's `record_field_lists` holds only its own types
+            // and every imported record misses, whatever its spelling. Answering
+            // "false" rejected legal programs (`MUT c AS pkg::Cursor`, and
+            // `STATE Cursor` on an imported record — libsnd's exact shape) for
+            // "having no default" when the record is very likely all-Integer
+            // (bug-258).
+            //
+            // Same stance the RES axis takes a few hundred lines up: only a
+            // POSITIVELY known type rejects, because an unknown name may be an
+            // external package's. A typo cannot ride in on it — syntaxcheck rejects
+            // an unresolvable name with `SYMBOL_UNKNOWN_TYPE` before this matters.
+            //
+            // The PACKAGE path keeps rejecting: there the merged IR carries the full
+            // type table and every name is decoded from an id that must exist in it
+            // (`decode_type_name` errors on an unknown id), so a miss is genuine
+            // absence — and ir::verify is the sole rejecter for decoded `.mfp`, with
+            // no syntaxcheck behind it.
+            None => self.imported_types_unknown,
         };
         seen.remove(type_);
         result
@@ -3484,6 +3580,7 @@ impl TypeEnv {
             let Some(actual) = self.infer_type(arg, locals) else {
                 continue;
             };
+            self.check_argument_state_agreement(target, index, param_type, &actual);
             // Strip a resource argument's `STATE T` clause; the parameter type
             // is the bare resource type.
             let actual = resource_base_type(&actual).to_string();
@@ -3498,6 +3595,172 @@ impl TypeEnv {
                     ),
                 );
             }
+        }
+    }
+
+    /// Reject a `RES` parameter whose declared `STATE` disagrees with the state
+    /// its argument actually carries (`TYPE_STATE_MISMATCH`, plan-52-C).
+    ///
+    /// A resource's STATE type is fixed at its **owning binding**; parameters only
+    /// observe. Nothing checked this, so a parameter could **attach** a payload to
+    /// a stateless resource, or **re-type** one it should only read — and the
+    /// payload carries no runtime type tag, so its type comes entirely from
+    /// whichever type string the reader holds. A `Cursor{pos:Integer}` read through
+    /// a `STATE Label{name:String}` parameter interprets the integer as a String
+    /// header. That is statically decidable from the two type strings already in
+    /// hand here, and not checkable at runtime at all.
+    ///
+    /// The table (`mfb spec language resource-management` §15.5):
+    ///
+    /// | argument     | param `STATE T` | param bare |
+    /// |--------------|-----------------|------------|
+    /// | carries `T`  | ✓               | ✓          |
+    /// | carries `T2` | ✗               | ✓          |
+    /// | stateless    | ✗               | ✓          |
+    ///
+    /// **A bare parameter accepts anything and this must stay that way.** Bare
+    /// reads as "opaque" at a parameter — sound because a borrow cannot escape the
+    /// frame that took it — and every close op depends on it: `FUNC close(RES db AS
+    /// Db)` names no STATE and must accept a `Db` whatever its owner attached.
+    /// Tightening bare to stateless-only would break every one of them.
+    ///
+    /// Note the intuitive rule is the unsafe one: allowing `stateless → STATE T`
+    /// so a parameter may attach is precisely what makes two disagreeing borrows
+    /// reachable with **no stateful binding anywhere** — `a(RES p AS File STATE
+    /// Cursor)` allocates, then `b(RES p AS File STATE Label)` reads that block as
+    /// a Label.
+    fn check_argument_state_agreement(
+        &self,
+        target: &str,
+        index: usize,
+        param_type: &str,
+        actual: &str,
+    ) {
+        let Some(param_state) = crate::builtins::resource::state_type_name(param_type) else {
+            return; // bare parameter: the opt-out — any state or none.
+        };
+        let arg_state = crate::builtins::resource::state_type_name(actual);
+        if arg_state == Some(param_state) {
+            return;
+        }
+        let detail = match arg_state {
+            Some(arg_state) => format!(
+                "carries STATE `{arg_state}`; a parameter observes a resource's state, it cannot re-type it"
+            ),
+            None => format!(
+                "carries no STATE; a parameter cannot attach one — declare `STATE {param_state}` on the owning binding"
+            ),
+        };
+        self.emit(
+            "TYPE_STATE_MISMATCH",
+            format!(
+                "Argument {} for `{target}` is declared `STATE {param_state}` but {detail}.",
+                index + 1
+            ),
+        );
+    }
+
+    /// Apply the STATE payload-type rules to a **declared return**: the state type
+    /// must be defaultable (`TYPE_STATE_INVALID`) and its base must not be a
+    /// resource union (`TYPE_UNION_STATE_FORBIDDEN`) — the same two rules the
+    /// binding position has always enforced, since they are properties of the
+    /// state type itself and do not care which position declares it.
+    ///
+    /// These were unreachable from a return for a subtle reason worth recording:
+    /// the binding rules pattern-match `" STATE "` in a type string, and the return
+    /// type string never contained it (plan-52-D restored that append). But the
+    /// append alone does **not** make them fire — they run over `IrOp::Bind`, and a
+    /// function's return is not a binding. The same omission that rejected the
+    /// legal stateful `RETURN` also hid these two, and each needs its own fix.
+    fn check_return_state_declaration(&self, function: &IrFunction) {
+        let Some(state_type) = crate::builtins::resource::state_type_name(&function.returns) else {
+            return;
+        };
+        let base = resource_base_type(&function.returns);
+        if self.unions.contains_key(base) {
+            self.emit(
+                "TYPE_UNION_STATE_FORBIDDEN",
+                format!(
+                    "FUNC `{}` returns resource union `{base}` with STATE `{state_type}`; a resource union carries no STATE — use a concrete stateful resource.",
+                    function.name
+                ),
+            );
+        }
+        if !self.is_defaultable(state_type, &mut HashSet::new()) {
+            self.emit(
+                "TYPE_STATE_INVALID",
+                format!(
+                    "FUNC `{}` return STATE type `{state_type}` must be a copyable, defaultable data type.",
+                    function.name
+                ),
+            );
+        }
+    }
+
+    /// Reject a **bare** `RES` binding of a value that carries a `STATE`
+    /// (`TYPE_STATE_MISMATCH`, plan-52-D Phase 2).
+    ///
+    /// A bare binding **erases** the STATE from the type string, which is the
+    /// laundering primitive: once returns carry their STATE, the erasure would
+    /// defeat the return check itself —
+    ///
+    /// ```basic
+    /// FUNC launder() AS RES SfFile             ' promises "no state"
+    ///   RES tmp AS SfFile = openStateful()     ' bare bind of a stateful value
+    ///   RETURN tmp                             ' expected SfFile, actual SfFile -> accepted
+    /// END FUNC
+    /// RES g AS SfFile STATE Cursor = launder() ' attaches a Cursor over a live FileInfo
+    /// ```
+    ///
+    /// so `launder` would hand back a resource secretly carrying a `FileInfo`, and
+    /// the caller's `STATE Cursor` binding would alias it — the bare return's "no
+    /// state" promise is what a later attach relies on. This rule is unreachable
+    /// before the return append (nothing could produce a stateful resource from a
+    /// call), and reachable the moment it lands: the two ship together, never apart.
+    ///
+    /// The mirror of the parameter rule, and note it goes the OTHER way:
+    ///
+    /// | initializer  | binding `STATE T`            | binding bare |
+    /// |--------------|------------------------------|--------------|
+    /// | carries `T`  | ✓ (adopts)                   | ✗            |
+    /// | carries `T2` | ✗                            | ✗            |
+    /// | stateless    | ✓ **the one true attach point** | ✓         |
+    ///
+    /// `stateful → bare` is safe for a **parameter** (a borrow cannot escape the
+    /// frame, so forgetting the state is unobservable) and unsafe for a **binding**
+    /// (an owner escapes). Yes for params, no for owners — the escape distinction
+    /// is the whole rule.
+    fn check_binding_state_agreement(
+        &self,
+        name: &str,
+        type_: &str,
+        value: &Option<IrValue>,
+        locals: &HashMap<String, String>,
+    ) {
+        let Some(value) = value else {
+            return;
+        };
+        let Some(actual) = self.infer_type(value, locals) else {
+            return;
+        };
+        let Some(value_state) = crate::builtins::resource::state_type_name(&actual) else {
+            return; // stateless initializer: attach (or stay bare) — both legal.
+        };
+        match crate::builtins::resource::state_type_name(type_) {
+            // Adopting the state it already carries — the agreeing case.
+            Some(declared) if declared == value_state => {}
+            Some(declared) => self.emit(
+                "TYPE_STATE_MISMATCH",
+                format!(
+                    "binding `{name}` declares `STATE {declared}` but its initializer carries STATE `{value_state}`; a resource's STATE type is fixed where it is created."
+                ),
+            ),
+            None => self.emit(
+                "TYPE_STATE_MISMATCH",
+                format!(
+                    "binding `{name}` is bare but its initializer carries STATE `{value_state}`; a bare binding asserts the resource has no state — declare `STATE {value_state}`."
+                ),
+            ),
         }
     }
 
@@ -3932,6 +4195,13 @@ impl TypeEnv {
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
+        // Compare base-to-base: `declared` is already stripped, so the initializer
+        // must be too, or `RES h AS File STATE Cursor = openTagged(p)` reads as
+        // "initializer `File STATE Cursor`, expected `File`". Before returns
+        // carried their STATE (plan-52-D) an initializer's type never contained
+        // one, so the asymmetry was invisible. Whether the two STATEs *agree* is a
+        // separate question, answered by `check_binding_state_agreement`.
+        let actual = resource_base_type(&actual).to_string();
         if !self.expression_compatible(expected, &actual, value) {
             self.emit(
                 "TYPE_BINDING_MISMATCH",

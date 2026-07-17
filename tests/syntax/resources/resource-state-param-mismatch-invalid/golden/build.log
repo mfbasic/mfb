@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-param-mismatch-invalid
+  26 |   RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb")
+  27 |   f.state.pos = 42
+  28 |   readLabel(f)
+     | ^
+tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb:28 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `readLabel` is declared `STATE Label` but carries STATE `Cursor`; a parameter observes a resource's state, it cannot re-type it.
+[exit 1]

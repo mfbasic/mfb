@@ -1,0 +1,89 @@
+{
+  "project": "resource_reclaim_loop_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cursor",
+      "line": 4,
+      "fields": [
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 5 },
+      { "visibility": null, "name": "name", "type": "String", "line": 6 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "cycle",
+      "line": 29,
+      "params": [
+      { "name": "readPath", "type": "String", "default": null, "line": 29 },
+      { "name": "writePath", "type": "String", "default": null, "line": 29 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "r", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "readPath" }] }, "line": 30 },
+      { "kind": "stateAssignment", "resource": "r", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "1" } }] }, "line": 31 },
+      { "kind": "stateAssignment", "resource": "r", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "state" }, "updates": [{ "field": "name", "value": { "kind": "string", "value": "carried" } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "w", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "writePath" }, { "kind": "string", "value": "write" }] }, "line": 34 },
+      { "kind": "stateAssignment", "resource": "w", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "w" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "2" } }] }, "line": 35 },
+      { "kind": "stateAssignment", "resource": "w", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "w" }, "member": "state" }, "updates": [{ "field": "name", "value": { "kind": "string", "value": "carried" } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "boolean", "value": true }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "string", "value": "x" }] }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 41,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "readPath", "type": "String", "value": { "kind": "string", "value": "target/resource_reclaim_loop_read.txt" }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "writePath", "type": "String", "value": { "kind": "string", "value": "target/resource_reclaim_loop_write.txt" }, "line": 43 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "readPath" }] },
+        "line": 44,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "readPath" }] }, "line": 45 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "seed", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "readPath" }, { "kind": "string", "value": "write" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "seed" }, { "kind": "string", "value": "seed line one" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 50 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3000" } },
+        "line": 51,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "cycle", "arguments": [{ "kind": "identifier", "value": "readPath" }, { "kind": "identifier", "value": "writePath" }] }, "line": 52 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 53 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "readPath" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "writePath" }] }, "line": 57 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 58 }
+      ]
+    }
+    ]
+  }
+  ]
+}

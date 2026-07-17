@@ -1,0 +1,25 @@
+IMPORT fs
+IMPORT net
+
+TYPE StreamState
+  bytes AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-52-A row 8 (plan-52-D): a resource union carries no STATE — on a RETURN
+' as much as on a binding (resource-union-state-invalid is the binding twin).
+' Only the RETURN carries the STATE here, so nothing but the return-position
+' check can reject it.
+FUNC make() AS RES Stream STATE StreamState
+  RES s AS Stream = fs::openFile("tests/syntax/resources/resource-return-union-state-invalid/src/main.mfb")
+  RETURN s
+END FUNC
+
+FUNC main AS Integer
+  RES h AS Stream = make()
+  RETURN 0
+END FUNC

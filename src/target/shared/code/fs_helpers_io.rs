@@ -858,6 +858,7 @@ pub(super) fn lower_fs_close_helper(
     // handles share the record layout but never carry an `fs::` output buffer — so
     // net closes must not reference the file-drain helper.
     let already_closed = format!("{symbol}_already_closed");
+    let already_moved = format!("{symbol}_already_moved");
     let close_error = format!("{symbol}_close_error");
     let flush_failed = format!("{symbol}_flush_failed");
     let done = format!("{symbol}_done");
@@ -913,16 +914,36 @@ pub(super) fn lower_fs_close_helper(
             abi::branch_ne(&flush_failed),
         ]);
     }
+    // The `!= 0` guard above catches closed AND moved (both set bit 0), so a moved
+    // handle is already refused with no new code. Split the two only here, at the
+    // report: bit 1 means `thread::transfer` moved the handle away, and reporting
+    // "already closed" for it would misdescribe why it is unusable (plan-52-B §3b).
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&already_closed),
+        abi::move_immediate(&flag, "Integer", &(1u64 << RESOURCE_MOVED_BIT).to_string()),
+        abi::and_registers(&flag, &closed, &flag),
+        abi::compare_immediate(&flag, "0"),
+        abi::branch_ne(&already_moved),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
         ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&already_moved),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_MOVED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_RESOURCE_MOVED_SYMBOL,
         &mut instructions,
         &mut relocations,
     );

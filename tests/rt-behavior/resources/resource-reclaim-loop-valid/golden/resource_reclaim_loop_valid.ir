@@ -1,0 +1,87 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_reclaim_loop_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 4,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 5, "name": "pos", "type": "Integer" },
+    { "visibility": null, "line": 6, "name": "name", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "cycle",
+    "line": 29,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "readPath", "line": 29, "type": "String", "default": null },
+    { "name": "writePath", "line": 29, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 30, "mutable": false, "name": "r", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "readPath" }] } },
+    { "op": "stateAssign", "line": 31, "resource": "r", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "r" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "stateAssign", "line": 32, "resource": "r", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "r" }, "member": "state" }, "updates": [{ "field": "name", "value": { "kind": "const", "type": "String", "value": "carried" } }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "Unknown", "target": "fs.readLine", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "w", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "writePath" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "stateAssign", "line": 35, "resource": "w", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "w" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "2" } }] } },
+    { "op": "stateAssign", "line": 36, "resource": "w", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "w" }, "member": "state" }, "updates": [{ "field": "name", "value": { "kind": "const", "type": "String", "value": "carried" } }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Unknown", "target": "fs.setBuffered", "args": [{ "kind": "local", "name": "w" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Unknown", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "w" }, { "kind": "const", "type": "String", "value": "x" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 42, "mutable": false, "name": "readPath", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_reclaim_loop_read.txt" } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "writePath", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_reclaim_loop_write.txt" } },
+    {
+      "op": "if",
+      "line": 44,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "readPath" }] },
+      "then": [
+      { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "readPath" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 47, "mutable": false, "name": "seed", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "readPath" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "String", "value": "seed line one" }] } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "seed" }] } },
+    { "op": "bind", "line": 50, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 51,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3000" } },
+      "body": [
+      { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "cycle", "args": [{ "kind": "local", "name": "readPath" }, { "kind": "local", "name": "writePath" }] } },
+      { "op": "assign", "line": 53, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "readPath" }] } },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "writePath" }] } },
+    { "op": "return", "line": 58, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

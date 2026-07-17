@@ -262,6 +262,9 @@ impl CodeBuilder<'_> {
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
+                                    state_type: crate::builtins::resource::state_type_name(type_)
+                                        .map(str::to_string),
+                                    has_io_buffers: Self::resource_uses_io_buffers(type_),
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
@@ -431,6 +434,11 @@ impl CodeBuilder<'_> {
                                 let cleanup = ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
+                                    state_type: crate::builtins::resource::state_type_name(
+                                        &result.type_,
+                                    )
+                                    .map(str::to_string),
+                                    has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)

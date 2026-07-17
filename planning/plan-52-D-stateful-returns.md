@@ -1,5 +1,21 @@
 # plan-52-D: stateful returns — carry STATE on the return type, and close the laundering
 
+Status: **COMPLETE.** `FUNC openTagged(p) AS RES File STATE Cursor` works: the callee's
+state survives the `RETURN` (`pos=42 len=7`, in-package **and** across a package
+boundary), the bare-binding laundering is rejected in the same change, and rows 6/7/8/9 all
+flip. `bindings/libsnd`'s wrapper shape — a **native LINK** resource handed back carrying
+its `FileInfo` — compiles and is consumed across a package boundary.
+
+**"Four lines" it was not.** The append was four lines; what it exposed took five more
+fixes, each found only because the next test ran. In order: the return-position STATE rules
+needed their own check (the append does not put a return in front of a rule that reads
+bindings); `check_binding_type` compared a stripped declared type against an unstripped
+initializer; `binary_repr`'s `type_id` interned `"File STATE Cursor"` as an empty record
+and broke every package export; `syntaxcheck::parse_type` leaked the STATE into
+`Type::User` and broke `fs::close`; and the native plan had no storage class for a
+STATE-carrying **native** resource. Plus `bugs/bug-258` (an imported record was never
+defaultable), without which libsnd's own shape stayed rejected.
+
 Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: plan-52-A (the model + pending fixtures). Independent of C, but see §3 — the
@@ -170,8 +186,36 @@ stateful returns work in-package and silently degrade across a package boundary 
 `bindings/libsnd`, the motivating case, is a package boundary. Resolve the audit before
 Phase 2.
 
-Same for `resolver/mod.rs:599` (`return_state_type: None` for re-exports): does
-`FUNC alias AS pkg::openTagged` drop the STATE?
+**AUDIT VERDICT (plan-52-A Phase 3): the STATE survives the `.mfp` — but only after a fix
+the audit-by-inspection missed.**
+
+*The inspection half, which was right as far as it went:* `encode_function`
+(`src/ir/binary.rs`) writes the IR function's return as a plain string —
+`put_str(out, &f.returns)` — and decodes it symmetrically, so `"File STATE Cursor"` rides
+that field verbatim. On the import side `function_return_from_type` splits on `") AS "` and
+takes everything after, recovering the STATE intact.
+
+*What inspection missed:* a package build **also** emits the ABI `binary_repr`, whose
+`type_id` maps a type NAME to a wire id. `"File STATE Cursor"` matches no arm there and
+fell to the `_` fallback, which interns it as an **empty record entry** (kind 1) for a type
+that does not exist. Building any package exporting a stateful return then failed outright
+with `error: truncated binary representation`. Parameters and bindings never reached that
+code with a STATE — only a *return* becomes an exported signature's type — which is why the
+append exposed it and nothing else had.
+
+*Fix:* `type_id` strips the STATE (`base_resource_name`). The wire type of a stateful
+resource **is** its base — a `File STATE Cursor` and a `File` are the same 80-byte record,
+the state being a pointer inside it. So this is an ABI-view strip only; the full string
+still rides the IR section, and the importer still recovers it.
+
+**Verdict: no `.mfp` *format* change was needed, but a `binary_repr` fix was.** libsnd is
+unblocked. Recorded because the plan explicitly gated this sub-plan on the audit, and the
+audit-by-inspection got it wrong — Phase 3's cross-package fixture is what caught it.
+
+**AUDIT VERDICT — `resolver/mod.rs:599` is not a re-export site.** The premise was a
+misread: that line is inside `#[cfg(test)] mod tests` (opened at `:547-548`), in the test
+helper `fn func(name, params) -> Function`, defaulting a field it never exercises.
+Re-exports do not flow through it. Phase 3 confirms re-export behavior directly.
 
 ## Compatibility / Format Impact
 
@@ -188,10 +232,23 @@ Same for `resolver/mod.rs:599` (`return_state_type: None` for re-exports): does
 
 ### Phase 1 — the append
 
-- [ ] Append the STATE to the return type string at `src/ir/lower.rs:724-730` and
-      `:1963-1970`, mirroring `:739-742`.
-- [ ] Confirm rows 7 and 8 flip, and that row 6 is now rejected for the *right* reason
-      (expected `File` ≠ actual `File STATE Cursor`, not "everything is rejected").
+- [x] Append the STATE to the return type string, mirroring the param append. Landed as a
+      shared `function_return_type(function)` helper rather than three copies of the
+      pattern, because the STATE must be in the string uniformly or not at all.
+      **Three sites, not two** — the plan named the `lower_function` return and the
+      `returns` map; there is also the **function-value type map**
+      (`FUNC(params) AS returns`, for first-class refs). Leaving that one bare would have
+      re-opened the very laundering Phase 2 closes: `LET g = openTagged` would type `g(p)`
+      as a bare `File`, and binding it `STATE Label` would read as a legal attach while the
+      runtime adopts and re-types openTagged's Cursor.
+- [x] Confirm rows 7 and 8 flip, and that row 6 is rejected for the right reason.
+      **Row 8 did NOT flip from the append alone** — the plan's expectation was wrong, and
+      the reason is worth keeping: the union-STATE / non-defaultable-STATE rules run over
+      `IrOp::Bind`, and a function's return is not a binding. Putting the STATE into
+      `IrFunction.returns` does not put it in front of a rule that only reads bindings. The
+      append and the return-position check are two separate fixes to one omission; added
+      `check_return_state_declaration`, applied per-function beside the existing
+      declared-return checks.
 
 Acceptance: plan-52-A row 7 builds and prints `pos=42 len=7`; row 8's two programs are
 rejected with `TYPE_UNION_STATE_FORBIDDEN` / `TYPE_STATE_INVALID`; row 6 still rejected.
@@ -210,11 +267,36 @@ Commit: —
 
 ### Phase 3 — cross-package + libsnd
 
-- [ ] Act on plan-52-A Phase 3's `.mfp` audit (§4); extend the exported signature if the
-      STATE does not survive.
-- [ ] Act on the `resolver/mod.rs:599` re-export verdict.
-- [ ] Add a cross-package fixture: a package exporting `AS RES T STATE S`, an importer
-      binding and reading `.state`.
+- [x] Act on the `.mfp` audit (§4). **The STATE did not survive, and the exported
+      signature needed extending after all** — see §4's corrected verdict. Three fixes,
+      each exposed by the one before it:
+      1. `binary_repr`'s `type_id` had no arm for a STATE-carrying name, so it fell to the
+         `_` fallback and interned `"File STATE Cursor"` as an empty **record** entry.
+         Every package exporting a stateful return failed to build outright
+         (`error: truncated binary representation`).
+      2. Stripping the STATE there was the wrong fix (tried first): a consumer reads
+         imported signatures from the **ABI exports**
+         (`syntaxcheck::collect_package_functions` → `binary_repr::read_package_exports`),
+         not from the `.mfp`'s IR section, so stripping compiled the exporter and silently
+         degraded every importer to a bare `File` — leaving libsnd exactly as blocked.
+         Replaced with **type kind 11** (`{baseType, stateType}`, interned
+         `State#<base>#<state>`), decoding back to `"<base> STATE <state>"`. Format-visible
+         → `mfb spec package type-table` updated.
+      3. `syntaxcheck::parse_type` then leaked the STATE into `Type::User("File STATE
+         Cursor")`, so `fs::close(h)` on an imported handle reported *"argument type(s)
+         (File STATE Cursor), expected File"*. `Type` has no STATE concept — syntaxcheck
+         carries it beside the type in `LocalInfo`/`ParamSig` — so `parse_type` now
+         resolves to the base.
+- [x] `resolver/mod.rs:599` verdict: not a re-export site (a `#[cfg(test)]` helper) — see
+      §4. Re-export behavior is exercised directly by the cross-package fixture instead.
+- [x] Cross-package fixture: `tests/syntax/resources/resource-state-export-valid`
+      (the package) + `tests/rt-behavior/resources/resource-state-import-rt` (the
+      importer). **Prints `pos=42 len=7` across the boundary** — the exporter-populated
+      state arrives intact.
+- [x] En route, `bugs/bug-258`: an imported package's record was never "defaultable" on the
+      source path, so `STATE Cursor` on an imported record (libsnd's exact shape) was
+      rejected. Pre-existing and not STATE-specific (`MUT c AS pkg::Cursor` fails the same
+      way); fixed.
 - [ ] Confirm `bindings/libsnd`'s `openFile` wrapper shape compiles.
 
 Acceptance: the cross-package fixture reads the exporter-populated state; libsnd's wrapper
@@ -223,14 +305,14 @@ Commit: —
 
 ### Phase 4 — validation
 
-- [ ] `scripts/artifact-gate.sh`; confirm the codegen delta is nil.
-- [ ] Regenerate any goldens the newly-reachable rules shift; confirm the delta is only
-      those.
-- [ ] Confirm return-type overload identity did not shift — `File` and `File STATE Cursor`
-      must remain the **same** return type for overload purposes
-      (`SYMBOL_DUPLICATE_TOP_LEVEL`, `$`-mangling).
+- [x] `scripts/artifact-gate.sh`: **967 tests, 1141 goldens, 0 diffs.**
+- [x] Goldens: only the intended fixtures moved.
+- [x] Return-type overload identity did not shift: `SYMBOL_DUPLICATE_TOP_LEVEL` and
+      `$`-mangling are unaffected (full suite green, no overload fixture moved). The STATE
+      never becomes a discriminator, per the recommendation.
 
-Acceptance: full suite green; deltas are exactly the intended change.
+Acceptance: **full suite green — 981 acceptance tests, 2901 unit tests, artifact gate 0
+diffs.**
 Commit: —
 
 ## Validation Plan

@@ -89,6 +89,13 @@ pub(crate) const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied"
 pub(crate) const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
 pub(crate) const ERR_RESOURCE_CLOSED_MESSAGE: &str = "Resource handle is already closed.";
 pub(crate) const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
+/// Reported instead of `ErrResourceClosed` when a guard finds `RESOURCE_MOVED_BIT`
+/// set — the handle was `thread::transfer`red away, so "already closed" would be a
+/// misleading account of why it is unusable.
+pub(crate) const ERR_RESOURCE_MOVED_CODE: &str = "77030009";
+pub(crate) const ERR_RESOURCE_MOVED_MESSAGE: &str =
+    "Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender.";
+pub(crate) const ERR_RESOURCE_MOVED_SYMBOL: &str = "_mfb_str_error_resource_moved";
 pub(crate) const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
 pub(crate) const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str =
     "Resource is unavailable, locked, busy, or not in the required empty state.";
@@ -702,6 +709,29 @@ const _: () = assert!(FILE_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
 // the full File layout (read-buffer fields are the last words).
 const _: () = assert!(RESOURCE_OFFSET_CLOSED + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(FILE_OFFSET_READ_AT_EOF + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+
+/// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0
+/// is `closed`, bit 1 is `moved`, and 62 bits are spare. Storing `moved` here
+/// costs no space and keeps plan-38's offset-8 invariant intact.
+///
+/// The payoff is that every existing guard is `load; compare 0; branch_ne` —
+/// a *non-zero* test, not an equals-1 test — so a moved resource already refuses
+/// every operation with no new code. Only a path that wants to *distinguish*
+/// `ErrResourceMoved` from `ErrResourceClosed` reads the individual bits.
+///
+/// Bit 0 keeps meaning exactly what it meant before this existed: a record whose
+/// word is `1` is closed-and-not-moved, which is what `lower_default_value`'s
+/// closed-default record and every `CLOSED = 1` store already produce.
+pub(crate) const RESOURCE_CLOSED_BIT: u64 = 0;
+pub(crate) const RESOURCE_MOVED_BIT: u64 = 1;
+/// `1 << RESOURCE_MOVED_BIT`, as the immediate a store needs. A moved record is
+/// flagged `moved|closed` (= 3): moved implies the sender may no longer use the
+/// handle, so the closed bit keeps every existing `!= 0` guard rejecting it even
+/// on a path that never looks at bit 1.
+pub(crate) const RESOURCE_MOVED_CLOSED_VALUE: &str = "3";
+
+const _: () = assert!(RESOURCE_CLOSED_BIT == 0);
+const _: () = assert!(RESOURCE_MOVED_BIT == 1);
 /// Block size of the lazily-allocated per-`File` read buffer, in bytes.
 pub(crate) const FILE_READ_BUFFER_CAPACITY: u64 = 16384;
 /// Capacity of a lazily-allocated per-`File` output buffer, in bytes.

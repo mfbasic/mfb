@@ -266,6 +266,23 @@ struct ThreadCleanup {
 struct ResourceCleanup {
     name: String,
     symbol: String,
+    /// The binding's `STATE` type, when it declared one. Carried from the bind
+    /// (the only place it is known) so the drop can size the payload block it
+    /// frees — a `STATE` record inlines its `String` fields, so its size is not a
+    /// constant (plan-52-B Phase 2).
+    state_type: Option<String>,
+    /// Whether this resource kind actually uses the per-`File` I/O buffer words
+    /// (`BUF_PTR`/`READ_PTR`) — i.e. whether it is a `File`.
+    ///
+    /// Every resource kind shares the 80-byte record, but ONLY `File`'s open
+    /// helpers zero the buffer words after the (PRNG-poisoned) arena alloc.
+    /// `net`'s `emit_make_handle` initializes offsets 0/8/16 and leaves 24–72 as
+    /// poison; the layout comment calls those words "inert" for non-`File`
+    /// resources, which was true only because nothing read them. The drop-path
+    /// reclaim made them live, so freeing them unconditionally handed
+    /// `arena_free` a poison value and segfaulted every `net::` program during
+    /// cleanup (plan-52-B Phase 2).
+    has_io_buffers: bool,
 }
 
 #[derive(Clone)]
@@ -3279,6 +3296,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_RESOURCE_CLOSED_CODE,
             ERR_RESOURCE_CLOSED_MESSAGE,
             ERR_RESOURCE_CLOSED_SYMBOL,
+        ),
+        (
+            ERR_RESOURCE_MOVED_CODE,
+            ERR_RESOURCE_MOVED_MESSAGE,
+            ERR_RESOURCE_MOVED_SYMBOL,
         ),
         (
             ERR_UNSUPPORTED_CODE,

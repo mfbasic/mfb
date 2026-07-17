@@ -76,6 +76,27 @@ impl TypeTable {
 
     pub(super) fn type_id(&mut self, strings: &mut StringPool, name: &str) -> u32 {
         match name {
+            // A resource carrying `STATE T` is a composite of two type ids, encoded
+            // like `List`/`Map`/`Thread` rather than as an opaque name (plan-52-D
+            // §4). Before this it matched no arm and fell to the `_` fallback, which
+            // interned "File STATE Cursor" as an empty RECORD entry (kind 1) — a
+            // type that does not exist, with no fields — and the reader then failed
+            // outright with "truncated binary representation".
+            //
+            // It must round-trip rather than be stripped: a consumer reads an
+            // imported function's signature from the ABI exports
+            // (`syntaxcheck::collect_package_functions` →
+            // `binary_repr::read_package_exports`), NOT from the `.mfp`'s IR
+            // section. Erasing the STATE here would compile the exporter fine and
+            // silently degrade every importer to a bare `File` — which would leave
+            // `bindings/libsnd`, a package boundary, exactly as blocked as before.
+            name if crate::builtins::resource::state_type_name(name).is_some() => {
+                let base = crate::builtins::resource::base_resource_name(name);
+                let state = crate::builtins::resource::state_type_name(name).unwrap_or(name);
+                let base = self.type_id(strings, base);
+                let state = self.type_id(strings, state);
+                self.state_type(strings, base, state)
+            }
             "Nothing" => TYPE_NOTHING,
             "Boolean" => TYPE_BOOLEAN,
             "Integer" => TYPE_INTEGER,
@@ -180,6 +201,26 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, success_type);
         self.add_entry(strings, "", &name, 6, payload)
+    }
+
+    /// A resource carrying a `STATE` payload: `{base_type, state_type}`, kind 11.
+    /// Decodes back to `"<base> STATE <state>"` so an imported signature keeps the
+    /// STATE its exporter declared.
+    pub(super) fn state_type(
+        &mut self,
+        strings: &mut StringPool,
+        base_type: u32,
+        state_type: u32,
+    ) -> u32 {
+        let name = format!("State#{base_type}#{state_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, base_type);
+        put_u32(&mut payload, state_type);
+        self.add_entry(strings, "", &name, 11, payload)
     }
 
     pub(super) fn list_type(&mut self, strings: &mut StringPool, element_type: u32) -> u32 {

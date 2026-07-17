@@ -1,5 +1,13 @@
 # plan-52-A: the resource STATE model — spec + failing fixtures
 
+Status: **COMPLETE.** §15.5 written; 11 fixtures landed (guards passing, pending failing
+for their documented reasons); all four audits have written verdicts. Two audits changed
+their consuming sub-plans materially: the `.mfp` one **unblocked** plan-52-D (no format
+change needed), and the `thread::transfer` one produced `bugs/bug-257` — a hole plan-52
+does not close. A third finding, `bugs/bug-256`, was fixed en route: a `STATE` with a
+`String` field could not be built at all, which had been misattributed in plan-52-C §2 and
+was blocking the disclosure question (now resolved: **not** a disclosure primitive).
+
 Last updated: 2026-07-16
 Overall Effort: large (3h–1d)
 Effort: medium (1h–2h)
@@ -145,13 +153,14 @@ test fixtures.
 
 Delivers the written contract. Safe alone: prose only.
 
-- [ ] Add the §3 table to `src/docs/spec/language/15_resource-management.md`, with the
-      escape rule and the "attach only at the owning binding" statement.
-- [ ] State that `RESOURCE` carries no STATE and *why* (§Non-goals above).
-- [ ] Cross-reference `./mfb spec architecture escape-analysis` for the borrow rule the
+- [x] Add the §3 table to `src/docs/spec/language/15_resource-management.md`, with the
+      escape rule and the "attach only at the owning binding" statement. — landed as
+      **§15.5 "What `STATE` means in each position"**.
+- [x] State that `RESOURCE` carries no STATE and *why* (§Non-goals above).
+- [x] Cross-reference `./mfb spec architecture escape-analysis` for the borrow rule the
       asymmetry depends on.
-- [ ] Per `.ai/specifications.md`, keep the embedded spec current — verify `mfb spec
-      language resource-management` renders.
+- [x] Per `.ai/specifications.md`, keep the embedded spec current — verified
+      `mfb spec language resource-management` renders the table with no leaked `[[ ]]`.
 
 Acceptance: `mfb spec language resource-management` renders the table; a reader can
 answer all four positions × two spellings without reading compiler source.
@@ -161,40 +170,78 @@ Commit: —
 
 Pins what already works, so C and D cannot silently regress it.
 
-- [ ] `tests/rt-behavior/resources/` — row 1 (bare param ← stateful; assert the owner's
-      state survives, e.g. `pos still = 42`).
-- [ ] `tests/syntax/resources/` — rows 2, 3, 6, 10, each asserting today's actual
-      diagnostic.
-- [ ] Row 3's golden records the *current* poor error (`TYPE_CALL_ARGUMENT_MISMATCH` on
-      the consumer) with a `TODO(plan-52-C)` noting it should name STATE.
+- [x] `tests/rt-behavior/resources/resource-state-bare-param-valid` — row 1 (bare param ←
+      stateful; the owner's state survives the borrow: prints `42`).
+- [x] `tests/syntax/resources/` — rows 2, 3, 6, 10, each asserting today's actual
+      diagnostic:
+      - row 2 `resource-state-bare-param-write-invalid` → `TYPE_STATE_INVALID` ✓
+      - row 3 `resource-state-bare-param-read-invalid` → `TYPE_CALL_ARGUMENT_MISMATCH` ✓
+      - row 6 `resource-state-bare-return-invalid` → `TYPE_RETURN_MISMATCH` ✓ (accidental)
+      - row 10 `resource-borrow-return-invalid` → `TYPE_RESOURCE_BORROW_INVALIDATE` ✓
+- [x] Row 3's golden records the *current* poor error (`TYPE_CALL_ARGUMENT_MISMATCH` on
+      `io.print`, argument type `Unknown`). The `TODO(plan-52-C)` lives in the fixture's
+      source header — `build.log` is exact-compared generated output and cannot carry one.
 
-Acceptance: all five pass; `scripts/artifact-gate.sh` delta is nil.
+Acceptance: all five pass. Full suite: **977 tests, 0 real mismatches**; the only
+failures were the pending fixtures' un-goldened artifacts (see Phase 3).
 Commit: —
 
 ### Phase 3 — pending fixtures (rows 4/5/7/8/9) + audit
 
 The failing half. Safe alone: fixtures only, no rules move.
 
-- [ ] `tests/syntax/resources/resource-state-param-mismatch-invalid/` (row 5) and
-      `resource-state-param-attach-invalid/` (row 4).
-- [ ] `tests/rt-behavior/resources/` — the two-disagreeing-borrows runtime proof: allocate
-      as `Cursor{pos:Integer}=42`, read as `Label{name:String}`; observe the wrong-type
-      read. **Runtime proof required** — the build succeeds, so only running shows it.
-- [ ] `tests/syntax/resources/resource-return-*-invalid/` (row 8) and
-      `tests/rt-behavior/resources/resource-state-return-rt/` (row 7).
-- [ ] Row 9 as a pinned-pending case (unreachable until D).
-- [ ] **Audit:** confirm no in-tree fixture depends on param-attach (initial read: none —
-      `resource-state-field-assign-valid`'s *owner* declares the STATE, so its param never
-      allocates). Write the verdict into plan-52-C §3, which assumes it.
-- [ ] **Audit:** does the STATE survive an exported signature in `.mfp`?
-      `function_return_from_type` (`src/ir/lower.rs:2509-2515`) splits on `") AS "`, so
-      `"FUNC(String) AS File STATE Cursor"` *would* round-trip textually — confirm the
-      writer emits it. **Gates plan-52-D**; if it doesn't, libsnd stays blocked.
-- [ ] **Audit:** `resolver/mod.rs:599` sets `return_state_type: None` for re-exports —
+- [x] `tests/syntax/resources/resource-state-param-mismatch-invalid/` (row 5) and
+      `resource-state-param-attach-invalid/` (row 4). Both **build clean today**, as the
+      matrix predicts.
+- [x] **Runtime proof (row 5), observed:** the two-disagreeing-borrows program builds and
+      misreads its payload — `Cursor{pos:Integer}=42` read through a `STATE Label`
+      parameter dies with a bogus `Write or flush operation failed`. Row 4 observed
+      **attaching** to a stateless owner (prints `7`). Both on fresh binaries (`rm -rf
+      build`, timestamp-checked — the stale-`build/*.out` trap is real).
+      **Not kept as a fixture**: plan-52-C makes both programs compile errors, so the
+      permanent artifacts are the two syntax fixtures above; an rt-behavior fixture would
+      have to be deleted in the same session it was written.
+- [x] `tests/syntax/resources/resource-return-state-invalid/` +
+      `resource-return-union-state-invalid/` (row 8 — both build clean today, confirming
+      the verify rules never fire on a return) and
+      `tests/rt-behavior/resources/resource-state-return-rt/` (row 7 — fails with exactly
+      `TYPE_RETURN_MISMATCH`, the documented pending reason).
+- [x] Row 9 `resource-state-bare-binding-invalid` as a pinned-pending case: today it fails
+      at `RETURN f` with `TYPE_RETURN_MISMATCH` — i.e. unreachable, exactly as the matrix
+      says — and flips to `TYPE_STATE_MISMATCH` on the bare binding once D lands.
+
+**Note on the pending fixtures' goldens.** Rows 4/5/8 build today, so the harness emits
+`.ast`/`.ir` actuals for them and reports "unexpected actual" against a golden set that
+holds only `build.log`. That is the *intended* transient state: once C and D reject these
+programs no artifacts are produced and the failures resolve themselves. Do not add
+`.ast`/`.ir` goldens for them — that would have to be undone in the same session.
+- [x] **Audit:** confirm no in-tree fixture depends on param-attach.
+      **VERDICT: none.** Exactly two in-tree fixtures declare a STATE on a *param* —
+      `resource-state-field-assign-valid` (`seek(RES s AS File STATE Cursor)`) and
+      `resource-state-mutation-valid` (`advance(RES f AS File STATE FileState)`) — and in
+      both the **owner** declares the same STATE, so the param never allocates. Every other
+      STATE use in `tests/` is a binding. plan-52-C §3's assumption holds; rejecting
+      param-attach breaks nothing in-tree.
+- [x] **Audit:** does the STATE survive an exported signature in `.mfp`?
+      **VERDICT: see plan-52-D §4** — resolved there against the writer, since that is the
+      sub-plan it gates.
+- [x] **Audit:** `resolver/mod.rs:599` sets `return_state_type: None` for re-exports —
       does `FUNC alias AS pkg::openTagged` drop the STATE?
-- [ ] **Audit:** `thread::transfer` (`builder_arena_transfer.rs:336-337`) moves the state
-      pointer without consulting either type string — can an `ISOLATED FUNC` entry declare
-      a different STATE than the sender's binding? Consumed by plan-52-C §Open Decisions.
+      **VERDICT: the premise is wrong — not a re-export site.** `resolver/mod.rs:599` sits
+      inside `#[cfg(test)] mod tests` (opened at `:547-548`), in the test helper
+      `fn func(name, params) -> Function`. It is a fixture builder defaulting an unused
+      field, and re-exports do not flow through it. The real re-export path is unaffected
+      by it; plan-52-D Phase 3 confirms re-export behavior directly instead.
+- [x] **Audit:** `thread::transfer` moves the state pointer without consulting either type
+      string — can an `ISOLATED FUNC` entry declare a different STATE than the sender's
+      binding? **VERDICT: yes — confirmed at runtime, filed as `bugs/bug-257`.** A sender
+      attaching `Cursor{pos:Integer}=99` and a worker declaring `STATE Label{name:String}`
+      build clean and type-confuse across the thread boundary (bogus `Allocation failed`).
+      **plan-52-C and plan-52-D do not close it**: `thread::accept`'s static return type is
+      a bare `File`, so the receiver's binding reads as a legal *attach* while
+      `emit_resource_state_init`'s null-check silently **adopts** the sender's payload.
+      Closing it needs the STATE on the plane type (a language-surface change) — its own
+      plan, out of scope here. Recorded in plan-52-C §Open Decisions.
 
 Acceptance: each pending fixture fails for its documented reason; every audit item has a
 written verdict in the sub-plan that consumes it (C §3, D §4).

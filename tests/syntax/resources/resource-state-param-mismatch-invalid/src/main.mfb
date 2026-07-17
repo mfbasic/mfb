@@ -1,0 +1,31 @@
+IMPORT io
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+TYPE Label
+  name AS String
+END TYPE
+
+' plan-52-A row 5 (plan-52-C): STATE type confusion, from safe source, with no
+' LINK and no threads. The owner allocates a `Cursor` and stores 42 in it; the
+' borrow declares `STATE Label` and reads that same untagged block back as a
+' `Label`, interpreting the integer 42 as a String header.
+'
+' The payload carries no runtime type tag — its type comes entirely from
+' whichever type string the reader holds — so this is not checkable at runtime.
+' A resource's STATE type is fixed at its owning binding and every later
+' declaration must agree (§15.5); the disagreement is rejected at the call.
+SUB readLabel(RES p AS File STATE Label)
+  io::print(p.state.name)
+END SUB
+
+FUNC main AS Integer
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb")
+  f.state.pos = 42
+  readLabel(f)
+  fs::close(f)
+  RETURN 0
+END FUNC

@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_state_export_valid",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "export",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "pos", "type": "Integer" },
+    { "visibility": null, "line": 13, "name": "len", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "openTagged",
+    "line": 16,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 16, "type": "String", "default": null }
+    ],
+    "returns": "File STATE Cursor",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 18, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "42" } }] } },
+    { "op": "stateAssign", "line": 19, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "len", "value": { "kind": "const", "type": "Integer", "value": "7" } }] } },
+    { "op": "return", "line": 20, "value": { "kind": "local", "name": "f" } }
+    ]
+  }
+  ]
+}

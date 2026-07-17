@@ -770,6 +770,15 @@ fn decode_type_name_body(
                 &output,
             )
         }
+        // A resource carrying a `STATE` payload (plan-52-D §4). Reconstructs the
+        // `" STATE "` spelling every front-end stage pattern-matches on, so an
+        // imported `FUNC(String) AS File STATE Cursor` reaches the consumer with
+        // its STATE intact.
+        11 => {
+            let base = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
+            let state = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
+            format!("{base} STATE {state}")
+        }
         _ => string_at(strings, *name)?.to_string(),
     };
     Ok(decoded_name)

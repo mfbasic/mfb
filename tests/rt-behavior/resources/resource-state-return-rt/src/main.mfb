@@ -1,0 +1,30 @@
+IMPORT io
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+' plan-52-A row 7 (plan-52-D): a callee-populated STATE survives a `RETURN` into
+' the caller's binding. This is the motivating shape for `bindings/libsnd`'s
+' `openFile`, which wants to hand back an SNDFILE* carrying its SF_INFO.
+'
+' The printed values are the whole point, and a build assertion cannot stand in
+' for them: accepting the `RETURN` only proves the types line up. `pos=42 len=7`
+' proves the callee's state actually crossed the return; a silently
+' re-default-initialized state at the caller's bind prints `pos=0 len=0`.
+FUNC openTagged(path AS String) AS RES File STATE Cursor
+  RES f AS File STATE Cursor = fs::openFile(path)
+  f.state.pos = 42
+  f.state.len = 7
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File STATE Cursor = openTagged("tests/rt-behavior/resources/resource-state-return-rt/src/main.mfb")
+  io::print("pos=" & toString(h.state.pos))   ' pos=42
+  io::print("len=" & toString(h.state.len))   ' len=7
+  fs::close(h)
+  RETURN 0
+END FUNC

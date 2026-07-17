@@ -1350,6 +1350,18 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Whether a resource kind uses the per-`File` output/read buffer words
+    /// (`BUF_PTR` @24 … `READ_AT_EOF` @72) — i.e. whether it is a `File`.
+    ///
+    /// Every resource kind shares the 80-byte record, but only `File`'s open
+    /// helpers zero those words after the PRNG-poisoned arena alloc; `net`'s
+    /// `emit_make_handle` writes offsets 0/8/16 and leaves the rest poisoned. So
+    /// the words are readable-as-pointers only for a `File`, and the drop-path
+    /// reclaim must ask before it frees them (plan-52-B Phase 2).
+    pub(super) fn resource_uses_io_buffers(type_: &str) -> bool {
+        crate::builtins::resource::base_resource_name(type_) == "File"
+    }
+
     pub(super) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
         let close = crate::builtins::resource_close_function(type_)?;
         let symbol = self
@@ -1514,14 +1526,22 @@ impl CodeBuilder<'_> {
         cleanup: &ResourceCleanup,
     ) -> Result<(), String> {
         let done = self.label("resource_cleanup_done");
+        // Every path below that finishes the close converges here, where the
+        // blocks the record points at are reclaimed (plan-52-B Phase 2). The
+        // null-slot guard branches past it to `done` instead — there is no record
+        // to read pointers out of.
+        let reclaim = self.label("resource_cleanup_reclaim");
         // Skip the close entirely when the slot is null: a `RES x = <fallible>`
         // whose initializer trapped before storing a handle (or a bind the error
         // path jumped past) leaves the slot at its entry-zeroed 0, and the close
         // helper dereferences the closed-flag at `ptr+8` — a null read would
         // SIGSEGV (bug-246). Prologue zero-init guarantees such a slot reads 0
         // rather than stack garbage.
-        if let Some(local) = self.locals.get(&cleanup.name) {
-            let offset = local.stack_offset;
+        let resource_slot = self
+            .locals
+            .get(&cleanup.name)
+            .map(|local| local.stack_offset);
+        if let Some(offset) = resource_slot {
             let ptr = self.allocate_register()?;
             self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
             self.emit(abi::compare_immediate(&ptr, "0"));
@@ -1534,7 +1554,7 @@ impl CodeBuilder<'_> {
             "resource_drop_arg",
         )?;
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&done));
+        self.emit(abi::branch_eq(&reclaim));
         // A close on an already-closed resource returns `ERR_RESOURCE_CLOSED`
         // (File/net's deliberate bug-63 re-close error). On the *drop* path this
         // is a benign no-op — the handle is already closed (e.g. the offset-8
@@ -1551,9 +1571,178 @@ impl CodeBuilder<'_> {
             ERR_RESOURCE_CLOSED_CODE,
         ));
         self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &closed_code));
-        self.emit(abi::branch_eq(&done));
+        self.emit(abi::branch_eq(&reclaim));
         self.record_secondary_cleanup_failure();
+        self.emit(abi::label(&reclaim));
+        if let Some(offset) = resource_slot {
+            self.emit_resource_block_reclaim(
+                offset,
+                cleanup.state_type.as_deref(),
+                cleanup.has_io_buffers,
+            )?;
+        }
         self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// Reclaim the blocks a resource record points at — its output buffer, its
+    /// read buffer, and its `STATE` payload — and null each pointer word as it
+    /// goes (plan-52-B Phase 2). The 80-byte record itself is deliberately NOT
+    /// freed: it is the tombstone holding the closed flag that makes a re-close
+    /// idempotent and that every alias reads (res.md §3.1).
+    ///
+    /// **Runs at drop, never at close.** `fs::close(f)` must stay memory-neutral:
+    /// the `.state` read path has no closed-guard, so `x.state` after an explicit
+    /// close is legal today and would become a null dereference if close freed the
+    /// payload. At a drop the binding is gone and nothing can name the resource.
+    /// Close releases the OS handle; drop reclaims memory (plan-52-B §4).
+    ///
+    /// **Ordering is load-bearing**: the caller emits this only AFTER the close
+    /// call, because the mandatory flush-on-close drains `BUF_PTR[0..BUF_FILLED]`
+    /// to the fd. Freeing the buffer first would strand buffered data on the floor.
+    ///
+    /// Once-only comes free: these blocks are reachable ONLY through the record's
+    /// pointer words, so nulling as we free makes a second drop a no-op — the same
+    /// trick the closed flag plays for close. No aliasing analysis is needed, unlike
+    /// `ActiveCleanup::OwnedValue`, whose `arena_free` is sound only because
+    /// copy-insertion guarantees its block is unaliased.
+    fn emit_resource_block_reclaim(
+        &mut self,
+        resource_slot: usize,
+        state_type: Option<&str>,
+        has_io_buffers: bool,
+    ) -> Result<(), String> {
+        // A moved record's blocks belong to the receiver now: `thread::transfer`
+        // copied the STATE pointer into the receiver's record, so freeing it here
+        // would hand another thread a dangling payload. The transfer also
+        // deactivates the sender's cleanup, so this path is not normally reached
+        // for a moved resource — this guard makes that a property of the code
+        // rather than of the caller (plan-52-B Open Decisions, the sharpest edge).
+        let skip = self.label("resource_reclaim_skip");
+        let ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
+        let flags = self.allocate_register()?;
+        self.emit(abi::load_u64(&flags, &ptr, FILE_OFFSET_CLOSED));
+        let moved_mask = self.allocate_register()?;
+        self.emit(abi::move_immediate(
+            &moved_mask,
+            "Integer",
+            &(1u64 << RESOURCE_MOVED_BIT).to_string(),
+        ));
+        self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
+        self.emit(abi::compare_immediate(&moved_mask, "0"));
+        self.emit(abi::branch_ne(&skip));
+
+        // The two per-`File` buffers are fixed-capacity blocks (plan-14-B/14-C).
+        // Only a `File` may be asked for them: every resource kind shares the
+        // 80-byte record, but only `File`'s open helpers zero these words after
+        // the PRNG-poisoned arena alloc — a socket's record leaves 24..72 as
+        // poison, so a null-guard is not enough to skip them and freeing them
+        // handed `arena_free` a poison value (SIGSEGV in every `net::` program's
+        // cleanup, caught by acceptance).
+        if has_io_buffers {
+            self.emit_free_resource_block(
+                resource_slot,
+                FILE_OFFSET_BUF_PTR,
+                &FILE_BUFFER_CAPACITY.to_string(),
+            )?;
+            self.emit_free_resource_block(
+                resource_slot,
+                FILE_OFFSET_READ_PTR,
+                &FILE_READ_BUFFER_CAPACITY.to_string(),
+            )?;
+        }
+        if let Some(state_type) = state_type {
+            self.emit_free_resource_state_block(resource_slot, state_type)?;
+        }
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// `arena_free` the fixed-size block at `offset` in the resource record, then
+    /// null the pointer word. A null word is skipped: an unbuffered `File` never
+    /// allocated an output buffer, a `File` that only wrote never allocated a read
+    /// buffer, and no other resource kind uses either word.
+    ///
+    /// The record pointer is reloaded from `resource_slot` after the `arena_free`
+    /// call rather than kept in a register: `_mfb_*` helpers clobber every
+    /// caller-saved register, with no survivor set (`.ai/compiler.md`).
+    fn emit_free_resource_block(
+        &mut self,
+        resource_slot: usize,
+        offset: usize,
+        size: &str,
+    ) -> Result<(), String> {
+        let skip = self.label("resource_block_free_skip");
+        let ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
+        let block = self.allocate_register()?;
+        self.emit(abi::load_u64(&block, &ptr, offset));
+        self.emit(abi::compare_immediate(&block, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit(abi::move_register(abi::return_register(), &block));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", size));
+        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_FREE_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        // Reload: the call above destroyed every caller-saved register.
+        let ptr_after = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &ptr_after,
+            abi::stack_pointer(),
+            resource_slot,
+        ));
+        self.emit(abi::store_u64(abi::ZERO, &ptr_after, offset));
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// `arena_free` the `STATE` payload and null its pointer word. Unlike the two
+    /// buffers this block has no fixed size — a `STATE` record inlines its `String`
+    /// fields — so it is sized from the type at `FILE_OFFSET_STATE`.
+    fn emit_free_resource_state_block(
+        &mut self,
+        resource_slot: usize,
+        state_type: &str,
+    ) -> Result<(), String> {
+        let skip = self.label("resource_state_free_skip");
+        let state_slot = self.allocate_stack_object("resource_state_free_ptr", 8);
+        let size_slot = self.allocate_stack_object("resource_state_free_size", 8);
+        let ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
+        let block = self.allocate_register()?;
+        self.emit(abi::load_u64(&block, &ptr, FILE_OFFSET_STATE));
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), state_slot));
+        self.emit(abi::compare_immediate(&block, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit_inlined_block_size_from_ptr_slot(state_type, state_slot, size_slot)?;
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            state_slot,
+        ));
+        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_FREE_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        let ptr_after = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &ptr_after,
+            abi::stack_pointer(),
+            resource_slot,
+        ));
+        self.emit(abi::store_u64(abi::ZERO, &ptr_after, FILE_OFFSET_STATE));
+        self.emit(abi::label(&skip));
         Ok(())
     }
 

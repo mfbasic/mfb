@@ -1,0 +1,40 @@
+{
+  "project": "resource_state_export_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Cursor",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 12 },
+      { "visibility": null, "name": "len", "type": "Integer", "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "openTagged",
+      "line": 16,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 16 }
+      ],
+      "returnType": "File", "returnResource": true, "returnState": "Cursor",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 17 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 18 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "len", "value": { "kind": "number", "value": "7" } }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

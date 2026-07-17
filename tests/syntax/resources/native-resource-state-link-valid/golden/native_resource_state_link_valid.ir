@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_state_link_valid",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "export",
+    "name": "FileInfo",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "frames", "type": "Integer" },
+    { "visibility": null, "line": 9, "name": "samplerate", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "openFile",
+    "line": 28,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 28, "type": "String", "default": null }
+    ],
+    "returns": "SfFile STATE FileInfo",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": false, "name": "f", "type": "SfFile STATE FileInfo", "value": { "kind": "call", "type": "SfFile", "target": "sndLink.open", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 30, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "frames", "value": { "kind": "const", "type": "Integer", "value": "1024" } }] } },
+    { "op": "stateAssign", "line": 31, "resource": "f", "value": { "kind": "with", "type": "FileInfo", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "samplerate", "value": { "kind": "const", "type": "Integer", "value": "44100" } }] } },
+    { "op": "return", "line": 32, "value": { "kind": "local", "name": "f" } }
+    ]
+  }
+  ]
+}

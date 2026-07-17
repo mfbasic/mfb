@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-param-attach-invalid
+  20 | FUNC main AS Integer
+  21 |   RES f AS File = fs::openFile("tests/syntax/resources/resource-state-param-attach-invalid/src/main.mfb")
+  22 |   tag(f)
+     | ^
+tests/syntax/resources/resource-state-param-attach-invalid/src/main.mfb:22 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `tag` is declared `STATE Cursor` but carries no STATE; a parameter cannot attach one — declare `STATE Cursor` on the owning binding.
+[exit 1]

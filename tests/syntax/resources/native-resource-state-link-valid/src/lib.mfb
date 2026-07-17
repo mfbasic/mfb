@@ -1,0 +1,33 @@
+' plan-52-D Phase 3: bindings/libsnd's `openFile` WRAPPER shape, on a native
+' LINK resource (SfFile is a LINK resource, not a built-in File).
+' The LINK native returns a BARE resource (no STATE clause — that stays a
+' non-goal); an ordinary EXPORT FUNC wraps it and carries the STATE.
+EXPORT RESOURCE SfFile CLOSE BY sndLink::close
+
+EXPORT TYPE FileInfo
+  frames AS Integer
+  samplerate AS Integer
+END TYPE
+
+LINK "sqlite3" AS sndLink
+  FUNC open(path AS String) AS RES SfFile
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC close(RES db AS SfFile) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' The wrapper: hands back a native handle CARRYING its info.
+EXPORT FUNC openFile(path AS String) AS RES SfFile STATE FileInfo
+  RES f AS SfFile STATE FileInfo = sndLink::open(path)
+  f.state.frames = 1024
+  f.state.samplerate = 44100
+  RETURN f
+END FUNC

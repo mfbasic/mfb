@@ -713,6 +713,35 @@ mod sections_tests {
     }
 
     #[test]
+    fn state_carrying_resource_type_round_trips() {
+        // plan-52-D §4: a resource carrying `STATE T` is a composite (kind 11), not
+        // an opaque name. It MUST decode back to the `" STATE "` spelling: a
+        // consumer reads an imported function's signature from these ABI exports,
+        // so a return encoded without its STATE would silently degrade every
+        // importer to a bare handle.
+        //
+        // Before kind 11 the name matched no arm and fell to the `_` fallback,
+        // which interned it as an empty RECORD entry — and the reader then failed
+        // the whole package with "truncated binary representation".
+        let mut strings = StringPool::new();
+        let mut types = TypeTable::new();
+        // A user record as the payload, plus a built-in resource as the base.
+        types.add_entry(&mut strings, "pkg", "Cursor", 1, {
+            let mut payload = Vec::new();
+            put_u32(&mut payload, 0);
+            payload
+        });
+        let id = types.type_id(&mut strings, "File STATE Cursor");
+        let names = type_entry_names(&types, &strings.values).expect("decode names");
+        assert_eq!(
+            names.get(&id).map(String::as_str),
+            Some("File STATE Cursor")
+        );
+        // Interning the same spelling twice reuses the entry (keyed `State#b#s`).
+        assert_eq!(types.type_id(&mut strings, "File STATE Cursor"), id);
+    }
+
+    #[test]
     fn deep_acyclic_type_chain_is_rejected_not_overflow() {
         // bug-153: a long *linear* chain of distinct composite types (id N →
         // List OF id(N-1) → … → List OF Integer) passes the cycle guard (no id

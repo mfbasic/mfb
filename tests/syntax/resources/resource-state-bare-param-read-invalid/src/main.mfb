@@ -1,0 +1,24 @@
+IMPORT io
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-52-A row 3: the READ twin of resource-state-bare-param-write-invalid.
+' Reading `.state` through a bare (opaque) parameter is rejected — but, unlike
+' the write path, it is rejected for the wrong-looking reason: the read degrades
+' to `Unknown` and the error lands on whatever consumes it.
+'
+' TODO(plan-52-C): this golden should name STATE, matching the write path's
+' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
+SUB show(RES p AS File)
+  io::print(toString(p.state.pos))
+END SUB
+
+FUNC main AS Integer
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb")
+  show(f)
+  fs::close(f)
+  RETURN 0
+END FUNC

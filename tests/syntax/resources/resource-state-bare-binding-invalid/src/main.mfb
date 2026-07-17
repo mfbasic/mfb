@@ -1,0 +1,35 @@
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-52-A row 9 (plan-52-D): a BARE binding of a stateful value is rejected.
+'
+' This is the laundering primitive, and it is unreachable today only because
+' nothing can produce a stateful resource from a call — it opens the moment
+' plan-52-D's return append lands, which is why the rule ships in that same
+' change and never after it. A bare binding ERASES the STATE from the type
+' string, so without this rule `launder` below would satisfy its own bare
+' return check (expected `File`, actual `File`) and hand back a resource
+' secretly carrying a Cursor. The caller would then attach a second state over
+' the live one, aliasing it.
+'
+' Bare means "opaque" at a parameter and "provably none" at an owner. A binding
+' is an owner and can escape, so the parameter's laxity is unavailable to it.
+FUNC openTagged() AS RES File STATE Cursor
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-bare-binding-invalid/src/main.mfb")
+  f.state.pos = 42
+  RETURN f
+END FUNC
+
+FUNC launder() AS RES File
+  RES tmp AS File = openTagged()
+  RETURN tmp
+END FUNC
+
+FUNC main AS Integer
+  RES g AS File = launder()
+  fs::close(g)
+  RETURN 0
+END FUNC

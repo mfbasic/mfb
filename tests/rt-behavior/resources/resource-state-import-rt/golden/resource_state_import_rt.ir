@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_state_import_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "h", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File STATE Cursor", "target": "resource_state_export_valid.openTagged", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/resource-state-import-rt/src/main.mfb" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pos=" }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "pos" }] } }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "len=" }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "len" }] } }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-bare-binding-invalid
+  25 | 
+  26 | FUNC launder() AS RES File
+  27 |   RES tmp AS File = openTagged()
+     | ^
+tests/syntax/resources/resource-state-bare-binding-invalid/src/main.mfb:27 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `tmp` is bare but its initializer carries STATE `Cursor`; a bare binding asserts the resource has no state — declare `STATE Cursor`.
+[exit 1]

@@ -1,5 +1,18 @@
 # plan-52-B: record reclamation — free the pointed-at blocks at drop, `moved` as CLOSED bit 1
 
+Status: **COMPLETE.** The drop path reclaims the STATE payload, the read buffer, and the
+output buffer; `moved` is bit 1 of the CLOSED word at no size cost, and
+`RESOURCE_RECORD_SIZE_BYTES` is still 80. **Leak proof, measured on one fixture at 20 000
+cycles: 961 MB → 31 MB.** Retention no longer scales with the I/O a resource did.
+
+Both traps the Summary predicted were real and are handled: the close runs **before** the
+buffer free (or the drain strands buffered data), and the moved bit suppresses the frees so
+a transferred record's blocks are not freed out from under the receiver (`bugs/bug-257`
+confirms the STATE pointer is copied, not deep-copied). A third, unpredicted one bit
+harder: the close's OK/already-closed/failure paths all converged on the same `done` label
+the null-slot guard jumps to, so freeing there would have re-opened bug-246 — the label had
+to be split.
+
 Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: nothing (independent of A/C/D — land in any order)
@@ -55,7 +68,14 @@ References:
 ## 2. Current State
 
 **Record layout** (`src/target/shared/code/error_constants.rs:646-689`), one uniform
-80-byte block for *every* resource kind:
+80-byte block for *every* resource kind.
+
+> **Correction (found in Phase 2):** the table below, and the layout's own comment, say the
+> buffer words are carried "inertly" by non-`File` resources. That means *nothing reads
+> them* — **not** that they are zeroed. Only `File`'s open helpers zero words 24–72 after
+> the PRNG-poisoned arena alloc; `net`'s `emit_make_handle` initializes 0/8/16 and leaves
+> the rest poisoned. Any future reader of those words must ask the resource kind first, or
+> it is reading a poison value. This cost 14 segfaulting fixtures.
 
 | Offset | Field | |
 |---|---|---|
@@ -167,6 +187,10 @@ Step 2 before step 3 is the load-bearing ordering.
   meaning.
 - **Codegen goldens: will shift** — the drop path gains frees. Expected and intended;
   every resource-using fixture moves. Regenerate and confirm the delta is only that.
+  **(Wrong, as it turned out: the artifact gate showed 0 diffs across 1141 goldens. No
+  in-tree fixture carries a native-code golden for a resource-dropping function, so the
+  frees are invisible to the gate. This mattered — it means the gate could NOT have caught
+  the `net::` segfault, and only the runtime suite did.)**
 
 ## Phases
 
@@ -174,14 +198,29 @@ Step 2 before step 3 is the load-bearing ordering.
 
 Lowest risk: additive, no free path touched.
 
-- [ ] Define `RESOURCE_CLOSED_BIT = 0` / `RESOURCE_MOVED_BIT = 1` in
+- [x] Define `RESOURCE_CLOSED_BIT = 0` / `RESOURCE_MOVED_BIT = 1` in
       `src/target/shared/code/error_constants.rs`; keep `RESOURCE_OFFSET_CLOSED = 8` and
-      the existing `const` asserts.
-- [ ] Have `thread::transfer` set bit 1 on the **sender's** record
-      (`src/target/shared/code/builder_arena_transfer.rs`).
-- [ ] Add `ErrResourceMoved`; distinguish it where a guard can cheaply read bit 1.
-- [ ] Tests: `tests/rt-error/` — using a transferred resource from the sender reports
-      moved, not a generic closed error.
+      the existing `const` asserts. Added `RESOURCE_MOVED_CLOSED_VALUE = "3"` — a moved
+      record sets **both** bits, so every existing `!= 0` guard rejects it unchanged.
+- [x] Have `thread::transfer` set bit 1 on the **sender's** record, in
+      `copy_resource_to_current_arena`. **Ordering trap found:** the mark must come
+      AFTER the flag-word copy — flagging first hands the *destination* an
+      already-moved record and makes the transferred handle unusable.
+- [x] Add `ErrResourceMoved` (`7-703-0009`, registry + `standard_error_messages`);
+      the close helper's `already_closed` guard now tests bit 1 and reports it.
+- [ ] ~~Tests: `tests/rt-error/` — using a transferred resource from the sender reports
+      moved~~ — **not constructible; see below.**
+
+**Why there is no sender-use rt-error fixture.** Use-after-move is a *compile* error
+(`TYPE_USE_AFTER_MOVE`, pinned by `ownership-use-after-move-invalid`), and
+`deactivate_resource_cleanup` removes the sender's cleanup at compile time, so the sender's
+drop never runs either. There is therefore no source-level program that reaches an
+operation on a moved handle at runtime — which is exactly why the flag is a *backstop*, the
+same status §15.6 gives the closed flag ("only a backstop that keeps the single close
+idempotent when a handle is reachable by more than one path"). What the bit buys is real
+but defensive: before it, the sender's record kept a **live fd the receiver now owns**, so
+any alias the static rules do not track would silently operate on another thread's handle.
+Claiming a runtime test here would mean writing one that cannot fail.
 
 Acceptance: a moved resource refuses every op (via the existing `!= 0` guards, unchanged)
 and reports `ErrResourceMoved`; `RESOURCE_RECORD_SIZE_BYTES` is still 80; the backend
@@ -192,13 +231,38 @@ Commit: —
 
 The reclamation itself, behind Phase 3's leak test.
 
-- [ ] Extend the resource drop path (`emit_resource_cleanup_call`,
-      `src/target/shared/code/builder_codegen_primitives.rs:1512`) to `arena_free` + null
+- [x] Extend the resource drop path (`emit_resource_cleanup_call`) to `arena_free` + null
       `BUF_PTR`, `READ_PTR`, `STATE` **after** the close call, inside the existing
-      null-slot guard.
-- [ ] Confirm `arena_free` clobbering caller-saved registers is handled — the drop path
-      already documents this hazard at several sites; spill accordingly.
-- [ ] Do **not** touch `lower_fs_close_helper`. Close stays memory-neutral (§4).
+      null-slot guard. Added `emit_resource_block_reclaim` + two helpers.
+      **Control-flow subtlety:** the close's OK / already-closed / recorded-failure paths
+      all converged on `done`, which the null-slot guard also branches to. Freeing at
+      `done` would have dereferenced the null slot (re-opening bug-246). Split the label:
+      the close paths now converge on a new `reclaim`, and only the null-slot guard jumps
+      past it to `done`.
+- [x] Confirm `arena_free`'s caller-saved clobber is handled: the record pointer is
+      **reloaded from its stack slot after every `arena_free`** before nulling the pointer
+      word, never held in a register across the call (`.ai/compiler.md` — no survivor set).
+- [x] **Only a `File` may be asked for its buffers.** This sub-plan's §2 repeats the record
+      layout's claim that the buffer words are "inert" on a socket/TLS/thread handle. They
+      are inert only in the sense that **nothing read them** — they are not zeroed. Every
+      resource kind shares the 80-byte record, but only `File`'s open helpers zero words
+      24–72 after the **PRNG-poisoned** arena alloc; `net`'s `emit_make_handle` writes
+      offsets 0/8/16 and leaves the rest as poison. Freeing them unconditionally therefore
+      handed `arena_free` a poison value and **segfaulted every `net::` program during
+      cleanup** — 14 acceptance fixtures, caught only because the suite runs the binaries.
+      A null-guard is not enough (poison is not null); the frees are gated on the resource
+      kind (`resource_uses_io_buffers`). The reclaim made "inert" words live, and the
+      layout comment silently stopped being true.
+- [x] The `STATE` payload is sized via `emit_inlined_block_size_from_ptr_slot`, not a
+      constant — a STATE record inlines its `String` fields, so its block size is dynamic.
+      This required carrying the binding's `state_type` on `ResourceCleanup` (it is known
+      only at the bind).
+- [x] The moved bit suppresses the frees: a transferred record's blocks belong to the
+      receiver (bug-257 confirms the STATE pointer is copied, not deep-copied). The
+      transfer also deactivates the sender's cleanup at compile time, so this path is not
+      normally reached for a moved resource — the guard makes it a property of the code
+      rather than of the caller.
+- [x] Do **not** touch `lower_fs_close_helper`. Close stays memory-neutral (§4).
 
 Acceptance: Phase 3's leak test shows flat per-resource retention; `x.state` after an
 explicit close still reads correctly; `tests/rt-behavior/resources/resource-state-drop-valid`
@@ -207,12 +271,38 @@ Commit: —
 
 ### Phase 3 — leak proof + validation
 
-- [ ] `tests/rt-behavior/resources/` — a loop of N open/write/close cycles asserting
-      arena high-water is flat per resource. Mirror `resource-state-drop-valid`'s existing
-      shape ("Looped many times so a leaked fd or leaked STATE would fail").
-- [ ] Confirm it **fails before** Phase 2 and passes after — the leak proof is the point.
-- [ ] Regenerate codegen goldens; confirm the delta is only the added frees.
-- [ ] Tighten §15's "drops or is closed" → "drops", per §4.
+- [x] `tests/rt-behavior/resources/resource-reclaim-loop-valid` — a loop dropping two
+      handles per cycle that carry, between them, all three reclaimable blocks (a 16 KiB
+      read buffer, a 4 KiB output buffer, two STATE payloads). The STATE carries a `String`
+      field on purpose, so the free must size the block from the type rather than a
+      constant (a STATE record inlines its Strings).
+- [x] **Confirmed it fails before Phase 2 and passes after — measured, same fixture,
+      20 000 cycles:**
+
+      | | peak RSS |
+      |---|---|
+      | reclaim disabled | **961 MB** |
+      | reclaim enabled | **31 MB** |
+
+      ~48 KiB/cycle retained → ~1.1 KiB/cycle. Retention no longer scales with the I/O a
+      resource did, which is the sub-plan's single outcome. (The ~1.1 KiB/cycle residual is
+      the by-design 80-byte tombstones — 160 B for the two records — plus arena free-list
+      bookkeeping; it is flat per resource, not per byte of I/O.)
+
+      **The first version of this fixture was wrong and is worth recording**: it opened one
+      file `"readWrite"` and let the buffered write land at EOF, so the file grew a byte per
+      cycle and `fs::readLine` returned an ever-longer String. It "leaked" ~27 KiB/cycle
+      *with the reclaim working perfectly* — it was measuring file content, not retention.
+      A leak test that grows its own input measures the input. Both files are now
+      fixed-size (the reader only reads; `"write"` truncates).
+- [x] Regenerate codegen goldens; confirm the delta is only the added frees. **The
+      artifact gate shows 0 diffs across 1141 goldens** — no in-tree fixture carries a
+      `-ncode`/`-nir` golden for a resource-dropping function, so the drop-path frees are
+      invisible to it. The Compatibility note above predicted "every resource-using fixture
+      moves"; that was wrong, and the *runtime* suite is what actually exercises this
+      (which is how the `net::` segfault was caught).
+- [x] Tighten §15's "drops or is closed" → "drops", per §4. Also documented the
+      close-releases-the-handle / drop-reclaims-memory split and `ErrResourceMoved`.
 
 Acceptance: the leak test fails on Phase 1's tree and passes on Phase 2's; golden delta is
 exactly the drop-path frees; full suite green.
@@ -232,20 +322,38 @@ Commit: —
 
 ## Open Decisions
 
-- **Is `.state` after an explicit close legal?** §4 assumes **yes** (it works today, and
-  nothing forbids it). The alternative — declare it illegal, add a closed-guard to the
-  `.state` path, and free at close — reclaims sooner but changes behavior and needs its own
-  diagnostic. Recommend keeping it legal; free-at-drop costs nothing real.
+- **Is `.state` after an explicit close legal?** **Kept legal** (§4's assumption), and §15
+  now says so explicitly rather than leaving it to inference: an explicit close releases the
+  OS handle but reclaims no memory, so `s.state` still reads its payload; drop is what
+  frees. Free-at-drop cost nothing real.
 - **Should the record itself ever be reclaimed?** Not here. Retention is 80 bytes ×
   resources-ever-opened, per thread, bounded by arena teardown. A thread opening 10M
   resources holds 800 MB. If that is ever a real workload, the LUT (§3, rejected) with a
   generation counter bounds it by *peak concurrency* instead. Revisit only with a real
   workload.
-- **Does `thread::transfer` free the sender's blocks?** The record moves to the receiver's
-  arena; the sender's record is flagged moved. Its blocks belong to the receiver now.
-  Confirm the transfer copies the pointer words and that the sender's drop does **not**
-  free them — the moved bit must suppress Phase 2's frees, not just the close.
-  **This is the sharpest edge in this sub-plan.**
+
+  **Measured residual, for whoever revisits:** ~1.1 KiB per cycle in the leak fixture, of
+  which the two 80-byte tombstones are 160 B. The rest is arena bookkeeping/fragmentation,
+  not a leak of the reclaimed blocks — the 16 KiB and 4 KiB buffers are demonstrably gone
+  (they would have shown up as ~500 MB at 20 000 cycles; the measured total is 31 MB). The
+  important property holds: retention is flat **per resource** and no longer scales with
+  how much I/O each one did. Anyone chasing the residual should look at the arena's
+  free-list reuse, not at this sub-plan's frees.
+- **Does `thread::transfer` free the sender's blocks?** **RESOLVED: no, and doubly so.**
+  Confirmed by reading `copy_resource_to_current_arena`: the transfer copies the fd, the
+  flag word, and the STATE **pointer** into a fresh record in the receiver's arena (the
+  buffers are zeroed, not copied), so the payload the receiver now reads still lives in the
+  sender's arena. Two independent things stop the sender freeing it:
+  1. `deactivate_resource_cleanup` removes the sender's cleanup at **compile time** on the
+     success path, so the sender's drop does not run at all; and
+  2. Phase 2's reclaim tests `RESOURCE_MOVED_BIT` and skips, so the free is suppressed even
+     if that path is ever reached.
+  The second is redundant today and deliberately kept: it makes the invariant a property of
+  the reclaim code rather than of every caller that might later register a cleanup.
+  `thread-transfer-state-rt` still prints `99`.
+
+  The cross-arena pointer this exposes (the receiver's record pointing at the sender's
+  arena) is a **pre-existing** issue, out of scope here and recorded in `bugs/bug-257`.
 
 ## Summary
 

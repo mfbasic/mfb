@@ -971,6 +971,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a resource union carries no STATE",
     },
     Rule {
+        code: "2-203-0129",
+        name: "TYPE_STATE_MISMATCH",
+        severity: Severity::Error,
+        message: "a resource's STATE type is fixed at its owning binding and every other declaration of it must agree",
+    },
+    Rule {
         code: "2-203-0089",
         name: "RESOURCE_CLOSE_NOT_NATIVE",
         severity: Severity::Error,

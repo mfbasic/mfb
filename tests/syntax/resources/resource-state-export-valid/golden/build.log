@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-export-valid
+Wrote AST to tests/syntax/resources/resource-state-export-valid/resource_state_export_valid.ast
+Wrote IR to tests/syntax/resources/resource-state-export-valid/resource_state_export_valid.ir
+[exit 0]

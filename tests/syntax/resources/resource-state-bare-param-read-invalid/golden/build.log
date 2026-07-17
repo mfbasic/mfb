@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-bare-param-read-invalid
+  14 | ' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
+  15 | SUB show(RES p AS File)
+  16 |   io::print(toString(p.state.pos))
+     | ^
+tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte.
+  14 | ' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
+  15 | SUB show(RES p AS File)
+  16 |   io::print(toString(p.state.pos))
+     | ^
+tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `io.print` has argument type(s) (Unknown), expected String.
+  14 | ' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
+  15 | SUB show(RES p AS File)
+  16 |   io::print(toString(p.state.pos))
+     | ^
+tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               `File` here has no STATE to read; declare the resource with `STATE T`. Bare means "no state" on an owner, and "opaque" on a `RES` parameter — a bare parameter cannot read the state its caller attached.
+[exit 1]

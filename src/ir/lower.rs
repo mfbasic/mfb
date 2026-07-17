@@ -753,18 +753,40 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
     }
 }
 
+/// A function's return type string, carrying its `STATE T` clause when it
+/// declares one (plan-52-D) — mirroring what `lower_function` does for a `RES`
+/// parameter and `lower_binding` for a `RES` binding.
+///
+/// Every site that derives a return type calls this, because the STATE must be in
+/// the string uniformly or not at all: the string is what `check_return_type`
+/// compares, what the STATE verify rules pattern-match `" STATE "` on, what
+/// `.state` typing on a call expression reads, and what rides the `.mfp` as
+/// `IrFunction.returns`. The append was missing here alone, which both **rejected**
+/// the legal stateful `RETURN` (expected `File`, actual `File STATE Cursor`) and
+/// **hid** the union-STATE / non-defaultable-STATE rules from a return, since a
+/// return's string never contained `" STATE "` for them to match.
+fn function_return_type(function: &Function) -> String {
+    match function.kind {
+        FunctionKind::Func => {
+            let returns = function
+                .return_type
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string());
+            match (&function.return_state_type, function.return_resource) {
+                (Some(state), true) => format!("{returns} STATE {state}"),
+                _ => returns,
+            }
+        }
+        FunctionKind::Sub => "Nothing".to_string(),
+    }
+}
+
 fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunction {
     let kind = match function.kind {
         FunctionKind::Func => "func",
         FunctionKind::Sub => "sub",
     };
-    let returns = match function.kind {
-        FunctionKind::Func => function
-            .return_type
-            .clone()
-            .unwrap_or_else(|| "Unknown".to_string()),
-        FunctionKind::Sub => "Nothing".to_string(),
-    };
+    let returns = function_return_type(function);
     let mut locals = HashMap::new();
     for param in &function.params {
         let type_ = param
@@ -1997,14 +2019,9 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
         for item in &file.items {
             match item {
                 Item::Function(function) => {
-                    let return_type = match function.kind {
-                        FunctionKind::Func => function
-                            .return_type
-                            .clone()
-                            .unwrap_or_else(|| "Unknown".to_string()),
-                        FunctionKind::Sub => "Nothing".to_string(),
-                    };
-                    returns.insert(function.name.clone(), return_type);
+                    // Carries the STATE too, so `openTagged(p).state` resolves
+                    // from the call expression (plan-52-D).
+                    returns.insert(function.name.clone(), function_return_type(function));
                 }
                 Item::Link(link) => {
                     for native in &link.functions {
@@ -2050,13 +2067,12 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let returns = match function.kind {
-                    FunctionKind::Func => function
-                        .return_type
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string()),
-                    FunctionKind::Sub => "Nothing".to_string(),
-                };
+                // A first-class reference's return carries the STATE for the same
+                // reason a direct call's does: without it `LET g = openTagged` would
+                // launder the state away — `g(p)` would type as a bare `File`, and
+                // binding that to `STATE Label` would read as a legal attach while
+                // the runtime adopts and re-types openTagged's Cursor (plan-52-D §3).
+                let returns = function_return_type(function);
                 types.insert(
                     function.name.clone(),
                     format!(

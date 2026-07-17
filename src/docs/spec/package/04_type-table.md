@@ -64,6 +64,7 @@ Type kinds:
 8  = function type
 9  = MapEntry OF K TO V
 10 = ThreadWorker OF Msg TO Out
+11 = <Resource> STATE <T>
 ```
 
 There is no distinct "native resource" or "standard resource" kind. A resource type (`File`, `Socket`, `Listener`, or a native `LINK` resource) is encoded as an ordinary **record** (kind `1`); its resource-ness — which blocks copying, construction, and field access — is recorded in `RESOURCE_TABLE`, not in the type kind.
@@ -129,6 +130,17 @@ A `MapEntry` instantiation (the key/value pair yielded when iterating a `Map`) h
 keyType         typeId
 valueType       typeId
 ```
+
+## `<Resource> STATE <T>` payload (kind 11)
+
+```text
+baseType        typeId          ' the resource type (kind 1)
+stateType       typeId          ' the STATE payload record
+```
+
+A resource carrying a `STATE` payload (`./mfb spec language resource-management` §15.5) is a composite of two type ids, interned as `State#<baseTypeId>#<stateTypeId>` and decoded back to the source spelling `<base> STATE <state>`.
+
+The STATE is **not** an ABI distinction — a `File STATE Cursor` and a `File` are the same resource record, the payload being a pointer inside it — but it is a *signature* distinction, so it must round-trip: a consumer reads an imported function's signature from the ABI exports, so a return type encoded without its STATE would compile the exporter and silently degrade every importer to a bare handle. [[src/binary_repr/sections.rs:state_type]]
 
 ## `Result OF T` payload
 

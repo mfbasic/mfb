@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_state_return_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 4,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 5, "name": "pos", "type": "Integer" },
+    { "visibility": null, "line": 6, "name": "len", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "openTagged",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 17, "type": "String", "default": null }
+    ],
+    "returns": "File STATE Cursor",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 19, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "42" } }] } },
+    { "op": "stateAssign", "line": 20, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "len", "value": { "kind": "const", "type": "Integer", "value": "7" } }] } },
+    { "op": "return", "line": 21, "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": false, "name": "h", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File STATE Cursor", "target": "openTagged", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/resource-state-return-rt/src/main.mfb" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pos=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "pos" }] } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "len" }] } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

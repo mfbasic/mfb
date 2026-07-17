@@ -1,0 +1,59 @@
+IMPORT fs
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+  name AS String
+END TYPE
+
+' plan-52-B: a resource's drop reclaims what its record POINTS AT — the STATE
+' payload, the read buffer, and the output buffer. The 80-byte record itself is
+' the tombstone (it holds the closed flag every alias reads) and is deliberately
+' retained until arena teardown.
+'
+' Each cycle drops two handles carrying, between them, all three reclaimable
+' blocks:
+'   reader -> a 16 KiB read buffer (fs::readLine) + a Cursor payload
+'   writer -> a 4 KiB output buffer (fs::setBuffered) + a Cursor payload
+' The Cursor carries a String field on purpose: a STATE record inlines its
+' Strings, so its block size is dynamic and the free must size it from the type
+' rather than from a constant.
+'
+' Neither file changes size: the reader only reads, and "write" truncates. That
+' matters more than it looks — an earlier version of this fixture opened ONE file
+' "readWrite" and let the buffered write land at EOF, so the file grew a byte per
+' cycle and fs::readLine returned an ever-longer String. It appeared to leak
+' ~27 KiB per cycle with the reclaim working perfectly: it was measuring file
+' content, not retention. Keep both files fixed-size or this fixture proves
+' nothing.
+SUB cycle(readPath AS String, writePath AS String)
+  RES r AS File STATE Cursor = fs::openFile(readPath)
+  r.state.pos = 1
+  r.state.name = "carried"
+  LET line AS String = fs::readLine(r)
+  RES w AS File STATE Cursor = fs::openFile(writePath, "write")
+  w.state.pos = 2
+  w.state.name = "carried"
+  fs::setBuffered(w, TRUE)
+  fs::writeAll(w, "x")
+END SUB
+
+FUNC main AS Integer
+  LET readPath AS String = "target/resource_reclaim_loop_read.txt"
+  LET writePath AS String = "target/resource_reclaim_loop_write.txt"
+  IF fs::fileExists(readPath) THEN
+    fs::deleteFile(readPath)
+  END IF
+  RES seed AS File = fs::openFile(readPath, "write")
+  fs::writeAll(seed, "seed line one")
+  fs::close(seed)
+  MUT i AS Integer = 0
+  WHILE i < 3000
+    cycle(readPath, writePath)
+    i = i + 1
+  WEND
+  io::print("ok")
+  fs::deleteFile(readPath)
+  fs::deleteFile(writePath)
+  RETURN 0
+END FUNC

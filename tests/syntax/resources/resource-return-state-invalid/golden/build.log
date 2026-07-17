@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-return-state-invalid
+  13 | ' the STATE verify rules pattern-match `" STATE "` in a type string, and the
+  14 | ' return type string never contained it.
+  15 | FUNC make() AS RES File STATE Color
+     | ^
+tests/syntax/resources/resource-return-state-invalid/src/main.mfb:15 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               FUNC `make` return STATE type `Color` must be a copyable, defaultable data type.
+  15 | FUNC make() AS RES File STATE Color
+  16 |   RES f AS File = fs::openFile("tests/syntax/resources/resource-return-state-invalid/src/main.mfb")
+  17 |   RETURN f
+     | ^
+tests/syntax/resources/resource-return-state-invalid/src/main.mfb:17 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type File, expected File STATE Color.
+  19 | 
+  20 | FUNC main AS Integer
+  21 |   RES h AS File = make()
+     | ^
+tests/syntax/resources/resource-return-state-invalid/src/main.mfb:21 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `h` is bare but its initializer carries STATE `Color`; a bare binding asserts the resource has no state — declare `STATE Color`.
+[exit 1]

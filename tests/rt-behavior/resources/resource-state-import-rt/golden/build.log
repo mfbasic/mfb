@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/resource-state-import-rt
+uses resource_state_export_valid - [Unsigned]
+Wrote AST to tests/rt-behavior/resources/resource-state-import-rt/resource_state_import_rt.ast
+Wrote IR to tests/rt-behavior/resources/resource-state-import-rt/resource_state_import_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/resource-state-import-rt
+uses resource_state_export_valid - [Unsigned]
+Wrote executable to tests/rt-behavior/resources/resource-state-import-rt/build/resource_state_import_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/resource-state-import-rt/build/resource_state_import_rt.out
+pos=42
+len=7
+[exit 0]

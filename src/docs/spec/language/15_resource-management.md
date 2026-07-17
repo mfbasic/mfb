@@ -45,9 +45,48 @@ s.state.pos = 10                                             ' update one field 
 s.state = WITH s.state { pos := 10 }                         ' or replace the whole state
 ```
 
-`T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource drops or is closed. `STATE` is optional.
+`T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource **drops**. `STATE` is optional. An explicit close (`fs::close(s)`) releases the OS handle but reclaims no memory, so `s.state` still reads its payload after one; drop is what frees it.
 
 `s.state` reads the state record. It is updated either by assigning a single field in place (`s.state.field = value`) or by assigning a whole-state `WITH` update (`s.state = WITH s.state { field := value }`); the former is shorthand for the latter. These are the only member-target assignments in the language. Because a resource value is a shared handle, a state update made through a borrowed `RES` parameter is visible to the owner after the call.
+
+## 15.5 What `STATE` means in each position
+
+A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFile CLOSE BY sfClose` and has no `STATE` clause. [[src/ast/items.rs:parse_top_level_resource]] `STATE` is written at the three *use* positions — a parameter, a return, and a binding — and the same two spellings mean different things at each:
+
+| Position | `RES x AS SfFile` (bare) | `RES x AS SfFile STATE FileInfo` |
+|---|---|---|
+| **Parameter** | accepts a `SfFile` carrying **any state or none**; `x.state` is **not** accessible | accepts **only** a `SfFile` carrying a `FileInfo`; `x.state` is accessible |
+| **Return** | returns a resource carrying **no** state | returns a resource **carrying** a `FileInfo` |
+| **Binding** | binds a resource carrying **no** state | **attaches** a default-initialized `FileInfo` (when the value carries none), or **adopts** the one the value already carries |
+
+Bare therefore reads two ways: **"opaque"** at a parameter, and **"none"** at a return or a binding. The rule behind the asymmetry:
+
+> Bare erases `STATE` only where the resource **cannot escape**. A parameter is a borrow and is confined to the frame that borrowed it (`TYPE_RESOURCE_BORROW_INVALIDATE`, §15), so forgetting the state there is unobservable to anyone else. A return and a binding are owners and **can** escape, so bare there means *provably no state*.
+
+The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(RES db AS Db)` names no `STATE` and works for every `Db`.
+
+**Attachment happens exactly once, at the owning binding.** A parameter only observes: a `RES p AS File STATE Cursor` parameter given an argument that carries no `Cursor`, or that carries some other state type, is rejected (`TYPE_STATE_MISMATCH`) [[src/rules/table.rs:TYPE_STATE_MISMATCH]] rather than attaching or re-typing one. The payload carries no runtime type tag, so its type is fixed by the binding that created it and every later declaration must agree.
+
+Consequently a binding that wants only the handle must still restate the `STATE` its initializer carries; there is no owner-side opt-out. That restatement is the price of the bare return's "no state" promise, which a later `STATE T` binding relies on when it attaches.
+
+**Returning a resource that carries state.** A `FUNC` returns one by naming the `STATE` on its return, and the state the callee populated arrives intact at the caller's binding:
+
+```basic
+FUNC openTagged(path AS String) AS RES File STATE Cursor
+  RES f AS File STATE Cursor = fs::openFile(path)
+  f.state.pos = 42
+  RETURN f                                    ' the Cursor rides the return
+END FUNC
+
+RES h AS File STATE Cursor = openTagged(p)    ' adopts it — h.state.pos is 42
+LET here = openTagged(p).state.pos            ' `.state` resolves from the call too
+```
+
+The caller's binding **adopts** the carried state rather than re-initializing it, so `h.state.pos` reads `42` and not `0`. A bare binding of that same call (`RES h AS File = openTagged(p)`) is rejected: bare asserts "no state", and accepting it would let a function launder a carried state through a bare return into a caller that attaches a second one over it.
+
+The `STATE` rides an exported signature, so this works across a package boundary exactly as it does in-package.
+
+See `./mfb spec architecture escape-analysis` for the borrow/escape decision procedure this rule rests on.
 
 **Resource unions.** A union whose every variant is a resource type is itself a resource — a *resource union* — and is `RES`-bound like any other resource:
 
@@ -70,6 +109,10 @@ END MATCH
 A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union *borrows* the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`), and a resource union carries no `STATE`.
 
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
+
+**Close releases the OS handle; drop reclaims memory.** They are separate events. A close returns the file descriptor (or the library handle) and reports failure, but frees nothing; the drop that ends the binding's scope reclaims what the resource's record points at — its `STATE` payload and its I/O buffers — so a loop that opens and closes handles retains a flat amount per resource rather than growing with the I/O each one did. The record itself is retained until the thread's arena is torn down: it holds the closed flag that makes a re-close idempotent and that every alias reads. [[src/target/shared/code/builder_codegen_primitives.rs:emit_resource_block_reclaim]]
+
+**A transferred handle is moved, not closed.** `thread::transfer` hands the resource to the receiving thread and marks the sender's handle **moved**. The static move rules normally make using it a compile error; where a handle nonetheless reaches an operation moved (an alias those rules do not track), the operation is refused with `ErrResourceMoved` rather than `ErrResourceClosed`, because the handle is not closed — it belongs to another thread now. [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead. Re-closing an already-closed handle during a drop is not such a failure — it is a benign no-op and is never reported as a drop-close failure.
 

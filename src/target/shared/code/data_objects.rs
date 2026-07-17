@@ -140,6 +140,16 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ],
     ) {
         push_string_value(&mut values, ERR_RESOURCE_CLOSED_MESSAGE.to_string());
+        // `ErrResourceMoved` rides the SAME closed-guard as `ErrResourceClosed`
+        // (both bits live in the offset-8 word, and the guard splits them only at
+        // the report), so wherever the closed message is registered the moved one
+        // must be too — plan-52-B. Registering the string is what emits its
+        // `_mfb_str_error_resource_moved` data object; miss one and the reference
+        // the guard already emitted dangles at link time (the bug-256 class:
+        // `net::` programs link no `_mfb_rt_fs_*`/`_mfb_rt_thread_*` symbol, so
+        // they do not get the whole standard set for free and failed with
+        // "relocation target '_mfb_str_error_resource_moved' is not a data object").
+        push_string_value(&mut values, ERR_RESOURCE_MOVED_MESSAGE.to_string());
     }
     if module_uses_call(module, "fs.currentDirectory") {
         push_string_value(&mut values, ERR_READ_MESSAGE.to_string());
@@ -197,6 +207,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             ERR_ALREADY_EXISTS_MESSAGE,
             ERR_OUTPUT_MESSAGE,
             ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_RESOURCE_MOVED_MESSAGE,
         ] {
             push_string_value(&mut values, value.to_string());
         }
@@ -237,6 +248,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             ERR_WRITE_TIMEOUT_MESSAGE,
             ERR_MESSAGE_TOO_LARGE_MESSAGE,
             ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_RESOURCE_MOVED_MESSAGE,
             ERR_CLOSE_FAILED_MESSAGE,
             ERR_ENCODING_MESSAGE,
             ERR_TIMEOUT_MESSAGE,
@@ -277,6 +289,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             ERR_NETWORK_FAILED_MESSAGE,
             ERR_CONNECTION_CLOSED_MESSAGE,
             ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_RESOURCE_MOVED_MESSAGE,
             ERR_INVALID_ARGUMENT_MESSAGE,
             ERR_ENCODING_MESSAGE,
             ERR_TIMEOUT_MESSAGE,

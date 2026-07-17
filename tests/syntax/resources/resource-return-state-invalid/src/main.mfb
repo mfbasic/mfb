@@ -1,0 +1,24 @@
+IMPORT fs
+
+ENUM Color
+  Red
+END ENUM
+
+' plan-52-A row 8 (plan-52-D): a non-defaultable STATE is rejected on a RETURN,
+' with the same code as its binding twin (resource-state-invalid). The rule is
+' the same rule; only the position differs.
+'
+' Only the RETURN carries the STATE here — the body binds bare — so nothing but
+' the return-position check can reject this. That is exactly why it compiled:
+' the STATE verify rules pattern-match `" STATE "` in a type string, and the
+' return type string never contained it.
+FUNC make() AS RES File STATE Color
+  RES f AS File = fs::openFile("tests/syntax/resources/resource-return-state-invalid/src/main.mfb")
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File = make()
+  fs::close(h)
+  RETURN 0
+END FUNC

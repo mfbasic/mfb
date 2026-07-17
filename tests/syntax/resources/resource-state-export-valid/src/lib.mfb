@@ -1,0 +1,21 @@
+IMPORT fs
+
+' plan-52-D §4: the exporter half of the cross-package stateful-return proof.
+' Its consumer is tests/rt-behavior/resources/resource-state-import-rt.
+'
+' The STATE rides the exported signature as part of the return type string
+' (`FUNC(String) AS File STATE Cursor`), which the `.mfp` carries verbatim in
+' `IrFunction.returns` — no format change was needed. This is the shape
+' `bindings/libsnd`'s `openFile` wants: hand back a handle carrying the info the
+' library filled in, across a package boundary.
+EXPORT TYPE Cursor
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+EXPORT FUNC openTagged(path AS String) AS RES File STATE Cursor
+  RES f AS File STATE Cursor = fs::openFile(path)
+  f.state.pos = 42
+  f.state.len = 7
+  RETURN f
+END FUNC

@@ -367,6 +367,34 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             FILE_OFFSET_READ_AT_EOF,
         ));
+        // The source record's contents now live in the destination, so the source
+        // is dead: flag it `moved|closed` (plan-52-B §3b). This MUST come after
+        // the flag-word copy above — flagging first would hand the destination an
+        // already-moved record and make the transferred handle unusable.
+        //
+        // `moved` is bit 1 of the same word `closed` (bit 0) lives in, so this
+        // costs no space and keeps plan-38's offset-8 invariant. Both bits are set:
+        // every existing guard is a `!= 0` test, so bit 0 makes a stale alias of a
+        // moved handle refuse operations with no new code, while bit 1 lets a guard
+        // that cares report `ErrResourceMoved` instead of `ErrResourceClosed`.
+        //
+        // Without this the sender's record kept a live fd the receiver now owns, so
+        // an alias the static move rules did not catch would silently operate on
+        // another thread's handle. The closed flag has always been the backstop for
+        // exactly that (§15.6); this extends it to moves.
+        //
+        // Reached on both sides of a transfer: the send path (source = the sender's
+        // binding, the case that matters) and `thread.acceptResource` (source = the
+        // transient queue record, already garbage — flagging it is a harmless no-op
+        // that keeps one uniform rule: this helper moves, and its source is dead).
+        let moved_flag = self.temporary_vreg();
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+        self.emit(abi::move_immediate(
+            &moved_flag,
+            "Integer",
+            RESOURCE_MOVED_CLOSED_VALUE,
+        ));
+        self.emit(abi::store_u64(&moved_flag, &scratch9, FILE_OFFSET_CLOSED));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
