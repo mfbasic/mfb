@@ -356,7 +356,7 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                             .map(|slot| IrAbiSlot {
                                 name: slot.name.clone(),
                                 ctype: slot.ctype.clone(),
-                                is_out: slot.is_out,
+                                direction: slot.direction,
                             })
                             .collect(),
                         abi_return_name: native.abi.return_name.clone(),
@@ -369,11 +369,11 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                         success_on: native
                             .success_on
                             .as_ref()
-                            .map(|expr| lower_link_expr(expr, &native.abi.return_name)),
+                            .map(lower_link_expr),
                         result: native
                             .result
                             .as_ref()
-                            .map(|expr| lower_link_expr(expr, &native.abi.return_name)),
+                            .map(lower_link_expr),
                         free: native.free.as_ref().map(|f| IrFree {
                             slot: f.slot.clone(),
                             symbol: f.symbol.clone(),
@@ -447,25 +447,33 @@ fn link_const_bits(text: &str) -> i64 {
         .unwrap_or(0)
 }
 
-/// Lower a `SUCCESS_ON`/`RESULT` expression to [`IrLinkExpr`] over the native
-/// return variable named `var`.
-fn lower_link_expr(expr: &Expression, var: &str) -> IrLinkExpr {
+/// Lower a `SUCCESS_ON`/`RESULT` expression to [`IrLinkExpr`], resolving each
+/// identifier to the ABI slot (or ABI return) it names (plan-50-I).
+///
+/// An identifier that names no slot lowers to `Var(name)` unchanged and is
+/// rejected by the checkers (`NATIVE_ABI_UNBOUND_SLOT`) — lowering cannot emit
+/// diagnostics, so the name is carried through for them to catch. Before
+/// plan-50-I every identifier collapsed onto one nameless variable meaning "the
+/// native return", so `SUCCESS_ON typo = 0` silently meant `status = 0`.
+///
+/// `NOTHING` is matched first: it is a literal, not a slot, and a binding could
+/// otherwise declare a slot named `NOTHING` and change what it means.
+fn lower_link_expr(expr: &Expression) -> IrLinkExpr {
     match expr {
         Expression::Number(text) => IrLinkExpr::Int(link_const_bits(text)),
         Expression::Boolean(value) => IrLinkExpr::Int(i64::from(*value)),
-        Expression::Identifier(name) if name == var => IrLinkExpr::Var,
         Expression::Identifier(name) if name == "NOTHING" => IrLinkExpr::Int(0),
-        Expression::Identifier(_) => IrLinkExpr::Var,
+        Expression::Identifier(name) => IrLinkExpr::Var(name.clone()),
         Expression::Unary {
             operator, operand, ..
-        } if operator == "-" => match lower_link_expr(operand, var) {
+        } if operator == "-" => match lower_link_expr(operand) {
             IrLinkExpr::Int(value) => IrLinkExpr::Int(value.wrapping_neg()),
             other => other,
         },
         Expression::Unary {
             operator, operand, ..
         } if operator.eq_ignore_ascii_case("NOT") => {
-            IrLinkExpr::Not(Box::new(lower_link_expr(operand, var)))
+            IrLinkExpr::Not(Box::new(lower_link_expr(operand)))
         }
         Expression::Binary {
             left,
@@ -473,8 +481,8 @@ fn lower_link_expr(expr: &Expression, var: &str) -> IrLinkExpr {
             right,
             ..
         } => {
-            let lhs = Box::new(lower_link_expr(left, var));
-            let rhs = Box::new(lower_link_expr(right, var));
+            let lhs = Box::new(lower_link_expr(left));
+            let rhs = Box::new(lower_link_expr(right));
             match operator.to_ascii_uppercase().as_str() {
                 "AND" => IrLinkExpr::And(lhs, rhs),
                 "OR" => IrLinkExpr::Or(lhs, rhs),

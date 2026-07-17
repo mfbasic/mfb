@@ -2762,7 +2762,7 @@ impl TypeEnv {
             for slot in &function.abi_slots {
                 // An OUT slot is a produced *value*, so it carries a return-shaped
                 // ctype; an ordinary slot is a C argument.
-                let ok = if slot.is_out {
+                let ok = if slot.direction.writes_back() {
                     crate::ir::abi_ctype_valid_as_return(&slot.ctype)
                 } else {
                     crate::ir::abi_ctype_valid_as_argument(&slot.ctype)
@@ -2778,7 +2778,7 @@ impl TypeEnv {
                 }
                 if slot.name == "return" {
                     result_markers += 1;
-                    if !slot.is_out {
+                    if !slot.direction.writes_back() {
                         self.emit(
                             "NATIVE_ABI_RESULT_MARKER",
                             format!(
@@ -2790,7 +2790,7 @@ impl TypeEnv {
                     continue;
                 }
                 if const_slots.contains(slot.name.as_str()) {
-                    if slot.is_out {
+                    if slot.direction.writes_back() {
                         self.emit(
                             "NATIVE_CONST_OUT",
                             format!(
@@ -2801,7 +2801,7 @@ impl TypeEnv {
                     }
                     continue;
                 }
-                if slot.is_out {
+                if slot.direction.writes_back() {
                     self.emit(
                         "NATIVE_ABI_UNBOUND_SLOT",
                         format!(

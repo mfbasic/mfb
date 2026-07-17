@@ -332,12 +332,12 @@ fn link_function() -> IrLinkFunction {
             IrAbiSlot {
                 name: "path".to_string(),
                 ctype: "CPtr".to_string(),
-                is_out: false,
+                direction: crate::ir::AbiDirection::In,
             },
             IrAbiSlot {
                 name: "db".to_string(),
                 ctype: "CPtr".to_string(),
-                is_out: true,
+                direction: crate::ir::AbiDirection::Out,
             },
         ],
         abi_return_name: "rc".to_string(),
@@ -346,12 +346,12 @@ fn link_function() -> IrLinkFunction {
         // Exercise every IrLinkExpr arm across success_on/result.
         success_on: Some(IrLinkExpr::Compare {
             op: "=".to_string(),
-            lhs: Box::new(IrLinkExpr::Var),
+            lhs: Box::new(IrLinkExpr::Var("status".to_string())),
             rhs: Box::new(IrLinkExpr::Int(0)),
         }),
         result: Some(IrLinkExpr::Or(
             Box::new(IrLinkExpr::And(
-                Box::new(IrLinkExpr::Var),
+                Box::new(IrLinkExpr::Var("status".to_string())),
                 Box::new(IrLinkExpr::Not(Box::new(IrLinkExpr::Int(1)))),
             )),
             Box::new(IrLinkExpr::Int(2)),
@@ -484,7 +484,25 @@ fn full_project() -> IrProject {
             close_may_fail: true,
         }],
         link_functions: vec![link_function()],
-        link_cstructs: Vec::new(),
+        link_cstructs: vec![crate::ir::IrCStruct {
+            alias: "sqliteLink".to_string(),
+            name: "SfFormatInfo".to_string(),
+            maps_to: "AudioFormat".to_string(),
+            fields: vec![
+                crate::ir::IrCStructField {
+                    name: "format".to_string(),
+                    ctype: "CInt32".to_string(),
+                },
+                crate::ir::IrCStructField {
+                    name: "name".to_string(),
+                    ctype: "CString".to_string(),
+                },
+                crate::ir::IrCStructField {
+                    name: "extension".to_string(),
+                    ctype: "CString".to_string(),
+                },
+            ],
+        }],
         link_aliases: vec![("openAlias".to_string(), "sqliteLink.open".to_string())],
         docs: ProjectDocs::default(),
         native_libraries: Default::default(),
@@ -521,6 +539,17 @@ fn binary_round_trip_over_full_surface() {
         vec![("flags".to_string(), 6)]
     );
     assert_eq!(decoded.link_aliases.len(), 1);
+    // plan-50-C: the CSTRUCT table, the slot direction byte, and the Var name
+    // payload all survive the round trip.
+    assert_eq!(decoded.link_cstructs.len(), 1);
+    assert_eq!(decoded.link_cstructs[0].name, "SfFormatInfo");
+    assert_eq!(decoded.link_cstructs[0].maps_to, "AudioFormat");
+    assert_eq!(decoded.link_cstructs[0].fields.len(), 3);
+    assert_eq!(decoded.link_cstructs[0].fields[1].ctype, "CString");
+    assert_eq!(
+        decoded.link_functions[0].abi_slots[1].direction,
+        crate::ir::AbiDirection::Out
+    );
     // Resource owners survived (Local + Float).
     let owners = &decoded.functions[0].resource_owners;
     assert!(matches!(owners.get("db"), Some(ResOwner::Local)));
@@ -536,6 +565,70 @@ fn binary_round_trip_without_link_tables_is_a_bare_trailer() {
     let decoded = decode_binary_repr(&bytes).expect("decode");
     assert!(decoded.link_functions.is_empty());
     assert!(decoded.link_aliases.is_empty());
+    assert!(decoded.link_cstructs.is_empty());
+}
+
+/// plan-50-C: the version gate is an exact match, not a floor. Without the bump
+/// a v4 package would decode its old `is_out` bool as a direction byte and its
+/// payload-less `Var` tag as a length prefix — garbage fed straight to a layout
+/// computer and a marshaling thunk.
+#[test]
+fn rejects_a_previous_format_version() {
+    let project = empty_project("plain");
+    let mut bytes = encode_binary_repr(&project);
+    // Rewrite the version word (after the 4 magic bytes) to the previous version.
+    bytes[4..6].copy_from_slice(&4u16.to_le_bytes());
+    let err = match decode_binary_repr(&bytes) {
+        Err(err) => err,
+        Ok(_) => panic!("v4 must be rejected"),
+    };
+    assert!(err.contains("version 4 unsupported"), "{err}");
+}
+
+/// A CSTRUCT count is an attacker-controlled u32, so it is an allocation
+/// primitive unless bounded.
+#[test]
+fn rejects_an_absurd_cstruct_count() {
+    let project = empty_project("plain");
+    let mut bytes = encode_binary_repr(&project);
+    // Append a trailer: 0 link functions, 0 aliases, then a huge CSTRUCT count.
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+    let err = match decode_binary_repr(&bytes) {
+        Err(err) => err,
+        Ok(_) => panic!("absurd CSTRUCT count must be rejected"),
+    };
+    assert!(err.contains("exceeds the 256 limit"), "{err}");
+}
+
+/// An unknown direction byte must be an error, never a silent default: it decides
+/// whether the callee writes through the slot.
+#[test]
+fn rejects_an_invalid_slot_direction() {
+    let mut project = empty_project("plain");
+    project.link_functions = vec![link_function()];
+    let bytes = encode_binary_repr(&project);
+    // The direction byte is the only 3-valued byte in the payload; find the
+    // encoded slot direction by re-encoding with each legal value and diffing.
+    let mut in_dir = project.clone();
+    in_dir.link_functions[0].abi_slots[0].direction = crate::ir::AbiDirection::In;
+    let a = encode_binary_repr(&in_dir);
+    let mut out_dir = project.clone();
+    out_dir.link_functions[0].abi_slots[0].direction = crate::ir::AbiDirection::Out;
+    let b = encode_binary_repr(&out_dir);
+    let idx = a
+        .iter()
+        .zip(b.iter())
+        .position(|(x, y)| x != y)
+        .expect("directions differ somewhere");
+    let mut corrupt = bytes.clone();
+    corrupt[idx] = 7;
+    let err = match decode_binary_repr(&corrupt) {
+        Err(err) => err,
+        Ok(_) => panic!("an invalid direction byte must be rejected"),
+    };
+    assert!(err.contains("invalid ABI slot direction 7"), "{err}");
 }
 
 #[test]
@@ -546,12 +639,12 @@ fn binary_round_trip_link_expr_variants() {
         Box::new(IrLinkExpr::Or(
             Box::new(IrLinkExpr::Compare {
                 op: ">".to_string(),
-                lhs: Box::new(IrLinkExpr::Var),
+                lhs: Box::new(IrLinkExpr::Var("status".to_string())),
                 rhs: Box::new(IrLinkExpr::Int(-5)),
             }),
             Box::new(IrLinkExpr::Int(1)),
         )),
-        Box::new(IrLinkExpr::Var),
+        Box::new(IrLinkExpr::Var("status".to_string())),
     ))));
     lf.result = None;
     lf.free = None;

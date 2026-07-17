@@ -306,21 +306,67 @@ pub(crate) struct IrFree {
     pub(crate) symbol: String,
 }
 
-/// One `ABI (...)` slot: `name ctype` or `name OUT ctype`.
+/// An `ABI (...)` slot's direction (plan-50-C).
+///
+/// Replaces the old `is_out: bool`. plan-50-E adds `InOut`, which a bool cannot
+/// express, and two bools would admit an illegal `(true, true)` state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AbiDirection {
+    /// A C argument marshaled from a wrapper parameter or a `CONST` pin.
+    In,
+    /// Native storage the callee writes; its value is copied back after the call.
+    Out,
+    /// Both: fields are written in before the call and read back after. Only
+    /// meaningful for a struct slot (plan-50-E).
+    InOut,
+}
+
+impl AbiDirection {
+    /// The wire byte. Decode rejects anything outside `0..=2` — an unknown
+    /// direction must be an error, never a silent default.
+    pub(crate) fn code(self) -> u8 {
+        match self {
+            AbiDirection::In => 0,
+            AbiDirection::Out => 1,
+            AbiDirection::InOut => 2,
+        }
+    }
+
+    pub(crate) fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(AbiDirection::In),
+            1 => Some(AbiDirection::Out),
+            2 => Some(AbiDirection::InOut),
+            _ => None,
+        }
+    }
+
+    /// Whether the callee writes this slot — i.e. it needs an output buffer.
+    pub(crate) fn writes_back(self) -> bool {
+        matches!(self, AbiDirection::Out | AbiDirection::InOut)
+    }
+}
+
+/// One `ABI (...)` slot: `name ctype`, `name OUT ctype`, or `name INOUT ctype`.
 #[derive(Clone)]
 pub(crate) struct IrAbiSlot {
     pub(crate) name: String,
     pub(crate) ctype: String,
-    pub(crate) is_out: bool,
+    pub(crate) direction: AbiDirection,
 }
 
-/// A boolean/integer expression over the single native return variable, used for
-/// `SUCCESS_ON`/`RESULT`. Kept deliberately small: comparisons and boolean
-/// connectives over the return variable and integer literals cover the surface.
+/// A boolean/integer expression over the function's ABI slot names, used for
+/// `SUCCESS_ON`/`RESULT`/`RETURN`. Kept deliberately small: comparisons and
+/// boolean connectives over named slots and integer literals cover the surface.
 #[derive(Clone)]
 pub(crate) enum IrLinkExpr {
-    /// The native return variable (the `AS <name> <ctype>` value).
-    Var,
+    /// The value of a named ABI slot, or of the ABI return (`AS <name> <ctype>`).
+    ///
+    /// plan-50-I: this used to be a nameless unit variant meaning "the native
+    /// return", and `lower_link_expr` mapped *every* identifier onto it — so
+    /// `SUCCESS_ON typo = 0` silently meant `status = 0`, and an expression could
+    /// not name any other slot even though the spec said it could.
+    Var(String),
     Int(i64),
     /// A comparison `lhs <op> rhs` producing `0`/`1`. `op` is one of
     /// `= <> < > <= >=`.

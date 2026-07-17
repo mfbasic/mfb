@@ -552,7 +552,7 @@ impl<'a> SyntaxChecker<'a> {
         for slot in &function.abi.slots {
             // An OUT slot is a produced *value*, so it carries a return-shaped
             // ctype; an ordinary slot is a C argument.
-            let ok = if slot.is_out {
+            let ok = if slot.direction.writes_back() {
                 crate::ir::abi_ctype_valid_as_return(&slot.ctype)
             } else {
                 crate::ir::abi_ctype_valid_as_argument(&slot.ctype)
@@ -574,7 +574,7 @@ impl<'a> SyntaxChecker<'a> {
         for slot in &function.abi.slots {
             if slot.name == "return" {
                 result_markers += 1;
-                if !slot.is_out {
+                if !slot.direction.writes_back() {
                     self.report(
                         "NATIVE_ABI_RESULT_MARKER",
                         &format!(
@@ -589,7 +589,7 @@ impl<'a> SyntaxChecker<'a> {
             }
             // A CONST pin satisfies the slot and is input-only.
             if const_slots.contains(slot.name.as_str()) {
-                if slot.is_out {
+                if slot.direction.writes_back() {
                     self.report(
                         "NATIVE_CONST_OUT",
                         &format!(
@@ -604,7 +604,7 @@ impl<'a> SyntaxChecker<'a> {
             }
             // An OUT slot not named `return` is unsupported here (multi-out
             // RETURN_OUT is a deferred ABI form, plan-link-update.md §5b).
-            if slot.is_out {
+            if slot.direction.writes_back() {
                 self.report(
                     "NATIVE_ABI_UNBOUND_SLOT",
                     &format!(

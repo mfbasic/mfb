@@ -334,7 +334,11 @@ fn lower_link_thunk(
     let symbol = link_thunk_symbol(&function.alias, &function.name);
     let n_params = function.params.len();
     let m_slots = function.abi_slots.len();
-    let n_out = function.abi_slots.iter().filter(|slot| slot.is_out).count();
+    let n_out = function
+        .abi_slots
+        .iter()
+        .filter(|slot| slot.direction.writes_back())
+        .count();
 
     const STATUS_OFF: usize = 8;
     const CRET_OFF: usize = 16;
@@ -350,7 +354,7 @@ fn lower_link_thunk(
     // §12.3/§12.4 boundary validations that this signature needs.
     let returns_value = function.abi_return_name == "return";
     let needs_range = function.abi_slots.iter().any(|slot| {
-        !slot.is_out
+        !slot.direction.writes_back()
             && slot.ctype == "CInt32"
             && function.params.iter().any(|(name, _)| name == &slot.name)
     });
@@ -403,7 +407,7 @@ fn lower_link_thunk(
     let mut result_out_ctype: Option<String> = None;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
-        if slot.is_out {
+        if slot.direction.writes_back() {
             let out_off = out_base + out_seq * 8;
             out_seq += 1;
             instructions.extend([
@@ -1035,7 +1039,11 @@ fn emit_link_expr(
                 &(*value as u64).to_string(),
             ));
         }
-        IrLinkExpr::Var => {
+        // plan-50-C carries the slot name on the wire; plan-50-I gives this a real
+        // name->offset map. Until then every in-tree expression names the ABI
+        // return, which is exactly what `status_off` holds — so this is today's
+        // behavior unchanged, and the emitted code is byte-identical.
+        IrLinkExpr::Var(_) => {
             instructions.push(abi::load_u64(&dst, abi::stack_pointer(), status_off));
         }
         IrLinkExpr::Not(inner) => {
@@ -1218,7 +1226,7 @@ mod tests {
                 abi_slots: vec![IrAbiSlot {
                     name: "pinned".to_string(),
                     ctype: (*ctype).to_string(),
-                    is_out: false,
+                    direction: crate::ir::AbiDirection::In,
                 }],
                 abi_return_name: "status".to_string(),
                 abi_return_ctype: "CInt32".to_string(),

@@ -15,7 +15,12 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// top-level bindings carry their declaring source `file`. Version 4 also
 /// serializes each function's `resource_owners` map (escape-analysis ownership
 /// decisions), which a decoded package has no AST to reconstruct.
-pub const BINARY_REPR_VERSION: u16 = 4;
+/// Version 5 adds the `CSTRUCT` table to the `LINK` trailer, replaces each ABI
+/// slot's `is_out` bool with an `AbiDirection` byte (`In`/`Out`/`InOut`), gives
+/// `IrLinkExpr::Var` a slot-name payload, and carries each function's `bind_in`
+/// table (plan-50-C). Slots are positional with no per-field tag, so every one of
+/// those is a hard format break; they ride one bump rather than four.
+pub const BINARY_REPR_VERSION: u16 = 5;
 
 // --- low-level writers -----------------------------------------------------
 
@@ -256,11 +261,26 @@ fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
     // marshaling thunks and routing (plan-linker.md §12). Written only when
     // present, as an optional append-only trailer, so packages without `LINK`
     // blocks stay byte-identical to the pre-feature `version 2` encoding.
-    if !project.link_functions.is_empty() || !project.link_aliases.is_empty() {
+    if !project.link_functions.is_empty()
+        || !project.link_aliases.is_empty()
+        || !project.link_cstructs.is_empty()
+    {
         put_vec(out, &project.link_functions, encode_link_function);
         put_vec(out, &project.link_aliases, |o, (alias, target)| {
             put_str(o, alias);
             put_str(o, target);
+        });
+        // plan-50-C: field NAMES and CTYPES only. Offsets and sizes are never on
+        // the wire — they are recomputed from the ctypes at decode, so a crafted
+        // package has no offset to forge.
+        put_vec(out, &project.link_cstructs, |o, c| {
+            put_str(o, &c.alias);
+            put_str(o, &c.name);
+            put_str(o, &c.maps_to);
+            put_vec(o, &c.fields, |o, f| {
+                put_str(o, &f.name);
+                put_str(o, &f.ctype);
+            });
         });
     }
 }
@@ -279,7 +299,7 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     put_vec(out, &f.abi_slots, |o, slot| {
         put_str(o, &slot.name);
         put_str(o, &slot.ctype);
-        put_bool(o, slot.is_out);
+        put_u8(o, slot.direction.code());
     });
     put_str(out, &f.abi_return_name);
     put_str(out, &f.abi_return_ctype);
@@ -311,7 +331,10 @@ fn encode_opt_link_expr(out: &mut Vec<u8>, expr: &Option<IrLinkExpr>) {
 
 fn encode_link_expr(out: &mut Vec<u8>, expr: &IrLinkExpr) {
     match expr {
-        IrLinkExpr::Var => put_u8(out, 0),
+        IrLinkExpr::Var(name) => {
+            put_u8(out, 0);
+            put_str(out, name);
+        }
         IrLinkExpr::Int(value) => {
             put_u8(out, 1);
             put_str(out, &value.to_string());
@@ -355,12 +378,13 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
     let functions = decode_vec(r, decode_function)?;
     // Native `LINK` tables are an optional append-only trailer: packages built
     // before this feature simply end after `functions` (plan-linker.md §12).
-    let (link_functions, link_aliases) = if r.at_end() {
-        (Vec::new(), Vec::new())
+    let (link_functions, link_aliases, link_cstructs) = if r.at_end() {
+        (Vec::new(), Vec::new(), Vec::new())
     } else {
         let link_functions = decode_vec(r, decode_link_function)?;
         let link_aliases = decode_vec(r, |r| Ok((r.string()?, r.string()?)))?;
-        (link_functions, link_aliases)
+        let link_cstructs = decode_cstructs(r)?;
+        (link_functions, link_aliases, link_cstructs)
     };
     Ok(IrProject {
         name,
@@ -372,11 +396,7 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         // RESOURCE_TABLE on import; the decoded IR carries none.
         native_resources: Vec::new(),
         link_functions,
-        // plan-50-B declares CSTRUCTs but does not transport them; plan-50-C adds
-        // the trailer entry along with the BINARY_REPR_VERSION bump. Until then a
-        // CSTRUCT is unusable in an ABI slot (NATIVE_ABI_UNKNOWN_CTYPE rejects the
-        // slot ctype), so nothing can depend on one surviving a round-trip.
-        link_cstructs: Vec::new(),
+        link_cstructs,
         link_aliases,
         // Docs live in a separate optional package section, not in the decoded IR.
         docs: ProjectDocs::default(),
@@ -385,6 +405,53 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         // carried in the decoded IR.
         native_libraries: crate::binary_repr::NativeLibraryTable::default(),
     })
+}
+
+/// Most `CSTRUCT` declarations one package may carry, and most fields one struct
+/// may declare (plan-50-C §4.4).
+///
+/// `put_vec` writes an attacker-controlled `u32` count, so an unbounded count is
+/// an allocation primitive — the same reasoning as the rest of the decode
+/// hardening (PKG-01..07). Both caps are ~10x any plausible binding.
+const MAX_CSTRUCTS: usize = 256;
+const MAX_CSTRUCT_FIELDS: usize = 64;
+
+/// Decode the `CSTRUCT` table. Carries field names and ctypes only; the layout is
+/// recomputed by `ir::verify`, which is why a crafted package cannot dictate an
+/// offset.
+fn decode_cstructs(r: &mut IrReader) -> Result<Vec<crate::ir::IrCStruct>, String> {
+    let count = r.count()?;
+    if count > MAX_CSTRUCTS {
+        return Err(format!(
+            "PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED: {count} CSTRUCT declarations exceeds the {MAX_CSTRUCTS} limit"
+        ));
+    }
+    let mut structs = Vec::with_capacity(count);
+    for _ in 0..count {
+        let alias = r.string()?;
+        let name = r.string()?;
+        let maps_to = r.string()?;
+        let field_count = r.count()?;
+        if field_count > MAX_CSTRUCT_FIELDS {
+            return Err(format!(
+                "PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED: CSTRUCT `{name}` declares {field_count} fields, over the {MAX_CSTRUCT_FIELDS} limit"
+            ));
+        }
+        let mut fields = Vec::with_capacity(field_count);
+        for _ in 0..field_count {
+            fields.push(crate::ir::IrCStructField {
+                name: r.string()?,
+                ctype: r.string()?,
+            });
+        }
+        structs.push(crate::ir::IrCStruct {
+            alias,
+            name,
+            maps_to,
+            fields,
+        });
+    }
+    Ok(structs)
 }
 
 fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
@@ -397,10 +464,17 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         return_type: r.string()?,
         return_resource: r.bool()?,
         abi_slots: decode_vec(r, |r| {
+            let name = r.string()?;
+            let ctype = r.string()?;
+            let code = r.u8()?;
+            // An unknown direction must be an error, never a silent default: it
+            // decides whether the callee writes through this slot.
+            let direction = crate::ir::AbiDirection::from_code(code)
+                .ok_or_else(|| format!("invalid ABI slot direction {code}"))?;
             Ok(IrAbiSlot {
-                name: r.string()?,
-                ctype: r.string()?,
-                is_out: r.bool()?,
+                name,
+                ctype,
+                direction,
             })
         })?,
         abi_return_name: r.string()?,
@@ -443,7 +517,7 @@ fn decode_link_expr(r: &mut IrReader) -> Result<IrLinkExpr, String> {
 
 fn decode_link_expr_body(r: &mut IrReader) -> Result<IrLinkExpr, String> {
     match r.u8()? {
-        0 => Ok(IrLinkExpr::Var),
+        0 => Ok(IrLinkExpr::Var(r.string()?)),
         1 => Ok(IrLinkExpr::Int(
             r.string()?
                 .parse::<i64>()

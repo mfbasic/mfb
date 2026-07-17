@@ -1005,12 +1005,16 @@ impl<'a> FileParser<'a> {
             loop {
                 let slot_line = self.peek().line;
                 let name = self.parse_abi_slot_name()?;
-                let is_out = self.match_identifier_ci("OUT");
+                let direction = if self.match_identifier_ci("OUT") {
+                    crate::ir::AbiDirection::Out
+                } else {
+                    crate::ir::AbiDirection::In
+                };
                 let ctype = self.parse_c_type_name()?;
                 slots.push(AbiSlot {
                     name,
                     ctype,
-                    is_out,
+                    direction,
                     line: slot_line,
                 });
                 if !self.match_kind(TokenKind::Comma) {

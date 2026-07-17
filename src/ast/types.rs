@@ -368,8 +368,8 @@ pub struct AbiSlot {
     /// Slot name; the literal `return` marks the wrapper-result OUT slot.
     pub name: String,
     pub ctype: String,
-    /// Whether the slot is an `OUT` parameter (produces a value through a pointer).
-    pub is_out: bool,
+    /// `IN` (the default), `OUT`, or `INOUT` (plan-50-C).
+    pub direction: crate::ir::AbiDirection,
     pub line: usize,
 }
 

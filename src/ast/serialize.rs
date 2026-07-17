@@ -509,7 +509,7 @@ impl ToAstJson for AbiSlot {
             pad,
             json_string(&self.name),
             json_string(&self.ctype),
-            self.is_out,
+            self.direction.writes_back(),
             self.line
         )
     }

@@ -2568,7 +2568,7 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         abi_slots: vec![crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         }],
         abi_return_name: "return".to_string(),
         abi_return_ctype: "CInt32".to_string(),
@@ -2697,7 +2697,7 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "info".to_string(),
         ctype: "CInt32".to_string(),
-        is_out: false,
+        direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project_with_cstructs(vec![cstruct("SfInfo", &[("a", "CInt32")])]);
     p.link_functions = vec![lf];
@@ -2713,7 +2713,7 @@ fn rejects_link_unknown_slot_ctype() {
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
         ctype: "CIint32".to_string(),
-        is_out: false,
+        direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
@@ -2736,7 +2736,7 @@ fn rejects_link_cvoid_argument_slot() {
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
         ctype: "CVoid".to_string(),
-        is_out: false,
+        direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
@@ -2750,7 +2750,7 @@ fn rejects_link_cptr_escape_in_param() {
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "p".to_string(),
         ctype: "CPtr".to_string(),
-        is_out: false,
+        direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
@@ -2773,12 +2773,12 @@ fn rejects_link_result_marker_not_out() {
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "return".to_string(),
             ctype: "CInt32".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
     ];
     lf.abi_return_name = "status".to_string();
@@ -2794,12 +2794,12 @@ fn rejects_link_unbound_slot() {
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "mystery".to_string(),
             ctype: "CInt32".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
     ];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -2814,12 +2814,12 @@ fn rejects_link_out_slot_not_return() {
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "extra".to_string(),
             ctype: "CInt32".to_string(),
-            is_out: true,
+            direction: crate::ir::AbiDirection::Out,
         },
     ];
     lf.abi_return_name = "status".to_string();
@@ -2836,12 +2836,12 @@ fn rejects_link_const_out() {
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "flags".to_string(),
             ctype: "CInt32".to_string(),
-            is_out: true,
+            direction: crate::ir::AbiDirection::Out,
         },
     ];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -2855,7 +2855,7 @@ fn rejects_link_no_result() {
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
         ctype: "CString".to_string(),
-        is_out: false,
+        direction: crate::ir::AbiDirection::In,
     }];
     lf.abi_return_name = "status".to_string();
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -2904,12 +2904,12 @@ fn accepts_link_const_pin() {
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "flags".to_string(),
             ctype: "CInt32".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
     ];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -3359,12 +3359,12 @@ fn rejects_link_multiple_result_markers() {
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
             ctype: "CString".to_string(),
-            is_out: false,
+            direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "return".to_string(),
             ctype: "CInt32".to_string(),
-            is_out: true,
+            direction: crate::ir::AbiDirection::Out,
         },
     ];
     // abi_return_name is also "return" -> two markers.

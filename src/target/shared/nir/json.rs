@@ -395,7 +395,7 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
                 "{{ \"name\": {}, \"ctype\": {}, \"out\": {} }}",
                 json_string(&slot.name),
                 json_string(&slot.ctype),
-                slot.is_out
+                slot.direction.writes_back()
             )
         })
         .collect::<Vec<_>>()
@@ -460,7 +460,9 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
 
 fn link_expr_json(expr: &crate::ir::IrLinkExpr) -> String {
     match expr {
-        crate::ir::IrLinkExpr::Var => "{ \"kind\": \"var\" }".to_string(),
+        crate::ir::IrLinkExpr::Var(name) => {
+            format!("{{ \"kind\": \"var\", \"name\": {} }}", crate::json_string(name))
+        }
         crate::ir::IrLinkExpr::Int(value) => {
             format!("{{ \"kind\": \"int\", \"value\": {value} }}")
         }
