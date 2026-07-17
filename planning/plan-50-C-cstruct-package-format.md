@@ -56,8 +56,9 @@ References (read first):
 - `IrProject.link_cstructs` encodes and decodes, round-tripping byte-identically.
 - `IrAbiSlot` carries a direction (`In`/`Out`/`InOut`) instead of a bare
   `is_out: bool`, encoded as a `u8`.
-- `IrLinkFunction` carries `result_slot: Option<String>` (plan-50-H's `RETURN
-  <name>` clause), encoded now so H and E need no second version bump (§4.2b).
+- Every other planned wire change rides this one bump (§4.2b): `IrLinkExpr::Var`'s
+  name payload (plan-50-I) and `bind_in` (plan-50-E). **No `result_slot`** — the
+  accepted `RESULT`→`RETURN` unification reuses the existing `result` field.
 - `BINARY_REPR_VERSION` is `5`; a `v4` package is rejected with the existing
   clear message, and `bindings/sqlite3/sqlite3.mfp` is regenerated.
 - `ir::verify` **fully re-validates** every decoded `CSTRUCT` — every check
@@ -221,35 +222,28 @@ exactly. No offsets, no size (§3).
 The trailer's presence condition widens to
 `!link_functions.is_empty() || !link_aliases.is_empty() || !link_cstructs.is_empty()`.
 
-### 4.2b `result_slot`
+### 4.2b The other fields riding this bump
 
-`IrLinkFunction` gains `result_slot: Option<String>` — the name given by
-plan-50-H's `RETURN <name>` clause, and the eventual single source of "which value
-is this wrapper's result" (replacing both `slot.name == "return"` at
-`link_thunk.rs:414` and `abi_return_name == "return"` at `verify:2707`). It is
-encoded here as field 15 of the positional record (after `free`), with the same
-`u8` presence tag `free` uses (`:281` / `:414`):
+The slot record is positional with no tags, so **every** field addition is a hard
+format break (§2). Carrying every planned field here means **one** version bump for
+the whole feature instead of four, and leaves the later phases pure
+parser/codegen work. Each is inert until its phase parses the surface that sets it.
 
-```rust
-// encode_link_function, after the free block
-match &f.result_slot {
-    Some(name) => { put_u8(out, 1); put_str(out, name); }
-    None => put_u8(out, 0),
-}
-```
+- **`IrLinkExpr::Var` gains a `String` payload** (plan-50-I §4.3). Tag 0 currently
+  encodes as a bare `put_u8(out, 0)` (`src/ir/binary.rs:314`); it becomes
+  `put_u8(0); put_str(name)`. This is the one that makes `RESULT`/`SUCCESS_ON`
+  expressions able to name a slot rather than one nameless variable.
+- **`bind_in`** (plan-50-E §4.1) — per-slot `field = <param|literal>` bindings.
 
-**Why here and not in plan-50-H/E:** the slot record is positional with no tags, so
-every field addition is a hard format break (§2). Carrying `result_slot` now means
-**one** version bump for the whole feature instead of three, and leaves H a pure
-parser+backend phase and E a pure codegen phase. It is inert until H parses the
-clause — nothing can set it, so it always encodes as `0` in this phase.
+**No `result_slot` field.** An earlier draft added one for plan-50-H's `RETURN
+<name>`. The accepted `RESULT`→`RETURN` unification (plan-50-H) makes it
+unnecessary: `RETURN <expr>` reuses the **existing**
+`IrLinkFunction.result: Option<IrLinkExpr>` (`src/ir/link.rs:43`), already encoded
+at `src/ir/binary.rs:291`. `RETURN db` is `result = Var("db")`. The unification
+removed a planned field rather than adding one.
 
-`ir::verify` must reject a `result_slot` naming a slot that does not exist, even
-though source cannot yet produce one: the package path does not get to assume the
-frontend ran.
-
-Also carry plan-50-E's `bind_in` table here for the same reason — one bump, and E
-stays codegen-only. It too is inert until E parses `BIND IN`.
+`ir::verify` must reject a `Var(name)` naming no slot even though source cannot yet
+produce one: the package path does not get to assume the frontend ran.
 
 ### 4.3 The gate
 
@@ -318,14 +312,15 @@ One landable unit.
       v2/v3/v4 convention.
 - [ ] `src/ir/link.rs`: replace `IrAbiSlot.is_out: bool` with
       `direction: AbiDirection`; add `IrCStruct.alias` and `IrCStruct.maps_to`
-      (the `AS <MfbType>` target, plan-50-B §4.1); add
-      `IrLinkFunction.result_slot: Option<String>` and the `bind_in` table (§4.2b).
+      (the `AS <MfbType>` target, plan-50-B §4.1); add the `bind_in` table (§4.2b).
+      (`IrLinkExpr::Var(String)` is plan-50-I's edit — coordinate so both land
+      under this single bump.)
 - [ ] Migrate every `is_out` call site listed in §4.1 (compiler + test fixtures).
 - [ ] `src/ir/binary.rs`: `put_u8`/`u8` direction in `encode_link_function:279-283`
-      / `decode_link_function:394-400`, rejecting a byte outside `0..=2`; encode
-      `result_slot` as tagged field 15 and the `bind_in` table as field 16 (§4.2b);
-      add `encode_cstruct`/`decode_cstruct` (incl. `maps_to`); extend the trailer in
-      `encode_project:259-264` / `decode_project:358`; widen the presence gate.
+      / `decode_link_function:394-400`, rejecting a byte outside `0..=2`; encode the
+      `bind_in` table as tagged field 15 (§4.2b); add `encode_cstruct`/`decode_cstruct`
+      (incl. `maps_to`); extend the trailer in `encode_project:259-264` /
+      `decode_project:358`; widen the presence gate.
 - [ ] `src/ir/binary.rs`: enforce the §4.4 count caps at decode.
 - [ ] `src/ir/verify/mod.rs`: add `check_link_cstructs` per §4.3; call it from
       `verify_semantics`.

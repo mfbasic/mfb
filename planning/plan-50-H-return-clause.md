@@ -1,14 +1,19 @@
-# plan-50-H: the `RETURN <name>` clause — deleting the magic slot name
+# plan-50-H: the `RETURN <expr>` clause — deleting the magic slot name and `RESULT`
 
 Last updated: 2026-07-16
 Effort: medium (1h–2h)
-Depends on: plan-50-C (carries `result_slot` in the `.mfp`, so this needs no
-second format bump — see §Open Decisions for landing it earlier instead)
+Depends on: plan-50-I (`IrLinkExpr::Var(String)` + the slot symbol table),
+plan-50-C (the wire bump I rides on)
 
-Replaces the magic ABI slot name `return` with an explicit clause. Today a
-wrapper's result is identified by a slot literally *named* `return`; after this,
-every slot and the C return carry ordinary names and `RETURN <name>` says which
-one is the result.
+Replaces the magic ABI slot name `return` with an explicit clause, and folds
+`RESULT <expr>` into it. Today a wrapper's result is identified by a slot
+literally *named* `return`, or by a separate `RESULT` clause; after this, every
+slot and the C return carry ordinary names and one clause — `RETURN <expr>` —
+says what the result is.
+
+`RETURN db` is simply the degenerate case where the expression is a bare slot
+reference; `RETURN status = 100` is the computed case that used to be `RESULT`.
+One clause, one concept.
 
 This is a **LINK surface change with no relation to structs** — it stands on its
 own merits and would be worth doing if plan-50 did not exist. It is in plan-50
@@ -59,27 +64,33 @@ References (read first):
 
 ## 1. Goal
 
-- A LINK `FUNC` may carry `RETURN <name>`, where `<name>` is an ABI slot name or
-  the ABI return's name. That slot/value becomes the wrapper's result.
+- A LINK `FUNC` carries `RETURN <expr>`, an expression over its ABI slot names and
+  its ABI return name (plan-50-I's symbol table). A bare `RETURN db` names a slot;
+  `RETURN status = 100` computes.
+- **`RESULT <expr>` is deleted.** Every `RESULT` becomes a `RETURN`.
 - The name `return` loses all special meaning; `parse_abi_slot_name`'s keyword
   case is deleted, so `return` is simply not a legal slot name.
 - `FREE <slot>` names the real slot (`FREE sql`, not `FREE return`).
 - `bindings/sqlite3` is migrated and behaves **identically at runtime**.
 - All 14 native test fixtures and the spec are migrated.
-- A value-returning wrapper with no `RETURN` and no `RESULT` is
-  `NATIVE_ABI_NO_RESULT`; one with both (or two `RETURN`s) is
-  `NATIVE_ABI_RESULT_MARKER`. **No new rule codes.**
+- A value-returning wrapper with no `RETURN` is `NATIVE_ABI_NO_RESULT`; two
+  `RETURN`s is `NATIVE_ABI_RESULT_MARKER`. **No new rule codes.**
+- **No new IR field.** The result rides the *existing*
+  `IrLinkFunction.result: Option<IrLinkExpr>` (`src/ir/link.rs:43`), which is
+  already encoded (`src/ir/binary.rs:291`). `result_slot` is not needed and is not
+  added (§3).
 
 ### Non-goals (explicit constraints)
 
-- **No behavior change.** This is a rename plus a clause. Every migrated sqlite3
-  thunk must be **byte-identical** to its pre-migration counterpart — that is the
-  acceptance bar and the whole safety argument.
-- **`RESULT <expr>` is not removed here.** Unifying it into `RETURN <expr>` is
-  the one genuinely open design question (§Open Decisions); it needs real work in
-  `lower_link_expr` and is separable.
-- No struct/`CSTRUCT` awareness. plan-50-E layers struct slots on top.
-- No `.mfp` format change *of its own* — plan-50-C already carries `result_slot`.
+- **No behavior change.** This is a rename plus a clause merge. Every migrated
+  sqlite3 thunk must be **byte-identical** to its pre-migration counterpart — that
+  is the acceptance bar and the whole safety argument.
+- No struct/`CSTRUCT` awareness. plan-50-E layers struct slots on top — a struct
+  result is just `RETURN <bare-slot>` with a different marshaling arm.
+- No `.mfp` format change *of its own* — plan-50-I's `Var(String)` payload and
+  plan-50-C's bump cover it.
+- No change to `SUCCESS_ON`/`ERROR_ON`, whose expression grammar this reuses
+  verbatim.
 
 ## 2. Current State
 
@@ -106,14 +117,26 @@ can exist. The magic is invisible because it is unavoidable.
 ```
   every ABI slot has a name          ABI (path CString, db OUT CPtr) AS status CInt32
   the C return has a name                                             ^^^^^^
-  RETURN <name> picks one            RETURN db
+  RETURN <expr> says what the        RETURN db              (a bare slot ref)
+  result is                          RETURN status = 100    (computed — was RESULT)
 ```
 
-That is the whole design. `result_slot: Option<String>` on `IrLinkFunction`
-(carried by plan-50-C §4.2b) replaces both `slot.name == "return"` and
-`abi_return_name == "return"` as the single source of "which value is the result".
-`abi_return_name` demotes to what its name says: the name you refer to the C
-return by.
+That is the whole design, and the pleasing part is that **the IR already has the
+field**. `IrLinkFunction.result: Option<IrLinkExpr>` (`src/ir/link.rs:43`) is the
+old `RESULT` mapping, already encoded as tag-13 of the positional record
+(`src/ir/binary.rs:291`). Once plan-50-I gives `Var` a name, `RETURN db` is just
+`result = Var("db")` and `RETURN status = 100` is
+`result = Compare(Var("status"), 100)` — one field expresses both.
+
+So this phase **adds no IR field and no wire field**. Both magic checks —
+`slot.name == "return"` (`link_thunk.rs:414`) and `abi_return_name == "return"`
+(`verify:2707`) — are deleted outright, replaced by "is there a `result`
+expression, and what does its `Var` name?". `abi_return_name` demotes to what its
+name says: the name you refer to the C return by.
+
+**`result_slot` is therefore not needed**, and plan-50-C §4.2b no longer carries
+it. The unification *removed* a planned format field rather than adding one, which
+is the strongest argument for it: the design got smaller.
 
 **Why the old rule must go, concretely.** plan-50-E introduces `INOUT` slots, and
 `sf_open` is a slot that receives output but is *not* the result:
@@ -146,6 +169,13 @@ Rejected alternative: **keep `AS return <ctype>` and add `RETURN` only for slots
 Rejected: 15 of 19 sites are the `AS return` form, so the magic name would survive
 in the common case and the phase would add a clause without removing the wart.
 
+Rejected alternative: **keep `RESULT <expr>` alongside `RETURN <name>`.** This was
+the original plan. Rejected: two near-synonymous clauses both answering "what is
+the result?" is a documentation hazard, and keeping them apart *costs* a field —
+`RETURN <name>` would need a new `result_slot` on the IR and the wire, while
+`RETURN <expr>` reuses the `result` field that already exists. Merging is both
+smaller and simpler.
+
 ## 4. Detailed Design
 
 ### 4.1 Surface
@@ -166,38 +196,54 @@ FREE return                                   RETURN sql
   ABI (ptr CPtr) AS CVoid                       SYMBOL "sqlite3_free"
 END FREE                                        ABI (ptr CPtr) AS CVoid
                                               END FREE
+
+SUCCESS_ON status = 100 OR status = 101       SUCCESS_ON status = 100 OR status = 101
+RESULT status = 100                           RETURN status = 100
 ```
 
-`RETURN` joins the clause dispatch in `parse_link_function` (`:705-779`). No
-grammar ambiguity: a LINK `FUNC` body contains **clauses, not statements**, so
-`Keyword::Return` here can only be this clause.
+`RETURN` joins the clause dispatch in `parse_link_function` (`:705-779`) and
+**`RESULT` leaves it**. No grammar ambiguity: a LINK `FUNC` body contains
+**clauses, not statements**, so `Keyword::Return` here can only be this clause.
+The expression after it is parsed by the same parser `RESULT` used, so the
+grammar is unchanged — only the keyword moves.
 
 ### 4.2 Validation
 
-- `RETURN <name>` must name a declared ABI slot or the ABI return name; otherwise
-  `NATIVE_ABI_UNBOUND_SLOT` (existing).
-- `RETURN` on a `CONST`-pinned slot is `NATIVE_CONST_OUT`-adjacent nonsense —
-  reject with `NATIVE_ABI_RESULT_MARKER`.
-- Exactly one of `RETURN` / `RESULT` for a value-returning wrapper: zero →
+- Every name inside `RETURN <expr>` must resolve to a slot or the ABI return
+  name — that is plan-50-I's job (`NATIVE_ABI_UNBOUND_SLOT`), inherited for free.
+- Exactly one `RETURN` for a value-returning wrapper: zero →
   `NATIVE_ABI_NO_RESULT`; two → `NATIVE_ABI_RESULT_MARKER`.
 - A `Nothing`-returning wrapper with a `RETURN` → `NATIVE_ABI_RESULT_MARKER`.
 - Enforced on **both** the source and package paths, per plan-50-C §4.3's posture.
 
 Both rules already exist (`2-203-0093`, `2-203-0096`); their messages need
-rewording away from "`return`" toward "`RETURN`". **No new codes**, so
+rewording away from "`return`"/"`RESULT`" toward "`RETURN`". **No new codes**, so
 `01_rule-codes.md` needs no new rows — but re-read the reworded messages against
 it, since `afdcceb6`'s `every_rule_is_documented_in_the_spec` guard matches on
 code and name (not message), which stay the same.
 
 ### 4.3 Backend
 
-`link_thunk.rs:414` becomes `if Some(&slot.name) == function.result_slot.as_ref()`.
-The `emit_return_marshal` dispatch (`:789`) keys off `result_slot` naming the ABI
-return rather than `abi_return_name == "return"`. Everything downstream — the
-ctype-driven marshaling, `FREE`, `SUCCESS_ON` — is unchanged.
+Both magic checks die:
 
-Because this is a rename, the emitted instruction sequence for every existing
-wrapper is **identical**. That is the acceptance test.
+- `link_thunk.rs:414` (`if slot.name == "return"`) is deleted. The result-producing
+  slot is instead identified by the `result` expression being a **bare
+  `Var(name)`** naming that slot — then its existing `result_out_off` /
+  `result_out_ctype` path (`:414-417`, `:546-...`) applies unchanged.
+- `verify:2707` (`abi_return_name == "return"`) is deleted; a wrapper produces a
+  value iff `result.is_some()`.
+
+The backend therefore dispatches on the **shape** of `result`:
+
+| `result` | path | example |
+|---|---|---|
+| `Var(n)`, `n` is an `OUT` slot | the OUT-buffer result path (`:546`) | `RETURN db` |
+| `Var(n)`, `n` is the ABI return name | `emit_return_marshal` (`:789`), ctype-driven | `RETURN value` |
+| anything else (a computed expr) | `emit_link_expr` → `RESULT_VALUE_REGISTER` | `RETURN status = 100` |
+
+Each of those three paths **already exists** and is reached today by a different
+trigger; this phase only changes what selects them. That is why every existing
+wrapper's instruction sequence is **identical** — the acceptance test.
 
 ## Compatibility / Format Impact
 
@@ -216,17 +262,20 @@ One landable unit.
 
 ### Phase 1 — the clause, and the migration
 
-- [ ] `src/ast/types.rs`: add `result_slot: Option<String>` to `LinkFunction`.
-- [ ] `src/ast/items.rs`: add the `RETURN <name>` clause to `parse_link_function`'s
-      dispatch (`:705-779`); **delete** the `Keyword::Return` case in
+- [ ] `src/ast/items.rs`: add the `RETURN <expr>` clause to `parse_link_function`'s
+      dispatch (`:705-779`), reusing `RESULT`'s expression parser; **delete** the
+      `RESULT` clause; **delete** the `Keyword::Return` case in
       `parse_abi_slot_name` (`:962-967`).
-- [ ] `src/ir/lower.rs:link_functions` (`:292`): carry `result_slot` into
-      `IrLinkFunction` (the IR field + encoding land in plan-50-C §4.2b).
-- [ ] `src/syntaxcheck/mod.rs` + `src/ir/verify/mod.rs`: replace the two magic-name
-      checks (`verify:2707`, and the slot scan) with `result_slot`; implement §4.2;
-      reword the `NATIVE_ABI_NO_RESULT` / `NATIVE_ABI_RESULT_MARKER` messages.
-- [ ] `src/target/shared/code/link_thunk.rs`: `:414` and the `:789` dispatch key off
-      `result_slot` (§4.3).
+- [ ] `src/ast/types.rs` / `src/ir/lower.rs:link_functions` (`:292`): `RETURN`
+      populates the **existing** `result` field. **No new IR field, no new wire
+      field** — `IrLinkFunction.result` (`src/ir/link.rs:43`) and its encoding
+      (`src/ir/binary.rs:291`) already exist.
+- [ ] `src/syntaxcheck/mod.rs` + `src/ir/verify/mod.rs`: delete the two magic-name
+      checks (`verify:2707` and the `slot.name == "return"` scan); a wrapper
+      produces a value iff `result.is_some()`; implement §4.2; reword the
+      `NATIVE_ABI_NO_RESULT` / `NATIVE_ABI_RESULT_MARKER` messages.
+- [ ] `src/target/shared/code/link_thunk.rs`: replace `:414`'s magic-name test and
+      the `:789` dispatch with the three-way shape dispatch on `result` (§4.3).
 - [x] ~~Migrate `bindings/sqlite3/src/lib.mfb`~~ — **already done** (uncommitted,
       ahead of the compiler). All 19 sites: `open`/`openV2` → `db`, `prepare` →
       `stmt`, `expandedSql` → `sql` (+ `FREE sql`), and the rest named for their
@@ -234,6 +283,9 @@ One landable unit.
       `code`). 16 `RETURN` + 1 `RESULT` (`step`) = 17 value-returning wrappers; the
       8 `Nothing` wrappers correctly have neither. Verify against this when
       implementing rather than re-deriving names.
+- [ ] **One migration site remains:** `step`'s `RESULT status = 100` →
+      `RETURN status = 100` (`bindings/sqlite3/src/lib.mfb`), plus the two comments
+      above it that describe `RESULT` as a distinct clause.
 - [ ] Migrate the 14 fixtures under `tests/syntax/native/` + `tests/rt-behavior/native/`.
 - [ ] Tests: `tests/syntax/native/native-abi-return-slot-invalid/` — a slot named
       `return` no longer parses; `RETURN` naming an unknown slot; `RETURN` +
@@ -274,32 +326,19 @@ Commit: —
 
 ## Open Decisions
 
-- **Unify `RESULT <expr>` into `RETURN <expr>` and delete `RESULT`?** Recommend
-  **yes, but not in this phase.** Two near-synonymous clauses both answering "what
-  is the result?" is a documentation hazard:
-  ```
-  RETURN info            ' the result IS this slot
-  RESULT status = 100    ' the result is computed from the status
-  ```
-  Unified, `RETURN count` is just the degenerate case where the expression is a
-  bare slot reference, and `step` reads `RETURN status = 100`. The blocker is real
-  though: `lower_link_expr` (`src/ir/lower.rs:421`) is handed **one** variable —
-  `&native.abi.return_name` — so `status` resolves only because it *is* the ABI
-  return name. Unifying means giving the expression a symbol table (slot name →
-  stack offset) in both `lower_link_expr` and `emit_link_expr`
-  (`link_thunk.rs:531`). That is the only non-mechanical work in the whole idea,
-  and it would break this phase's byte-identity acceptance gate. Do it as a
-  follow-on where its own risk is visible.
-- **Land H before plan-50-C with its own `4`→`5` bump?** Recommend **no** — depend
-  on C and let it carry `result_slot`, for one bump instead of two. The cost is
-  that a LINK-surface cleanup is gated behind the CSTRUCT stack for a bookkeeping
-  reason. If that ordering grates, H can bump independently (C then bumps `5`→`6`);
-  bumps are cheap here (no published packages, and `sqlite3.mfp` is regenerated
-  either way). **User's call.**
-- **Slot naming in the sqlite3 migration.** The 15 `AS return` sites each need a
-  name. Recommend naming for the *value* (`value`, `text`, `rowid`, `count`), not
-  the mechanism (`ret`, `out`) — these names appear in `SUCCESS_ON`/`RESULT`
-  expressions and are the binding's readable surface.
+- ~~**Unify `RESULT` into `RETURN`?**~~ **ACCEPTED** (2026-07-16) and folded into
+  this phase. The prerequisite — a slot symbol table in `lower_link_expr` /
+  `emit_link_expr` — is split out as plan-50-I so its own risk (and the latent
+  `Identifier(_) => Var` bug it fixes) stays visible. Byte-identity survives: every
+  in-tree expression resolves to the same offset it uses today.
+- ~~**Land H before plan-50-C with its own bump?**~~ **Moot.** The unification
+  reuses the existing `result` field, so `result_slot` is never added and H needs
+  no format change of its own. H depends on I, which rides C's bump for the
+  `Var(String)` payload.
+- **Slot naming in the sqlite3 migration** — settled, already applied: named for
+  the *value* (`value`, `text`, `rowid`, `count`, `message`), not the mechanism
+  (`ret`, `out`). These names appear in `SUCCESS_ON`/`RETURN` expressions and are
+  the binding's readable surface.
 
 ## Summary
 

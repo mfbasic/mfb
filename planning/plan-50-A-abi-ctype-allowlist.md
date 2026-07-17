@@ -1,7 +1,7 @@
 # plan-50-A: validate ABI slot C types
 
 Last updated: 2026-07-16
-Overall Effort: x-large (1d–3d) — the whole plan-50 feature (A–H)
+Overall Effort: x-large (1d–3d) — the whole plan-50 feature (A–I)
 Effort: medium (1h–2h)
 Depends on: nothing
 

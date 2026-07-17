@@ -4,7 +4,8 @@ Last updated: 2026-07-16
 Effort: medium (1h–2h)
 Depends on: plan-50-A (closed ctype namespace), plan-50-B (`compute_c_layout`,
 `CSTRUCT … AS <MfbType>`), plan-50-C (wire format + `AbiDirection` +
-`result_slot`), plan-50-D (`store_u16`), plan-50-H (`RETURN <name>`)
+`bind_in`), plan-50-D (`store_u16`), plan-50-I (link-expr symbols),
+plan-50-H (`RETURN <expr>`)
 
 The phase where a C struct actually crosses the boundary. Teaches the thunk to
 stage a struct buffer in its frame, write bound input fields **in** before the
@@ -109,9 +110,10 @@ word (`:407`). Args are loaded from those words straight into argument registers
 A struct slot is the same three steps over a *sized, aligned* buffer instead of a
 word — which is why this phase is a generalization rather than a new mechanism.
 
-The result marker is plan-50-H's `RETURN <name>` + `result_slot`; this phase adds
-no result mechanism of its own — a struct slot is simply another thing `RETURN` can
-name. `BIND IN` is new and joins the clause dispatch beside H's `RETURN`.
+The result marker is plan-50-H's `RETURN <expr>`, carried by the existing
+`IrLinkFunction.result` field; this phase adds no result mechanism of its own — a
+struct slot is simply another thing a bare `RETURN <slot>` can name. `BIND IN` is
+new and joins the clause dispatch beside H's `RETURN`.
 
 The spec has documented `RETURN_OUT` as the intended multi-output design, and its
 own Implementation-status note (`17_native-libraries.md:146`) says plainly it does
@@ -259,10 +261,11 @@ let ctype = self.parse_c_type_name()?;
 slot, a list of `field = <param|literal>`. Mirror `parse_free_block:815` for the
 nested `END`-terminated shape.
 
-`RETURN <slot>` is plan-50-H's clause, used verbatim. This phase adds **no**
-result-marker mechanism; `result_slot` already exists (plan-50-C §4.2b) and
-already means "which name is the result". A struct slot is simply a name it can
-hold.
+`RETURN <slot>` is plan-50-H's clause, used verbatim — the bare-`Var` case of
+`RETURN <expr>`. This phase adds **no** result-marker mechanism: the existing
+`IrLinkFunction.result` field (`src/ir/link.rs:43`) already carries it, and
+plan-50-I already taught `Var` to name a slot. A struct slot is simply a name it
+can hold; the backend picks the record-building arm from the slot's ctype.
 
 ### 4.2 Frame layout
 
@@ -388,8 +391,9 @@ One landable unit.
       (`:705-779`), mirroring `parse_free_block:815`'s nested `END`-terminated shape.
 - [ ] `src/ast/types.rs` / `src/ir/link.rs`: add the `bind_in` table (§4.1);
       `src/ir/lower.rs:292` carries it; `src/ir/binary.rs` encodes it — **fold this
-      field into plan-50-C's bump**, do not add a second one. `result_slot` already
-      exists (C §4.2b + H); this phase only lets `RETURN` name a struct slot.
+      field into plan-50-C's bump**, do not add a second one. The result rides the
+      existing `result` field (C §4.2b, H §3); this phase only lets a bare
+      `RETURN <slot>` name a struct slot.
 - [ ] Resolution + checks (§3, §4.6) in `src/syntaxcheck/mod.rs` **and**
       `src/ir/verify/mod.rs`: slot ctype → `CSTRUCT`; total field coverage against
       the `CSTRUCT`'s `AS <MfbType>`; per-field type compatibility; `CString`/`CPtr`
