@@ -116,6 +116,33 @@ Small MEDIUM/LOW/NTH items are documented in the per-surface files with a best-f
 sketch but no bug doc (per the goal: bug docs for CRITICAL/HIGH and non-small
 MEDIUM only).
 
+## Follow-up: bug docs filed for the remaining open items (2026-07-17)
+
+A later pass filed bug docs for every audit-2 finding that was still open and
+lacked one (verified against current source; two were already resolved and are
+noted as such). Numbering continues at **259**.
+
+| Bug | Finding(s) | Severity | Notes |
+|---|---|---|---|
+| bug-259 | OS-03 `isWithin`/`canonicalPath` check-then-open TOCTOU | MEDIUM | individual |
+| bug-260 | OS-04 `openFileNoFollow` intermediate-symlink gap | MEDIUM | individual |
+| bug-261 | OS-05 `net.connect` unbounded + `net.read` eager alloc | MEDIUM | individual |
+| bug-262 | OS-09 HTTP header/URL CR/LF request splitting | MEDIUM | individual |
+| bug-263 | LNK-03 Linux no `PT_GNU_RELRO` (GOT writable) | MEDIUM | individual (deferred from bug-186) |
+| bug-264 | REPO-09 single global `Mutex<Connection>` poison | MEDIUM | individual |
+| bug-265 | PKG-08 Scalar const escapes literal-range verifier | LOW | still open — bug-190 fixed a *different* Scalar check |
+| bug-266 | MEM-09 arena bin-park double-free guard parity | LOW | individual |
+| bug-267 | LNK-11 aarch64 `branch_imm26/imm19` silent truncation | LOW | individual |
+| bug-268 | OS-06/07/08/10/11 fs/net/http LOW cluster | LOW | cluster |
+| bug-269 | CRY-01/02/03 crypto/TLS LOW/NTH cluster | LOW | cluster |
+| bug-270 | LNK-05/09/10 emitted-binary mitigation LOW cluster | LOW | cluster |
+| bug-271 | REPO-04/14/15/16/17/18/19 registry LOW/NTH cluster | LOW | cluster |
+
+Already resolved before this pass (no new bug): **LNK-02** (`PT_GNU_STACK`) →
+bug-224; **LNK-07** (`read_u32`/`write_u32` slice panic) → bug-225; the stdin
+subscriber-exhaustion note → bug-243. Not filed (not defects): **MEM-10**
+(not-demonstrated, unreachable) and **SUP-04** (positive confirmation).
+
 ## Cross-cutting themes
 
 1. **`ir::verify` has the right caps but sits last.** FE-02/FE-03 both crash an
