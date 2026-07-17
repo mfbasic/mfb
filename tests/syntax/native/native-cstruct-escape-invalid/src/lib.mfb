@@ -1,0 +1,24 @@
+' A CSTRUCT name is a native-side layout descriptor, not a type: it is nameable
+' only in its declaration, an ABI slot's ctype position, and SIZEOF. Here a real
+' record and a CSTRUCT share the name `CInfo`, so a wrapper signature naming
+' `CInfo` is ambiguous to the reader — reject it and make the author name the
+' mapped record (plan-50-B §4.5).
+TYPE CInfo
+  a AS Integer
+END TYPE
+
+TYPE Info
+  a AS Integer
+END TYPE
+
+LINK "demo" AS demoLink
+  CSTRUCT CInfo AS Info
+    a CInt32
+  END CSTRUCT
+
+  FUNC leak(info AS CInfo) AS CInfo
+    SYMBOL "demo_leak"
+    ABI (info CInt32, return OUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

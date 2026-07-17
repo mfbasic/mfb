@@ -741,6 +741,7 @@ mod tests {
                 items: vec![Item::Link(crate::ast::LinkBlock {
                     library: "lib".into(),
                     alias: "db".into(),
+                    cstructs: Vec::new(),
                     functions: vec![crate::ast::LinkFunction {
                         name: "open".into(),
                         params: vec![param("path", Some("CString"))],
@@ -985,6 +986,7 @@ mod tests {
         let link = Item::Link(crate::ast::LinkBlock {
             library: "lib".into(),
             alias: "db".into(),
+            cstructs: Vec::new(),
             functions: vec![crate::ast::LinkFunction {
                 name: "close".into(),
                 params: vec![param("h", Some("CPtr"))],
@@ -1031,6 +1033,7 @@ mod tests {
         let link = Item::Link(crate::ast::LinkBlock {
             library: "lib".into(),
             alias: "db".into(),
+            cstructs: Vec::new(),
             functions: vec![crate::ast::LinkFunction {
                 name: "close".into(),
                 params: vec![param("h", Some("CPtr"))],

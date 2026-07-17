@@ -1,0 +1,44 @@
+' A CSTRUCT declares a C struct's byte layout and the MFBASIC record it presents
+' as. The layout is computed from the field ctypes — there is no offset, size, or
+' padding syntax. This mirrors libsndfile's SF_INFO and SF_FORMAT_INFO, whose
+' real layouts (gcc, aarch64) are 32/8 and 24/8 respectively (plan-50-B).
+EXPORT TYPE AudioFormat
+  format    AS Integer
+  name      AS String
+  extension AS String
+END TYPE
+
+EXPORT TYPE SoundInfo
+  frames     AS Integer
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
+
+LINK "demo" AS demoLink
+  ' 24 bytes, align 8: format@0, 4 bytes of pad, name@8, extension@16.
+  CSTRUCT SfFormatInfo AS AudioFormat
+    format     CInt32
+    name       CString
+    extension  CString
+  END CSTRUCT
+
+  ' 32 bytes, align 8: channels lands at 12, which a naive one-word-per-field
+  ' record layout would put at 16.
+  CSTRUCT SfInfo AS SoundInfo
+    frames      CInt64
+    samplerate  CInt32
+    channels    CInt32
+    format      CInt32
+    sections    CInt32
+    seekable    CInt32
+  END CSTRUCT
+
+  FUNC version() AS Integer
+    SYMBOL "demo_version"
+    ABI (return OUT CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

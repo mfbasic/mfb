@@ -341,6 +341,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     }
     env.check_type_declarations(project);
     env.check_link_functions(project);
+    env.check_link_cstructs(project);
     env.diags.take()
 }
 
@@ -2597,6 +2598,94 @@ impl TypeEnv {
         }
         // Nested collections (`List OF List OF RES File`).
         self.check_collection_res_axis(inner);
+    }
+
+    /// Validate the merged `CSTRUCT` table (plan-50-B §4.4) on the package path.
+    ///
+    /// Every rule the source path applies is applied again here, deliberately
+    /// unlike `IrFree` (whose ctypes are dropped at lowering, so the package path
+    /// checks strictly less than the frontend). A crafted `.mfp` drives raw C
+    /// calls, so this is a marshaling-safety gate, not a convenience.
+    ///
+    /// Note what is **not** validated: offsets and sizes, because they are never
+    /// transported. They are recomputed from the field ctypes here, so a crafted
+    /// package has no offset to forge — it can only choose ctypes, each of which
+    /// has a known size and alignment.
+    fn check_link_cstructs(&self, project: &IrProject) {
+        self.current_file.replace(String::new());
+        self.current_line.set(0);
+        // The target is fixed for this build; every supported target is LP64 and
+        // agrees on the table, so the choice cannot change a decoded layout.
+        let target = "";
+        for (index, cstruct) in project.link_cstructs.iter().enumerate() {
+            let siblings: Vec<String> = project
+                .link_cstructs
+                .iter()
+                .filter(|other| other.alias == cstruct.alias)
+                .map(|other| other.name.clone())
+                .collect();
+
+            // A duplicate name within one alias would make slot resolution
+            // ambiguous; source rejects it, so the package path must too.
+            if project.link_cstructs[..index]
+                .iter()
+                .any(|prior| prior.alias == cstruct.alias && prior.name == cstruct.name)
+            {
+                self.emit(
+                    "NATIVE_CSTRUCT_INVALID",
+                    format!(
+                        "LINK alias `{}` declares CSTRUCT `{}` more than once.",
+                        cstruct.alias, cstruct.name
+                    ),
+                );
+            }
+
+            let fields: Vec<(String, String)> = cstruct
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.ctype.clone()))
+                .collect();
+            for fault in crate::ir::check_cstruct(&cstruct.name, &fields, &siblings, target) {
+                self.emit(fault.rule, fault.message);
+            }
+        }
+
+        // The C name must not surface in a wrapper's MFBASIC-facing signature. On
+        // the source path the resolver usually catches this first (a CSTRUCT name
+        // is not a type), but a decoded package never ran the resolver, so this is
+        // the only thing standing between a crafted `.mfp` and a private C layout
+        // in a public signature.
+        for function in &project.link_functions {
+            let names: Vec<&str> = project
+                .link_cstructs
+                .iter()
+                .filter(|c| c.alias == function.alias)
+                .map(|c| c.name.as_str())
+                .collect();
+            if names.is_empty() {
+                continue;
+            }
+            for (pname, ptype) in &function.params {
+                if names.contains(&ptype.as_str()) {
+                    self.emit(
+                        "NATIVE_CSTRUCT_ESCAPE",
+                        format!(
+                            "Native function `{}` parameter `{pname}` uses CSTRUCT `{ptype}`; only its mapped record type is nameable in a wrapper signature.",
+                            function.name
+                        ),
+                    );
+                }
+            }
+            if names.contains(&function.return_type.as_str()) {
+                self.emit(
+                    "NATIVE_CSTRUCT_ESCAPE",
+                    format!(
+                        "Native function `{}` returns CSTRUCT `{}`; only its mapped record type is nameable in a wrapper signature.",
+                        function.name, function.return_type
+                    ),
+                );
+            }
+        }
     }
 
     /// Validate the merged LINK table (syntaxcheck's `check_link_function` on the

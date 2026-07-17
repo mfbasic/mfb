@@ -304,6 +304,7 @@ impl ToAstJson for LinkBlock {
                 "{}  \"library\": {},\n",
                 "{}  \"alias\": {},\n",
                 "{}  \"line\": {},\n",
+                "{}  \"cstructs\": [{}\n{}  ],\n",
                 "{}  \"functions\": [{}\n{}  ]\n",
                 "{}}}"
             ),
@@ -316,8 +317,63 @@ impl ToAstJson for LinkBlock {
             pad,
             self.line,
             pad,
+            join_indented(&self.cstructs, indent + 2),
+            pad,
+            pad,
             join_indented(&self.functions, indent + 2),
             pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for CStructDecl {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"kind\": \"cstruct\",\n",
+                "{}  \"name\": {},\n",
+                "{}  \"mapsTo\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"fields\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            pad,
+            json_string(&self.name),
+            pad,
+            json_string(&self.maps_to),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.fields, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for CStructField {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"name\": {},\n",
+                "{}  \"ctype\": {},\n",
+                "{}  \"line\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            json_string(&self.name),
+            pad,
+            json_string(&self.ctype),
+            pad,
+            self.line,
             pad
         )
     }

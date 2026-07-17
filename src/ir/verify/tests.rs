@@ -14,6 +14,7 @@ fn project(functions: Vec<IrFunction>, types: Vec<IrType>) -> IrProject {
         functions,
         native_resources: vec![],
         link_functions: vec![],
+        link_cstructs: Vec::new(),
         link_aliases: vec![],
         docs: ProjectDocs::default(),
         native_libraries: Default::default(),
@@ -2583,6 +2584,124 @@ fn accepts_valid_link_function() {
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![link_fn()];
     accept(&p);
+}
+
+// --- CSTRUCT (plan-50-B) ---------------------------------------------------
+
+fn cstruct(name: &str, fields: &[(&str, &str)]) -> crate::ir::IrCStruct {
+    crate::ir::IrCStruct {
+        alias: "lib".to_string(),
+        name: name.to_string(),
+        maps_to: "Rec".to_string(),
+        fields: fields
+            .iter()
+            .map(|(n, t)| crate::ir::IrCStructField {
+                name: (*n).to_string(),
+                ctype: (*t).to_string(),
+            })
+            .collect(),
+    }
+}
+
+fn project_with_cstructs(structs: Vec<crate::ir::IrCStruct>) -> IrProject {
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_cstructs = structs;
+    p
+}
+
+#[test]
+fn accepts_valid_cstruct() {
+    accept(&project_with_cstructs(vec![cstruct(
+        "SfFormatInfo",
+        &[("format", "CInt32"), ("name", "CString")],
+    )]));
+}
+
+#[test]
+fn rejects_cstruct_with_no_fields() {
+    expect_rule(
+        &project_with_cstructs(vec![cstruct("Empty", &[])]),
+        "NATIVE_CSTRUCT_INVALID",
+    );
+}
+
+#[test]
+fn rejects_cstruct_duplicate_field() {
+    expect_rule(
+        &project_with_cstructs(vec![cstruct("Dup", &[("a", "CInt32"), ("a", "CInt32")])]),
+        "NATIVE_CSTRUCT_INVALID",
+    );
+}
+
+#[test]
+fn rejects_cstruct_unknown_field_ctype() {
+    expect_rule(
+        &project_with_cstructs(vec![cstruct("Bad", &[("a", "CSize")])]),
+        "NATIVE_ABI_UNKNOWN_CTYPE",
+    );
+}
+
+/// `CVoid` has no storage, so it cannot be a struct field.
+#[test]
+fn rejects_cstruct_cvoid_field() {
+    expect_rule(
+        &project_with_cstructs(vec![cstruct("Bad", &[("a", "CVoid")])]),
+        "NATIVE_CSTRUCT_INVALID",
+    );
+}
+
+/// Nesting is unsupported; reject it by name rather than letting it read as an
+/// unknown ctype, which would misdescribe the cause.
+#[test]
+fn rejects_nested_cstruct() {
+    expect_rule(
+        &project_with_cstructs(vec![
+            cstruct("Inner", &[("a", "CInt32")]),
+            cstruct("Outer", &[("inner", "Inner")]),
+        ]),
+        "NATIVE_CSTRUCT_INVALID",
+    );
+}
+
+#[test]
+fn rejects_duplicate_cstruct_name_in_one_alias() {
+    expect_rule(
+        &project_with_cstructs(vec![
+            cstruct("Same", &[("a", "CInt32")]),
+            cstruct("Same", &[("b", "CInt32")]),
+        ]),
+        "NATIVE_CSTRUCT_INVALID",
+    );
+}
+
+/// The size cap is what keeps a crafted `.mfp` from turning the thunk's stack
+/// frame into an overflow primitive.
+#[test]
+fn rejects_oversized_cstruct() {
+    let fields: Vec<(&str, &str)> = (0..200).map(|_| ("f", "CInt64")).collect();
+    // 200 * 8 = 1600 bytes, over the 1024 cap. Duplicate field names would also
+    // fault, so give each a distinct name.
+    let mut decl = cstruct("Huge", &fields);
+    for (i, field) in decl.fields.iter_mut().enumerate() {
+        field.name = format!("f{i}");
+    }
+    expect_rule(&project_with_cstructs(vec![decl]), "NATIVE_CSTRUCT_TOO_LARGE");
+}
+
+/// A crafted package never ran the resolver, so this is the only gate keeping a
+/// private C layout out of a public wrapper signature.
+#[test]
+fn rejects_cstruct_escape_into_wrapper_signature() {
+    let mut lf = link_fn();
+    lf.params = vec![("info".to_string(), "SfInfo".to_string())];
+    lf.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "info".to_string(),
+        ctype: "CInt32".to_string(),
+        is_out: false,
+    }];
+    let mut p = project_with_cstructs(vec![cstruct("SfInfo", &[("a", "CInt32")])]);
+    p.link_functions = vec![lf];
+    expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
 }
 
 /// plan-50-A: the package path is a marshaling-safety gate — a crafted `.mfp`

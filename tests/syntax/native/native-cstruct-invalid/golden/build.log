@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/native/native-cstruct-invalid
+  14 | LINK "demo" AS demoLink
+  15 |   ' No fields: a C struct needs at least one.
+  16 |   CSTRUCT Empty AS Empty
+     | ^
+tests/syntax/native/native-cstruct-invalid/src/lib.mfb:16 error[2-203-0124 NATIVE_CSTRUCT_INVALID]: a CSTRUCT declaration is not a layout the compiler can compute faithfully
+               CSTRUCT `Empty` declares no fields; a C struct needs at least one.
+  19 |   ' A field declared twice.
+  20 |   CSTRUCT Dup AS Dup
+  21 |     a CInt32
+     | ^
+tests/syntax/native/native-cstruct-invalid/src/lib.mfb:21 error[2-203-0124 NATIVE_CSTRUCT_INVALID]: a CSTRUCT declaration is not a layout the compiler can compute faithfully
+               CSTRUCT `Dup` declares field `a` more than once.
+  25 |   ' CVoid has no storage and cannot be a field.
+  26 |   CSTRUCT Nested AS Nested
+  27 |     a CVoid
+     | ^
+tests/syntax/native/native-cstruct-invalid/src/lib.mfb:27 error[2-203-0124 NATIVE_CSTRUCT_INVALID]: a CSTRUCT declaration is not a layout the compiler can compute faithfully
+               CSTRUCT `Nested` field `a` uses `CVoid`, which has no storage and cannot be a struct field.
+[exit 1]

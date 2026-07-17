@@ -11,6 +11,8 @@
       "library": "demolib",
       "alias": "demoLink",
       "line": 4,
+      "cstructs": [
+      ],
       "functions": [
       {
         "kind": "linkFunc",

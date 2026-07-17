@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/native/native-cstruct-valid
+Wrote AST to tests/syntax/native/native-cstruct-valid/native_cstruct_valid.ast
+Wrote IR to tests/syntax/native/native-cstruct-valid/native_cstruct_valid.ir
+[exit 0]

@@ -437,6 +437,7 @@ mod tests {
             functions: Vec::new(),
             native_resources: Vec::new(),
             link_functions: Vec::new(),
+            link_cstructs: Vec::new(),
             link_aliases: Vec::new(),
             docs: crate::ir::ProjectDocs::default(),
             native_libraries: Default::default(),

@@ -372,6 +372,11 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         // RESOURCE_TABLE on import; the decoded IR carries none.
         native_resources: Vec::new(),
         link_functions,
+        // plan-50-B declares CSTRUCTs but does not transport them; plan-50-C adds
+        // the trailer entry along with the BINARY_REPR_VERSION bump. Until then a
+        // CSTRUCT is unusable in an ABI slot (NATIVE_ABI_UNKNOWN_CTYPE rejects the
+        // slot ctype), so nothing can depend on one surviving a round-trip.
+        link_cstructs: Vec::new(),
         link_aliases,
         // Docs live in a separate optional package section, not in the decoded IR.
         docs: ProjectDocs::default(),

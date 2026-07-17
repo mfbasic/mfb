@@ -126,6 +126,7 @@ mod tests {
         LinkBlock {
             library: "lib".to_string(),
             alias: alias.to_string(),
+            cstructs: Vec::new(),
             functions: funcs
                 .into_iter()
                 .map(|(name, success_on)| LinkFunction {

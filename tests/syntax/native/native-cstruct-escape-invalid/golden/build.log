@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/native/native-cstruct-escape-invalid
+  17 |   END CSTRUCT
+  18 | 
+  19 |   FUNC leak(info AS CInfo) AS CInfo
+     | ^
+tests/syntax/native/native-cstruct-escape-invalid/src/lib.mfb:19 error[2-203-0126 NATIVE_CSTRUCT_ESCAPE]: a CSTRUCT name is used outside its LINK block, where only its mapped record type is nameable
+               Native function `leak` parameter `info` uses CSTRUCT `CInfo`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.
+  17 |   END CSTRUCT
+  18 | 
+  19 |   FUNC leak(info AS CInfo) AS CInfo
+     | ^
+tests/syntax/native/native-cstruct-escape-invalid/src/lib.mfb:19 error[2-203-0126 NATIVE_CSTRUCT_ESCAPE]: a CSTRUCT name is used outside its LINK block, where only its mapped record type is nameable
+               Native function `leak` returns CSTRUCT `CInfo`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.
+[exit 1]

@@ -397,8 +397,89 @@ impl<'a> SyntaxChecker<'a> {
     /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI
     /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
     pub(super) fn check_link_block(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+        self.check_link_cstructs(file, link);
+        self.check_cstruct_escape(file, link);
         for function in &link.functions {
             self.check_link_function(file, function);
+        }
+    }
+
+    /// A `CSTRUCT` name is a native-side layout descriptor, not a type: it may
+    /// appear only in its own declaration, an `ABI (...)` slot's ctype position,
+    /// and `SIZEOF`. Naming one in a wrapper's MFBASIC-facing signature would make
+    /// a private C layout part of the public API — the same argument that confines
+    /// `CPtr` (`NATIVE_CPTR_ESCAPE`). plan-50-B §4.5.
+    fn check_cstruct_escape(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+        if link.cstructs.is_empty() {
+            return;
+        }
+        let is_cstruct = |name: &str| link.cstructs.iter().any(|c| c.name == name);
+        for function in &link.functions {
+            for param in &function.params {
+                if let Some(type_name) = &param.type_name {
+                    if is_cstruct(type_name) {
+                        self.report(
+                            "NATIVE_CSTRUCT_ESCAPE",
+                            &format!(
+                                "Native function `{}` parameter `{}` uses CSTRUCT `{}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
+                                function.name, param.name, type_name
+                            ),
+                            file,
+                            param.line,
+                        );
+                    }
+                }
+            }
+            if let Some(return_type) = &function.return_type {
+                if is_cstruct(return_type) {
+                    self.report(
+                        "NATIVE_CSTRUCT_ESCAPE",
+                        &format!(
+                            "Native function `{}` returns CSTRUCT `{}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
+                            function.name, return_type
+                        ),
+                        file,
+                        function.line,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Validate the block's `CSTRUCT` declarations (plan-50-B §4.4).
+    ///
+    /// Shares `ir::check_cstruct` with the package path so the two cannot drift;
+    /// this side adds the per-declaration span and the duplicate-name check.
+    fn check_link_cstructs(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+        let names: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
+        for (index, decl) in link.cstructs.iter().enumerate() {
+            if link.cstructs[..index].iter().any(|p| p.name == decl.name) {
+                self.report(
+                    "NATIVE_CSTRUCT_INVALID",
+                    &format!(
+                        "LINK alias `{}` declares CSTRUCT `{}` more than once.",
+                        link.alias, decl.name
+                    ),
+                    file,
+                    decl.line,
+                );
+            }
+            let fields: Vec<(String, String)> = decl
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.ctype.clone()))
+                .collect();
+            // Every supported target is LP64 and agrees on the layout table.
+            for fault in crate::ir::check_cstruct(&decl.name, &fields, &names, "") {
+                // Point at the offending field where we can; the declaration line
+                // otherwise.
+                let line = decl
+                    .fields
+                    .iter()
+                    .find(|f| fault.message.contains(&format!("`{}`", f.name)))
+                    .map_or(decl.line, |f| f.line);
+                self.report(fault.rule, &fault.message, file, line);
+            }
         }
     }
 

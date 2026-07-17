@@ -278,12 +278,43 @@ pub fn lower_project_with_external_functions(
         functions,
         native_resources: native_resources(ast),
         link_functions: link_functions(ast),
+        link_cstructs: link_cstructs(ast),
         link_aliases: link_aliases(ast),
         docs: collect_project_docs(ast),
         // Assembled from the manifest by the build path (plan-46-B §4.3), which
         // is where project.json is read; the AST carries no manifest data.
         native_libraries: crate::binary_repr::NativeLibraryTable::default(),
     }
+}
+
+/// Collect `CSTRUCT` C-layout declarations from every `LINK` block (plan-50-B).
+///
+/// Field order is preserved verbatim: it is the layout input, so reordering here
+/// would silently change every offset.
+fn link_cstructs(ast: &AstProject) -> Vec<crate::ir::IrCStruct> {
+    let mut cstructs = Vec::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                for decl in &link.cstructs {
+                    cstructs.push(crate::ir::IrCStruct {
+                        alias: link.alias.clone(),
+                        name: decl.name.clone(),
+                        maps_to: decl.maps_to.clone(),
+                        fields: decl
+                            .fields
+                            .iter()
+                            .map(|f| crate::ir::IrCStructField {
+                                name: f.name.clone(),
+                                ctype: f.ctype.clone(),
+                            })
+                            .collect(),
+                    });
+                }
+            }
+        }
+    }
+    cstructs
 }
 
 /// Collect native `LINK` functions from the AST with their full ABI surface so

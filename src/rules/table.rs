@@ -827,6 +827,24 @@ pub(super) const RULES: &[Rule] = &[
         message: "an ABI slot or return names a C type the marshaling backend does not implement",
     },
     Rule {
+        code: "2-203-0124",
+        name: "NATIVE_CSTRUCT_INVALID",
+        severity: Severity::Error,
+        message: "a CSTRUCT declaration is not a layout the compiler can compute faithfully",
+    },
+    Rule {
+        code: "2-203-0125",
+        name: "NATIVE_CSTRUCT_TOO_LARGE",
+        severity: Severity::Error,
+        message: "a CSTRUCT lays out larger than the maximum native struct size",
+    },
+    Rule {
+        code: "2-203-0126",
+        name: "NATIVE_CSTRUCT_ESCAPE",
+        severity: Severity::Error,
+        message: "a CSTRUCT name is used outside its LINK block, where only its mapped record type is nameable",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

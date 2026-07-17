@@ -1,0 +1,29 @@
+' A CSTRUCT must be a layout the compiler can compute faithfully (plan-50-B).
+TYPE Empty
+  x AS Integer
+END TYPE
+
+TYPE Dup
+  a AS Integer
+END TYPE
+
+TYPE Nested
+  a AS Integer
+END TYPE
+
+LINK "demo" AS demoLink
+  ' No fields: a C struct needs at least one.
+  CSTRUCT Empty AS Empty
+  END CSTRUCT
+
+  ' A field declared twice.
+  CSTRUCT Dup AS Dup
+    a CInt32
+    a CInt32
+  END CSTRUCT
+
+  ' CVoid has no storage and cannot be a field.
+  CSTRUCT Nested AS Nested
+    a CVoid
+  END CSTRUCT
+END LINK

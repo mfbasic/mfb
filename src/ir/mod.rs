@@ -26,6 +26,10 @@ pub struct IrProject {
     /// so it can emit marshaling thunks + dlopen/dlsym initializers
     /// (plan-linker.md §12).
     pub(crate) link_functions: Vec<IrLinkFunction>,
+    /// `CSTRUCT` C-layout declarations from every `LINK` block (plan-50-B).
+    /// Carried so the backend can stage struct buffers and the package path can
+    /// re-derive each layout from its field ctypes.
+    pub(crate) link_cstructs: Vec<IrCStruct>,
     /// Re-export aliases targeting a native `LINK` function:
     /// `(alias_name, target_alias.func)` (plan-link-update.md §5a). Lets the
     /// backend route a call to the exported alias to the target's thunk.
@@ -151,8 +155,8 @@ mod verify;
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
 pub(crate) use json::visibility_name;
 pub(crate) use link::{
-    IrAbiSlot, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource, abi_ctype_valid_as_argument,
-    abi_ctype_valid_as_return, abi_slot_ctype_is_known,
+    IrAbiSlot, IrCStruct, IrCStructField, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource,
+    abi_ctype_valid_as_argument, abi_ctype_valid_as_return, check_cstruct,
 };
 pub(crate) use lower::collect_project_docs;
 pub use lower::{lower_project_with_external_functions, write_ir};

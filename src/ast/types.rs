@@ -274,6 +274,34 @@ pub struct LinkBlock {
     /// The local binding name for the block's functions, e.g. `sqliteLink`.
     pub alias: String,
     pub functions: Vec<LinkFunction>,
+    /// `CSTRUCT <CName> AS <MfbType>` C-layout declarations (plan-50-B).
+    pub cstructs: Vec<CStructDecl>,
+    pub line: usize,
+}
+
+/// A `CSTRUCT <CName> AS <MfbType> … END CSTRUCT` declaration inside a `LINK`
+/// block: the byte layout of a C struct, and the MFBASIC record it presents as
+/// (plan-50-B).
+///
+/// The layout is **computed** from the field ctypes, never declared: there is no
+/// offset, size, or padding syntax. `<CName>` is private to the `LINK` block
+/// (`NATIVE_CSTRUCT_ESCAPE`); only `<MfbType>` is nameable by ordinary code.
+#[derive(Clone, Debug)]
+pub struct CStructDecl {
+    /// The C-side name, e.g. `SfFormatInfo`. Local to the owning LINK alias.
+    pub name: String,
+    /// The MFBASIC record type this struct maps to, e.g. `AudioFormat`.
+    pub maps_to: String,
+    /// Fields in **C declaration order** — the order drives the offsets.
+    pub fields: Vec<CStructField>,
+    pub line: usize,
+}
+
+/// One `CSTRUCT` field: `<name> <ctype>`.
+#[derive(Clone, Debug)]
+pub struct CStructField {
+    pub name: String,
+    pub ctype: String,
     pub line: usize,
 }
 

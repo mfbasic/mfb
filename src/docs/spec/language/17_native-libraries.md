@@ -55,6 +55,36 @@ The same per-alias table backs the two places that must name a native LINK funct
 * A resource's `CLOSE BY <closeFn>`. `closeFn` must be the dotted form `alias.func`; a bare name (no alias) is `RESOURCE_CLOSE_NOT_NATIVE`. An unknown alias is also `RESOURCE_CLOSE_NOT_NATIVE` ("references unknown LINK alias"); a known alias that does not declare the named function is `RESOURCE_CLOSE_MISSING`. The close-op signature rule is enforced here: the target must take **exactly one** parameter, that parameter must be marked `RES`, and its base resource type must equal the declaring resource's name — otherwise `RESOURCE_CLOSE_SIGNATURE`.[[src/resolver/resolution.rs:resolve_resource_decl]]
 * A re-export `FUNC alias AS <target>`. The `target` must resolve through the same `alias.func` lookup; if it does not name a native LINK function the alias is rejected with `SYMBOL_UNKNOWN_IDENTIFIER` ("targets `…`, which is not a native LINK function"). At symbol-collection time the alias is registered as an ordinary callable carrying the LINK target's parameter types, which is why importers call it like any package function.[[src/resolver/resolution.rs:resolve_func_alias]]
 
+**Declaring a C struct (`CSTRUCT <CName> AS <MfbType>`).** A C function that takes a struct by pointer needs that struct's exact byte layout. `CSTRUCT` declares it inside the `LINK` block, together with the ordinary MFBASIC record it presents as:
+
+```basic
+TYPE AudioFormat            ' the public face — an ordinary record
+  format    AS Integer
+  name      AS String
+  extension AS String
+END TYPE
+
+LINK "libsnd" AS sndLink
+  CSTRUCT SfFormatInfo AS AudioFormat     ' 24 bytes, align 8
+    format     CInt32                     ' @0, then 4 bytes of padding
+    name       CString                    ' @8
+    extension  CString                    ' @16
+  END CSTRUCT
+END LINK
+```
+
+Fields are `name ctype`, one per line, in **C declaration order** — the order is load-bearing, since it drives the offsets, unlike a `TYPE`'s field order.
+
+**The layout is computed, never declared.** There is no offset, size, or padding syntax: the compiler derives each field's offset from the field ctypes using standard C natural alignment (align the running offset up to the field's alignment, place it, advance by its size; the struct's alignment is its widest field's, and the total size is padded out to that). This is not merely convenient — it is what makes the package path safe. Offsets and sizes are **never transported in the `.mfp`**; only the field ctypes are, and the layout is recomputed at decode. A crafted package can therefore choose ctypes, each of which has a known size and alignment, but it has no offset to forge. [[src/ir/link.rs:compute_c_layout]]
+
+A `CSTRUCT`'s field ctype sizes and alignments: 1 byte for `CInt8`/`CUInt8`/`CBool`/`CByte`, 2 for `CInt16`/`CUInt16`, 4 for `CInt32`/`CUInt32`/`CFloat`, and 8 for `CInt64`/`CUInt64`/`CDouble`/`CPtr`/`CString`. A `CString` field is a `const char *` — the **pointer**, not its bytes. `CVoid` has no storage and cannot be a field. Every supported target is LP64 and agrees on this table. [[src/ir/link.rs:ctype_size_align]]
+
+`AS <MfbType>` is required, and names the record this struct presents as. The correspondence is by field name and must be **total**: every `CSTRUCT` field must appear in the record with a compatible type, and vice versa. A silently-unmapped field would be zeroed going in and dropped coming out — a wrong answer with no diagnostic — so partial coverage is rejected (`NATIVE_STRUCT_FIELD_MISMATCH`).
+
+**A `CSTRUCT` name never leaves its `LINK` block.** It is a native-side layout descriptor, not a type, and is nameable in exactly three places: its own declaration, an `ABI (...)` slot's ctype position, and `SIZEOF`. Naming one in a wrapper's MFBASIC-facing signature is `NATIVE_CSTRUCT_ESCAPE` — the same containment argument that confines `CPtr`, and the reason `AS <MfbType>` exists: with the mapping declared once, no other site needs the C name. Ordinary code only ever sees the record.
+
+Rejected as unlayoutable (`NATIVE_CSTRUCT_INVALID`): a struct with no fields, a duplicate field name, a duplicate `CSTRUCT` name within one alias, a `CVoid` field, or a field whose type names another `CSTRUCT` — nested structs, fixed-size arrays, unions, and bitfields are not supported, and there is no packing control. A struct laying out larger than **1024 bytes** is `NATIVE_CSTRUCT_TOO_LARGE`: the struct buffer lives in the marshaling thunk's stack frame, so an unbounded size decoded from a crafted `.mfp` would be a frame-overflow primitive.
+
 `SYMBOL "sqlite3_open"` gives the exact native symbol name to look up in the loaded library. The MFBASIC function name is the public wrapper name; it does not have to match the native symbol name.
 
 `ABI (...) AS ...` gives the native C-facing call shape. The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation. Each ABI slot is `name type` in native C argument order, and slots bind to wrapper parameters **by name** (so `path` in the ABI matches the `path` parameter). One slot may be named `return` to mark the wrapper's result (an `OUT` slot for a produced handle/value, or the native return slot after `AS`). Every wrapper parameter must map to an ABI slot of the same name, and every ABI slot must be satisfied by exactly one of: a wrapper parameter, the `return` result marker, or a `CONST` pin — otherwise `NATIVE_ABI_UNBOUND_PARAM` / `NATIVE_ABI_UNBOUND_SLOT`.
@@ -177,6 +207,8 @@ Rules:
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
 - `OUT` native pointer values are temporary call-frame values (there is no `REF` modifier). Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
 - An `ABI (...)` slot's C type, and the ABI return's, must name a type the marshaling backend implements; anything else is `NATIVE_ABI_UNKNOWN_CTYPE`. `CVoid` is return-only and `CString` argument-only (see the type table above). Enforced on both the source and package paths.
+- A `CSTRUCT`'s layout is computed from its field ctypes and is never declared or transported; offsets are recomputed when a package is decoded. A struct the compiler cannot lay out faithfully is rejected (`NATIVE_CSTRUCT_INVALID`), and one over 1024 bytes is `NATIVE_CSTRUCT_TOO_LARGE`.
+- A `CSTRUCT` name is nameable only in its declaration, an `ABI (...)` slot's ctype position, and `SIZEOF`; anywhere else is `NATIVE_CSTRUCT_ESCAPE`.
 - Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings use codes `1-102-0008`…`0009`, `2-203-0089`…`0098`, and `2-203-0123` (see `./mfb man errors`).
 - Native libraries are platform-specific dependencies. A binding package declares which concrete shared object to load per platform in its project.json `libraries` section; the compiler encodes those locators into the `.mfp` (`./mfb spec package native-bindings`), together with a sha256 for any library the author vendors. The native library itself is never portable binary representation and is not carried inside the `.mfp` — only its name, or its hash.
 - Two **built-in** packages also load platform libraries at run time, through the same `dlopen`/`dlsym` mechanism but internal to their runtime helpers rather than via a `LINK` block: `tls` (Network.framework/Security.framework on macOS, `libssl`/`libcrypto` on Linux) and `crypto` (Security.framework SecKey on macOS, `libcrypto.so.3` falling back to `libcrypto.so.1.1` on Linux, for the NIST-EC public-key operations only — every other `crypto` primitive is a portable software core). These built-ins resolve their symbols lazily inside each helper call, not in `_mfb_linker_init`, and surface load failures as ordinary package errors (`ErrTlsFailed` / `ErrUnknown`), not `ErrNativeBindingUnavailable`. See `./mfb spec stdlib crypto` for the crypto backend split.

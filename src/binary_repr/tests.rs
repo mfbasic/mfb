@@ -125,6 +125,7 @@ mod fixtures {
             functions: vec![],
             native_resources: vec![],
             link_functions: vec![],
+            link_cstructs: Vec::new(),
             link_aliases: vec![],
             docs: crate::ir::ProjectDocs::default(),
             native_libraries: Default::default(),

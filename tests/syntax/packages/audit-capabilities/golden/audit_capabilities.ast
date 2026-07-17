@@ -17,6 +17,8 @@
       "library": "sqlite3",
       "alias": "sql",
       "line": 13,
+      "cstructs": [
+      ],
       "functions": [
       {
         "kind": "linkFunc",

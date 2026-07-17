@@ -1149,7 +1149,6 @@ mod tests {
     use super::*;
     use crate::ir::{
         IrAbiSlot, IrLinkFunction, abi_ctype_valid_as_argument, abi_ctype_valid_as_return,
-        abi_slot_ctype_is_known,
     };
 
     /// Every ctype the allow-list accepts must reach a real marshaling arm.
@@ -1166,18 +1165,13 @@ mod tests {
         // ctype set under test is backend-independent, so any backend serves.
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
 
-        // The full accepted set, mirrored from `abi_slot_ctype_is_known`. Asserted
-        // below to be exhaustive, so a name added there fails here until listed.
+        // The full accepted set. `ir::link::tests::ctype_list_is_exhaustive` holds
+        // this in sync with `abi_slot_ctype_is_known`, so a name added to the
+        // authority without an arm here fails there first.
         const CTYPES: &[&str] = &[
             "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
             "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
         ];
-        for ctype in CTYPES {
-            assert!(
-                abi_slot_ctype_is_known(ctype),
-                "{ctype} is listed here but rejected by abi_slot_ctype_is_known"
-            );
-        }
 
         // Every ctype valid as an ABI *return* must reach a return arm. This is the
         // arm that can `Err`, and it is how the guard caught `CString` having no

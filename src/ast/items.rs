@@ -625,6 +625,7 @@ impl<'a> FileParser<'a> {
         self.skip_separators();
 
         let mut functions = Vec::new();
+        let mut cstructs = Vec::new();
         while !self.is_at_end() {
             if self.is_end_link() {
                 self.advance(); // END
@@ -634,6 +635,7 @@ impl<'a> FileParser<'a> {
                     library,
                     alias,
                     functions,
+                    cstructs,
                     line: keyword.line,
                 });
             }
@@ -646,10 +648,19 @@ impl<'a> FileParser<'a> {
                 self.skip_separators();
                 continue;
             }
+            if self.match_identifier_ci("CSTRUCT") {
+                if let Some(cstruct) = self.parse_cstruct() {
+                    cstructs.push(cstruct);
+                } else {
+                    self.synchronize();
+                }
+                self.skip_separators();
+                continue;
+            }
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "A LINK block may only contain native FUNC declarations.",
+                "A LINK block may only contain native FUNC and CSTRUCT declarations.",
                 &token,
             );
             self.synchronize();
@@ -659,6 +670,77 @@ impl<'a> FileParser<'a> {
             "MFB_PARSE_UNTERMINATED_BLOCK",
             "LINK block reached end-of-file before its END LINK statement.",
             &keyword,
+        );
+        None
+    }
+
+    /// `CSTRUCT <CName> AS <MfbType>` / `<field> <ctype>`… / `END CSTRUCT`
+    /// (plan-50-B). The `CSTRUCT` identifier has already been consumed.
+    ///
+    /// Fields are read in **C declaration order** — the order is load-bearing,
+    /// since it drives the computed offsets. There is deliberately no offset,
+    /// size, or padding syntax: layout is computed, never declared.
+    pub(super) fn parse_cstruct(&mut self) -> Option<CStructDecl> {
+        let line = self.previous().line;
+        let name = self.consume_identifier("CSTRUCT requires a C struct name.")?;
+        if !self.consume_keyword(
+            Keyword::As,
+            "CSTRUCT requires `AS <Type>` naming the MFBASIC record it maps to.",
+        ) {
+            self.synchronize();
+            return None;
+        }
+        let maps_to =
+            self.consume_identifier("CSTRUCT `AS` requires the MFBASIC record type name.")?;
+        self.consume_statement_end("Expected end of statement after the CSTRUCT header.");
+        self.skip_separators();
+
+        let mut fields = Vec::new();
+        while !self.is_at_end() {
+            if self.check_keyword(Keyword::End) {
+                self.advance(); // END
+                if !self.match_identifier_ci("CSTRUCT") {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        "END must name the block kind it closes (END CSTRUCT).",
+                        &token,
+                    );
+                    self.synchronize();
+                    return None;
+                }
+                self.consume_statement_end("Expected end of statement after END CSTRUCT.");
+                return Some(CStructDecl {
+                    name,
+                    maps_to,
+                    fields,
+                    line,
+                });
+            }
+            let field_line = self.peek().line;
+            let Some(field_name) = self.consume_identifier("Expected a CSTRUCT field name.") else {
+                self.synchronize();
+                self.skip_separators();
+                continue;
+            };
+            let Some(ctype) = self.parse_c_type_name() else {
+                self.synchronize();
+                self.skip_separators();
+                continue;
+            };
+            self.consume_statement_end("Expected end of statement after a CSTRUCT field.");
+            self.skip_separators();
+            fields.push(CStructField {
+                name: field_name,
+                ctype,
+                line: field_line,
+            });
+        }
+        let token = self.peek().clone();
+        self.report(
+            "MFB_PARSE_UNTERMINATED_BLOCK",
+            "CSTRUCT block reached end-of-file before its END CSTRUCT statement.",
+            &token,
         );
         None
     }
