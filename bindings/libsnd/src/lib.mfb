@@ -1,0 +1,80 @@
+IMPORT collections
+
+EXPORT TYPE AudioFormat
+  format    AS Integer
+  name      AS String
+  extension AS String
+END TYPE
+
+' RESOURCE SfFile CLOSE BY sndLink::closeFile
+
+' TYPE FileInfo
+'   samplerate AS Integer
+'   channels   AS Integer
+'   format     AS Integer
+'   sections   AS Integer
+'   seekable   AS Integer
+' END TYPE
+
+LINK "libsnd" AS sndLink
+  CSTRUCT SfFormatInfo AS AudioFormat
+    format     CInt32
+    name       CString
+    extension  CString
+  END CSTRUCT
+
+  ' CSTRUCT SfInfo AS FileInfo
+  '   samplerate CInt32
+  '   channels   CInt32
+  '   format     CInt32
+  '   sections   CInt32
+  '   seekable   CInt32
+  ' END CSTRUCT
+
+  FUNC getFormatCount() AS Integer
+    SYMBOL "sf_command"
+    ABI (sndfile CPtr, command CInt32, count OUT CInt32, datasize CInt32) AS status CInt32
+    CONST sndfile = NOTHING     ' NULL: a table query needs no open file
+    CONST command = 4128        ' SFC_GET_SIMPLE_FORMAT_COUNT (0x1020)
+    CONST datasize = 4          ' sizeof(int)
+    RETURN count
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC getFormat(index AS Integer) AS AudioFormat
+    SYMBOL "sf_command"
+    ABI (sndfile CPtr, command CInt32, info INOUT SfFormatInfo, datasize CInt32) AS status CInt32
+    CONST sndfile = NOTHING
+    CONST command = 4129 ' SFC_GET_SIMPLE_FORMAT (0x1021)
+    CONST datasize = SIZEOF SfFormatInfo
+    BIND IN info
+      format = index
+    END BIND
+    RETURN info
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' FUNC openFile(sndfile AS String) AS RES SfFile STATE FileInfo
+  '   SYMBOL "sf_open"
+  '   ABI (sndfile CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+  '   CONST mode = 16 ' SFM_READ (0x0010)
+  '   BIND STATE file AS RES SfFile STATE FileInfo = info
+  '   ERROR_ON file = NOTHING
+  '   RETURN file
+  ' END FUNC
+
+  ' FUNC closeFile(RES sndfile AS SfFile STATE FileInfo) AS Nothing
+  '   SYMBOL "sf_close"
+  '   ABI (sndfile CPtr)
+  ' END FUNC
+END LINK
+
+EXPORT FUNC getFormats() AS List OF AudioFormat
+  MUT formats AS List OF AudioFormat
+  LET count = sndLink::getFormatCount()
+  FOR index = 0 TO count - 1
+    LET info = sndLink::getFormat(index)
+    formats = collections::append(formats, info)
+  NEXT
+  RETURN formats
+END FUNC

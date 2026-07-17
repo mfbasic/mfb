@@ -418,11 +418,33 @@ fn lower_link_thunk(
     // §12.3/§12.4 boundary validations that this signature needs.
     // The C return is the result exactly when `RETURN` names it.
     let returns_value = result_var == Some(function.abi_return_name.as_str());
-    let needs_range = function.abi_slots.iter().any(|slot| {
-        !slot.direction.writes_back()
-            && slot.ctype == "CInt32"
-            && function.params.iter().any(|(name, _)| name == &slot.name)
+    // plan-50-E: a BIND IN field range-checks the same way a CInt32 argument does
+    // (a 64-bit Integer that does not fit the C field fails with ErrOverflow
+    // rather than truncating), so it needs the same `range_fail` block. Without
+    // this the thunk branches to a label that is never emitted.
+    let bind_in_needs_range = function.bind_in.iter().any(|bind| {
+        let Some(slot) = function.abi_slots.iter().find(|s| s.name == bind.slot) else {
+            return false;
+        };
+        let Some(decl) = link_cstructs
+            .iter()
+            .find(|c| c.alias == function.alias && c.name == slot.ctype)
+        else {
+            return false;
+        };
+        bind.fields.iter().any(|field| {
+            decl.fields
+                .iter()
+                .find(|f| f.name == field.name)
+                .is_some_and(|f| narrow_signed_bits(&f.ctype).is_some())
+        })
     });
+    let needs_range = bind_in_needs_range
+        || function.abi_slots.iter().any(|slot| {
+            !slot.direction.writes_back()
+                && slot.ctype == "CInt32"
+                && function.params.iter().any(|(name, _)| name == &slot.name)
+        });
     // plan-50-F: a `CString` struct field is copied out with the same helper, so
     // it needs the same `encoding_fail` block. Without this the thunk branches to
     // a label that is never emitted.
@@ -1204,6 +1226,10 @@ fn emit_copy_cstring_to_string_tagged(
     instructions.extend([
         abi::store_u64(abi::ZERO, abi::RET[1], 0),
         abi::store_u8(abi::ZERO, abi::RET[1], 8),
+        // Store on this path too: the save slot must be authoritative on BOTH
+        // paths so a caller can read it from the frame rather than trusting a
+        // physical register to survive (plan-50-F).
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), ret_off),
         abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::label(&ret_done),
     ]);
@@ -1685,6 +1711,9 @@ fn marshal_struct_out(
                 instructions,
                 relocations,
             );
+            // Read the String back from its save SLOT, not from
+            // RESULT_VALUE_REGISTER: that is a physical register, and this sits
+            // right after a label the allocator may route spills through.
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), strsave_off),
                 abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),

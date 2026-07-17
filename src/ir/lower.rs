@@ -364,7 +364,7 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                         consts: native
                             .consts
                             .iter()
-                            .map(|pin| (pin.slot.clone(), eval_link_const(&pin.value)))
+                            .map(|pin| (pin.slot.clone(), eval_link_const(&pin.value, &link.cstructs)))
                             .collect(),
                         bind_in: native
                             .bind_in
@@ -427,19 +427,57 @@ fn link_aliases(ast: &AstProject) -> Vec<(String, String)> {
 /// Resolve a `CONST slot = value` pin to an integer immediate (plan-link-update.md
 /// §5c). `NOTHING` is a NULL pointer (`0`); numbers and a leading unary minus are
 /// honored; booleans map to `0`/`1`.
-fn eval_link_const(expr: &Expression) -> i64 {
+/// Fold a `CONST` pin to its 64-bit immediate (plan-link-update.md §5c).
+///
+/// `cstructs` are the owning LINK block's declarations, so `SIZEOF <CStruct>`
+/// folds to the layout `compute_c_layout` derives.
+///
+/// Returns `None` for a form this cannot fold. Every caller must treat that as an
+/// error: until plan-50-G this ended in `_ => 0`, silently pinning **0** for any
+/// unrecognized expression — the same "default rather than diagnose" mistake as
+/// the unvalidated slot ctype (plan-50-A) and the nameless link-expr `Var`
+/// (plan-50-I). `syntaxcheck` rejects an unfoldable pin, so by lowering the form
+/// is already known-good.
+fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) -> Option<i64> {
     match expr {
-        Expression::Number(text) => link_const_bits(text),
-        Expression::Boolean(value) => i64::from(*value),
-        Expression::Identifier(name) if name == "NOTHING" => 0,
+        Expression::Number(text) => Some(link_const_bits(text)),
+        Expression::Boolean(value) => Some(i64::from(*value)),
+        Expression::Identifier(name) if name == "NOTHING" => Some(0),
         Expression::Unary {
             operator, operand, ..
-        } if operator == "-" => eval_link_const(operand).wrapping_neg(),
+        } if operator == "SIZEOF" => {
+            let Expression::Identifier(name) = operand.as_ref() else {
+                return None;
+            };
+            let decl = cstructs.iter().find(|c| c.name == *name)?;
+            let fields: Vec<(String, String)> = decl
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.ctype.clone()))
+                .collect();
+            crate::ir::compute_c_layout(&fields, "")
+                .ok()
+                .map(|l| l.size as i64)
+        }
         Expression::Unary {
             operator, operand, ..
-        } if operator == "+" => eval_link_const(operand),
-        _ => 0,
+        } if operator == "-" => eval_link_const_opt(operand, cstructs).map(i64::wrapping_neg),
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "+" => eval_link_const_opt(operand, cstructs),
+        _ => None,
     }
+}
+
+/// The pin's immediate, or `0` for a form that cannot be folded.
+///
+/// The `0` is NOT a silent default: `syntaxcheck` rejects an unfoldable pin
+/// (`NATIVE_CONST_UNKNOWN_SLOT`), so the build fails and the lowered value is
+/// never reached. It runs *after* lowering in this pipeline, which is why this
+/// must return something rather than assert — the diagnostic still wins, but
+/// lowering sees the bad pin first.
+fn eval_link_const(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) -> i64 {
+    eval_link_const_opt(expr, cstructs).unwrap_or(0)
 }
 
 /// The 64-bit pattern a native-`LINK` integer literal denotes.

@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/native/native-const-unfoldable-invalid
+  10 |     SYMBOL "demo_f"
+  11 |     ABI (n CInt32, s CInt32, t CInt32, value OUT CInt32) AS status CInt32
+  12 |     CONST s = "literal"      ' a string is not an integer immediate
+     | ^
+tests/syntax/native/native-const-unfoldable-invalid/src/lib.mfb:12 error[2-203-0098 NATIVE_CONST_UNKNOWN_SLOT]: a CONST pin names an unknown ABI slot
+               Native function `f` CONST pin `s` is not a constant the compiler can fold: it must be an integer or boolean literal, NOTHING, or SIZEOF <CStruct>.
+  11 |     ABI (n CInt32, s CInt32, t CInt32, value OUT CInt32) AS status CInt32
+  12 |     CONST s = "literal"      ' a string is not an integer immediate
+  13 |     CONST t = 1 + 1          ' arithmetic is not folded
+     | ^
+tests/syntax/native/native-const-unfoldable-invalid/src/lib.mfb:13 error[2-203-0098 NATIVE_CONST_UNKNOWN_SLOT]: a CONST pin names an unknown ABI slot
+               Native function `f` CONST pin `t` is not a constant the compiler can fold: it must be an integer or boolean literal, NOTHING, or SIZEOF <CStruct>.
+[exit 1]

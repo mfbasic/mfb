@@ -125,6 +125,19 @@ pub fn merge_package(project: &mut IrProject, package: IrProject) {
             project.link_functions.push(link);
         }
     }
+    // The CSTRUCT table travels with its LINK functions (plan-50-E): a struct
+    // slot's ctype names a declaration in the same alias, so without this an
+    // imported binding's struct slots resolve to nothing and are rejected as an
+    // unknown ctype. De-duplicated by (alias, name) exactly like the functions.
+    for cstruct in package.link_cstructs {
+        if !project
+            .link_cstructs
+            .iter()
+            .any(|existing| existing.alias == cstruct.alias && existing.name == cstruct.name)
+        {
+            project.link_cstructs.push(cstruct);
+        }
+    }
     // A re-export alias is reached by importers as `<package>.<alias>` (the IR
     // normalizes any `IMPORT … AS` binding to the package name), so qualify the
     // bare alias name with the package for routing (plan-link-update.md §5a).

@@ -1,0 +1,17 @@
+' A CONST pin must fold to an immediate the compiler can bake into the call frame.
+'
+' Before plan-50-G, `eval_link_const` ended in `_ => 0`: ANY expression it did not
+' recognize silently pinned **0**. A binding pinning a string, or a name, or
+' arithmetic got a zero argument with no diagnostic — the third instance of the
+' same "default rather than diagnose" mistake as the unvalidated slot ctype
+' (plan-50-A) and the nameless link-expr Var (plan-50-I).
+LINK "demo" AS demoLink
+  FUNC f(n AS Integer) AS Integer
+    SYMBOL "demo_f"
+    ABI (n CInt32, s CInt32, t CInt32, value OUT CInt32) AS status CInt32
+    CONST s = "literal"      ' a string is not an integer immediate
+    CONST t = 1 + 1          ' arithmetic is not folded
+    RETURN value
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

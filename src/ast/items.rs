@@ -1163,6 +1163,25 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         }
+        // plan-50-E/G: `SIZEOF <CStruct>` pins a struct's computed size. The C
+        // library often validates it (libsndfile fails the call when `datasize`
+        // is not sizeof(SF_FORMAT_INFO)), and the compiler already knows the
+        // number — hardcoding it in every binding is the fragility
+        // `compute_c_layout` exists to remove.
+        if self.match_identifier_ci("SIZEOF") {
+            let (line2, col) = (self.previous().line, self.previous().start);
+            let name = self.consume_identifier("SIZEOF requires a CSTRUCT name.")?;
+            return Some(ConstPin {
+                slot,
+                value: Expression::Unary {
+                    operator: "SIZEOF".to_string(),
+                    operand: Box::new(Expression::Identifier(name)),
+                    line: line2,
+                    column: col,
+                },
+                line,
+            });
+        }
         let value = self.parse_expression()?;
         Some(ConstPin { slot, value, line })
     }

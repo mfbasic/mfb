@@ -44,11 +44,6 @@
                 "type": "vendor",
                 "libc": "musl",
                 "source": "libsndfile.so.1.0.37-riscv64-musl"
-            },
-            {
-                "os": "windows",
-                "type": "vendor",
-                "source": "sndfile.dll"
             }
         ]
     },

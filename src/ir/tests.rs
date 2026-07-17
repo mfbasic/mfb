@@ -4563,12 +4563,15 @@ LINK "c" AS natLink
     RETURN -5
   END FUNC
 
+  ' plan-50-G: `CONST s = "literal"` used to fold silently to 0 (eval_link_const's
+  ' `_ => 0`); it is now rejected, so this pins a real literal. The rejection has
+  ' its own coverage in tests/syntax/native/native-const-unfoldable-invalid.
   FUNC weird() AS Integer
     SYMBOL "weird_it"
     ABI (s CInt32) AS rc CInt32
     SUCCESS_ON rc = 0
     RETURN "x"
-    CONST s = "literal"
+    CONST s = 7
   END FUNC
 
   FUNC shut(RES h AS Handle) AS Nothing

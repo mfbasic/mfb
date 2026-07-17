@@ -1109,14 +1109,24 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_rng_next());
         code_functions.push(lower_rng_seed_at());
     }
-    // plan-50-H: a wrapper copies a C string out when `RETURN` names the ABI
-    // return and that return is a `CPtr` surfaced as an owned `String`. This must
-    // agree exactly with `lower_link_thunk`'s `needs_encoding`, or the thunk
-    // references `_mfb_rt_validate_utf8` and the helper is never emitted.
+    // A wrapper copies a C string out when `RETURN` names the ABI return and that
+    // return is a `CPtr` surfaced as an owned `String` (plan-50-H), OR when a
+    // struct slot has a `CString` field (plan-50-F). This must agree EXACTLY with
+    // `lower_link_thunk`'s `needs_encoding`, or the thunk references
+    // `_mfb_rt_validate_utf8` and the helper is never emitted — a link error, not
+    // a test failure.
     let link_returns_cstring = module.link_functions.iter().any(|function| {
-        matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
+        let returns_c_string = matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
             && function.abi_return_ctype == "CPtr"
-            && function.return_type == "String"
+            && function.return_type == "String";
+        let struct_has_cstring_field = function.abi_slots.iter().any(|slot| {
+            module
+                .link_cstructs
+                .iter()
+                .find(|c| c.alias == function.alias && c.name == slot.ctype)
+                .is_some_and(|c| c.fields.iter().any(|f| f.ctype == "CString"))
+        });
+        returns_c_string || struct_has_cstring_field
     });
     if link_returns_cstring
         || runtime_symbols.iter().any(|symbol| {

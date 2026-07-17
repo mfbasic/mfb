@@ -921,6 +921,41 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
+        // plan-50-G: a CONST pin must fold to an immediate. Until now an
+        // unrecognized expression silently pinned **0** (`eval_link_const`'s
+        // `_ => 0`) — the same "default rather than diagnose" mistake as the
+        // unvalidated slot ctype and the nameless link-expr Var. This is the gate
+        // that makes that catch-all unreachable.
+        for pin in &function.consts {
+            fn foldable(expr: &crate::ast::Expression, cstructs: &[String]) -> bool {
+                match expr {
+                    crate::ast::Expression::Number(_) | crate::ast::Expression::Boolean(_) => true,
+                    crate::ast::Expression::Identifier(name) => name == "NOTHING",
+                    crate::ast::Expression::Unary {
+                        operator, operand, ..
+                    } if operator == "SIZEOF" => matches!(
+                        operand.as_ref(),
+                        crate::ast::Expression::Identifier(n) if cstructs.contains(n)
+                    ),
+                    crate::ast::Expression::Unary {
+                        operator, operand, ..
+                    } if operator == "-" || operator == "+" => foldable(operand, cstructs),
+                    _ => false,
+                }
+            }
+            if !foldable(&pin.value, cstructs) {
+                self.report(
+                    "NATIVE_CONST_UNKNOWN_SLOT",
+                    &format!(
+                        "Native function `{}` CONST pin `{}` is not a constant the compiler can fold: it must be an integer or boolean literal, NOTHING, or SIZEOF <CStruct>.",
+                        function.name, pin.slot
+                    ),
+                    file,
+                    pin.line,
+                );
+            }
+        }
+
         // A CONST pin must name a real ABI slot.
         let abi_slot_names: HashSet<&str> = function
             .abi
