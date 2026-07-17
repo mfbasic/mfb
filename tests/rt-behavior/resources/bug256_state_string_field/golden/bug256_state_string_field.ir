@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug256_state_string_field",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 4,
+    "visibility": "public",
+    "name": "Label",
+    "fields": [
+    { "visibility": null, "line": 5, "name": "name", "type": "String" },
+    { "visibility": null, "line": 6, "name": "pos", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 20, "mutable": false, "name": "f", "type": "File STATE Label", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/bug256_state_string_field/src/main.mfb" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "default=[" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Label", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "name" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "stateAssign", "line": 22, "resource": "f", "value": { "kind": "with", "type": "Label", "target": { "kind": "memberAccess", "type": "Label", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "name", "value": { "kind": "const", "type": "String", "value": "hello" } }] } },
+    { "op": "stateAssign", "line": 23, "resource": "f", "value": { "kind": "with", "type": "Label", "target": { "kind": "memberAccess", "type": "Label", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "7" } }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "name=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Label", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "name" } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pos=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Label", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 27, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

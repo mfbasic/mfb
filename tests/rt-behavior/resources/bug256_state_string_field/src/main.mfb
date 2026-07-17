@@ -1,0 +1,28 @@
+IMPORT io
+IMPORT fs
+
+TYPE Label
+  name AS String
+  pos AS Integer
+END TYPE
+
+' bug-256: a resource STATE record carrying a String field failed to LINK:
+'   error: native code data relocation target '_mfb_str_empty' is not a data
+'   object or defined symbol
+'
+' `emit_resource_state_init` default-initializes the STATE payload at every RES
+' bind, so the String field's empty-string sentinel is demanded — but the
+' analysis that decides whether to EMIT that sentinel only inspected
+' uninitialized binds (`Bind { value: None }`). A RES bind always carries a
+' value (the handle), so the demand was never registered and the relocation
+' dangled. Nothing in-tree gave a STATE a String field, so nothing caught it.
+FUNC main AS Integer
+  RES f AS File STATE Label = fs::openFile("tests/rt-behavior/resources/bug256_state_string_field/src/main.mfb")
+  io::print("default=[" & f.state.name & "]")   ' default=[] — the sentinel
+  f.state.name = "hello"
+  f.state.pos = 7
+  io::print("name=" & f.state.name)             ' name=hello
+  io::print("pos=" & toString(f.state.pos))     ' pos=7
+  fs::close(f)
+  RETURN 0
+END FUNC

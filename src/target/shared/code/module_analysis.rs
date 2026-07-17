@@ -12,9 +12,18 @@ pub(super) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
 
 fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool {
     match op {
-        NirOp::Bind {
-            type_, value: None, ..
-        } => type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()),
+        // A `RES` binding always supplies a value (the handle), but codegen
+        // still default-initializes its `STATE` payload at the bind
+        // (`emit_resource_state_init`, `builder_control.rs`), independently of
+        // where the handle came from. So a `STATE` record carrying a `String`
+        // demands the sentinel even though `value` is `Some` — checking only
+        // `value: None` left the relocation dangling (bug-256, bug-05 class).
+        NirOp::Bind { type_, value, .. } => {
+            crate::builtins::resource::state_type_name(type_).is_some_and(|state| {
+                type_requires_empty_string_constant(state, type_model, &mut HashSet::new())
+            }) || (value.is_none()
+                && type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()))
+        }
         NirOp::If {
             then_body,
             else_body,
@@ -39,12 +48,11 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         | NirOp::Trap { body, .. } => body
             .iter()
             .any(|op| op_requires_empty_string_constant(op, type_model)),
-        // An initialized bind supplies its own value; the remaining ops carry no
-        // loop/branch bodies to descend into. Enumerated exhaustively (no
-        // `_ => false`) so a future `NirOp` variant with a body cannot silently
-        // regress this analysis — the same gap that produced bug-45 and bug-67.
-        NirOp::Bind { value: Some(_), .. }
-        | NirOp::StoreGlobal { .. }
+        // The remaining ops carry no loop/branch bodies to descend into.
+        // Enumerated exhaustively (no `_ => false`) so a future `NirOp` variant
+        // with a body cannot silently regress this analysis — the same gap that
+        // produced bug-45 and bug-67.
+        NirOp::StoreGlobal { .. }
         | NirOp::Assign { .. }
         | NirOp::StateAssign { .. }
         | NirOp::Return { .. }

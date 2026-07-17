@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/bug256_state_string_field
+Wrote AST to tests/rt-behavior/resources/bug256_state_string_field/bug256_state_string_field.ast
+Wrote IR to tests/rt-behavior/resources/bug256_state_string_field/bug256_state_string_field.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/bug256_state_string_field
+Wrote executable to tests/rt-behavior/resources/bug256_state_string_field/build/bug256_state_string_field.out
+[exit 0]
+$ tests/rt-behavior/resources/bug256_state_string_field/build/bug256_state_string_field.out
+default=[]
+name=hello
+pos=7
+[exit 0]

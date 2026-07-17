@@ -1,0 +1,44 @@
+{
+  "project": "bug256_state_string_field",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Label",
+      "line": 4,
+      "fields": [
+      { "visibility": null, "name": "name", "type": "String", "line": 5 },
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Label", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/bug256_state_string_field/src/main.mfb" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "default=[" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "name" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 21 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "name", "value": { "kind": "string", "value": "hello" } }] }, "line": 22 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "7" } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "name=" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "name" } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "pos" }] } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}
