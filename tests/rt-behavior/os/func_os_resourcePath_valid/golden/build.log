@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-behavior/os/func_os_resourcePath_valid
+Wrote AST to tests/rt-behavior/os/func_os_resourcePath_valid/func_os_resourcePath_valid.ast
+Wrote IR to tests/rt-behavior/os/func_os_resourcePath_valid/func_os_resourcePath_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/os/func_os_resourcePath_valid
+Wrote executable to tests/rt-behavior/os/func_os_resourcePath_valid/build/func_os_resourcePath_valid.out
+[exit 0]
+$ tests/rt-behavior/os/func_os_resourcePath_valid/build/func_os_resourcePath_valid.out
+TRUE
+TRUE
+TRUE
+77030002
+77030002
+77030002
+77030002
+[exit 0]

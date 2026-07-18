@@ -1,6 +1,6 @@
 # plan-51-A: Linux AppDir emission
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 Overall Effort: x-large (1d–3d)
 Effort: medium (1h–2h)
 Depends on: nothing
@@ -231,6 +231,7 @@ build/<name>.AppDir/
     share/
       applications/<name>.desktop                       (byte-identical copy)
       icons/hicolor/<N>x<N>/apps/<name>.png             (N ∈ 16,32,48,64,128,256,512)
+      <name>/<dst>/…                                    (project resources, plan-55; created only when declared)
 ```
 
 What each file is for, and who requires it:
@@ -243,6 +244,7 @@ What each file is for, and who requires it:
 | `.DirIcon` | ignored | auto-created if absent | thumbnailer |
 | `usr/share/icons/hicolor/…` | ignored | never checked | **required** by `appimaged` |
 | `usr/share/applications/…` | ignored | ignored | conventional |
+| `usr/share/<name>/…` | ignored | ignored | — (read by `os::resourcePath`, plan-55) |
 
 The runtime requires exactly one thing: an executable `/AppRun`. Everything else is
 convention — but it is convention that costs nothing and is the difference between
@@ -252,6 +254,17 @@ The root `<name>.png` and `.DirIcon` are duplicated from
 `usr/share/icons/hicolor/256x256/apps/<name>.png` because appimagetool looks only at
 the AppDir root and never at `usr/share/icons` (verified: zero references in
 `appimagetool.c`).
+
+**`usr/share/<name>/` is the project-resource root (plan-55).** Files declared in the
+manifest `resources` section are copied there by `copy_resources`
+(plan-55-A §4.3), *not* by this writer — the copy runs after `write_appdir`, so
+`write_appdir` must create `usr/share/` and leave it, never wipe it. `os::resourcePath`
+(plan-55-B) resolves against exactly this directory: the executable is at
+`usr/bin/<name>`, so its base is `../share/<name>` relative to `usr/bin`, i.e.
+`strip "bin/<name>", append "share/<name>"`. This holds for both a directly-run AppDir
+(`/proc/self/exe` → the real `usr/bin/<name>` behind the `AppRun` symlink) and a
+FUSE-mounted `.AppImage` (`/proc/self/exe` → `<mountpoint>/usr/bin/<name>`), so no
+`$APPDIR` env var is needed and none is set.
 
 ### 4.2 The icon renderer
 

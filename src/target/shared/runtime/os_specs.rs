@@ -137,6 +137,25 @@ pub(crate) const OS_EXECUTABLE_PATH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
     },
 };
 
+// The resource locator (plan-55-B) is the one `os::` call taking an argument: a
+// `String` build-relative resource path, in ARG[0].
+const OS_RELATIVE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "relative",
+    type_: "String",
+    location: abi::ARG[0],
+}];
+
+pub(crate) const OS_RESOURCE_PATH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Os,
+    call: "os.resourcePath",
+    symbol: "_mfb_rt_os_os_resourcePath",
+    abi: RuntimeHelperAbi {
+        params: OS_RELATIVE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const OS_NAME_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Os,
     call: "os.name",
@@ -208,6 +227,7 @@ mod tests {
         "os.args",
         "os.pid",
         "os.executablePath",
+        "os.resourcePath",
         "os.name",
         "os.arch",
         "os.hostName",

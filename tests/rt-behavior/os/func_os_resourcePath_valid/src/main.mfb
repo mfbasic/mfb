@@ -1,0 +1,46 @@
+' os::resourcePath — absolute resource path derived from the executable's own
+' location (plan-55-B). Console base = the executable's directory, so the result
+' is <exe-dir>/<relative>. A `.`/`..` path component raises ErrInvalidPath
+' (77030002); a dot inside a filename is fine.
+IMPORT os
+IMPORT io
+IMPORT strings
+
+FUNC resolve(p AS String) AS String
+  RETURN os::resourcePath(p)
+END FUNC
+
+FUNC main AS Integer
+  LET p AS String = os::resourcePath("music/x.ogg")
+  io::print(toString(strings::startsWith(p, "/")))
+  io::print(toString(strings::endsWith(p, "/music/x.ogg")))
+  ' A dot inside a component (not a whole `.`/`..` component) is accepted.
+  LET q AS String = os::resourcePath("..foo/bar")
+  io::print(toString(strings::endsWith(q, "/..foo/bar")))
+  ' Each `.`/`..` path component is rejected with ErrInvalidPath (77030002).
+  MUT a AS Integer = 0
+  resolve("a/../b") TRAP(e)
+    a = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(a))
+  MUT b AS Integer = 0
+  resolve("../secret") TRAP(e)
+    b = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(b))
+  MUT c AS Integer = 0
+  resolve("music/..") TRAP(e)
+    c = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(c))
+  MUT d AS Integer = 0
+  resolve("./x") TRAP(e)
+    d = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(d))
+  RETURN 0
+END FUNC

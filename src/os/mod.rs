@@ -33,3 +33,8 @@ pub(crate) const MACHO_APP_VENDOR_RPATH: &str = "@executable_path/../Frameworks"
 
 /// The `.app` bundle subdirectory holding vendored dylibs (plan-46-D §4.4).
 pub(crate) const MACOS_APP_FRAMEWORKS_DIR: &str = "Frameworks";
+
+/// The `.app` bundle subdirectory holding project resources and `AppIcon.icns`
+/// (plan-55-A §4.3), where Apple specifies bundle resources live. `os::resourcePath`
+/// (plan-55-B) resolves against `Contents/Resources/` in an app build.
+pub(crate) const MACOS_APP_RESOURCES_DIR: &str = "Resources";

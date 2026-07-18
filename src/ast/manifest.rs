@@ -508,7 +508,7 @@ fn matches_source_patterns(path: &str, include: &[String], exclude: &[String]) -
         && !exclude.iter().any(|pattern| glob_matches(pattern, path))
 }
 
-pub(super) fn glob_matches(pattern: &str, path: &str) -> bool {
+pub(crate) fn glob_matches(pattern: &str, path: &str) -> bool {
     let normalized_pattern = pattern.replace('\\', "/");
     let normalized_path = path.replace('\\', "/");
     let pattern_segments: Vec<&str> = normalized_pattern.split('/').collect();

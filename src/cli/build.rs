@@ -476,6 +476,24 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 None
             };
             let output_dir = test_output_dir.as_deref().unwrap_or(&options.location);
+            // plan-55-A §4.2: clear `build/` at the start of every real build so a
+            // file a previous build left there — a stale resource whose source was
+            // removed, a stale vendored library, or a prior-mode output (a console
+            // binary before an `--app` build) — never survives. Skipped only on the
+            // `mfb test` host path, which links into a private temp dir
+            // (`test_output_dir`) and must not touch the project's `build/`; a
+            // cross-`-target` test build has `test_output_dir == None` and clears
+            // like a normal build. Runs once per invocation, so the two Linux libc
+            // flavors written in one build survive each other.
+            if test_output_dir.is_none() {
+                let build_dir = output_dir.join(crate::os::BUILD_DIR);
+                if let Err(err) = std::fs::remove_dir_all(&build_dir) {
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        eprintln!("error: failed to clear '{}': {err}", build_dir.display());
+                        return Err(());
+                    }
+                }
+            }
             // plan-46-C §4.4: hash-verify every `vendor` library this build resolves
             // to, against the sha256 the declaring binding recorded. Runs before
             // codegen so a wrong-version or missing blob fails the build rather
@@ -522,6 +540,18 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &vendored,
                 &options.location,
                 &vendor_output_dirs(output_dir, &ir.name, build_mode),
+            ) {
+                eprintln!("error: {err}");
+                return Err(());
+            }
+            // plan-55-A §4.3: copy manifest-declared `resources` into the build
+            // output tree (beside the executable in console mode, into the bundle's
+            // resource directory in `--app` mode), where `os::resourcePath`
+            // (plan-55-B) resolves them at runtime.
+            if let Err(err) = copy_resources(
+                &options.location,
+                &crate::manifest::resource_entries(&manifest),
+                &resource_output_dir(output_dir, &ir.name, build_mode),
             ) {
                 eprintln!("error: {err}");
                 return Err(());
@@ -1505,6 +1535,43 @@ fn vendor_output_dirs(
     }
 }
 
+/// The directory declared resources are copied into for a given build shape
+/// (plan-55-A §4.3). Each entry's `<dst>` is joined *under* this directory.
+///
+/// Kept in lockstep with plan-55-B's `os::resourcePath` base offset
+/// (`resource_base_offset`): the runtime locator resolves to exactly this
+/// directory, so a change here without the matching change there makes resources
+/// unfindable at runtime.
+///
+/// | build            | resource dir                                   |
+/// | ---              | ---                                            |
+/// | console          | `build/`                                       |
+/// | macos `--app`    | `build/<name>.app/Contents/Resources/`         |
+/// | linux `--app`    | `build/<name>.AppDir/usr/share/<name>/`        |
+///
+/// The `LinuxApp` arm depends on plan-51-A's AppDir existing; until then a Linux
+/// `--app` build never reaches this path (Linux app mode is unimplemented
+/// pre-51). It is written now so 51-A needs no change here.
+fn resource_output_dir(
+    output_dir: &Path,
+    project_name: &str,
+    build_mode: target::NativeBuildMode,
+) -> PathBuf {
+    let build_dir = output_dir.join(crate::os::BUILD_DIR);
+    match build_mode {
+        target::NativeBuildMode::MacApp => build_dir
+            .join(format!("{project_name}.app"))
+            .join("Contents")
+            .join(crate::os::MACOS_APP_RESOURCES_DIR),
+        target::NativeBuildMode::LinuxApp => build_dir
+            .join(format!("{project_name}.AppDir"))
+            .join("usr")
+            .join("share")
+            .join(project_name),
+        target::NativeBuildMode::Console => build_dir,
+    }
+}
+
 /// Copy each resolved `vendor` library into the output directory the executable's
 /// RPATH points at (plan-46-D §4.5), preserving the executable bit.
 ///
@@ -1580,6 +1647,117 @@ fn copy_vendor_libraries(
             permissions.set_mode(0o755);
             std::fs::set_permissions(&to, permissions)
                 .map_err(|err| format!("failed to mark '{}' executable: {err}", to.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// The fixed (glob-free) leading directory of a resource `src` glob (plan-55-A
+/// §4.3): the longest run of leading path components that contain no glob
+/// metacharacter (`*`, `?`, `[`, `]`), excluding the final component (which is the
+/// file or pattern to match). The result is the directory `copy_resources` walks
+/// and the prefix it strips to form each match's destination-relative path.
+///
+/// | `src` | fixed prefix |
+/// | --- | --- |
+/// | `data/**/*.ogg` | `data` |
+/// | `data/*.ogg` | `data` |
+/// | `assets/logo.png` | `assets` |
+/// | `*.ogg` | `` (project root) |
+fn resource_src_fixed_prefix(src: &str) -> String {
+    let normalized = src.replace('\\', "/");
+    let components: Vec<&str> = normalized.split('/').collect();
+    let has_meta = |component: &str| component.contains(['*', '?', '[', ']']);
+    let mut prefix: Vec<&str> = Vec::new();
+    for component in &components {
+        if has_meta(component) {
+            break;
+        }
+        prefix.push(component);
+    }
+    // Every component was literal: the last is the file itself, so the walked
+    // directory is everything before it.
+    if prefix.len() == components.len() {
+        prefix.pop();
+    }
+    prefix.join("/")
+}
+
+/// Recursively collect every regular file under `dir` into `out`.
+fn collect_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_files_recursive(&entry.path(), out)?;
+        } else if file_type.is_file() {
+            out.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+/// Copy every file matching each resource entry's `src` glob into
+/// `<resource_dir>/<dst>/…` (plan-55-A §4.3), preserving structure below the
+/// glob's fixed prefix. Runs after `write_executable`, next to the vendor copy.
+///
+/// For each entry the fixed-prefix directory (`resource_src_fixed_prefix`) is
+/// walked; every regular file whose project-relative path matches the `src` glob
+/// is copied to `resource_dir/<dst>/<path-with-prefix-stripped>`. An empty match
+/// set — or a `src` whose fixed-prefix directory does not exist — is a silent
+/// no-op, not an error (a glob may legitimately match nothing on a checkout).
+fn copy_resources(
+    project_root: &Path,
+    entries: &[crate::manifest::ResourceEntry],
+    resource_dir: &Path,
+) -> Result<(), String> {
+    for entry in entries {
+        let prefix = resource_src_fixed_prefix(&entry.src);
+        let walk_root = if prefix.is_empty() {
+            project_root.to_path_buf()
+        } else {
+            project_root.join(&prefix)
+        };
+        // A glob whose fixed-prefix directory is absent copies nothing (§4.3).
+        if !walk_root.is_dir() {
+            continue;
+        }
+        let mut files = Vec::new();
+        collect_files_recursive(&walk_root, &mut files).map_err(|err| {
+            format!(
+                "failed to scan resources under '{}': {err}",
+                walk_root.display()
+            )
+        })?;
+        for file in files {
+            let rel = file
+                .strip_prefix(project_root)
+                .unwrap_or(&file)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if !crate::ast::manifest::glob_matches(&entry.src, &rel) {
+                continue;
+            }
+            // Destination-relative path: the match minus the fixed prefix (§4.3).
+            let dest_relative = if prefix.is_empty() {
+                rel.as_str()
+            } else {
+                rel.strip_prefix(&prefix)
+                    .and_then(|rest| rest.strip_prefix('/'))
+                    .unwrap_or(rel.as_str())
+            };
+            let to = resource_dir.join(&entry.dst).join(dest_relative);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|err| format!("failed to create '{}': {err}", parent.display()))?;
+            }
+            std::fs::copy(&file, &to).map_err(|err| {
+                format!(
+                    "failed to copy resource '{}' to '{}': {err}",
+                    file.display(),
+                    to.display()
+                )
+            })?;
         }
     }
     Ok(())
@@ -2189,6 +2367,77 @@ mod tests {
     }
 
     #[test]
+    fn build_project_clears_stale_build_dir() {
+        // plan-55-A §4.2: a real build removes `build/` at the start, so a file a
+        // previous build left there is gone afterward while the freshly written
+        // executable exists.
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_executable_project(dir.path());
+        let build_dir = dir.path().join(crate::os::BUILD_DIR);
+        std::fs::create_dir_all(&build_dir).expect("build dir");
+        std::fs::write(build_dir.join("stale.txt"), b"stale").expect("stale");
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("build should succeed");
+        assert!(
+            !build_dir.join("stale.txt").exists(),
+            "stale file must be cleared by the build"
+        );
+        assert!(build_dir.exists(), "build dir is recreated by the writer");
+    }
+
+    #[test]
+    fn mfb_test_host_run_leaves_project_build_dir_untouched() {
+        // plan-55-A §4.2: a `mfb test` host run links into a private temp dir and
+        // must never clear the project's own `build/`. Seed one, run the tests, and
+        // confirm the seeded file survives.
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.path().join("src")).expect("src dir");
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "FUNC main AS Integer\n",
+                "  RETURN 0\n",
+                "END FUNC\n",
+                "\n",
+                "TESTING\n",
+                "  TGROUP \"g\"\n",
+                "    TCASE \"c\"\n",
+                "      expectInteger(1, 1)\n",
+                "    END TCASE\n",
+                "  END TGROUP\n",
+                "END TESTING\n"
+            ),
+        )
+        .expect("source");
+        let build_dir = dir.path().join(crate::os::BUILD_DIR);
+        std::fs::create_dir_all(&build_dir).expect("build dir");
+        std::fs::write(build_dir.join("keep.txt"), b"keep").expect("keep");
+        let options =
+            parse_test_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("mfb test should pass");
+        assert!(
+            build_dir.join("keep.txt").exists(),
+            "mfb test host run must not clear the project build/"
+        );
+    }
+
+    #[test]
     fn build_project_writes_ast_and_ir_dumps() {
         let dir = tempfile::tempdir().expect("temp dir");
         write_executable_project(dir.path());
@@ -2401,6 +2650,90 @@ mod tests {
             vec![PathBuf::from("/proj/build/app.app/Contents/Frameworks")],
             "macos -app: @executable_path/../Frameworks -> the bundle's Frameworks"
         );
+    }
+
+    /// plan-55-A §4.3: the resource directory each build shape writes into, kept
+    /// in lockstep with plan-55-B's `resource_base_offset`.
+    #[test]
+    fn resource_output_dir_per_build_shape() {
+        let root = Path::new("/proj");
+        assert_eq!(
+            resource_output_dir(root, "app", target::NativeBuildMode::Console),
+            PathBuf::from("/proj/build"),
+            "console: resources beside the executable in build/"
+        );
+        assert_eq!(
+            resource_output_dir(root, "app", target::NativeBuildMode::MacApp),
+            PathBuf::from("/proj/build/app.app/Contents/Resources"),
+            "macos -app: the bundle's Contents/Resources"
+        );
+        assert_eq!(
+            resource_output_dir(root, "app", target::NativeBuildMode::LinuxApp),
+            PathBuf::from("/proj/build/app.AppDir/usr/share/app"),
+            "linux -app: usr/share/<name> inside the AppDir"
+        );
+    }
+
+    #[test]
+    fn resource_src_fixed_prefix_splits_at_first_glob() {
+        assert_eq!(resource_src_fixed_prefix("data/**/*.ogg"), "data");
+        assert_eq!(resource_src_fixed_prefix("data/*.ogg"), "data");
+        assert_eq!(resource_src_fixed_prefix("assets/logo.png"), "assets");
+        assert_eq!(resource_src_fixed_prefix("*.ogg"), "");
+        assert_eq!(resource_src_fixed_prefix("logo.png"), "");
+        assert_eq!(resource_src_fixed_prefix("a/b/c/*.txt"), "a/b/c");
+    }
+
+    /// plan-55-A §4.3: the three worked examples — flat glob, `**` subtree
+    /// preservation, and a single literal file — plus the empty-match no-op.
+    #[test]
+    fn copy_resources_maps_the_worked_examples() {
+        let project = tempfile::tempdir().expect("project dir");
+        let root = project.path();
+        // data/Mozart1.ogg, data/loops/kick.ogg, assets/logo.png.
+        std::fs::create_dir_all(root.join("data/loops")).unwrap();
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        std::fs::write(root.join("data/Mozart1.ogg"), b"a").unwrap();
+        std::fs::write(root.join("data/loops/kick.ogg"), b"b").unwrap();
+        std::fs::write(root.join("assets/logo.png"), b"c").unwrap();
+
+        let out = tempfile::tempdir().expect("out dir");
+        let resource_dir = out.path();
+        let entries = vec![
+            crate::manifest::ResourceEntry {
+                src: "data/*.ogg".to_string(),
+                dst: "music/".to_string(),
+            },
+            crate::manifest::ResourceEntry {
+                src: "data/**/*.ogg".to_string(),
+                dst: "all/".to_string(),
+            },
+            crate::manifest::ResourceEntry {
+                src: "assets/logo.png".to_string(),
+                dst: "img/".to_string(),
+            },
+            // Matches nothing — must be a silent no-op.
+            crate::manifest::ResourceEntry {
+                src: "nowhere/*.dat".to_string(),
+                dst: "x/".to_string(),
+            },
+        ];
+        copy_resources(root, &entries, resource_dir).expect("copy");
+
+        // data/*.ogg -> music/ : only the top-level file, not the subtree one.
+        assert!(resource_dir.join("music/Mozart1.ogg").is_file());
+        assert!(!resource_dir.join("music/loops").exists());
+        // data/**/*.ogg -> all/ : subtree structure preserved below the prefix.
+        assert!(resource_dir.join("all/Mozart1.ogg").is_file());
+        assert!(resource_dir.join("all/loops/kick.ogg").is_file());
+        // assets/logo.png -> img/logo.png.
+        assert!(resource_dir.join("img/logo.png").is_file());
+        assert_eq!(
+            std::fs::read(resource_dir.join("img/logo.png")).unwrap(),
+            b"c"
+        );
+        // The empty-match entry created nothing.
+        assert!(!resource_dir.join("x").exists());
     }
 
     /// A Linux **console** build emits both libc flavors, so both must be checked;

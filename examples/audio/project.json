@@ -10,6 +10,9 @@
       "include": ["**/*.mfb"]
     }
   ],
+  "resources": [
+    { "src": "resources/*.ogg", "dst": "music/" }
+  ],
   "entry": "main",
   "targets": ["native"]
 }

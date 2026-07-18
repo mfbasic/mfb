@@ -11,6 +11,10 @@ const ENVIRON: &str = "os.environ";
 const ARGS: &str = "os.args";
 const PID: &str = "os.pid";
 const EXECUTABLE_PATH: &str = "os.executablePath";
+// Resource locator (plan-55-B). The first `os::` call taking an argument that is
+// not an env name: maps a build-relative resource path to its absolute on-disk
+// location for the running build shape.
+const RESOURCE_PATH: &str = "os.resourcePath";
 const NAME: &str = "os.name";
 const ARCH: &str = "os.arch";
 const HOST_NAME: &str = "os.hostName";
@@ -34,6 +38,7 @@ pub(crate) fn is_os_call(name: &str) -> bool {
             | ARGS
             | PID
             | EXECUTABLE_PATH
+            | RESOURCE_PATH
             | NAME
             | ARCH
             | HOST_NAME
@@ -47,6 +52,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         GET_ENV | HAS_ENV | UNSET_ENV => Some(&[&["name"]]),
         GET_ENV_OR => Some(&[&["name"], &["fallback"]]),
         SET_ENV => Some(&[&["name"], &["value"]]),
+        RESOURCE_PATH => Some(&[&["relative"]]),
         ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
         | CPU_COUNT => Some(&[]),
         _ => None,
@@ -55,9 +61,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
-        GET_ENV | GET_ENV_OR | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME => {
-            Some("String")
-        }
+        GET_ENV | GET_ENV_OR | EXECUTABLE_PATH | RESOURCE_PATH | NAME | ARCH | HOST_NAME
+        | USER_NAME => Some("String"),
         HAS_ENV => Some("Boolean"),
         SET_ENV | UNSET_ENV => Some("Nothing"),
         ENVIRON => Some("Map OF String TO String"),
@@ -69,7 +74,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
-        GET_ENV | HAS_ENV | UNSET_ENV if exact(arg_types, &["String"]) => {
+        GET_ENV | HAS_ENV | UNSET_ENV | RESOURCE_PATH if exact(arg_types, &["String"]) => {
             Cow::Borrowed(call_return_type_name(name)?)
         }
         GET_ENV_OR | SET_ENV if exact(arg_types, &["String", "String"]) => {
@@ -88,7 +93,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        GET_ENV | HAS_ENV | UNSET_ENV => Some("String"),
+        GET_ENV | HAS_ENV | UNSET_ENV | RESOURCE_PATH => Some("String"),
         GET_ENV_OR | SET_ENV => Some("String, String"),
         ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
         | CPU_COUNT => Some("no arguments"),
@@ -98,7 +103,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        GET_ENV | HAS_ENV | UNSET_ENV => Some((1, 1)),
+        GET_ENV | HAS_ENV | UNSET_ENV | RESOURCE_PATH => Some((1, 1)),
         GET_ENV_OR | SET_ENV => Some((2, 2)),
         ENVIRON | ARGS | PID | EXECUTABLE_PATH | NAME | ARCH | HOST_NAME | USER_NAME
         | CPU_COUNT => Some((0, 0)),
@@ -136,6 +141,7 @@ mod tests {
         ARGS,
         PID,
         EXECUTABLE_PATH,
+        RESOURCE_PATH,
         NAME,
         ARCH,
         HOST_NAME,
@@ -232,6 +238,21 @@ mod tests {
             assert_eq!(ret(name, &[]), Some("Integer".to_string()), "{name}");
             assert_eq!(ret(name, &["Integer"]), None, "{name} arity");
         }
+    }
+
+    #[test]
+    fn resolve_resource_path() {
+        // plan-55-B: the first unary `String -> String` os:: call.
+        assert_eq!(ret(RESOURCE_PATH, &["String"]), Some("String".to_string()));
+        assert_eq!(ret(RESOURCE_PATH, &[]), None);
+        assert_eq!(ret(RESOURCE_PATH, &["Integer"]), None);
+        assert_eq!(ret(RESOURCE_PATH, &["String", "String"]), None);
+        assert_eq!(arity(RESOURCE_PATH), Some((1, 1)));
+        assert_eq!(expected_arguments(RESOURCE_PATH), Some("String"));
+        assert_eq!(
+            call_param_names(RESOURCE_PATH),
+            Some(&[&["relative"][..]][..])
+        );
     }
 
     #[test]

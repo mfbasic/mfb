@@ -9,7 +9,7 @@ use tinyjson::JsonValue;
 mod expr;
 mod items;
 mod lexical;
-mod manifest;
+pub(crate) mod manifest;
 mod parser;
 mod serialize;
 mod stmt;

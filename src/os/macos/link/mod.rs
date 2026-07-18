@@ -85,7 +85,7 @@ pub(crate) fn write_app_bundle(
 
     // Render the app icon (plan-22-B §4.4): the resolved project `icon` source or
     // the compiler's embedded default, packaged as a multi-resolution `.icns`.
-    let resources_dir = contents_dir.join("Resources");
+    let resources_dir = contents_dir.join(crate::os::MACOS_APP_RESOURCES_DIR);
     fs::create_dir_all(&resources_dir)
         .map_err(|err| format!("failed to create '{}': {err}", resources_dir.display()))?;
     let icns = crate::os::macos::icon::build_icns(app_icon)?;

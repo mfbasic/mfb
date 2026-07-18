@@ -108,6 +108,10 @@ pub(crate) fn validate_project_manifest(
         valid = false;
     }
 
+    if !validate_resources(manifest, project_path, &contents) {
+        valid = false;
+    }
+
     if !validate_libraries(manifest, project_path, &contents) {
         valid = false;
     }
@@ -386,6 +390,102 @@ fn validate_mode(
     }
 
     true
+}
+
+/// Validate the optional `resources` array (plan-55-A §4.1). Each entry is an
+/// object with a string `src` (a project-relative glob, `**` allowed) and a
+/// string `dst` (a destination directory under the build output). Absent is
+/// valid — resources are opt-in. Mirrors `validate_sources`' diagnostics, with
+/// one extra rule: a `dst` must not escape the build output, so an absolute
+/// `dst` or one containing a `..` component is rejected (§1 non-goal).
+fn validate_resources(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let Some(value) = manifest.get("resources") else {
+        return true;
+    };
+
+    let (line, column) = field_position(contents, "resources");
+    let Some(resources) = value.get::<Vec<JsonValue>>() else {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            "Field `resources` must be an array.",
+            project_path,
+            line,
+            column,
+            column + "\"resources\"".len(),
+        );
+        return false;
+    };
+
+    let mut valid = true;
+    for (index, resource) in resources.iter().enumerate() {
+        let Some(resource) = resource.get::<HashMap<String, JsonValue>>() else {
+            rules::show_diagnostic(
+                "PROJECT_JSON_FIELD_TYPE",
+                &format!("Resource entry #{index} must be an object."),
+                project_path,
+                line,
+                column,
+                column + "\"resources\"".len(),
+            );
+            valid = false;
+            continue;
+        };
+
+        // `src`: required, a non-empty string glob.
+        match resource.get("src").and_then(|value| value.get::<String>()) {
+            Some(src) if !src.trim().is_empty() => {}
+            _ => {
+                rules::show_diagnostic(
+                    "PROJECT_JSON_FIELD_TYPE",
+                    &format!(
+                        "Resource entry #{index} field `src` must be a non-empty string glob."
+                    ),
+                    project_path,
+                    line,
+                    column,
+                    column + "\"resources\"".len(),
+                );
+                valid = false;
+            }
+        }
+
+        // `dst`: required, a string that must not escape the output tree.
+        match resource.get("dst").and_then(|value| value.get::<String>()) {
+            Some(dst) => {
+                if dst.starts_with('/') || dst.split('/').any(|component| component == "..") {
+                    rules::show_diagnostic(
+                        "PROJECT_JSON_FIELD_TYPE",
+                        &format!(
+                            "Resource entry #{index} field `dst` must be a relative path within \
+                             the build output; it may not be absolute or contain `..`."
+                        ),
+                        project_path,
+                        line,
+                        column,
+                        column + "\"resources\"".len(),
+                    );
+                    valid = false;
+                }
+            }
+            None => {
+                rules::show_diagnostic(
+                    "PROJECT_JSON_FIELD_TYPE",
+                    &format!("Resource entry #{index} field `dst` must be a string."),
+                    project_path,
+                    line,
+                    column,
+                    column + "\"resources\"".len(),
+                );
+                valid = false;
+            }
+        }
+    }
+
+    valid
 }
 /// One `libraries` schema violation: the rule to raise and the message naming
 /// the specific cause.
@@ -765,6 +865,41 @@ pub(crate) fn icon_path(manifest: &HashMap<String, JsonValue>) -> Option<&str> {
         .map(String::as_str)
 }
 
+/// A declared `resources` entry (plan-55-A §4.1): a `src` glob (project-relative,
+/// `**` allowed) paired with a `dst` directory under the build output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResourceEntry {
+    pub(crate) src: String,
+    pub(crate) dst: String,
+}
+
+/// The declared `resources` entries (plan-55-A §4.1), `src`/`dst` pairs. Empty
+/// when the manifest declares none. Assumes the manifest already passed
+/// `validate_resources`, so a present entry is a well-formed object with string
+/// `src`/`dst`; a malformed entry that somehow reaches here is skipped rather
+/// than panicking.
+pub(crate) fn resource_entries(manifest: &HashMap<String, JsonValue>) -> Vec<ResourceEntry> {
+    let Some(resources) = manifest
+        .get("resources")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+    else {
+        return Vec::new();
+    };
+
+    resources
+        .iter()
+        .filter_map(|entry| {
+            let entry = entry.get::<HashMap<String, JsonValue>>()?;
+            let src = entry.get("src").and_then(|value| value.get::<String>())?;
+            let dst = entry.get("dst").and_then(|value| value.get::<String>())?;
+            Some(ResourceEntry {
+                src: src.clone(),
+                dst: dst.clone(),
+            })
+        })
+        .collect()
+}
+
 /// The `version` string, which the macOS app-mode bundle publishes as
 /// `CFBundleShortVersionString`/`CFBundleVersion` (bug-248). Always present for a
 /// manifest that passed `validate_project_manifest` — `version` is required and
@@ -1047,6 +1182,87 @@ mod tests {
             icon_path(&validate_project_manifest(&write_manifest(VALID).1).unwrap()),
             None
         );
+    }
+
+    // ---- `resources` section (plan-55-A §4.1) ----
+
+    /// Build a manifest string with the given `resources` JSON fragment spliced in.
+    fn manifest_with_resources(resources: &str) -> String {
+        format!(
+            "{{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \
+             \"kind\": \"executable\",\n  \"resources\": {resources},\n  \
+             \"sources\": [ {{ \"root\": \"src\" }} ]\n}}"
+        )
+    }
+
+    #[test]
+    fn resources_valid_entry_is_accepted() {
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": \"data/**/*.ogg\", \"dst\": \"music/\" } ]",
+        ));
+        let manifest = validate_project_manifest(&path).expect("valid resources");
+        let entries = resource_entries(&manifest);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].src, "data/**/*.ogg");
+        assert_eq!(entries[0].dst, "music/");
+    }
+
+    #[test]
+    fn resources_absent_is_valid_and_empty() {
+        let manifest = validate_project_manifest(&write_manifest(VALID).1).expect("valid");
+        assert!(resource_entries(&manifest).is_empty());
+    }
+
+    #[test]
+    fn resources_non_array_is_rejected() {
+        let (_dir, path) = write_manifest(&manifest_with_resources("\"nope\""));
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn resources_non_object_entry_is_rejected() {
+        let (_dir, path) = write_manifest(&manifest_with_resources("[ \"nope\" ]"));
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn resources_missing_or_empty_src_is_rejected() {
+        let (_dir, path) = write_manifest(&manifest_with_resources("[ { \"dst\": \"music/\" } ]"));
+        assert!(validate_project_manifest(&path).is_err());
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": \"   \", \"dst\": \"music/\" } ]",
+        ));
+        assert!(validate_project_manifest(&path).is_err());
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": 3, \"dst\": \"music/\" } ]",
+        ));
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn resources_missing_or_nonstring_dst_is_rejected() {
+        let (_dir, path) = write_manifest(&manifest_with_resources("[ { \"src\": \"a/*.ogg\" } ]"));
+        assert!(validate_project_manifest(&path).is_err());
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": \"a/*.ogg\", \"dst\": 3 } ]",
+        ));
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn resources_escaping_dst_is_rejected() {
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": \"a/*.ogg\", \"dst\": \"/etc\" } ]",
+        ));
+        assert!(validate_project_manifest(&path).is_err());
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": \"a/*.ogg\", \"dst\": \"../out\" } ]",
+        ));
+        assert!(validate_project_manifest(&path).is_err());
+        let (_dir, path) = write_manifest(&manifest_with_resources(
+            "[ { \"src\": \"a/*.ogg\", \"dst\": \"music/../..\" } ]",
+        ));
+        assert!(validate_project_manifest(&path).is_err());
     }
 
     #[test]

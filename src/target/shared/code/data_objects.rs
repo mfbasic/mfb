@@ -162,8 +162,23 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     }
     // `os::hostName`/`userName`/`executablePath` raise ErrUnsupported when the
     // host lookup fails (no passwd entry, unreadable /proc/self/exe, …).
-    if module_uses_any_call(module, &["os.hostName", "os.userName", "os.executablePath"]) {
+    if module_uses_any_call(
+        module,
+        &[
+            "os.hostName",
+            "os.userName",
+            "os.executablePath",
+            // plan-55-B: `os.resourcePath` raises ErrUnsupported when the exe path
+            // cannot be acquired (the same failure `executablePath` handles).
+            "os.resourcePath",
+        ],
+    ) {
         push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
+    }
+    // plan-55-B: `os.resourcePath` additionally raises ErrInvalidPath when the
+    // `relative` argument contains a `.`/`..` path component.
+    if module_uses_call(module, "os.resourcePath") {
+        push_string_value(&mut values, ERR_INVALID_PATH_MESSAGE.to_string());
     }
     if module_uses_any_call(
         module,
