@@ -10,6 +10,14 @@ Mach-O/ELF container bytes (`./mfb spec linker`).
 App mode is dispatched through shared codegen hooks, with the target OS selecting
 the toolkit: AppKit on macOS, GTK4 on Linux. [[src/target/shared/code/types.rs:AppEntrySpec]]
 
+Each toolkit has its own single output shape. macOS emits a `build/<name>.app`
+bundle; Linux emits a `build/<name>.AppImage` — the AppImage type-2 runtime with
+an uncompressed SquashFS image of an AppDir concatenated at the runtime's exact
+length, which a user downloads and double-clicks. `--app-debug` retains the
+intermediate `build/<name>.AppDir` beside it, itself directly runnable via its
+`AppRun`. Neither shape emits a console `.out`. See
+`./mfb spec architecture artifacts`.
+
 ## Reading order
 
 - `macos-runtime` — the AppKit `_main` bootstrap (NSApplication/NSWindow/menu/

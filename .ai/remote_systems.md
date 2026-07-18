@@ -12,3 +12,10 @@
 - ssh -p 2231 test@127.0.0.1 # Android aarch64
 - ssh -p 2232 test@127.0.0.1 # Debian riscv64 (libc)
 
+The two GTK boxes (2226, 2228) are the app-mode proof surface: they are the only
+ones with GTK4 and FUSE, and app mode is glibc-only so the musl boxes cannot run
+it at all. A Linux AppImage **cannot be tested under emulation** — its type-2
+magic at ELF offset 8 is ignored by a real kernel but rejected by qemu-user and
+Rosetta, so `scripts/test-appimage.sh` ships the artifact to a real box rather
+than running it in a container on the Mac.
+

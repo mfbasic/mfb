@@ -128,6 +128,7 @@ package).
 | `--target os-arch` / `--target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `--app` | — | GUI app-mode runtime; at most one |
+| `--app-debug` | — | app mode, keeping the intermediate `build/<name>.AppDir` (Linux); implies `--app`; at most one |
 | `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
 | `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |
 
@@ -150,6 +151,24 @@ with the build. The signed ident is the manifest `ident` (which must belong to
 macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `--app` yields
 `mfb build accepts at most one -app option`. App mode selects
 `NativeBuildMode::LinuxApp`/`MacApp`; console builds use `NativeBuildMode::Console`.
+
+**Output shape per target.** A macOS `--app` build emits a single
+`build/<name>.app` bundle. A Linux `--app` build emits a single, directly
+executable `build/<name>.AppImage` (mode 0755) and no console `.out`; the
+intermediate AppDir the seal consumes is deleted. `--app-debug` is the same build
+with that AppDir retained beside the AppImage, for inspecting the payload that
+went in — the AppImage bytes are identical either way. `--app-debug` **implies
+`--app`**, so `--app --app-debug` is accepted and means the same thing; a
+duplicate yields `mfb build accepts at most one --app-debug option`. On
+`macos-aarch64` the flag is accepted and changes nothing, because a `.app` is a
+directory and has no intermediate to keep — a flag that changed a build's
+*validity* by target would be worse than one that changes nothing.
+[[src/target.rs:finalize_app_bundle]]
+
+The project `icon` (see `./mfb spec tooling project-manifest`) applies to Linux
+app builds as well as macOS: it is rendered to the freedesktop hicolor PNG sizes
+inside the AppDir, under the same "must decode and be exactly 1024×1024" rule the
+`.icns` pipeline enforces.
 
 Native intermediate outputs (`--nir`/`--nplan`/`--nobj`/`--ncode`/`--mir`) are **rejected
 for package projects** with the `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` diagnostic; a

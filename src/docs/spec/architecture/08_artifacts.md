@@ -47,17 +47,23 @@ artifact, the flag that produces it, and the pipeline stage it captures.[[src/cl
 | `build/<name>-glibc.out` | `mfb build` executable (Linux) | Native executable (ELF, glibc). |
 | `build/<name>-musl.out` | `mfb build` executable (Linux) | Native executable (ELF, musl). |
 | `build/<name>.app` | `mfb build --app` (macOS) | Application bundle. |
+| `build/<name>.AppImage` | `mfb build --app` (Linux) | Single-file application: the AppImage type-2 runtime with an uncompressed SquashFS image of the AppDir concatenated at the runtime's exact length. Mode 0755. |
+| `build/<name>.AppDir` | `mfb build --app-debug` (Linux) | The directory the AppImage seals: `AppRun` → `usr/bin/<name>`, `<name>.desktop`, `<name>.png` + `.DirIcon`, and `usr/share/icons/hicolor/<N>x<N>/apps/<name>.png`. Directly runnable; kept only by `--app-debug`. |
 | `build/vendor/<unit>-<source>` | `mfb build` with a `vendor` locator | A copied native library the executable's RPATH resolves. |
 | `<name>.mfp` | `mfb build` package | Compiled MFB package. |
 
 Every executable build emits into the project's `build/` directory — on Linux both
-libc flavors share the one directory, and a macOS `--app` build puts its
-`<name>.app` bundle there too. One fixed directory name rather than the project
+libc flavors share the one directory, and an app build puts its `<name>.app`
+bundle (macOS) or `<name>.AppImage` (Linux) there too. An app build emits exactly
+one artifact per platform, never a console `.out` alongside it. One fixed directory name rather than the project
 name, so a single `.gitignore` line (`build/`) covers every project's output.
 
 The directory is the unit of relocation: a build that resolves any `vendor`
 native-library locator also writes `build/vendor/` and carries an RPATH pointing
-at it, so moving `build/` elsewhere keeps the executable loadable. See
+at it, so moving `build/` elsewhere keeps the executable loadable. An app build
+places those libraries inside the artifact instead — `Contents/Frameworks/` on
+macOS, `usr/lib/` inside the AppDir (and therefore inside the AppImage) on
+Linux — with the matching RPATH. See
 `./mfb spec language native-libraries`.
 
 ## `.mfp` verification

@@ -56,8 +56,17 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
 1. `setenv("GTK_A11Y","none",1)` and `setenv("GTK_IM_MODULE","none",1)` — disables
    the a11y + input-method layers before GTK initializes; their
    `g_variant_new_string` path crashes when the worker inserts transcript text.
-2. `app = gtk_application_new("dev.mfbasic.app", G_APPLICATION_DEFAULT_FLAGS=0)`,
-   stored at `ST_APPLICATION`.
+2. `app = gtk_application_new("dev.mfbasic.<name>", G_APPLICATION_DEFAULT_FLAGS=0)`,
+   stored at `ST_APPLICATION`. The id is **derived from the project name**, not a
+   constant: the name is sanitized to `[A-Za-z0-9_]` with a `_` prefix ahead of a
+   leading digit, so `my-app` yields `dev.mfbasic.my_app`. It matches the macOS
+   `CFBundleIdentifier` and the AppDir `.desktop` entry's `StartupWMClass` — GTK4
+   sets the window's `WM_CLASS` from the application id, so a mismatch would make
+   the desktop's launcher-to-window association silently fail. The accepted
+   character set is deliberately narrower than `g_application_id_is_valid`
+   accepts, because `g_application_new` emits a `g_critical` and the app dies
+   before its first frame on an invalid id, with nothing at build time to catch
+   it. [[src/target/linux_gtk/mod.rs:gtk_app_id]]
 3. `g_signal_connect_data(app, "activate", on_activate, …)`.
 4. `g_application_run(app, argc, argv)` — forwards the real `argv` so GApplication
    platform-data is valid UTF-8. The loop owns the process until the window closes.
@@ -71,8 +80,9 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
 worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 [[src/target/linux_gtk/bootstrap.rs:emit_activate_handler]]
 
-- `gtk_application_window_new(app)` → `ST_WINDOW`; title `"MFBASIC App"`; default
-  size 900×640.
+- `gtk_application_window_new(app)` → `ST_WINDOW`; title is the **project name**
+  (matching the `.desktop` `Name=` and the macOS `CFBundleName`), not a constant;
+  default size 900×640.
 - `scrolled = gtk_scrolled_window_new()` then `g_object_ref_sink` → `ST_SCROLLED`
   (an extra ref so swapping the window child to the term:: surface and back does
   not destroy it).

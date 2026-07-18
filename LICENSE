@@ -54,6 +54,21 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+AppImage type-2 runtime
+-----------------------
+
+This project embeds the AppImage type-2 runtime binaries
+(`src/os/linux/appimage/runtime-x86_64` and `runtime-aarch64`, upstream release
+tag 20251108) **unmodified**, and concatenates one of them ahead of a SquashFS
+image to produce a `build/<name>.AppImage` for a Linux `mfb build --app`. They
+are redistributed exactly as the AppImage project publishes them.
+
+The runtime is licensed under the MIT license, Copyright (c) 2004-23 probonopd.
+Its full text — including the enumeration of the third-party code statically
+linked into the runtime binary (musl libc, libfuse under LGPL-2.1, squashfuse
+under BSD-2, libzstd, and zlib) — is shipped verbatim alongside the blobs at
+`src/os/linux/appimage/LICENSE.type2-runtime`.
+
 Unicode Data
 ------------
 

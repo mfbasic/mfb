@@ -477,9 +477,17 @@ from any working directory, and after the whole output directory is moved:
 
 | build | rpath | vendor files |
 | --- | --- | --- |
-| linux console / `--app` | `$ORIGIN/vendor` (`DT_RUNPATH`) | `build/vendor/` |
+| linux console | `$ORIGIN/vendor` (`DT_RUNPATH`) | `build/vendor/` |
+| linux `--app` | `$ORIGIN/../lib` (`DT_RUNPATH`) | `build/<name>.AppDir/usr/lib/`, and therefore inside the sealed `<name>.AppImage` |
 | macos console | `@loader_path/vendor` (`LC_RPATH`) | `build/vendor/` |
 | macos `--app` | `@executable_path/../Frameworks` (`LC_RPATH`) | `build/<name>.app/Contents/Frameworks/` |
+
+The two Linux shapes differ by exactly that one string: an app build's executable
+sits at `usr/bin/<name>` inside the AppDir, one directory below its libraries, so
+it cannot share the console build's `$ORIGIN/vendor`. Because the AppImage is a
+*sealed* file, the vendored libraries are copied into the AppDir **before** the
+seal closes it (`finalize_app_bundle` runs after `copy_vendor_libraries`); nothing
+can be added afterwards.
 
 A build with no `vendor` locators emits **no** RPATH and no vendor directory, and
 its bytes are identical to a build predating the feature. `DT_RUNPATH` (tag 29) is
