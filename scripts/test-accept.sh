@@ -15,6 +15,15 @@ FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
+# `run_with_watchdog` is built on perl, matching test-macapp.sh/test-appimage.sh.
+# perl ships with macOS, where this suite runs, and `timeout(1)` does not — but a
+# stripped Linux box can have neither (Alpine's BusyBox has `timeout` and no perl).
+# Fail here rather than let 462 fixtures each silently lose their watchdog.
+if ! command -v perl >/dev/null 2>&1; then
+  echo "test-accept.sh: perl is required for the per-fixture watchdog (bug-320)" >&2
+  exit 2
+fi
+
 # Returns 0 if $1 (relative test path) or its basename matches any filter glob,
 # or if no filters were given.
 matches_filter() {
@@ -93,6 +102,60 @@ remove_output_dir() {
   [ -d "$test_dir/build" ] || return 0
 
   rm -rf "$test_dir/build"
+}
+
+# Run a built fixture program with a watchdog and a deterministic stdin (bug-320).
+#
+# Without this, a program that never exits wedges the entire suite: no output, no
+# failing fixture, no exit code, and the per-fixture log stays buffered so tailing
+# it shows nothing either. `test-macapp.sh:run_headless` and `test-appimage.sh`
+# already establish this perl/alarm pattern; this is the same shape, except stdout
+# and stderr pass straight through rather than being summarized, because the
+# program's output lands in `build.log` and is diffed against that golden. (The
+# `<pkg>.run` file is only the marker that says "execute this fixture"; its
+# contents are never compared.)
+#
+# stdin is redirected from /dev/null by the child itself rather than inherited:
+# plan-15's broadcast reader subscribes to fd 0, and on a live pipe (what you get
+# from `nohup ... &` without a redirect) that thread blocks forever, so the program
+# completes its work and then hangs at teardown. Owning the redirect here keeps a
+# fixture's result independent of how the harness was launched.
+#
+# Exit status mirrors what the shell would have reported running the program
+# directly — 128+N on a signal, otherwise the program's own code — so existing
+# `[exit N]` goldens are unaffected. A timeout prints `timeout` into the fixture's
+# log, which diffs loudly against its `build.log` golden, and yields 99.
+#
+# The bound is deliberately far above any fixture's real runtime: it exists to
+# turn an *infinite* hang into one named failure, not to police performance. It
+# has to be, because some fixtures are legitimately slow for reasons that have
+# nothing to do with the code under test — the `tests/rt-behavior/native/*` LINK
+# fixtures `dlopen` the system `libsqlite3.dylib`, and macOS stalls 40-60s on that
+# (0s CPU, wall-clock only, duration varying with the network). A 60s bound made
+# those fixtures flaky and `native-link-alias-collision-rt` fail outright at 61s.
+# Anything that trips 300s is genuinely wedged.
+run_with_watchdog() {
+  perl -e '
+    my $limit = shift @ARGV;
+    my $pid = fork();
+    die "fork failed: $!\n" unless defined $pid;
+    if ($pid == 0) {
+      open(STDIN, "<", "/dev/null") or exit 127;
+      exec(@ARGV) or exit 127;
+    }
+    local $SIG{ALRM} = sub {
+      kill "KILL", $pid;
+      waitpid($pid, 0);
+      $| = 1;
+      print "timeout\n";
+      exit 99;
+    };
+    alarm $limit;
+    waitpid($pid, 0);
+    alarm 0;
+    my $st = $?;
+    exit(($st & 127) ? 128 + ($st & 127) : ($st >> 8));
+  ' "${MFB_ACCEPT_RUN_TIMEOUT:-300}" "$@"
 }
 
 compare_file() {
@@ -269,7 +332,7 @@ while IFS= read -r project_json; do
         run_path=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | tail -n 1)
         if [ -n "$run_path" ]; then
           echo "$ $run_path"
-          "$run_path"
+          run_with_watchdog "$run_path"
           echo "[exit $?]"
         else
           echo "error: build did not report an executable path"

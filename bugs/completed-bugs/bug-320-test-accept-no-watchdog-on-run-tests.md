@@ -5,8 +5,56 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Test infrastructure (availability)
 
-Status: Open
-Regression Test: a fixture whose program blocks forever must fail that fixture and let the suite continue, not hang
+Status: Fixed 2026-07-18
+Regression Test: `scripts/test-accept-selftest.sh`
+
+## Resolution
+
+`run_with_watchdog` wraps the `.run` execution in the same perl/`alarm` pattern
+`test-macapp.sh` and `test-appimage.sh` already use, with a 300s default bound
+(`MFB_ACCEPT_RUN_TIMEOUT` overrides). It differs from `run_headless` in passing
+stdout/stderr straight through rather than summarizing them, because the program's
+output is diffed as `build.log`. A hang prints `timeout` into that log — so it
+diffs loudly against the golden — and yields 99. Exit status otherwise mirrors what
+the shell reported before (128+N on a signal, else the program's code), so no
+existing `[exit N]` golden churns.
+
+The child opens `/dev/null` on fd 0 itself, so a fixture's result no longer depends
+on how the harness was launched.
+
+Two notes for whoever reads this next:
+
+- **The `<pkg>.run` file is a trigger, not a golden.** This report called the
+  checked-in `func_fs_pathNormalize_valid.run` stale because it holds 4 lines for 8
+  `io::print` calls. It is never compared; `scripts/test-accept.sh:305` only tests
+  its existence to decide whether to execute the fixture, and the program's output
+  is diffed as `build.log` (which was complete and correct). Nothing was stale and
+  nothing was masked.
+- **perl is now a hard requirement of the harness**, checked once at startup with
+  an actionable error rather than silently losing the watchdog on all 462 executing
+  fixtures. macOS ships perl and has no `timeout(1)`; the Alpine boxes are the
+  reverse (BusyBox `timeout`, no perl). The harness runs on macOS, so perl is the
+  right primitive, but the guard makes the dependency explicit.
+
+**This report's suggested 30–60s bound is wrong — do not restore it.** It assumed
+fixtures are fast. Some are not, for reasons unrelated to the code under test: the
+`tests/rt-behavior/native/*` LINK fixtures `dlopen` the system `libsqlite3.dylib`,
+and macOS stalls 40–60s on that — 0s CPU, pure wall clock, duration varying with
+the network (the signature of a Gatekeeper/notarization check). Measured directly:
+`native-link-const-64bit-rt` 44s, `native-link-alias-collision-rt` **61s**. At a
+60s bound the first is flaky and the second fails every run.
+
+The bound is therefore 300s. It exists to turn an *infinite* hang into one named
+failure, not to police performance, so headroom costs nothing — it only elapses on
+a fixture that is already broken.
+
+That 40–60s `dlopen` stall is a genuine (pre-existing, environment-specific) drag
+on the suite, unrelated to this bug and not fixed here. Worth filing separately.
+
+Validated by `scripts/test-accept-selftest.sh` (passthrough, exit code, 128+N on
+signal, bounded hang printing `timeout`, and `/dev/null` stdin under a live pipe —
+the last reproducing the original plan-51 trigger), plus a green acceptance run
+across all 994 tests (rt-error 132, rt-behavior 339, syntax 522, acceptance 1).
 
 `scripts/test-accept.sh` executes a fixture's program directly whenever the fixture
 ships a `<pkg>.run` golden (`:263-270`). There is **no timeout anywhere in the
