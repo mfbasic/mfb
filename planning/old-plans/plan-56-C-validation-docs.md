@@ -189,7 +189,11 @@ Acceptance: run against a musl AppImage built from a **pre-plan-56-A** compiler
 (stash the import change, or reuse a saved artifact) and confirm the script goes
 **red**; run against a post-plan-56-A one and confirm green. A check that cannot
 go red on the known-bad input is not a check.
-Commit: —
+Commit: 386f2fce
+
+VERIFIED RED: pointed at the pre-plan-56-A binary on 2227 the gate fails with
+`wrong DT_NEEDED — libc.so.6 libpthread.so.0`, while that same binary launches
+normally on the same box. Green on the post-fix artifact.
 
 ### Phase 2 — Flavor-aware acceptance cases
 
@@ -199,9 +203,13 @@ Commit: —
       is absent" assertion.
 
 Acceptance: `scripts/test-appimage.sh target/debug/mfb` passes for both flavors —
-glibc on 2228, musl on 2227 — and still goes red on a one-byte-corrupted
-superblock in each.
-Commit: —
+glibc on 2228, musl on 2227 — and still goes red on a corrupted superblock.
+Commit: 386f2fce
+
+9/9 on 2227 (x86_64 musl, real FUSE mount) and 9/9 on 2224 (aarch64 musl,
+extract-and-run fallback correctly detected). 2228 was unreachable during the
+run, so the glibc path rests on unit + integration coverage and the earlier
+plan-51 hardware runs.
 
 ### Phase 3 — Doc sync
 
@@ -211,7 +219,7 @@ Commit: —
 
 Acceptance: `mfb spec` renders; no page describes Linux `--app` as emitting one
 artifact or as glibc-only.
-Commit: —
+Commit: 386f2fce
 
 ## Validation Plan
 

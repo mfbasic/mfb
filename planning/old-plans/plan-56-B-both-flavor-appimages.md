@@ -274,7 +274,7 @@ reviewable in isolation and `tests/linux_app_mode.rs` moves in one obvious step.
 Acceptance: `mfb build --app -target linux-x86_64` emits exactly
 `build/<name>-glibc.AppImage`, byte-identical to the `<name>.AppImage` the same
 source produced before the rename.
-Commit: —
+Commit: b503fa25 (landed together with Phase 2)
 
 ### Phase 2 — Emit both flavors
 
@@ -291,7 +291,17 @@ Commit: —
 Acceptance: `mfb build --app -target linux-x86_64` emits both AppImages; each
 inner ELF carries its own flavor's interpreter; a vendoring fixture's musl image
 contains the musl blob and not the glibc one.
-Commit: —
+Commit: b503fa25
+
+Verified: the musl inner ELF names `libc.musl-x86_64.so.1` +
+`/lib/ld-musl-x86_64.so.1` and ZERO glibc sonames; `the glibc blob is correctly
+absent` passes on 2227 and 2224.
+
+⚠️ Implementation note: a vendoring project must now declare a locator for
+**both** libc worlds. `--app` emits both flavors, so a manifest covering only one
+legitimately fails with `NATIVE_LIBRARY_NO_MATCH` for the other half. That is
+correct behavior, not a regression — but it is a real compatibility consequence
+for any existing app project that vendored for glibc only.
 
 ## Validation Plan
 
