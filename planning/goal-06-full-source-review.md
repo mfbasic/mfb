@@ -637,7 +637,7 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/target/shared/code/builder_vector_inline.rs` (408 loc) — clean
 - [ ] `src/target/shared/code/code_impl.rs` (333 loc) — PENDING (agent failed)
 - [x] `src/target/shared/code/codegen_utils.rs` (765 loc) — clean
-- [ ] `src/target/shared/code/crypto.rs` (276 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/crypto.rs` (276 loc) — clean (self-reviewed)
 - [ ] `src/target/shared/code/crypto_ec.rs` (278 loc) — PENDING (agent failed)
 - [ ] `src/target/shared/code/data_objects.rs` (1334 loc) — PENDING (agent failed)
 - [ ] `src/target/shared/code/datetime.rs` (167 loc) — PENDING (agent failed)
