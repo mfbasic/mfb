@@ -1675,7 +1675,8 @@ impl TypeEnv {
         // Only a *numeric* literal can overflow a numeric range; a non-numeric
         // Const in a numeric position (e.g. a String arg where Integer is
         // expected) is an argument/assignment mismatch, not a literal overflow.
-        let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money");
+        let numeric =
+            |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Scalar");
         match value {
             IrValue::Const { type_, value } if numeric(type_) => {
                 self.check_const_literal(expected, value)
@@ -1730,6 +1731,25 @@ impl TypeEnv {
                     }
                 }
             }
+            // Scalar is a Unicode scalar value: a codepoint in 0..=0x10FFFF that
+            // is not a UTF-16 surrogate (0xD800..=0xDFFF). Source literals are
+            // range-checked at lex time; a hand-crafted `.mfp` can carry an
+            // arbitrary decimal here, so the verifier is the sole rejecter on the
+            // package-decode path (bug-265 / PKG-08).
+            "Scalar" if !value.contains('.') => {
+                let invalid = match value.parse::<u64>() {
+                    Ok(cp) => cp > 0x10_FFFF || (0xD800..=0xDFFF).contains(&cp),
+                    Err(_) => true,
+                };
+                if invalid {
+                    self.emit(
+                        "TYPE_SCALAR_LITERAL_INVALID",
+                        format!(
+                            "Scalar literal `{value}` is not a Unicode scalar value (0..1114111, excluding surrogates 55296..57343)."
+                        ),
+                    );
+                }
+            }
             // Money is exact base-10: range and excess-precision are decided by the
             // exact converter, not an `f64` bound (plan-29-A §4.4, plan-29-B).
             "Money" => match crate::numeric::money_conversion_from_decimal(value) {
@@ -1765,6 +1785,16 @@ impl TypeEnv {
                         format!("Integer literal `-{value}` is outside the Integer range."),
                     );
                 }
+            }
+            // A negative codepoint is never a Unicode scalar value (only `-0`
+            // would coincide with 0); reject the negated form outright.
+            "Scalar" if !value.contains('.') && value != "0" => {
+                self.emit(
+                    "TYPE_SCALAR_LITERAL_INVALID",
+                    format!(
+                        "Scalar literal `-{value}` is not a Unicode scalar value (0..1114111, excluding surrogates 55296..57343)."
+                    ),
+                );
             }
             "Fixed" => {
                 if let Ok(f) = value.parse::<f64>() {

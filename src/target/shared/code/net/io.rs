@@ -348,9 +348,18 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     const BUF_OFFSET: usize = 24;
     const N_OFFSET: usize = 32;
     const STR_OFFSET: usize = 40;
+    // bug-261: the per-call temporary read buffer is capped at this size instead of
+    // the caller's `maxBytes`, so a large (or attacker-influenced) `maxBytes` does
+    // not pre-commit that much memory for a `read` that delivers far fewer bytes.
+    // A single `read()` never returns more than the socket receive buffer (well
+    // under 1 MiB by default on every platform), so capping the single-read
+    // ceiling here is transparent to the documented "one underlying receive"
+    // semantics while removing the pre-allocation amplifier.
+    const READ_CHUNK_CAP: &str = "1048576"; // 1 MiB
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
+    let read_size_ok = format!("{symbol}_read_size_ok");
     let peer_closed = format!("{symbol}_peer_closed");
     let read_retry = format!("{symbol}_read_retry");
     let read_fail = format!("{symbol}_read_fail");
@@ -376,7 +385,17 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         abi::load_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
         abi::compare_immediate("%v10", "0"),
         abi::branch_le(&invalid),
-        // Allocate a temporary read buffer of maxBytes.
+        // bug-261: clamp the read size to READ_CHUNK_CAP and store it back, so both
+        // the temporary buffer allocation and the read() length use the bounded
+        // value (never the caller's raw maxBytes). Keeps alloc proportional to what
+        // a single receive can deliver.
+        abi::move_immediate("%v11", "Integer", READ_CHUNK_CAP),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_le(&read_size_ok),
+        abi::move_register("%v10", "%v11"),
+        abi::store_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
+        abi::label(&read_size_ok),
+        // Allocate a temporary read buffer of the (capped) size.
         abi::move_register(abi::return_register(), "%v10"),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);

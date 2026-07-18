@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid
+Wrote AST to tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid/crypto_ed25519_malleability_invalid.ast
+Wrote IR to tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid/crypto_ed25519_malleability_invalid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid
+Wrote executable to tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid/build/crypto_ed25519_malleability_invalid.out
+[exit 0]
+$ tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid/build/crypto_ed25519_malleability_invalid.out
+ed-good=TRUE
+ed-malleated=FALSE
+cteq-equal=TRUE
+cteq-diff=FALSE
+cteq-len=FALSE
+[exit 0]

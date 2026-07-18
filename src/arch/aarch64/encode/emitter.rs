@@ -1204,19 +1204,19 @@ impl Encoder {
                 ));
             }
             let word = match patch.kind.as_str() {
-                "b" => 0x1400_0000 | branch_imm26(patch.offset, target),
-                "b.eq" => 0x5400_0000 | (branch_imm19(patch.offset, target) << 5),
-                "b.ne" => 0x5400_0001 | (branch_imm19(patch.offset, target) << 5),
-                "b.ge" => 0x5400_000a | (branch_imm19(patch.offset, target) << 5),
-                "b.lt" => 0x5400_000b | (branch_imm19(patch.offset, target) << 5),
-                "b.gt" => 0x5400_000c | (branch_imm19(patch.offset, target) << 5),
-                "b.le" => 0x5400_000d | (branch_imm19(patch.offset, target) << 5),
-                "b.vc" => 0x5400_0007 | (branch_imm19(patch.offset, target) << 5),
-                "b.vs" => 0x5400_0006 | (branch_imm19(patch.offset, target) << 5),
-                "b.hi" => 0x5400_0008 | (branch_imm19(patch.offset, target) << 5),
-                "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target) << 5),
-                "b.mi" => 0x5400_0004 | (branch_imm19(patch.offset, target) << 5),
-                "b.ls" => 0x5400_0009 | (branch_imm19(patch.offset, target) << 5),
+                "b" => 0x1400_0000 | branch_imm26(patch.offset, target)?,
+                "b.eq" => 0x5400_0000 | (branch_imm19(patch.offset, target)? << 5),
+                "b.ne" => 0x5400_0001 | (branch_imm19(patch.offset, target)? << 5),
+                "b.ge" => 0x5400_000a | (branch_imm19(patch.offset, target)? << 5),
+                "b.lt" => 0x5400_000b | (branch_imm19(patch.offset, target)? << 5),
+                "b.gt" => 0x5400_000c | (branch_imm19(patch.offset, target)? << 5),
+                "b.le" => 0x5400_000d | (branch_imm19(patch.offset, target)? << 5),
+                "b.vc" => 0x5400_0007 | (branch_imm19(patch.offset, target)? << 5),
+                "b.vs" => 0x5400_0006 | (branch_imm19(patch.offset, target)? << 5),
+                "b.hi" => 0x5400_0008 | (branch_imm19(patch.offset, target)? << 5),
+                "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target)? << 5),
+                "b.mi" => 0x5400_0004 | (branch_imm19(patch.offset, target)? << 5),
+                "b.ls" => 0x5400_0009 | (branch_imm19(patch.offset, target)? << 5),
                 other => return Err(format!("unknown AArch64 branch patch '{other}'")),
             };
             self.text[patch.offset..patch.offset + 4].copy_from_slice(&word.to_le_bytes());

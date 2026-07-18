@@ -5,8 +5,22 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (build-time codegen)
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `src/arch/aarch64/encode/tests.rs` — `sizing_helpers_directly`
+(asserts out-of-reach imm26/imm19 and a misaligned target now return `Err`)
+
+## Resolution
+
+`branch_imm26`/`branch_imm19` (`src/arch/aarch64/encode/sizing.rs`) now delegate
+to a shared `branch_imm(source, target, bits, span)` that returns
+`Result<u32, String>`: it rejects a delta that is not a multiple of 4 (unaligned
+target) or whose word-scaled value does not fit the signed 26-/19-bit field,
+instead of masking it to a wrong address. `patch_labels`
+(`src/arch/aarch64/encode/emitter.rs`) threads `?` through each call. Valid
+in-range branches encode bit-identically (its existing bug-124 pre-check already
+rejected out-of-range spans, so the artifact output is unchanged); the helper is
+now the authoritative guard, matching the linker relocation copies fixed under
+LNK-06.
 
 The aarch64 object encoder's `branch_imm26` (`B`/`BL`, ±128 MiB) and
 `branch_imm19` (conditional/compare branches, ±1 MiB) compute the branch delta and

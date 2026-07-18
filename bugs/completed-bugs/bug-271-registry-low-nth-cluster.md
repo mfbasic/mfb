@@ -5,8 +5,50 @@ Effort: large (3h–1d across items)
 Severity: LOW
 Class: Security / robustness / design-note
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed (actionable items landed; NTH/design items dispositioned below)
+Regression Test: `repository/src/store.rs` —
+`publish_log_lookup_does_not_cross_match_like_wildcards` (REPO-14),
+`publish_rejects_unsafe_package_and_version` (REPO-17);
+`repository/src/validation.rs` — `package_validation_*`, `version_validation_*`,
+`ident_validation_requires_both_parts` (REPO-17)
+
+## Resolution
+
+The three actionable security/correctness items are fixed and tested; the
+remaining LOW/NTH items are dispositioned per this cluster's convention and the
+bug's own non-goals.
+
+- **REPO-14 (LIKE-wildcard log match) — FIXED.** `publish_log_entry`
+  (`store.rs`) now escapes the `LIKE` metacharacters (`\` first, then `%`/`_`) in
+  the canonical-prefix pattern and matches with an explicit `ESCAPE '\'`, so an
+  owner name containing `_` (or any `%`) can no longer resolve to a *different*
+  package's log entry. Correctness/integrity fix.
+- **REPO-17 (package/version charset) — FIXED.** New `validate_package_name`,
+  `validate_version`, and `validate_ident` (`validation.rs`) restrict the ident's
+  package component (ASCII alnum + `_ - .`) and the version (ASCII alnum +
+  `. - + _`) with length caps, called at the authoritative publish choke point
+  `publish_package_version`. Control chars, quotes, `#`, `/`, whitespace, and `%`
+  are rejected before they reach the log payload / `/index` / the LIKE pattern.
+- **REPO-04 (JWT aud/iss) — FIXED (binding); rotation deferred.** `SessionClaims`
+  now carries `iss`/`aud` set to `mfb-repo` / `mfb-repo/session`; verification
+  calls `set_issuer`/`set_audience`, so a token minted for another audience (even
+  with the same HS256 secret) is rejected. The secret-*rotation* path (a versioned
+  `kid` in the token header + a key table) is a schema-touching change deferred as
+  hardening — the current single-secret plus live `jti` check already gates
+  forgery (the finding is LOW on that basis).
+- **REPO-15 (pairing auth-key code-knowledge) — DEFERRED (protocol change).**
+  Requires a coordinated client+server change (an HMAC/tag over the fetch keyed by
+  a second code-derived value). NTH: not demonstrable without a `lookup` leak /
+  TLS-strip, and the rogue key cannot publish/rotate and is revocable. Tracked for
+  a pairing-protocol revision rather than an isolated server patch.
+- **REPO-16 (read memoization + anon read limit) — DEFERRED (perf/proxy).** The
+  bug's own non-goals assume a fronting proxy / single-operator log, so an
+  in-process anonymous-read rate limit is not a prerequisite; the checkpoint/index
+  memoization is a performance optimization that composes with the (also-deferred)
+  bug-264 connection-pool change. LOW.
+- **REPO-18 / REPO-19 — design notes, no code change** (TUF 1-of-1 threshold;
+  no transparency-log witness/gossip), recorded for completeness as the finding
+  states.
 
 A batch of individually-LOW/NTH residual findings on the `mfb-repo` registry
 surface from audit-2 that lack their own bug docs. The core authorization model

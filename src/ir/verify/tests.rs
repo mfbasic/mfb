@@ -1110,6 +1110,77 @@ fn accepts_byte_in_range() {
     accept(&project(vec![f], vec![]));
 }
 
+// bug-265 / PKG-08: a hand-crafted `.mfp` can carry a Scalar const the parse-time
+// range check never saw; `verify_semantics` must reject an out-of-range codepoint
+// or a UTF-16 surrogate, mirroring the Byte/Money literal-range checks.
+#[test]
+fn rejects_scalar_out_of_range() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind(
+            "c",
+            "Scalar",
+            Some(const_of("Scalar", "1114112")),
+            true,
+            false,
+        )],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_SCALAR_LITERAL_INVALID");
+}
+
+#[test]
+fn rejects_scalar_surrogate() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind(
+            "c",
+            "Scalar",
+            Some(const_of("Scalar", "55296")),
+            true,
+            false,
+        )],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_SCALAR_LITERAL_INVALID");
+}
+
+#[test]
+fn rejects_negated_scalar() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind(
+            "c",
+            "Scalar",
+            Some(unary("-", const_of("Scalar", "65"), "Scalar")),
+            true,
+            false,
+        )],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_SCALAR_LITERAL_INVALID");
+}
+
+#[test]
+fn accepts_scalar_in_range() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind(
+            "c",
+            "Scalar",
+            Some(const_of("Scalar", "1114111")),
+            true,
+            false,
+        )],
+    );
+    accept(&project(vec![f], vec![]));
+}
+
 // --- binding shape rules ---------------------------------------------------
 
 #[test]

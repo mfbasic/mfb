@@ -1,0 +1,51 @@
+' bug-262: http::read/write build the raw request by concatenating header
+' names/values and the URL-derived request-target verbatim. A `\r\n` (or any
+' control byte < 0x20) embedded in a caller header value/name — or in the URL —
+' would inject extra headers or a second request line (HTTP request splitting).
+' __http_buildRequest now FAILs ErrInvalidArgument before any connection is
+' opened, so these traps fire offline (no server required).
+IMPORT http
+IMPORT net
+IMPORT collections
+IMPORT errorCode
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+FUNC crlfHeaders AS Map OF String TO String
+  MUT h AS Map OF String TO String = Map OF String TO String {}
+  h = collections::set(h, "X-Tag", "a\r\nX-Admin: true\r\nEvil: 1")
+  RETURN h
+END FUNC
+
+FUNC nameInjectHeaders AS Map OF String TO String
+  MUT h AS Map OF String TO String = Map OF String TO String {}
+  h = collections::set(h, "X-Bad\r\nX-Admin", "value")
+  RETURN h
+END FUNC
+
+FUNC nulByteHeaders AS Map OF String TO String
+  MUT h AS Map OF String TO String = Map OF String TO String {}
+  h = collections::set(h, "X-Tag", "va\0lue")
+  RETURN h
+END FUNC
+
+TESTING
+  TGROUP "http::read rejects CR/LF in header value"
+    TCASE "injected value traps ErrInvalidArgument before dialing"
+      LET u AS net::Url = net::toUrl("http://127.0.0.1:1/api")
+      expectTrap(http::read(u, crlfHeaders()), errorCode::ErrInvalidArgument)
+    END TCASE
+    TCASE "control byte (NUL) in value is rejected"
+      LET u AS net::Url = net::toUrl("http://127.0.0.1:1/api")
+      expectTrap(http::read(u, nulByteHeaders()), errorCode::ErrInvalidArgument)
+    END TCASE
+  END TGROUP
+  TGROUP "http::write rejects CR/LF in header name"
+    TCASE "injected name traps ErrInvalidArgument before dialing"
+      LET u AS net::Url = net::toUrl("http://127.0.0.1:1/api")
+      expectTrap(http::write(u, "body", nameInjectHeaders()), errorCode::ErrInvalidArgument)
+    END TCASE
+  END TGROUP
+END TESTING

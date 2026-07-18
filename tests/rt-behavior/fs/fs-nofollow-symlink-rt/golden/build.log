@@ -9,4 +9,6 @@ $ tests/rt-behavior/fs/fs-nofollow-symlink-rt/build/fs_nofollow_symlink_rt.out
 real file contents
 
 77030003
+77030003
+direct=1
 [exit 0]

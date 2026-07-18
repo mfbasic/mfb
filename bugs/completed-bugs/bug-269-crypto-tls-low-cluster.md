@@ -5,8 +5,43 @@ Effort: small (<1h, three small items)
 Severity: LOW
 Class: Security (hardening)
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed (CRY-02/CRY-03 landed; CRY-01 dispositioned below)
+Regression Test:
+`tests/rt-behavior/crypto/crypto-ed25519-malleability-invalid` (a genuine
+signature verifies; the `R || S+L` malleation is rejected — CRY-02; and
+constantTimeEqual returns the right verdict for equal, unequal-same-length, and
+unequal-length inputs — CRY-03)
+
+## Resolution
+
+- **CRY-02 (Ed25519 malleable S) — FIXED.** `__crypto_ed25519Verify`
+  (`crypto_package.mfb`) now rejects a non-canonical `S` before verifying: a new
+  `__crypto_scalarBelowL` compares the 32-byte little-endian `S` against the group
+  order `L` (`__crypto_edL`) from the most-significant byte down and returns FALSE
+  unless `S < L`. A malleated `(R || S+L)` signature no longer verifies against the
+  same message, so signature bytes stay a stable identity (safe as a dedup/replay
+  key). Genuine signatures (whose `S` is reduced mod `L` at signing) are unaffected.
+  The software core is not otherwise switched to strict/ZIP-215 semantics.
+- **CRY-03 (constantTimeEqual length branch) — FIXED.** The length comparison is
+  folded into the accumulated `diff` (`diff = bxor(na, nb)`, then the byte loop over
+  the shared prefix) instead of an early `RETURN FALSE`, so the total time no longer
+  branches on length (in)equality. The `constantTimeEqual` man page documents the
+  behavior.
+- **CRY-01 (macOS TLS min-version floor) — DEFERRED (documented).** Pinning a
+  TLS 1.2 floor requires capturing
+  `sec_protocol_options_set_min_tls_protocol_version` in the SNI configure block
+  and calling it from the block's `invoke`. That means growing the block literal
+  (a 5th 8-byte capture), bumping the shared `CFG_DESC` block-descriptor size,
+  shifting the stack-frame offsets in both the connect and listen frames, and
+  editing the aarch64 invoke trampoline — delicate, macOS-only block-ABI surgery on
+  a hardware-validated-working TLS path. Given the LOW severity (it does not bypass
+  certificate authentication — chain + hostname are still validated — only weakens
+  the negotiated minimum, and recent macOS Network.framework already negotiates
+  TLS 1.2+ by default), the regression risk to working TLS outweighs the benefit;
+  this is tracked as a hardening item to land with dedicated macOS TLS validation.
+
+Note: the man-page and doc updates keep the embedded spec current with the CRY-02
+canonicality rejection and the CRY-03 length-timing behavior.
 
 Three individually-LOW/NTH residual findings on the crypto/TLS surface from
 audit-2 that lack their own bug docs. The surface is otherwise well-hardened

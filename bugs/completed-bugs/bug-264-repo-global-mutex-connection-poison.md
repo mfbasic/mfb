@@ -5,8 +5,29 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Availability / robustness
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `repository/src/store.rs` —
+`poisoned_connection_lock_recovers_and_keeps_serving` (poisons the connection
+mutex via a panic-while-held, then proves reads and writes still succeed)
+
+## Resolution
+
+Chose Fix Design option (b): a non-poisoning acquisition. A new
+`Store::conn(&self)` helper acquires the connection guard with
+`self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())`, recovering
+the inner guard from a `PoisonError` instead of returning "database lock poisoned"
+on every subsequent request. All 47 `self.conn.lock().map_err(...)?` call sites
+were replaced with the infallible `self.conn()`. The SQLite connection stays
+usable across a Rust panic (rusqlite statements are transactional; an in-flight
+transaction rolls back on guard drop), so recovery is correct. The rate-limiter
+mutex in `server.rs` got the same poison-recovery treatment.
+
+The single-connection serialization (the read-concurrency half of the goal) is
+left in place: it is the sanctioned trade-off of keeping one connection under
+option (b), and a connection-pool refactor would compose with REPO-16's
+read-amplification memoization (tracked in bug-271) rather than land in isolation.
+The severity driver — a single reachable panic permanently DoS-ing the whole
+registry — is removed.
 
 `mfb-repo` holds a single `Arc<Mutex<Connection>>` and takes the lock for every
 database access, reads included. This serialises the whole service on one

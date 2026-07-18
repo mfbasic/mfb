@@ -1484,14 +1484,20 @@ END FUNC
 ' Compare `a` and `b` in time independent of their contents (length is not
 ' secret). Accumulate the XOR of every byte with no early exit.
 FUNC __crypto_constantTimeEqual(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  ' bug-269 / CRY-03: fold the length comparison into the accumulated `diff`
+  ' instead of returning early on a length mismatch, so the total time does not
+  ' branch on length (in)equality. A length difference seeds `diff` non-zero, and
+  ' the per-byte compare over the shared prefix stays constant-time (bor/bxor into
+  ' `diff`). The remaining loop count (min length) is inherent and standard.
   LET na AS Integer = len(a)
   LET nb AS Integer = len(b)
-  IF na <> nb THEN
-    RETURN FALSE
+  MUT diff AS Integer = bits::bxor(na, nb)
+  MUT n AS Integer = na
+  IF nb < na THEN
+    n = nb
   END IF
-  MUT diff AS Integer = 0
   MUT i AS Integer = 0
-  WHILE i < na
+  WHILE i < n
     LET x AS Integer = toInt(collections::get(a, i))
     LET y AS Integer = toInt(collections::get(b, i))
     diff = bits::bor(diff, bits::bxor(x, y))
@@ -2199,6 +2205,28 @@ FUNC __crypto_ed25519Sign(privateKey AS List OF Byte, message AS List OF Byte) A
   RETURN __crypto_concat(bigR, bigS)
 END FUNC
 
+' bug-269 / CRY-02: TRUE iff the 32-byte little-endian scalar `s` is strictly less
+' than the group order L. Ed25519 signatures whose S component is >= L are
+' non-canonical and malleable — a third party can transform a valid signature into
+' a distinct still-verifying one over the same message without the key. Rejecting
+' S >= L keeps the signature bytes a stable identity (safe as a dedup/replay key).
+FUNC __crypto_scalarBelowL(s AS List OF Byte) AS Boolean
+  LET order AS List OF Integer = __crypto_edL()
+  MUT i AS Integer = 31
+  WHILE i >= 0
+    LET si AS Integer = toInt(collections::get(s, i))
+    LET li AS Integer = collections::get(order, i)
+    IF si < li THEN
+      RETURN TRUE
+    END IF
+    IF si > li THEN
+      RETURN FALSE
+    END IF
+    i = i - 1
+  WEND
+  RETURN FALSE
+END FUNC
+
 FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byte, signature AS List OF Byte) AS Boolean
   IF len(publicKey) <> 32 THEN
     RETURN FALSE
@@ -2218,6 +2246,11 @@ FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byte, 
   WEND
   LET bigR AS List OF Byte = __crypto_truncate(signature, 32)
   LET bigS AS List OF Byte = __crypto_slice(signature, 32, 64)
+  ' bug-269 / CRY-02: reject a non-canonical S (S >= L) before verifying, so a
+  ' malleated signature cannot verify against the same message.
+  IF __crypto_scalarBelowL(bigS) = FALSE THEN
+    RETURN FALSE
+  END IF
   MUT hInput AS List OF Byte = __crypto_concat(bigR, publicKey)
   hInput = __crypto_concat(hInput, message)
   LET h AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(hInput))

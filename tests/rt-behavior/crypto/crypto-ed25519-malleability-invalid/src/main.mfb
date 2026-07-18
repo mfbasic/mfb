@@ -1,0 +1,57 @@
+' bug-269 / CRY-02: the Ed25519 software verifier must reject a non-canonical S
+' (S >= L). Given a valid signature (R || S), the malleated signature (R || S+L)
+' verifies under a cofactored check that omits the S < L range test — letting a
+' third party derive a distinct still-verifying signature over the same message
+' without the key. With the canonicality check, the malleated form is rejected
+' while the genuine one still verifies.
+'
+' bug-269 / CRY-03: constantTimeEqual folds the length comparison into the
+' accumulated diff (no early return on a length mismatch), so equal, unequal, and
+' different-length inputs all resolve to the right boolean.
+IMPORT crypto
+IMPORT collections
+IMPORT encoding
+IMPORT bits
+IMPORT io
+
+' Return (R || S+L): copy the 32-byte R unchanged, then add the group order L to
+' the little-endian 32-byte S with carry. S < L < 2^253, so S+L < 2^254 fits in
+' 32 bytes with no overflow past the top byte.
+FUNC malleate(sig AS List OF Byte) AS List OF Byte
+  LET lbytes AS List OF Byte = encoding::hexDecode("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010")
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < 32
+    out = collections::append(out, collections::get(sig, i))
+    i = i + 1
+  WEND
+  MUT carry AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < 32
+    LET sum AS Integer = toInt(collections::get(sig, 32 + j)) + toInt(collections::get(lbytes, j)) + carry
+    out = collections::append(out, toByte(bits::band(sum, 255)))
+    carry = bits::sr(sum, 8)
+    j = j + 1
+  WEND
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  ' CRY-02: genuine signature verifies; the S+L malleation does not.
+  LET kp AS crypto::KeyPair = crypto::generateEd25519()
+  LET msg AS List OF Byte = encoding::utf8Encode("canonical-S test")
+  LET sig AS List OF Byte = crypto::ed25519Sign(kp.privateKey, msg)
+  io::print("ed-good=" & toString(crypto::ed25519Verify(kp.publicKey, msg, sig)))
+  LET mal AS List OF Byte = malleate(sig)
+  io::print("ed-malleated=" & toString(crypto::ed25519Verify(kp.publicKey, msg, mal)))
+
+  ' CRY-03: constantTimeEqual across equal, unequal-same-length, and unequal-length.
+  LET a AS List OF Byte = crypto::sha256("abc")
+  LET b AS List OF Byte = crypto::sha256("abc")
+  LET c AS List OF Byte = crypto::sha256("abd")
+  LET short AS List OF Byte = encoding::hexDecode("0102")
+  io::print("cteq-equal=" & toString(crypto::constantTimeEqual(a, b)))
+  io::print("cteq-diff=" & toString(crypto::constantTimeEqual(a, c)))
+  io::print("cteq-len=" & toString(crypto::constantTimeEqual(a, short)))
+  RETURN 0
+END FUNC

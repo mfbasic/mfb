@@ -315,13 +315,21 @@ fn lower_net_endpoint_helper(
                                      // — the real port is patched into sin_port afterward). bug-113.
     const SERVICE_OFFSET: usize = 144;
     const SERVICE_STR_OFFSET: usize = 152; // holds the bytes "0\0…"
+    // bug-261: a non-positive `timeoutMs` no longer blocks indefinitely. Instead
+    // of a plain blocking connect (which a black-holed peer or a firewall dropping
+    // SYNs wedges past any reasonable deadline), the non-positive case falls
+    // through to the same non-blocking-connect + `poll` machinery the positive
+    // case uses, seeded with this bounded default. 120 s comfortably exceeds any
+    // real TCP handshake while still bounding the wedge (docs already state the
+    // default "is not guaranteed to be unbounded").
+    const DEFAULT_CONNECT_TIMEOUT_MS: &str = "120000";
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");
     let resolve_fail = format!("{symbol}_resolve_fail");
     let socket_fail = format!("{symbol}_socket_fail");
     let op_fail = format!("{symbol}_op_fail");
-    let blocking_connect = format!("{symbol}_blocking_connect");
+    let connect_use_timeout = format!("{symbol}_connect_use_timeout");
     let nb_connected = format!("{symbol}_nb_connected");
     let connect_poll_retry = format!("{symbol}_connect_poll_retry");
     let connect_poll_ready = format!("{symbol}_connect_poll_ready");
@@ -503,13 +511,19 @@ fn lower_net_endpoint_helper(
             abi::branch_lt(&op_fail),
         ]);
     } else {
-        // `timeoutMs <= 0` uses the implementation default: a plain blocking
-        // connect. `timeoutMs > 0` performs a non-blocking connect bounded by a
-        // `poll`, then restores blocking mode.
+        // Every connect now takes the non-blocking-connect + `poll` path: a
+        // positive `timeoutMs` is honored as-is; a non-positive one (including the
+        // omitted-argument overload, which passes 0) is replaced with the bounded
+        // `DEFAULT_CONNECT_TIMEOUT_MS` so it can no longer wedge the thread forever
+        // (bug-261). Blocking mode is restored on success.
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), EXTRA_OFFSET),
             abi::compare_immediate("%v9", "0"),
-            abi::branch_le(&blocking_connect),
+            abi::branch_gt(&connect_use_timeout),
+            // Non-positive: seed the bounded default deadline, then fall through.
+            abi::move_immediate("%v9", "Integer", DEFAULT_CONNECT_TIMEOUT_MS),
+            abi::store_u64("%v9", abi::stack_pointer(), EXTRA_OFFSET),
+            abi::label(&connect_use_timeout),
             // flags = fcntl(fd, F_GETFL, 0)
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
             abi::move_immediate(abi::ARG[1], "Integer", "3"),
@@ -660,30 +674,11 @@ fn lower_net_endpoint_helper(
             &mut instructions,
             &mut relocations,
         )?;
-        instructions.extend([
-            abi::branch(&connected_done),
-            // Blocking connect path (timeoutMs <= 0).
-            abi::label(&blocking_connect),
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-            abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-            abi::load_u64(abi::ARG[1], "%v9", platform.addrinfo_addr_offset()),
-            abi::load_u32(abi::ARG[2], "%v9", 16),
-        ]);
-        platform.emit_libc_call(
-            "connect",
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
-        instructions.extend([
-            // C `int` return (blocking connect) — sign-extend before the signed
-            // compare (bug-04/bug-170).
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_lt(&op_fail),
-            abi::label(&connected_done),
-        ]);
+        // Both the caller-timeout and default-timeout connects converge here after
+        // restoring blocking mode; the old unbounded blocking-connect path (taken
+        // when timeoutMs <= 0) is gone — that case now uses the bounded default
+        // deadline above (bug-261).
+        instructions.push(abi::label(&connected_done));
     }
     // freeaddrinfo(res)
     instructions.push(abi::load_u64(
@@ -709,9 +704,10 @@ fn lower_net_endpoint_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
-    // op_fail / socket_fail: free resources then report network failure. The
-    // socket fd (if any) leaks on these rare error paths; the process-level
-    // failure is surfaced to the caller as a network error.
+    // op_fail / socket_fail: free resources then report network failure. op_fail
+    // closes the socket fd (loaded from FD_OFFSET below) before falling through to
+    // socket_fail, which frees the addrinfo — so no fd or addrinfo leaks on the
+    // error paths (bug-268 / OS-06: the earlier "fd leaks" note was stale).
     instructions.push(abi::label(&op_fail));
     instructions.push(abi::load_u64(
         abi::return_register(),

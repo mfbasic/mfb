@@ -5,8 +5,21 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `tests/rt-behavior/http/func_http_read_crlf_invalid` (CR/LF in a
+header value, a NUL control byte in a value, and CR/LF in a header name all trap
+`ErrInvalidArgument` before any connection is opened)
+
+## Resolution
+
+`http_package.mfb` gained `__http_hasControlBytes(s)` — TRUE if any byte of `s`
+is below `0x20` (iterating `strings::toBytes`). `__http_buildRequest` now
+validates every caller header (name and value) and the URL-derived
+request-target / `Host` for control bytes before any concatenation, failing
+`error(77050002, "invalid header/URL: control character")` (`ErrInvalidArgument`).
+Because building precedes the dial, a `\r\n`-bearing input is rejected rather than
+framed as an injected header or a smuggled second request line. The http package
+man page's error table documents the new rejection.
 
 `http::read`/`http::write` build the raw request by string-concatenating header
 names and values (and the request-target derived from the URL path/query/host)

@@ -36,22 +36,39 @@
     "body": [
     { "op": "bind", "line": 11, "mutable": false, "name": "real", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/real.txt" }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "real" }] } },
-    { "op": "bind", "line": 13, "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/link.txt" }] } },
+    { "op": "bind", "line": 14, "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/link.txt" }] } },
     {
       "op": "if",
-      "line": 14,
+      "line": 15,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
       "then": [
       ],
       "else": [
-      { "op": "bind", "line": 14, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
-      { "op": "assign", "line": 15, "name": "code", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
-      { "op": "eval", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "bind", "line": 15, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 16, "name": "code", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     },
-    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "code" }] }] } },
-    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "code" }] }] } },
+    { "op": "bind", "line": 23, "mutable": true, "name": "interCode", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/linkdir/secret.txt" }] } },
+    {
+      "op": "if",
+      "line": 24,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 24, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "assign", "line": 25, "name": "interCode", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "interCode" }] }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "direct", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/realdir/secret.txt" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "direct=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "direct" }] } }] } },
+    { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

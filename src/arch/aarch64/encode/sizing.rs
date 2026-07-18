@@ -135,12 +135,31 @@ pub(super) fn next_add_sub_chunk(remaining: u64) -> (u32, bool) {
     }
 }
 
-pub(super) fn branch_imm26(source: usize, target: usize) -> u32 {
+/// Encode a signed, word-scaled branch displacement into a `bits`-wide immediate
+/// field, rejecting an out-of-reach or misaligned target instead of masking it to
+/// a wrong address (bug-267 / LNK-11). Mirrors the reach-checking the linker
+/// relocation copies do (LNK-06); the object-encoder twins previously truncated.
+fn branch_imm(source: usize, target: usize, bits: u32, span: &str) -> Result<u32, String> {
     let delta = target as isize - source as isize;
-    ((delta / 4) as i32 as u32) & 0x03ff_ffff
+    if delta % 4 != 0 {
+        return Err(format!(
+            "AArch64 branch displacement {delta} is not a multiple of 4 (unaligned target)"
+        ));
+    }
+    let words = delta / 4;
+    let limit = 1_isize << (bits - 1);
+    if words < -limit || words >= limit {
+        return Err(format!(
+            "AArch64 branch displacement {delta} is out of range (exceeds {span})"
+        ));
+    }
+    Ok((words as i32 as u32) & ((1u32 << bits) - 1))
 }
 
-pub(super) fn branch_imm19(source: usize, target: usize) -> u32 {
-    let delta = target as isize - source as isize;
-    ((delta / 4) as i32 as u32) & 0x0007_ffff
+pub(super) fn branch_imm26(source: usize, target: usize) -> Result<u32, String> {
+    branch_imm(source, target, 26, "±128 MiB")
+}
+
+pub(super) fn branch_imm19(source: usize, target: usize) -> Result<u32, String> {
+    branch_imm(source, target, 19, "±1 MiB")
 }

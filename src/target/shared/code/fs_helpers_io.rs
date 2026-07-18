@@ -576,6 +576,12 @@ pub(super) fn lower_fs_open_helper(
     let done = format!("{symbol}_done");
 
     let flags = open_flag_set(platform.target(), no_follow);
+    // bug-260 / OS-04: on Linux, `openFileNoFollow` resolves the path with
+    // `openat2(RESOLVE_NO_SYMLINKS)` so a symlink at ANY component (not just the
+    // terminal one that `O_NOFOLLOW` guards) is refused. macOS gets the same
+    // whole-path guarantee from `O_NOFOLLOW_ANY` in `open_flag_set`, so only Linux
+    // needs the extra syscall path.
+    let linux_nofollow = platform.target().starts_with("linux") && no_follow;
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let mode = vregs.next();
@@ -583,6 +589,10 @@ pub(super) fn lower_fs_open_helper(
     let flag_val = vregs.next();
     let fd = vregs.next();
     let len0 = vregs.next();
+    let how_scratch = vregs.next();
+    let how_mode_bit = vregs.next();
+    let openat2_errno = vregs.next();
+    let openat2_mode_zero = format!("{symbol}_openat2_mode_zero");
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
@@ -729,6 +739,68 @@ pub(super) fn lower_fs_open_helper(
         abi::label(&append),
         abi::move_immediate(&flag_val, "Integer", flags.append),
         abi::label(&flags_done),
+    ]);
+    // bug-260: Linux `openFileNoFollow` resolves via `openat2` with
+    // `RESOLVE_NO_SYMLINKS`, rejecting a symlink at any path component in one
+    // syscall. On a kernel without `openat2` (`ENOSYS`, pre-5.6 or a restrictive
+    // seccomp filter) it falls through to the plain `open` + terminal `O_NOFOLLOW`
+    // below — the prior best-effort behavior. `open_how { flags, mode, resolve }`
+    // is built in the 24-byte stack local at `sp+0`.
+    if linux_nofollow {
+        instructions.extend([
+            abi::store_u64(&flag_val, abi::stack_pointer(), 0), // how.flags
+            // how.mode = 0o600 only when O_CREAT (0x40) is set — openat2 rejects a
+            // nonzero mode without O_CREAT/O_TMPFILE with EINVAL; otherwise 0.
+            abi::move_immediate(&how_scratch, "Integer", "0"),
+            abi::move_immediate(&how_mode_bit, "Integer", "64"),
+            abi::and_registers(&how_mode_bit, &flag_val, &how_mode_bit),
+            abi::compare_immediate(&how_mode_bit, "0"),
+            abi::branch_eq(&openat2_mode_zero),
+            abi::move_immediate(&how_scratch, "Integer", "384"),
+            abi::label(&openat2_mode_zero),
+            abi::store_u64(&how_scratch, abi::stack_pointer(), 8), // how.mode
+            abi::move_immediate(&how_scratch, "Integer", "4"),
+            abi::store_u64(&how_scratch, abi::stack_pointer(), 16), // how.resolve = RESOLVE_NO_SYMLINKS
+            // syscall(SYS_openat2 = 437, AT_FDCWD = -100, cpath, &how, sizeof = 24).
+            // Routed through libc `syscall` so failure is the standard -1 + errno.
+            // The syscall number is arg 0 of `syscall()`, so it goes in ARG[0]
+            // (never the return register — %ret0 is call-clobbered and a def there
+            // with no use before the call would be dropped on aarch64).
+            abi::move_immediate(abi::ARG[0], "Integer", "437"),
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 100), // AT_FDCWD
+            abi::move_register(abi::ARG[2], &c_path),
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0), // &how
+            abi::move_immediate(abi::ARG[4], "Integer", "24"),
+        ]);
+        platform.emit_variadic_call(
+            "syscall",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            // C `int` fd — sign-extend before the signed compare (bug-04/bug-170).
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ge(&open_ok),
+        ]);
+        // Negative: ENOSYS means openat2 is unavailable — fall through to the plain
+        // open below; any other errno is a real failure mapped as usual.
+        platform.emit_errno(
+            symbol,
+            &openat2_errno,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate(&openat2_errno, "38"), // ENOSYS
+            abi::branch_ne(&open_error),
+        ]);
+    }
+    instructions.extend([
         abi::move_register(abi::return_register(), &c_path),
         abi::move_register(abi::ARG[1], &flag_val),
         // Create newly-opened files owner-only (0o600 = 384), not world-readable
@@ -833,7 +905,13 @@ pub(super) fn lower_fs_open_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    // Reserve the 24-byte `open_how` scratch at sp+0 only for the Linux no-follow
+    // path that builds it; every other flavor keeps the byte-identical frame.
+    let (frame, stack_slots) = if linux_nofollow {
+        finalize_vreg_body_with_locals(&mut instructions, &[], 24)
+    } else {
+        finalize_vreg_body(&mut instructions, &[])
+    };
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -2270,11 +2348,17 @@ pub(super) fn open_flag_set(target: &str, no_follow: bool) -> OpenFlagSet {
             read_write: "514",
             append: "521",
         },
+        // macOS no-follow: `O_NOFOLLOW_ANY` (0x2000_0000 = 536870912) instead of
+        // `O_NOFOLLOW` (0x100). O_NOFOLLOW guards only the terminal component;
+        // O_NOFOLLOW_ANY (Darwin, macOS 11+) fails with ELOOP if a symlink is
+        // encountered at *any* path component, closing the intermediate-symlink
+        // gap in one open() with no component walk (bug-260 / OS-04). The base
+        // read/write/rw/append flags are unchanged.
         (false, true) => OpenFlagSet {
-            read: "256",
-            write: "1793",
-            read_write: "770",
-            append: "777",
+            read: "536870912",
+            write: "536872449",
+            read_write: "536871426",
+            append: "536871433",
         },
     }
 }

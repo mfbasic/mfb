@@ -5,8 +5,31 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `src/os/linux/link/tests.rs` —
+`dynamic_elf_relro_covers_the_dynamic_segment` (asserts a page-aligned
+PT_GNU_RELRO covering the DYNAMIC/GOT on all three arches); the e_phnum/interp
+assertions in the existing dynamic-ELF tests were bumped for the added header.
+Hardware-validated: built and run on x86_64 (glibc + musl), aarch64 (glibc +
+musl), and riscv64 (glibc + musl) — every binary runs and `readelf -l` shows
+GNU_RELRO covering DT_PLTGOT and PT_DYNAMIC.
+
+## Resolution
+
+`DynamicPayload::build` now page-aligns the dynamic payload base
+(`data_base_offset = align(data.len(), PAGE_SIZE)`), so the GOT/`.dynamic` start on
+a fresh page after the mutable arena global; the twin offset computation in
+`dynamic_prefix_size` (which bakes the GOT address into each import stub) was
+page-aligned to match, or the first imported call would jump through the wrong
+address (found via a startup segfault during remote validation, then fixed).
+`encode_dynamic_elf` pads the payload end to a page (`relro_end`), extends the
+writable `PT_LOAD` to cover it, and emits a `PT_GNU_RELRO` (type `0x6474e552`,
+flags R) over `[relro_start, relro_end)` — the page-aligned GOT/`.dynamic`,
+page-disjoint from the still-writable arena global below it. `e_phnum` is bumped
+accordingly. Applies to all three arches (they share `encode_dynamic_elf`).
+`readelf -l` confirms the RELRO segment [GOT+.dynamic] is read-only after startup
+binding; `DF_BIND_NOW` (kept) resolves the GOT before RELRO freezes it. macOS
+output is unchanged (already protected via `__DATA_CONST`/`SG_READ_ONLY`).
 
 Emitted Linux executables set `DT_FLAGS = DF_BIND_NOW` (all relocations resolved
 at startup) but never emit a `PT_GNU_RELRO` program header, and the GOT and

@@ -1257,8 +1257,14 @@ fn sizing_helpers_directly() {
     let (chunk, shifted) = next_add_sub_chunk(100);
     assert!(!shifted && chunk == 100);
     // Branch displacements are word-scaled and masked.
-    assert_eq!(branch_imm26(0, 8), 2);
-    assert_eq!(branch_imm19(0, 8), 2);
+    assert_eq!(branch_imm26(0, 8).unwrap(), 2);
+    assert_eq!(branch_imm19(0, 8).unwrap(), 2);
     // A negative delta wraps into the masked field.
-    assert_ne!(branch_imm26(8, 0), 0);
+    assert_ne!(branch_imm26(8, 0).unwrap(), 0);
+    // bug-267: an out-of-reach or misaligned target is an encoder error, not a
+    // silently truncated encoding. imm26 reaches ±128 MiB, imm19 only ±1 MiB.
+    assert!(branch_imm26(0, 1 << 28).is_err()); // > +128 MiB
+    assert!(branch_imm19(0, 1 << 21).is_err()); // > +1 MiB
+    assert!(branch_imm19(0, 1 << 19).unwrap() != 0); // in range for imm19
+    assert!(branch_imm26(0, 2).is_err()); // unaligned (not a multiple of 4)
 }

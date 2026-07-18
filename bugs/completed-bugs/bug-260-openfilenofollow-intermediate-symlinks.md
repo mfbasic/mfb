@@ -5,8 +5,41 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `tests/rt-behavior/fs/fs-nofollow-symlink-rt` — extended with an
+intermediate directory symlink (`data/linkdir -> realdir`): opening
+`linkdir/secret.txt` now traps `ErrAccessDenied` (77030003), while a clean
+`realdir/secret.txt` still opens. Hardware-validated: x86_64/aarch64/riscv64 ×
+glibc/musl (a repro with an intermediate + a final symlink; both refused, a
+non-symlink path opens) and macOS.
+
+## Resolution
+
+`openFileNoFollow` now refuses a symlink at ANY path component, not just the last:
+
+- **macOS**: the no-follow flag set (`open_flag_set`) uses `O_NOFOLLOW_ANY`
+  (`0x2000_0000`) instead of `O_NOFOLLOW` (`0x100`). O_NOFOLLOW_ANY fails with
+  ELOOP if a symlink is met at any component, in one `open()` with no walk.
+- **Linux**: `lower_fs_open_helper` routes the Linux no-follow case through
+  `openat2(AT_FDCWD, path, &open_how{flags, mode, resolve=RESOLVE_NO_SYMLINKS}, 24)`
+  via the libc `syscall` wrapper (import added to the three Linux plans). The
+  `open_how.mode` is `0o600` only when `O_CREAT` is set (openat2 rejects a nonzero
+  mode otherwise with EINVAL) and `0` for read/read-write. On `ENOSYS` (a kernel
+  older than 5.6, or a restrictive seccomp filter) it falls back to the prior
+  plain `open` + terminal `O_NOFOLLOW` (best-effort). The syscall number is passed
+  in `ARG[0]`, not the return register — a def in `%ret0` (call-clobbered) with no
+  use before the call is dropped on aarch64 (found and fixed during remote
+  validation: aarch64/riscv64 initially failed, x86_64 passed).
+
+ELOOP maps to `ErrAccessDenied` for a no-follow open, as before. The plain
+follow-allowed `fs::open`/`fs::openFile` path is untouched, and the 24-byte
+`open_how` stack local is reserved only for the Linux no-follow flavor (every
+other flavor keeps a byte-identical frame). Man page updated to state the
+whole-path guarantee.
+
+Composes with bug-259 (OS-03): the same kernel-anchored resolution primitives
+(openat2 RESOLVE_*, O_NOFOLLOW_ANY) are the building blocks for the containment
+open there.
 
 `fs::openFileNoFollow` is meant to refuse to open a symlink, but it adds
 `O_NOFOLLOW` to the **terminal** `open` only. Every intermediate directory in the

@@ -22,11 +22,12 @@ const PT_GNU_STACK: u32 = 0x6474_e551;
 /// (plan-43). It rides in the header/text gap, inside the text `PT_LOAD`'s file
 /// range, so `readelf -n` and the mapped image both see it.
 const PT_NOTE: u32 = 4;
-/// `PT_GNU_RELRO`: the segment made read-only after the dynamic loader finishes
-/// relocations, covering the GOT so a post-relocation write cannot hijack it
-/// (LNK-03 / bug-186). Wired once the bug-187 const/mutable data partition
-/// page-isolates the GOT from the writable arena global.
-#[allow(dead_code)]
+/// `PT_GNU_RELRO`: marks the sub-range of the writable segment (GOT + `.dynamic`)
+/// the loader must `mprotect` back to read-only once startup relocation finishes,
+/// removing the GOT-overwrite target `DF_BIND_NOW` alone would leave writable
+/// (bug-263 / LNK-03). Now wired: the bug-187 const/mutable partition plus the
+/// page-aligned dynamic payload page-isolate the GOT from the writable arena
+/// global.
 const PT_GNU_RELRO: u32 = 0x6474_e552;
 /// `R_*_RELATIVE` dynamic relocation types: `*(base + r_offset) = base + addend`.
 /// Used to bias the absolute `DT_INIT_ARRAY` function pointers into a PIE.

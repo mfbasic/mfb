@@ -219,10 +219,10 @@ pub(super) fn encode_dynamic_elf(
     // When present it is carved into its own R `PT_LOAD`, leaving the arena global
     // and the dynamic payload in the writable one.
     let rodata_size = image.rodata_size.min(data.len());
-    // PHDR, INTERP, LOAD(text), LOAD(data-rw), DYNAMIC, GNU_STACK, NOTE (plan-43)
-    // — plus a leading R LOAD for the constant partition when there is one
-    // (bug-187).
-    let ph_count = if rodata_size > 0 { 8_u16 } else { 7_u16 };
+    // PHDR, INTERP, LOAD(text), LOAD(data-rw), DYNAMIC, GNU_RELRO, GNU_STACK, NOTE
+    // (plan-43) — plus a leading R LOAD for the constant partition when there is
+    // one (bug-187). The GNU_RELRO header is the bug-263 addition.
+    let ph_count = if rodata_size > 0 { 9_u16 } else { 8_u16 };
     let interp = interpreter(arch, flavor).as_bytes();
     let interp_offset = 64 + ph_count as usize * 56;
     // The provenance note shares the header/text gap with the interpreter string;
@@ -235,7 +235,15 @@ pub(super) fn encode_dynamic_elf(
     let data_offset = align(text_offset + text.len(), PAGE_SIZE);
     let data_vmaddr = DYN_IMAGE_BASE + data_offset as u64;
     let data_file_size = data.len() + dynamic.bytes.len();
-    let file_size = data_offset + data_file_size;
+    // bug-263: the dynamic payload (GOT/.dynamic) is page-aligned inside `data`'s
+    // trailing region (see `DynamicPayload::build`). `relro_start` is that page
+    // boundary; pad the payload end up to `relro_end` so PT_GNU_RELRO covers whole
+    // pages (glibc rounds the RELRO end down to a page, so an unpadded tail page of
+    // `.dynamic` would be left writable). The arena global lives below
+    // `relro_start` and stays read-write.
+    let relro_start = align(data.len(), PAGE_SIZE);
+    let relro_end = align(data_file_size, PAGE_SIZE);
+    let file_size = data_offset + relro_end;
     let dynamic_offset = data_offset + data.len() + dynamic.dynamic_offset;
     let dynamic_vmaddr = data_vmaddr + data.len() as u64 + dynamic.dynamic_offset as u64;
     let dynamic_size = dynamic.dynamic_size;
@@ -315,10 +323,13 @@ pub(super) fn encode_dynamic_elf(
         );
     }
     // Writable data: the mutable suffix of `data` (arena global + runtime globals)
-    // plus the dynamic payload (GOT/.rela/.dynamic), which must stay R+W.
+    // plus the dynamic payload (GOT/.rela/.dynamic). The whole segment is mapped
+    // R+W; PT_GNU_RELRO below re-protects the GOT/.dynamic pages to R after
+    // binding. `rw_size` runs to the page-aligned payload end (`relro_end`) so the
+    // padded RELRO pages are backed by this load.
     let rw_offset = data_offset + rodata_size;
     let rw_vmaddr = data_vmaddr + rodata_size as u64;
-    let rw_size = data_file_size - rodata_size;
+    let rw_size = relro_end - rodata_size;
     program_header(
         &mut bytes,
         1,
@@ -341,9 +352,23 @@ pub(super) fn encode_dynamic_elf(
         dynamic_size as u64,
         8,
     );
+    // PT_GNU_RELRO (bug-263 / LNK-03): the loader `mprotect`s this range back to
+    // read-only after startup relocation, so the GOT and `.dynamic` — which
+    // `DF_BIND_NOW` fully resolves at startup — are no longer a writable
+    // control-flow-hijack target. The range is the page-aligned dynamic payload,
+    // page-disjoint from the still-writable arena global below `relro_start`.
+    program_header(
+        &mut bytes,
+        PT_GNU_RELRO,
+        4,
+        (data_offset + relro_start) as u64,
+        data_vmaddr + relro_start as u64,
+        data_vmaddr + relro_start as u64,
+        (relro_end - relro_start) as u64,
+        (relro_end - relro_start) as u64,
+        1,
+    );
     // PT_GNU_STACK: mark the stack non-executable (R+W, no X) — LNK-02 / bug-186.
-    // (PT_GNU_RELRO is deferred to compose with the bug-187 const/mutable data
-    // partition, which page-isolates the GOT from the writable arena global.)
     program_header(&mut bytes, PT_GNU_STACK, 6, 0, 0, 0, 0, 0, 0x10);
     // PT_NOTE: the `MFBasic\0` provenance marker (plan-43).
     note_program_header(&mut bytes, DYN_IMAGE_BASE, note_offset, note.len());
@@ -496,7 +521,14 @@ struct DynamicPayload {
 impl DynamicPayload {
     fn build(arch: &str, flavor: LinuxFlavor, image: &EncodedImage) -> Result<Self, String> {
         let payload_start = image.data.len();
-        let data_base_offset = align(image.data.len(), 8);
+        // Page-align the dynamic payload (dynstr/dynsym/.rela/GOT/.dynamic) so it
+        // starts on a fresh page after the mutable arena global. This isolates the
+        // GOT/.dynamic onto their own pages, letting PT_GNU_RELRO freeze them
+        // read-only after startup binding without also freezing the writable arena
+        // global (bug-263 / LNK-03). Every downstream offset derives from this
+        // base, so the shift propagates through the GOT/relocation/DT vmaddrs with
+        // no other change; the leading gap becomes zero padding in `bytes`.
+        let data_base_offset = align(image.data.len(), PAGE_SIZE);
         let mut libraries = Vec::<String>::new();
         for import in &image.imports {
             if !libraries.contains(&import.library) {
@@ -897,7 +929,10 @@ pub(super) fn dynamic_prefix_size(image: &EncodedImage) -> usize {
         // segfaults on its first imported call, long before it reaches the
         // `dlopen` the runpath exists for.
         + runpath_dynstr_len(image);
-    let dynstr_offset = align(image.data.len(), 8);
+    // Must match DynamicPayload::build's page-aligned payload base (bug-263): the
+    // GOT offset baked into each import stub has to land where the GOT actually
+    // sits, or the first imported call jumps through the wrong address.
+    let dynstr_offset = align(image.data.len(), PAGE_SIZE);
     let dynsym_offset = align(dynstr_offset + dynstr_len, 8);
     let dynsym_size = (image.imports.len() + 1) * 24;
     let hash_offset = align(dynsym_offset + dynsym_size, 8);

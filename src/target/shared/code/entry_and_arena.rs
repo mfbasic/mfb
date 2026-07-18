@@ -1738,6 +1738,12 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         abi::shift_left_immediate(&bin_class, &bin_class, 3),
         abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_class),
         abi::load_u64(&bin_head, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        // Idempotency guard (allocator-03 parity, bug-266): if `ptr` is already the
+        // bin head, this is an immediate double-free — pushing again would set
+        // `ptr.next = ptr` (a self-cycle) and hand `ptr` back to the next two
+        // allocations. Skip the push and return, matching `insert_already_free`.
+        abi::compare_registers(&ptr, &bin_head),
+        abi::branch_eq("arena_free_done"),
         abi::store_u64(&bin_head, &ptr, 0),
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
@@ -1758,6 +1764,10 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         abi::shift_left_immediate(&bin_class, &bin_class, 3),
         abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_class),
         abi::load_u64(&bin_head, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        // Idempotency guard (allocator-03 parity, bug-266): an immediate double-free
+        // of a large chunk already at the bin head would self-cycle it; skip.
+        abi::compare_registers(&ptr, &bin_head),
+        abi::branch_eq("arena_free_done"),
         abi::store_u64(&bin_head, &ptr, 0),
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),

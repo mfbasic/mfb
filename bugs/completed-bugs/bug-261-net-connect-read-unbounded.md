@@ -5,8 +5,29 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security (availability)
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `tests/rt-behavior/net/func_net_connectTcp_valid` (all connect
+overloads, including the no-timeout forms, now route through the poll path and
+succeed on loopback), `func_net_read_valid` / `func_net_readText_valid` (capped
+read buffer returns the same bytes)
+
+## Resolution
+
+Connect (`net/mod.rs`): every connect now takes the non-blocking-connect + `poll`
+path. A positive `timeoutMs` is honored as-is; a non-positive one (including the
+omitted-argument overload, which passes 0) is replaced with the bounded
+`DEFAULT_CONNECT_TIMEOUT_MS` (120 s) and raises `ErrTimeout` on elapse instead of
+blocking indefinitely. The old unbounded blocking-connect path was removed.
+
+Read (`net/io.rs`): the temporary read buffer is clamped to `READ_CHUNK_CAP`
+(1 MiB) — used for both the allocation and the `read()` length — so a large or
+attacker-influenced `maxBytes` no longer pre-commits that much memory for a
+receive that delivers far fewer bytes. A single `read()` never returns more than
+the socket receive buffer, so the documented "one underlying receive" semantics
+are unchanged. `connectTcp` man page updated to describe the bounded default.
+
+Note: the read-serialization/SSRF-adjacent items OS-08/OS-07 remain by-design and
+are tracked in bug-268; this bug covers OS-05 (connect + read).
 
 Two unbounded-resource footguns on the net surface. (1) `net.connect` called with
 `timeoutMs <= 0` takes a fully blocking connect path with no ceiling — a stalled

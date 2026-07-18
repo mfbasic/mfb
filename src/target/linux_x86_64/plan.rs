@@ -259,6 +259,11 @@ impl NativePlanPlatform for Platform {
                     // temp file, so the helper needs the `unlink` wrapper too.
                     imports.push(self.libc_import("unlink", spec.symbol));
                 }
+                if matches!(spec.call, "fs.openFileNoFollow") {
+                    // bug-260: openFileNoFollow uses openat2(RESOLVE_NO_SYMLINKS) via
+                    // the libc `syscall` wrapper to reject symlinks at any component.
+                    imports.push(self.libc_import("syscall", spec.symbol));
+                }
                 imports
             }
             "fs.canonicalPath" | "fs.isWithin" => vec![

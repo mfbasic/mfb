@@ -447,11 +447,12 @@ fn write_executable_x86_dynamic_covers_all_reloc_kinds() {
     )
     .expect("link x86 dynamic elf");
     let bytes = std::fs::read(&path).unwrap();
-    // EM_X86_64 PIE (ET_DYN) dynamic ELF: 7 program headers (incl. PT_GNU_STACK
-    // and the plan-43 PT_NOTE), interpreter present (bug-186).
+    // EM_X86_64 PIE (ET_DYN) dynamic ELF: 8 program headers (incl. PT_GNU_STACK,
+    // the plan-43 PT_NOTE, and the bug-263 PT_GNU_RELRO), interpreter present
+    // (bug-186).
     assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3); // ET_DYN
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62);
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 7);
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 8);
     assert!(has_gnu_stack(&bytes), "PT_GNU_STACK must be present");
     assert!(bytes
         .windows(b"ld-linux-x86-64.so.2".len())
@@ -1244,9 +1245,9 @@ fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
         u32::from_le_bytes(bytes[48..52].try_into().unwrap()) & 0x4,
         0x4
     );
-    // 7 program headers (dynamic + PT_GNU_STACK + the plan-43 PT_NOTE) and the
-    // riscv64 interpreter path.
-    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 7);
+    // 8 program headers (dynamic + PT_GNU_RELRO (bug-263) + PT_GNU_STACK + the
+    // plan-43 PT_NOTE) and the riscv64 interpreter path.
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 8);
     assert!(has_gnu_stack(&bytes), "PT_GNU_STACK must be present");
     assert!(bytes
         .windows(b"ld-linux-riscv64".len())
@@ -1338,7 +1339,10 @@ fn dynamic_elf_carries_the_mfbasic_provenance_note_past_the_interpreter() {
         let (offset, descriptor) = mfb_note(&bytes).expect("PT_NOTE owned by MFBasic");
         assert_eq!(descriptor, mfb_note_descriptor());
         // Past the interpreter string and still inside the gap below the text.
-        let interp_offset = 64 + 7 * 56;
+        // 8 program headers with no rodata partition (PHDR, INTERP, LOAD-text,
+        // LOAD-data, DYNAMIC, GNU_RELRO, GNU_STACK, NOTE) — the GNU_RELRO header is
+        // the bug-263 addition.
+        let interp_offset = 64 + 8 * 56;
         assert_eq!(&bytes[interp_offset..interp_offset + interp.len()], interp);
         assert!(offset >= interp_offset + interp.len() + 1);
         assert!(offset + 12 + 8 + descriptor.len() <= TEXT_FILE_OFFSET);
@@ -1388,6 +1392,56 @@ fn has_gnu_stack(bytes: &[u8]) -> bool {
         let base = phoff + i * 56;
         u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap()) == 0x6474_e551
     })
+}
+
+/// The `(p_vaddr, p_memsz)` of a program header of `p_type`, if present.
+#[cfg(test)]
+fn phdr_range(bytes: &[u8], p_type: u32) -> Option<(u64, u64)> {
+    let phoff = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+    let phnum = u16::from_le_bytes([bytes[56], bytes[57]]) as usize;
+    (0..phnum).find_map(|i| {
+        let base = phoff + i * 56;
+        if u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap()) != p_type {
+            return None;
+        }
+        let vaddr = u64::from_le_bytes(bytes[base + 16..base + 24].try_into().unwrap());
+        let memsz = u64::from_le_bytes(bytes[base + 40..base + 48].try_into().unwrap());
+        Some((vaddr, memsz))
+    })
+}
+
+/// bug-263 / LNK-03: a dynamic ELF emits PT_GNU_RELRO, page-aligned, fully
+/// covering the DYNAMIC segment (and therefore the GOT that precedes it), so the
+/// loader re-protects the GOT/.dynamic read-only after BIND_NOW relocation.
+/// Hardware-validated on x86_64/aarch64/riscv64 × glibc/musl (the binaries run and
+/// `readelf -l` shows GNU_RELRO covering DT_PLTGOT and PT_DYNAMIC).
+#[test]
+fn dynamic_elf_relro_covers_the_dynamic_segment() {
+    const PT_DYNAMIC: u32 = 2;
+    const PT_GNU_RELRO: u32 = 0x6474_e552;
+    for arch in ["aarch64", "x86_64", "riscv64"] {
+        let image = glob_dat_image("libc.so.6");
+        let bytes = encode_dynamic_elf(
+            arch,
+            LinuxFlavor::Glibc,
+            0,
+            &image.text,
+            &image.data,
+            &image,
+        )
+        .expect("dynamic elf");
+        let (relro_vaddr, relro_size) =
+            phdr_range(&bytes, PT_GNU_RELRO).expect("PT_GNU_RELRO present");
+        assert_eq!(relro_vaddr % 0x1000, 0, "{arch}: RELRO start is page-aligned");
+        let (dyn_vaddr, dyn_size) =
+            phdr_range(&bytes, PT_DYNAMIC).expect("PT_DYNAMIC present");
+        assert!(
+            relro_vaddr <= dyn_vaddr && dyn_vaddr + dyn_size <= relro_vaddr + relro_size,
+            "{arch}: RELRO [{relro_vaddr:#x}, {:#x}) must cover DYNAMIC [{dyn_vaddr:#x}, {:#x})",
+            relro_vaddr + relro_size,
+            dyn_vaddr + dyn_size,
+        );
+    }
 }
 
 /// Decode the `.dynamic` section's `DT_RUNPATH` (tag 29) strings from a dynamic

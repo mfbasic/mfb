@@ -5,8 +5,36 @@ Effort: medium (1h–2h, several small items)
 Severity: LOW
 Class: Security / robustness / dead-code
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed (OS-11/OS-06 landed; OS-10/OS-08/OS-07 documented)
+Regression Test: OS-11 exercised by
+`tests/rt-behavior/http/http_server_loopback` (the client now connects with a
+bounded timeout + read deadline and completes the loopback exchange, 5/5)
+
+## Resolution
+
+- **OS-11 (HTTP client no timeouts) — FIXED.** `http_package.mfb` adds
+  `__HTTP_CONNECT_TIMEOUT_MS`/`__HTTP_READ_TIMEOUT_MS` (30 s). `__http_exchangeTcp`
+  connects with the bounded timeout and sets a per-read deadline
+  (`net::setReadTimeout`); `__http_exchangeTls` connects with the bounded timeout
+  (the TLS surface has no per-read timeout; the 64 MiB response cap bounds a
+  stalled read's memory). A slow/black-holed peer now fails with a timeout instead
+  of wedging the thread. Composes with bug-261 (the connect default deadline).
+- **OS-06 (stale net-fd leak comment) — FIXED.** The comment in `net/mod.rs` that
+  claimed the socket fd leaks on the error paths was corrected: `op_fail` closes
+  the fd and `socket_fail` frees the addrinfo, so nothing leaks.
+- **OS-10 (HTTP SSRF) — DOCUMENTED (by design).** No correctness change: a
+  default-deny host policy would break legitimate localhost clients. The http
+  package man page now states plainly that the client applies no SSRF filtering
+  (scheme-only URL validation, no redirect following) and that a caller forwarding
+  untrusted URLs must apply its own host allow/deny policy.
+- **OS-08 (cooperative cancel) — DOCUMENTED (by design).** `thread::cancel`/`drop`
+  remain cooperative flags; the man page already documents the cooperative model.
+  The bounded HTTP/connect deadlines above make a stalled exchange fail on its own
+  rather than requiring forced preemption.
+- **OS-07 (process-global chdir) — DOCUMENTED (by design).**
+  `fs::setCurrentDirectory` man page now states the working directory is
+  process-global, not per-thread, so relative-path fs ops are not thread-isolated
+  and a program needing per-thread resolution must build absolute paths.
 
 A batch of individually-LOW residual findings on the fs/net/http surface from
 audit-2 that lack their own bug docs. Each item is independently addressable; two

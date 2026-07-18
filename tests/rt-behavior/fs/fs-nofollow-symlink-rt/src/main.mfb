@@ -10,11 +10,24 @@ END FUNC
 FUNC main AS Integer
   LET real AS String = fs::readText("tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/real.txt")
   io::print(real)
+  ' A symlink at the FINAL component is refused (ErrAccessDenied / ELOOP).
   MUT code AS Integer = 0
   openNoFollow("tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/link.txt") TRAP(e)
     code = e.code
     RECOVER 0
   END TRAP
   io::print(toString(code))
+  ' bug-260: a symlink at an INTERMEDIATE component (linkdir -> realdir) is now
+  ' refused too — on macOS via O_NOFOLLOW_ANY, on Linux via openat2
+  ' RESOLVE_NO_SYMLINKS. Before the fix this opened realdir/secret.txt.
+  MUT interCode AS Integer = 0
+  openNoFollow("tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/linkdir/secret.txt") TRAP(e)
+    interCode = e.code
+    RECOVER 0
+  END TRAP
+  io::print(toString(interCode))
+  ' A path with no symlink components still opens normally.
+  LET direct AS Integer = openNoFollow("tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/realdir/secret.txt")
+  io::print("direct=" & toString(direct))
   RETURN 0
 END FUNC

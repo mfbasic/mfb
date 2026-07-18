@@ -5,8 +5,21 @@ Effort: small (<1h)
 Severity: LOW
 Class: Memory-safety (defense-in-depth)
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: covered by the arena stress paths in the acceptance suite (the
+guard is emitted into every binary's `arena_free`; not demonstrable from `.mfb`
+source, per the finding — no runtime input forces a double-free)
+
+## Resolution
+
+Both bin park sequences in `lower_arena_free` (`entry_and_arena.rs`) now compare
+`ptr` against the loaded bin head (`bin[slot]`) before the head-push and branch to
+the `arena_free_done` no-op on equality — mirroring the `arena_insert_free`
+idempotency guard (allocator-03 / MEM-03). An immediate double-free of a bin-sized
+chunk (quick bin `≤ ARENA_QUICK_BIN_MAX`, or a hashed large-bin chunk) is now a
+no-op instead of self-cycling `ptr.next = ptr` and handing the same pointer back
+to the next two allocations. The non-double-free O(1) fast path is unchanged (one
+extra compare/branch on the free path).
 
 `arena_free` was hardened (MEM-03) with an idempotency guard so a double-free
 becomes a no-op instead of corrupting the free list — but that guard lives only

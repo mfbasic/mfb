@@ -39,7 +39,14 @@ impl RateLimiter {
     /// the last `window_secs`.
     fn allow(&self, key: &str, max: usize, window_secs: i64) -> bool {
         let now = now_unix();
-        let mut hits = self.hits.lock().expect("rate limiter poisoned");
+        // Recover a poisoned lock rather than panicking every subsequent call: a
+        // panic while this lock was held must not wedge rate limiting for the
+        // whole process (bug-264 / REPO-09). The hit map is plain data with no
+        // cross-field invariant a mid-panic leaves broken.
+        let mut hits = self
+            .hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let entry = hits.entry(key.to_string()).or_default();
         entry.retain(|timestamp| now - *timestamp < window_secs);
         if entry.len() >= max {
@@ -52,7 +59,14 @@ impl RateLimiter {
     /// Drop keys whose windows have fully elapsed, so the map stays bounded.
     fn prune(&self, window_secs: i64) {
         let now = now_unix();
-        let mut hits = self.hits.lock().expect("rate limiter poisoned");
+        // Recover a poisoned lock rather than panicking every subsequent call: a
+        // panic while this lock was held must not wedge rate limiting for the
+        // whole process (bug-264 / REPO-09). The hit map is plain data with no
+        // cross-field invariant a mid-panic leaves broken.
+        let mut hits = self
+            .hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         hits.retain(|_key, times| {
             times.retain(|timestamp| now - *timestamp < window_secs);
             !times.is_empty()
@@ -577,6 +591,14 @@ pub struct HealthResponse {
     pub ok: bool,
 }
 
+/// JWT issuer/audience binding (REPO-04). A session token is minted by this
+/// issuer for this registry's session audience, and verification requires the
+/// exact pair — so a token minted for a different service or audience (even one
+/// signed with the same HS256 secret) cannot be replayed against the session
+/// endpoints here.
+const SESSION_TOKEN_ISSUER: &str = "mfb-repo";
+const SESSION_TOKEN_AUDIENCE: &str = "mfb-repo/session";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SessionClaims {
     pub sub: String,
@@ -585,6 +607,10 @@ pub struct SessionClaims {
     pub iat: i64,
     pub exp: i64,
     pub jti: String,
+    /// Issuer (REPO-04) — always `SESSION_TOKEN_ISSUER`; validated on decode.
+    pub iss: String,
+    /// Audience (REPO-04) — always `SESSION_TOKEN_AUDIENCE`; validated on decode.
+    pub aud: String,
 }
 
 /// Maximum inline request body (plan-10-D2): caps the base64 artifact carried
@@ -1655,6 +1681,8 @@ async fn login(
         iat: issued_at,
         exp: expires_at,
         jti: jwt_id.clone(),
+        iss: SESSION_TOKEN_ISSUER.to_string(),
+        aud: SESSION_TOKEN_AUDIENCE.to_string(),
     };
     let secret = state.store.server_secret().map_err(internal)?;
     let token = encode(
@@ -2114,6 +2142,10 @@ pub fn verify_session_token(store: &Store, token: &str) -> Result<SessionClaims,
     let secret = store.server_secret()?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
+    // REPO-04: bind the token to this issuer/audience. `set_audience` also adds
+    // `aud` to the required claims, so a token missing either binding is rejected.
+    validation.set_issuer(&[SESSION_TOKEN_ISSUER]);
+    validation.set_audience(&[SESSION_TOKEN_AUDIENCE]);
     let decoded = decode::<SessionClaims>(token, &DecodingKey::from_secret(&secret), &validation)
         .map_err(|_| "expired or malformed session token".to_string())?;
     if !store.session_exists(&decoded.claims.jti)? {
@@ -2214,6 +2246,8 @@ mod tests {
             iat: issued_at,
             exp: expires_at,
             jti: jwt_id.clone(),
+            iss: SESSION_TOKEN_ISSUER.to_string(),
+            aud: SESSION_TOKEN_AUDIENCE.to_string(),
         };
         let token = encode(
             &Header::new(Algorithm::HS256),
@@ -2255,6 +2289,8 @@ mod tests {
             iat: issued_at,
             exp: expires_at,
             jti: jwt_id.clone(),
+            iss: SESSION_TOKEN_ISSUER.to_string(),
+            aud: SESSION_TOKEN_AUDIENCE.to_string(),
         };
         let token = encode(
             &Header::new(Algorithm::HS256),
@@ -2825,6 +2861,8 @@ mod tests {
             iat: issued_at,
             exp: issued_at + 3600,
             jti: jwt_id.clone(),
+            iss: SESSION_TOKEN_ISSUER.to_string(),
+            aud: SESSION_TOKEN_AUDIENCE.to_string(),
         };
         let token = encode(
             &Header::new(Algorithm::HS256),
@@ -3630,6 +3668,8 @@ mod tests {
             iat: now - 7200,
             exp: now - 3600,
             jti: expired_jti.clone(),
+            iss: SESSION_TOKEN_ISSUER.to_string(),
+            aud: SESSION_TOKEN_AUDIENCE.to_string(),
         };
         let expired_token = encode(
             &Header::new(Algorithm::HS256),
@@ -3657,6 +3697,8 @@ mod tests {
             iat: now,
             exp: now + 3600,
             jti: Uuid::new_v4().to_string(),
+            iss: SESSION_TOKEN_ISSUER.to_string(),
+            aud: SESSION_TOKEN_AUDIENCE.to_string(),
         };
         let unknown_token = encode(
             &Header::new(Algorithm::HS256),

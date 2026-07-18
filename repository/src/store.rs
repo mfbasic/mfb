@@ -1,5 +1,5 @@
 use crate::crypto;
-use crate::validation::{fold_owner, validate_owner_name};
+use crate::validation::{fold_owner, validate_ident, validate_owner_name, validate_version};
 use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
@@ -121,11 +121,23 @@ impl Store {
         })
     }
 
-    pub fn migrate(&self) -> Result<(), String> {
-        let conn = self
-            .conn
+    /// Acquire the connection guard, recovering from a poisoned lock rather than
+    /// failing every subsequent request forever. A Rust panic while the lock was
+    /// held would otherwise poison the `Mutex` permanently — a single reachable
+    /// panic in any critical section becoming a full-service DoS (bug-264 /
+    /// REPO-09). The SQLite connection itself stays usable across a panic:
+    /// rusqlite statements are transactional and any in-flight transaction rolls
+    /// back when its guard drops, so the correct response to a `PoisonError` is to
+    /// take the inner guard and carry on. The failed request has already errored;
+    /// other requests continue to serve.
+    fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn
             .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn migrate(&self) -> Result<(), String> {
+        let conn = self.conn();
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS owners (
@@ -329,10 +341,7 @@ impl Store {
         let auth_fingerprint = crypto::fingerprint(auth_key);
         let ident_fingerprint = crypto::fingerprint(ident_key);
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start registration transaction: {err}"))?;
@@ -417,10 +426,7 @@ impl Store {
         fingerprint: &str,
     ) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
         let folded = fold_owner(owner);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT o.id, o.owner_display, k.id, k.public_key, k.fingerprint
              FROM owners o
@@ -455,10 +461,7 @@ impl Store {
         role: &str,
     ) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
         let folded = fold_owner(owner);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT o.id, o.owner_display, k.id, k.public_key, k.fingerprint
              FROM owners o
@@ -496,10 +499,7 @@ impl Store {
         version: &str,
         signing_fingerprint: &str,
     ) -> Result<(), String> {
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start signing transaction: {err}"))?;
@@ -576,10 +576,7 @@ impl Store {
         rand::thread_rng().fill_bytes(&mut nonce);
         let created_at = now_unix();
         let expires_at = created_at + 300;
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO auth_challenges
              (id, owner_id, key_id, nonce, created_at, expires_at, used_at)
@@ -609,10 +606,7 @@ impl Store {
     ) -> Result<i64, String> {
         let now = now_unix();
         let expires_at = now + 600;
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         // Housekeeping: expired blobs are dead weight; drop them here so no
         // background reaper is needed (full rate-limiting is plan-10-D).
         conn.execute(
@@ -644,10 +638,7 @@ impl Store {
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
         let folded = fold_owner(owner);
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start pairing transaction: {err}"))?;
@@ -698,10 +689,7 @@ impl Store {
         crypto::verify(public_key, &message, proof)
             .map_err(|_| "invalid auth proof-of-possession signature".to_string())?;
         let fingerprint = crypto::fingerprint(public_key);
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start link transaction: {err}"))?;
@@ -759,10 +747,7 @@ impl Store {
 
         let fingerprint = crypto::fingerprint(new_public);
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start rotation transaction: {err}"))?;
@@ -821,10 +806,7 @@ impl Store {
         }
         let fingerprint = crypto::fingerprint(new_public);
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start re-anchor transaction: {err}"))?;
@@ -868,10 +850,7 @@ impl Store {
         owner: &str,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64)>, String> {
         let folded = fold_owner(owner);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let mut statement = conn
             .prepare(
                 "SELECT old_keys.public_key, new_keys.public_key, c.signature, c.created_at
@@ -899,10 +878,7 @@ impl Store {
     /// (plan-23 §3.6). Returns false when no current auth key matches.
     pub fn revoke_auth_key(&self, owner_id: i64, fingerprint: &str) -> Result<bool, String> {
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start revocation transaction: {err}"))?;
@@ -977,10 +953,7 @@ impl Store {
         signature: &[u8],
         message: impl Fn(&str, &[u8]) -> Vec<u8>,
     ) -> Result<(OwnerRecord, KeyRecord), String> {
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start login transaction: {err}"))?;
@@ -1040,10 +1013,7 @@ impl Store {
 
     pub fn insert_session(&self, session: &NewSession) -> Result<String, String> {
         let id = Uuid::new_v4().to_string();
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO sessions (id, owner_id, key_id, jwt_id, issued_at, expires_at, revoked_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
@@ -1061,10 +1031,7 @@ impl Store {
     }
 
     pub fn session_exists(&self, jwt_id: &str) -> Result<bool, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let exists: Option<i64> = conn
             .query_row(
                 "SELECT 1 FROM sessions WHERE jwt_id = ?1 AND revoked_at IS NULL",
@@ -1077,10 +1044,7 @@ impl Store {
     }
 
     pub fn server_secret(&self) -> Result<Vec<u8>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT secret FROM server_secrets WHERE id = 1",
             [],
@@ -1090,10 +1054,7 @@ impl Store {
     }
 
     pub fn count_owners(&self) -> Result<i64, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row("SELECT COUNT(*) FROM owners", [], |row| row.get(0))
             .map_err(|err| format!("failed to count owners: {err}"))
     }
@@ -1102,10 +1063,7 @@ impl Store {
     /// Each row carries the version, content hash, publish time, and current
     /// release state; the transparency-log entry is resolved separately.
     pub fn list_package_versions(&self, ident: &str) -> Result<Vec<PackageVersionRow>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let mut statement = conn
             .prepare(
                 "SELECT pv.version, pv.hash, pv.created_at, pv.state, pv.abi_index
@@ -1134,10 +1092,7 @@ impl Store {
     }
 
     pub fn package_version_exists(&self, ident: &str, version: &str) -> Result<bool, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let exists: Option<i64> = conn
             .query_row(
                 "SELECT 1
@@ -1155,10 +1110,7 @@ impl Store {
     /// Total `package_versions` rows across every package this owner owns — the
     /// quantity bounded by the per-owner publish quota (bug-188 / REPO-13).
     pub fn owner_version_count(&self, owner_id: i64) -> Result<i64, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT COUNT(*) FROM package_versions v
              JOIN packages p ON v.package_id = p.id
@@ -1178,11 +1130,15 @@ impl Store {
         blob_path: &str,
         abi_index: &str,
     ) -> Result<PublishedVersion, String> {
+        // REPO-17: validate the ident's package component and the version against
+        // an explicit safe charset/length before either reaches the log payload,
+        // the `/index` route, or the REPO-14 log-lookup pattern. The owner half is
+        // also re-checked here (validate_ident), the authoritative publish choke
+        // point that every publish path funnels through.
+        validate_ident(ident)?;
+        validate_version(version)?;
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start publish transaction: {err}"))?;
@@ -1244,10 +1200,7 @@ impl Store {
     /// Resolve an owner name to its row (any account: user or org).
     fn owner_record(&self, owner: &str) -> Result<Option<OwnerRecord>, String> {
         let folded = fold_owner(owner);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, owner_display FROM owners WHERE owner_folded = ?1 AND status = 'active'",
             params![folded],
@@ -1268,10 +1221,7 @@ impl Store {
     pub fn org_member_role(&self, org: &str, member: &str) -> Result<Option<String>, String> {
         let org_folded = fold_owner(org);
         let member_folded = fold_owner(member);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT m.role
              FROM org_members m
@@ -1298,10 +1248,7 @@ impl Store {
             return Err("unknown member account".to_string());
         };
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start org transaction: {err}"))?;
@@ -1336,10 +1283,7 @@ impl Store {
         let Some(member_record) = self.owner_record(member)? else {
             return Err("unknown member account".to_string());
         };
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start org transaction: {err}"))?;
@@ -1371,10 +1315,7 @@ impl Store {
     /// The org's members as `(member_display, role)`, oldest first.
     pub fn list_org_members(&self, org: &str) -> Result<Vec<(String, String)>, String> {
         let org_folded = fold_owner(org);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let mut statement = conn
             .prepare(
                 "SELECT u.owner_display, m.role
@@ -1429,10 +1370,7 @@ impl Store {
         let fingerprint = crypto::fingerprint(token_public);
         let now = now_unix();
         let expires_at = now + ttl_secs;
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start token transaction: {err}"))?;
@@ -1478,10 +1416,7 @@ impl Store {
         &self,
         key_id: i64,
     ) -> Result<Option<(String, i64, Option<i64>)>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT scope, expires_at, revoked_at FROM publish_tokens WHERE key_id = ?1",
             params![key_id],
@@ -1498,10 +1433,7 @@ impl Store {
             return Err("unknown owner".to_string());
         };
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start token revoke transaction: {err}"))?;
@@ -1554,10 +1486,7 @@ impl Store {
     /// The account that currently owns a package (may differ from the ident
     /// string's owner after a transfer).
     pub fn package_owner(&self, ident: &str) -> Result<Option<OwnerRecord>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT o.id, o.owner_display
              FROM packages p JOIN owners o ON o.id = p.owner_id
@@ -1595,10 +1524,7 @@ impl Store {
             return Err("cannot transfer a package to its current owner".to_string());
         }
         let package_id: i64 = {
-            let conn = self
-                .conn
-                .lock()
-                .map_err(|_| "database lock poisoned".to_string())?;
+            let conn = self.conn();
             conn.query_row(
                 "SELECT id FROM packages WHERE ident = ?1",
                 params![ident],
@@ -1607,10 +1533,7 @@ impl Store {
             .map_err(|err| format!("failed to load package: {err}"))?
         };
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
@@ -1648,10 +1571,7 @@ impl Store {
             return Err("unknown recipient account".to_string());
         };
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
@@ -1713,10 +1633,7 @@ impl Store {
         let (snapshot_public, snapshot_private) = crypto::generate_keypair();
         let (timestamp_public, timestamp_private) = crypto::generate_keypair();
         let now = now_unix();
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let previous_version: i64 = conn
             .query_row(
                 "SELECT root_version FROM registry_config WHERE id = 1",
@@ -1775,10 +1692,7 @@ impl Store {
     /// The signed `root.json` and its delegated online keypairs, if the root
     /// ceremony has been run.
     pub fn registry_config(&self) -> Result<Option<RegistryConfig>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT registry_id, root_public, root_json, root_signature,
                     snapshot_public, snapshot_private, timestamp_public, timestamp_private
@@ -1805,10 +1719,7 @@ impl Store {
     /// hash, state)` tuple, sorted — so a snapshot can attest to the exact
     /// index state and a mirror serving a stale or partial index is detected.
     pub fn index_canonical_hash(&self) -> Result<String, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let mut statement = conn
             .prepare(
                 "SELECT p.ident, pv.version, pv.hash, pv.state
@@ -1849,10 +1760,7 @@ impl Store {
         state: &str,
     ) -> Result<LogEntryRef, String> {
         let now = now_unix();
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start release-state transaction: {err}"))?;
@@ -1903,10 +1811,7 @@ impl Store {
     /// deleted/closed across the three tables.
     pub fn reap_expired(&self) -> Result<usize, String> {
         let now = now_unix();
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let mut total = 0usize;
         total += conn
             .execute(
@@ -1932,10 +1837,7 @@ impl Store {
     /// Existing package idents within edit distance 1 of `ident` (excluding an
     /// exact match) — the warn-only typosquat check at publish (plan-10-D2).
     pub fn typosquat_candidates(&self, ident: &str) -> Result<Vec<String>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let mut statement = conn
             .prepare("SELECT ident FROM packages")
             .map_err(|err| format!("failed to prepare typosquat query: {err}"))?;
@@ -1954,10 +1856,7 @@ impl Store {
 
     /// The number of transparency-log entries (the tree size).
     pub fn log_size(&self) -> Result<i64, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row("SELECT COUNT(*) FROM log_entries", [], |row| row.get(0))
             .map_err(|err| format!("failed to size the log: {err}"))
     }
@@ -1965,10 +1864,7 @@ impl Store {
     /// The ordered leaf hashes of the first `size` log entries (the whole
     /// log when `size` is None).
     pub fn log_leaf_hashes(&self, size: Option<i64>) -> Result<Vec<[u8; 32]>, String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let limit = size.unwrap_or(i64::MAX);
         let mut statement = conn
             .prepare("SELECT leaf_hash FROM log_entries WHERE idx < ?1 ORDER BY idx ASC")
@@ -1997,18 +1893,26 @@ impl Store {
     ) -> Result<Option<LogEntryRef>, String> {
         let payload_ident = json_value(ident);
         let payload_version = json_value(version);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         // publish payloads are canonical (`{"ident":...,"version":...,"hash":...}`),
         // so a prefix match on the two identity fields is exact.
         let prefix = format!("{{\"ident\":{payload_ident},\"version\":{payload_version},");
+        // REPO-14: `_` and `%` in the ident/version are SQL `LIKE` wildcards. Owner
+        // names admit `_` and package/version are otherwise unconstrained, so an
+        // un-escaped prefix could match a *different* package's log entry —
+        // corrupting the inclusion-proof mapping a client verifies. Escape the
+        // metacharacters (`\` first, then `%`/`_`) and match with an explicit
+        // `ESCAPE`, appending the single intended trailing wildcard.
+        let escaped = prefix
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("{escaped}%");
         conn.query_row(
             "SELECT idx, leaf_hash FROM log_entries
-             WHERE kind = 'publish' AND payload LIKE ?1 || '%'
+             WHERE kind = 'publish' AND payload LIKE ?1 ESCAPE '\\'
              ORDER BY idx ASC LIMIT 1",
-            params![prefix],
+            params![pattern],
             |row| {
                 let index: i64 = row.get(0)?;
                 let raw: Vec<u8> = row.get(1)?;
@@ -2030,10 +1934,7 @@ impl Store {
 
     #[cfg(test)]
     pub fn force_expire_challenge(&self, challenge_id: &str) -> Result<(), String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.execute(
             "UPDATE auth_challenges SET expires_at = ?1 WHERE id = ?2",
             params![now_unix() - 1, challenge_id],
@@ -2046,10 +1947,7 @@ impl Store {
     /// the server holds. It signs attestations (and, later, log checkpoints);
     /// it can never produce a user proof. Generated once on first run.
     fn ensure_server_keypair(&self) -> Result<(), String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let exists: Option<i64> = conn
             .query_row("SELECT 1 FROM server_keys WHERE id = 1", [], |row| {
                 row.get(0)
@@ -2070,10 +1968,7 @@ impl Store {
     /// The server keypair. The private half must never leave the server
     /// process: it is used only to sign, and no route returns it.
     pub fn server_keypair(&self) -> Result<(Vec<u8>, Vec<u8>), String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         conn.query_row(
             "SELECT public_key, private_key FROM server_keys WHERE id = 1",
             [],
@@ -2087,10 +1982,7 @@ impl Store {
     }
 
     fn ensure_server_secret(&self) -> Result<(), String> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?;
+        let conn = self.conn();
         let exists: Option<i64> = conn
             .query_row("SELECT 1 FROM server_secrets WHERE id = 1", [], |row| {
                 row.get(0)
@@ -2299,6 +2191,99 @@ mod tests {
         assert_eq!(ident_key.public_key, keys.ident_public);
         assert_ne!(auth_key.fingerprint, ident_key.fingerprint);
         assert_eq!(store.count_owners().unwrap(), 1);
+    }
+
+    #[test]
+    fn poisoned_connection_lock_recovers_and_keeps_serving() {
+        // bug-264 / REPO-09: a panic while the connection lock is held must not
+        // permanently wedge the registry. Poison the mutex, then prove subsequent
+        // reads and writes still succeed — the poison is recovered, not propagated
+        // as "database lock poisoned" on every following request.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe({
+            let store = store.clone();
+            move || {
+                let _guard = store.conn.lock().unwrap();
+                panic!("boom while holding the connection lock");
+            }
+        }));
+        assert!(poisoned.is_err());
+        assert!(store.conn.is_poisoned());
+
+        // The service continues despite the poisoned lock.
+        assert_eq!(store.count_owners().unwrap(), 1);
+        register_keys(&store, "bob");
+        assert_eq!(store.count_owners().unwrap(), 2);
+    }
+
+    #[test]
+    fn publish_log_lookup_does_not_cross_match_like_wildcards() {
+        // REPO-14: an owner name may contain `_`, a SQL LIKE wildcard. The
+        // publish-log lookup must match ident/version literally — not let `_`
+        // (or `%`) resolve to a *different* package's entry, which would corrupt
+        // the inclusion-proof mapping a client verifies.
+        let (_temp, store) = test_store();
+        register_keys(&store, "axb");
+        let axb_id = store.owner_with_ident_key("axb").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(axb_id, "axb#pkg", "1.0.0", "hash", "path", "{}")
+            .unwrap();
+
+        // The real entry resolves.
+        assert!(store
+            .publish_log_entry("axb#pkg", "1.0.0")
+            .unwrap()
+            .is_some());
+        // A distinct ident that only matches under LIKE-wildcard semantics must
+        // NOT resolve to axb's entry.
+        assert!(store
+            .publish_log_entry("a_b#pkg", "1.0.0")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .publish_log_entry("axb#pkg", "1.0.%")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn publish_rejects_unsafe_package_and_version() {
+        // REPO-17: the ident's package component and the version are restricted to
+        // a safe charset before they can reach the log payload / index / LIKE
+        // pattern. Control chars, quotes, `#`, `%`, `/`, and whitespace are out.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for ident in [
+            "alice#pk g",
+            "alice#pk\"g",
+            "alice#pk%g",
+            "alice#pk/g",
+            "alice#pk\ng",
+            "alice#",
+            "no-hash",
+        ] {
+            assert!(
+                store
+                    .publish_package_version(id, ident, "1.0.0", "h", "p", "{}")
+                    .is_err(),
+                "{ident} should be rejected"
+            );
+        }
+        for version in ["1.0 0", "1.0\"0", "1.0%0", "1/0", "1.0\n0", ""] {
+            assert!(
+                store
+                    .publish_package_version(id, "alice#pkg", version, "h", "p", "{}")
+                    .is_err(),
+                "{version} should be rejected"
+            );
+        }
+        // A clean publish still works.
+        assert!(store
+            .publish_package_version(id, "alice#pkg", "1.0.0", "h", "p", "{}")
+            .is_ok());
     }
 
     #[test]

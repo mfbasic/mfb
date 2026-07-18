@@ -26,6 +26,14 @@ END TYPE
 
 LET __HTTP_MAX_RESPONSE AS Integer = 67108864
 
+' bug-268 / OS-11: bounded default connect and per-read deadlines so a slow or
+' black-holed peer (or a stalled DNS) cannot wedge the calling thread forever.
+' With cooperative-only cancellation (OS-08) an unbounded blocking read would be
+' uninterruptible; these deadlines make a stalled exchange fail cleanly with a
+' timeout instead. 30 s comfortably exceeds a healthy request/response.
+LET __HTTP_CONNECT_TIMEOUT_MS AS Integer = 30000
+LET __HTTP_READ_TIMEOUT_MS AS Integer = 30000
+
 ' Grapheme index of `needle` in `s` at or after `start`, or -1 when absent.
 ' `strings::find` is inline-expanded and cannot be wrapped in an inline TRAP, so
 ' presence is checked first with `contains`.
@@ -116,8 +124,34 @@ FUNC __http_isExtraHeader(name AS String) AS Boolean
   RETURN TRUE
 END FUNC
 
+' bug-262: TRUE if `s` carries any byte below 0x20 (in particular CR 0x0D / LF
+' 0x0A). A header name/value or a URL-derived request-target holding such a byte
+' would, once concatenated verbatim into the raw request, let a caller embed
+' `\r\n` and inject extra headers or a whole second request line — HTTP request
+' splitting/smuggling against the upstream. Rejecting (not stripping) prevents a
+' silently truncated header.
+FUNC __http_hasControlBytes(s AS String) AS Boolean
+  FOR EACH b IN strings::toBytes(s)
+    IF toInt(b) < 32 THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
 FUNC __http_buildRequest(method AS String, url AS net::Url, body AS String, hasBody AS Boolean, headers AS Map OF String TO String) AS String
   LET crlf AS String = __http_crlf()
+  ' bug-262: validate every caller header (name and value) and the URL-derived
+  ' request-target / Host for control bytes before any concatenation, so a
+  ' `\r\n`-bearing input FAILs rather than framing a smuggled request.
+  FOR EACH entry IN headers
+    IF __http_hasControlBytes(entry.key) OR __http_hasControlBytes(entry.value) THEN
+      FAIL error(77050002, "invalid header: control character")
+    END IF
+  NEXT
+  IF __http_hasControlBytes(__http_requestTarget(url)) OR __http_hasControlBytes(__http_hostHeader(url)) THEN
+    FAIL error(77050002, "invalid URL: control character")
+  END IF
   MUT request AS String = method & " " & __http_requestTarget(url) & " HTTP/1.1" & crlf
   request = request & "Host: " & __http_headerValue(headers, "Host", __http_hostHeader(url)) & crlf
   request = request & "User-Agent: " & __http_headerValue(headers, "User-Agent", "mfb-http/1") & crlf
@@ -281,7 +315,10 @@ END FUNC
 ' ---- Transport branches (§B.5) ----
 
 FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS String
-  RES sock = net::connectTcp(url.host, url.port)
+  ' bug-268 / OS-11: bounded connect + per-read deadlines so a slow/stalled peer
+  ' cannot wedge the calling thread indefinitely.
+  RES sock = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
+  net::setReadTimeout(sock, __HTTP_READ_TIMEOUT_MS)
   net::writeText(sock, requestText)
   MUT raw AS String = ""
   MUT more AS Boolean = TRUE
@@ -305,7 +342,9 @@ FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS String
 END FUNC
 
 FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS String
-  RES sock = tls::connect(url.host, url.port, 0, url.host)
+  ' bug-268 / OS-11: bounded TLS connect deadline (the TLS surface has no
+  ' per-read timeout; the 64 MiB response cap bounds a stalled read's memory).
+  RES sock = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
   tls::writeText(sock, requestText)
   MUT raw AS String = ""
   MUT more AS Boolean = TRUE

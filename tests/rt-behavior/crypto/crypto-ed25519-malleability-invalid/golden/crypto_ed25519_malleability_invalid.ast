@@ -1,0 +1,84 @@
+{
+  "project": "crypto_ed25519_malleability_invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "crypto", "line": 11 },
+    { "module": "collections", "line": 12 },
+    { "module": "encoding", "line": 13 },
+    { "module": "bits", "line": 14 },
+    { "module": "io", "line": 15 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "malleate",
+      "line": 20,
+      "params": [
+      { "name": "sig", "type": "List OF Byte", "default": null, "line": 20 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "lbytes", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010" }] }, "line": 21 },
+      { "kind": "binding", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 22 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 23 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "32" } },
+        "line": 24,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "sig" }, { "kind": "identifier", "value": "i" }] }] }, "line": 25 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 26 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "carry", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
+      { "kind": "binding", "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 29 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "32" } },
+        "line": 30,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "sum", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "sig" }, { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "32" }, "right": { "kind": "identifier", "value": "j" } }] }] }, "right": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "lbytes" }, { "kind": "identifier", "value": "j" }] }] } }, "right": { "kind": "identifier", "value": "carry" } }, "line": 31 },
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "sum" }, { "kind": "number", "value": "255" }] }] }] }, "line": 32 },
+        { "kind": "assignment", "name": "carry", "value": { "kind": "call", "callee": "bits.sr", "arguments": [{ "kind": "identifier", "value": "sum" }, { "kind": "number", "value": "8" }] }, "line": 33 },
+        { "kind": "assignment", "name": "j", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "1" } }, "line": 34 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 36 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 39,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "kp", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generateEd25519", "arguments": [] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "canonical-S test" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "sig", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.ed25519Sign", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "msg" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ed-good=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.ed25519Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "sig" }] }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "mal", "type": "List OF Byte", "value": { "kind": "call", "callee": "malleate", "arguments": [{ "kind": "identifier", "value": "sig" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ed-malleated=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.ed25519Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "mal" }] }] } }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.sha256", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.sha256", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 50 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.sha256", "arguments": [{ "kind": "string", "value": "abd" }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "short", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "0102" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cteq-equal=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cteq-diff=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "c" }] }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cteq-len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "short" }] }] } }] }, "line": 55 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 56 }
+      ]
+    }
+    ]
+  }
+  ]
+}

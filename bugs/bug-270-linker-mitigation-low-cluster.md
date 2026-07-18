@@ -5,8 +5,57 @@ Effort: large (3h–1d across items)
 Severity: LOW
 Class: Security (defense-in-depth)
 
-Status: Open
-Regression Test: (none yet)
+Status: Assessed — all three items consciously deferred (rationale below); no safe
+unconditional change is available today. No regression risk introduced.
+Regression Test: (none — no code change)
+
+## Resolution (assessment)
+
+Each item was investigated (LNK-10 empirically). All three are LOW defense-in-depth
+mitigations that are either infeasible as a straight change, gated on
+infrastructure that does not exist, or feature-scale codegen; none is a broken
+guarantee. They are recorded here as tracked hardening features with implementation
+sketches, matching the repo's low-severity-cluster convention.
+
+- **LNK-10 — `__DATA_CONST` maxprot=R: INFEASIBLE as described.** The `__got`
+  (`S_NON_LAZY_SYMBOL_POINTERS`) is bound by dyld during load, so `__DATA_CONST`
+  must be writable while fixups are applied — `maxprot` must be ≥ `initprot` (RW).
+  Setting `maxprot=R` would forbid the load-time GOT binding and fail the image.
+  The actual read-only-after-fixup protection is already provided by
+  `SG_READ_ONLY` (bug-187); the residual "an attacker who already has code
+  execution + a way to call `mprotect` could re-elevate" is defense-in-depth of a
+  defense-in-depth and cannot be closed without a different (non-dyld) GOT-binding
+  scheme.
+- **LNK-10 — CS_RUNTIME: DEFERRED (no notarization flow; local-run/​LINK risk).**
+  Setting the hardened-runtime flag (`0x10000`, making CodeDirectory flags
+  `0x30002`) was tested: the hand-rolled ad-hoc signature still validates
+  (`codesign -v`) and the binary runs locally. But the finding scopes it to
+  *distributed* builds, and mfb has no Apple notarization/distribution flow —
+  ad-hoc + hardened-runtime is not notarizable, so it buys nothing for
+  distribution, while risking `dlopen` of user-vendored native LINK libraries
+  under hardened-runtime library validation. mfb's own `signing_metadata`
+  (`.mfb_sign`) is a package-provenance marker, not an Apple team identity, so it
+  is not a valid gate. Deferred until a real macOS distribution/notarization path
+  exists to gate it. The non-goal ("CS_RUNTIME gating should not break local
+  runs") is honored by leaving local builds at `0x20002`.
+- **LNK-05 — BTI/PAC note + landing pads: DEFERRED (feature-scale codegen).**
+  Emitting `.note.gnu.property` with `AARCH64_FEATURE_1_BTI` is safe only in
+  lockstep with a `BTI c` landing pad at *every* indirect-branch target (function
+  entries, import-stub targets) — without them the note makes valid indirect
+  branches fault. That is a cross-cutting change to every aarch64 prologue, HIGH
+  regression risk for a LOW mitigation. Scoped as a dedicated codegen feature.
+- **LNK-09 — stack canaries: DEFERRED (feature-scale codegen).** Per-frame canary
+  emission (load TLS `__stack_chk_guard`, store in frame, verify before return,
+  branch to `__stack_chk_fail`) for frames with a fixed-size stack buffer is a
+  codegen feature. LOW: the model relies on the bounds-checked collection/string
+  runtime, so there is no demonstrated overflowable generated stack buffer.
+
+### Recommendation
+
+If pursued, LNK-05 and LNK-09 warrant their own plan-NN feature docs (they are
+codegen features, not bug fixes); LNK-10 CS_RUNTIME warrants a macOS
+distribution/notarization design first. None should be landed as an unconditional
+change against the current hardware-validated macOS/Linux output.
 
 Three individually-LOW exploit-mitigation gaps in the emitted-binary hardening
 surface from audit-2 that lack their own bug docs. Each is a mitigation the

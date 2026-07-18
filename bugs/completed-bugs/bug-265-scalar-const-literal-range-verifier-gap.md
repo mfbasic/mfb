@@ -5,8 +5,21 @@ Effort: small (<1h)
 Severity: LOW
 Class: Security (robustness / verifier gap)
 
-Status: Open
-Regression Test: (none yet)
+Status: Fixed
+Regression Test: `src/ir/verify/tests.rs` — `rejects_scalar_out_of_range`,
+`rejects_scalar_surrogate`, `rejects_negated_scalar`, `accepts_scalar_in_range`
+
+## Resolution
+
+`check_literal_range`'s `numeric` predicate (`src/ir/verify/mod.rs`) now includes
+`"Scalar"`, so a `Scalar` const routes into `check_const_literal` /
+`check_negated_const_literal`. The new `Scalar` arms parse the decimal and emit
+`TYPE_SCALAR_LITERAL_INVALID` on a parse failure, a value `> 0x10FFFF`, or a
+UTF-16 surrogate (`0xD800..=0xDFFF`); the negated form (`-<value>`, only `-0`
+would coincide with a valid codepoint) is rejected outright. This closes the
+package-decode gap where a hand-crafted `.mfp` could carry an out-of-range Scalar
+const the parse-time lexer check never saw. Spec §4 Types updated to note the
+verifier is a second rejecter on the `.mfp` path.
 
 `verify_semantics` range-checks numeric const literals in a merged (possibly
 untrusted) package, but its `numeric` predicate omits `Scalar`. A source-level

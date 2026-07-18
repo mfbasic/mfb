@@ -240,6 +240,11 @@ impl plan::NativePlanPlatform for Platform {
                 if matches!(spec.call, "fs.createTempFile") {
                     imports.push(self.libc_import("getentropy", spec.symbol));
                 }
+                if matches!(spec.call, "fs.openFileNoFollow") {
+                    // bug-260: openFileNoFollow uses openat2(RESOLVE_NO_SYMLINKS) via
+                    // the libc `syscall` wrapper to reject symlinks at any component.
+                    imports.push(self.libc_import("syscall", spec.symbol));
+                }
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
                     imports.push(self.libc_import("mkstemps", spec.symbol));
                     imports.push(self.libc_import("rename", spec.symbol));
