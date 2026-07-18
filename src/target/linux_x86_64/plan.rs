@@ -411,9 +411,14 @@ impl NativePlanPlatform for Platform {
     }
 
     fn app_mode_imports(&self) -> Vec<PlatformImport> {
-        // Shared with linux-aarch64 (app mode is glibc-only on both):
-        // src/target/linux_gtk/mod.rs::app_mode_imports.
-        crate::target::linux_gtk::app_mode_imports()
+        // Shared with the sibling Linux backend
+        // (src/target/linux_gtk/mod.rs::app_mode_imports). The C-library
+        // sonames are this Platform's, so a musl app build declares musl
+        // libraries (plan-56-A §4.1).
+        crate::target::linux_gtk::app_mode_imports(crate::target::linux_gtk::AppLibcNames {
+            libc: self.libc(),
+            libpthread: self.libpthread(),
+        })
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {

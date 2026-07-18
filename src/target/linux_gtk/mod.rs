@@ -222,20 +222,49 @@ const FALSE: &str = "0";
 const WINDOW_WIDTH: &str = "900";
 const WINDOW_HEIGHT: &str = "640";
 
-// --- Library names (app mode is glibc-only, plan-05 §1.1) -------------------
+// --- Library names ---------------------------------------------------------
+//
+// The GTK/GLib/Cairo sonames are identical on both libc worlds. The C-library
+// names are NOT: they are resolved by the calling backend's `Platform` and
+// passed in as [`AppLibcNames`] (plan-56-A §4.1), because app mode is no longer
+// glibc-only.
 
 const GTK: &str = "libgtk-4.so.1";
 const GOBJECT: &str = "libgobject-2.0.so.0";
 const GLIB: &str = "libglib-2.0.so.0";
 const GIO: &str = "libgio-2.0.so.0";
-const LIBC: &str = "libc.so.6";
-const LIBPTHREAD: &str = "libpthread.so.0";
 const CAIRO: &str = "libcairo.so.2";
+
+/// The C-library sonames an app-mode build binds to (plan-56-A §4.1), resolved
+/// by the calling backend's `Platform` so `linux_gtk` needs to know neither the
+/// arch nor the libc-naming convention.
+///
+/// `libc` is `libc.so.6` on glibc and `libc.musl-<arch>.so.1` on musl;
+/// `libpthread` is `libpthread.so.0` on glibc and the same string as `libc` on
+/// musl, where pthread lives inside libc.
+///
+/// ⚠️ Getting these wrong is **invisible at runtime**: musl's loader absorbs
+/// `libc.so.6` and `libpthread.so.0` into itself, so a musl binary carrying the
+/// glibc names loads and runs identically to a correct one (verified on stock
+/// Alpine x86_64 and aarch64, gcompat absent — plan-56-A §2.4). Only
+/// `readelf -d` can tell them apart.
+#[derive(Clone, Copy)]
+pub(crate) struct AppLibcNames {
+    pub libc: &'static str,
+    pub libpthread: &'static str,
+}
 
 /// Library that exports `symbol`, matching `app_mode_imports`. The relocation's
 /// library field is cosmetic (the linker binds by symbol name), but keeping it
 /// accurate aids artifact debugging.
 fn lib_for(symbol: &str) -> Result<&'static str, String> {
+    // These two are the *relocation label* only — cosmetic, since the linker
+    // binds by symbol name — and they are glibc-named. That is accurate while
+    // app mode is glibc-only; plan-56-A Phase 2 deletes this function in favor
+    // of a lookup in the flavor-correct `platform_imports` map, which is also
+    // what makes it safe for plan-56-B to start emitting musl app builds.
+    const LIBC: &str = "libc.so.6";
+    const LIBPTHREAD: &str = "libpthread.so.0";
     Ok(match symbol {
         "g_application_run" | "g_application_quit" => GIO,
         "g_signal_connect_data" => GOBJECT,
@@ -298,7 +327,7 @@ impl Asm {
                 if self.err.is_none() {
                     self.err = Some(message);
                 }
-                LIBC
+                "libc.so.6"
             }
         };
         self.ins.push(abi::branch_link(symbol));
@@ -681,8 +710,11 @@ fn stage_result_reuse_x86(instructions: &mut Vec<CodeInstruction>) {
 /// imported function; `__libc_start_main` runs the C runtime init before the
 /// real `main`; pthread spawns the language worker; the pipe primitives feed
 /// window input to the reused fd-0 console readers.
-pub(crate) fn app_mode_imports() -> Vec<crate::target::shared::plan::PlatformImport> {
+pub(crate) fn app_mode_imports(
+    libc_names: AppLibcNames,
+) -> Vec<crate::target::shared::plan::PlatformImport> {
     use crate::target::shared::plan::PlatformImport;
+    let AppLibcNames { libc, libpthread } = libc_names;
     let gtk: &[(&str, &str)] = &[
         // Application + window lifecycle.
         (GIO, "g_application_run"),
@@ -737,42 +769,42 @@ pub(crate) fn app_mode_imports() -> Vec<crate::target::shared::plan::PlatformImp
         (GLIB, "g_idle_add"),
         // The worker thread and the window-input pipe come from libc/libpthread,
         // exactly as the console runtime resolves them on glibc.
-        (LIBPTHREAD, "pthread_create"),
-        (LIBPTHREAD, "pthread_detach"),
+        (libpthread, "pthread_create"),
+        (libpthread, "pthread_detach"),
         // `__libc_start_main` runs the C runtime + shared-library constructors
         // (the GLib/GObject type system) before calling our real `main`; the
         // entry can't link crt1.o, so it calls this directly (plan-05 §6.1).
-        (LIBC, "__libc_start_main"),
-        (LIBC, "pipe"),
-        (LIBC, "dup2"),
+        (libc, "__libc_start_main"),
+        (libc, "pipe"),
+        (libc, "dup2"),
         // The activate handler dup2's the pipe read end onto fd 0, then closes
         // the redundant original descriptor so stdin EOF works (bug-59).
-        (LIBC, "close"),
-        (LIBC, "setenv"),
-        (LIBC, "write"),
+        (libc, "close"),
+        (libc, "setenv"),
+        (libc, "write"),
         // The activate handler sets the pipe write end O_NONBLOCK so a full pipe
         // makes the key handler's write() return EAGAIN instead of blocking the
         // GTK main thread (bug-114).
-        (LIBC, "fcntl"),
+        (libc, "fcntl"),
         // Output marshaling to the GTK main thread + the worker park-on-finish.
-        (LIBC, "malloc"),
-        (LIBC, "free"),
-        (LIBC, "memcpy"),
-        (LIBC, "memset"),
-        (LIBC, "memmove"),
-        (LIBC, "pause"),
+        (libc, "malloc"),
+        (libc, "free"),
+        (libc, "memcpy"),
+        (libc, "memset"),
+        (libc, "memmove"),
+        (libc, "pause"),
         // The finish helper's hard-exit fallback. The x86-64 console exit is a
         // raw `exit_group` syscall, so unlike aarch64 nothing else declares it.
-        (LIBC, "_exit"),
+        (libc, "_exit"),
         // The app `io::input` helper delegates to the console readLine body
         // (reading the fd-0 window pipe), which imports the terminal probes —
         // no-ops on a pipe (isatty(0) = 0 skips the termios calls), but the
         // symbols must bind. The plan's per-call rows only declare them for a
         // program that calls io.readLine directly.
-        (LIBC, "read"),
-        (LIBC, "isatty"),
-        (LIBC, "tcgetattr"),
-        (LIBC, "tcsetattr"),
+        (libc, "read"),
+        (libc, "isatty"),
+        (libc, "tcgetattr"),
+        (libc, "tcsetattr"),
     ];
     gtk.iter()
         .map(|(library, symbol)| PlatformImport {
@@ -961,12 +993,106 @@ mod identity_tests {
 mod import_tests {
     use super::*;
 
+    /// The glibc names, matching what the constants held before plan-56-A.
+    const GLIBC_NAMES: AppLibcNames = AppLibcNames {
+        libc: "libc.so.6",
+        libpthread: "libpthread.so.0",
+    };
+    /// The musl names for x86_64; aarch64 differs only in the arch token.
+    const MUSL_X86_NAMES: AppLibcNames = AppLibcNames {
+        libc: "libc.musl-x86_64.so.1",
+        libpthread: "libc.musl-x86_64.so.1",
+    };
+
+    /// plan-56-A §4.1: the glibc list is exactly what the hardcoded constants
+    /// produced, so threading the names moves no byte.
+    #[test]
+    fn app_mode_imports_glibc_is_unchanged() {
+        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES)
+            .into_iter()
+            .map(|import| import.library)
+            .collect();
+        assert!(libs.iter().any(|l| l == "libc.so.6"));
+        assert!(libs.iter().any(|l| l == "libpthread.so.0"));
+        assert!(libs.iter().any(|l| l == "libgtk-4.so.1"));
+        assert!(
+            !libs.iter().any(|l| l.starts_with("libc.musl-")),
+            "a glibc build must name no musl library"
+        );
+    }
+
+    /// ⚠️ The assertion plan-56 exists for. A musl binary that *also* declares
+    /// the glibc names runs fine — musl's loader absorbs `libc.so.6` and
+    /// `libpthread.so.0` into itself (verified on stock Alpine x86_64 and
+    /// aarch64 with gcompat absent, plan-56-A §2.4) — so no runtime signal can
+    /// catch this. Assert on the ABSENCE of every glibc name, not merely the
+    /// presence of the musl one.
+    #[test]
+    fn app_mode_imports_musl_names_no_glibc_library() {
+        for (names, expected_libc) in [
+            (MUSL_X86_NAMES, "libc.musl-x86_64.so.1"),
+            (
+                AppLibcNames {
+                    libc: "libc.musl-aarch64.so.1",
+                    libpthread: "libc.musl-aarch64.so.1",
+                },
+                "libc.musl-aarch64.so.1",
+            ),
+        ] {
+            let imports = app_mode_imports(names);
+            let libs: Vec<&str> = imports.iter().map(|i| i.library.as_str()).collect();
+            for glibc_only in [
+                "libc.so.6",
+                "libpthread.so.0",
+                "libdl.so.2",
+                "librt.so.1",
+                "libm.so.6",
+            ] {
+                assert!(
+                    !libs.contains(&glibc_only),
+                    "{expected_libc}: musl build must not declare {glibc_only}"
+                );
+            }
+            assert!(
+                libs.contains(&expected_libc),
+                "musl build must declare {expected_libc}"
+            );
+            // pthread lives in libc on musl, so the pthread symbols follow it.
+            for import in &imports {
+                if import.symbol.starts_with("pthread_") {
+                    assert_eq!(
+                        import.library, expected_libc,
+                        "{} must bind to the musl libc",
+                        import.symbol
+                    );
+                }
+            }
+            // The toolkit libraries are libc-world-independent.
+            assert!(libs.contains(&"libgtk-4.so.1"));
+            assert!(libs.contains(&"libcairo.so.2"));
+        }
+    }
+
+    /// The import *set* is flavor-independent — only attribution changes.
+    #[test]
+    fn app_mode_imports_symbol_set_is_flavor_independent() {
+        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES)
+            .into_iter()
+            .map(|i| i.symbol)
+            .collect();
+        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES)
+            .into_iter()
+            .map(|i| i.symbol)
+            .collect();
+        assert_eq!(glibc, musl);
+    }
+
     /// bug-59: the GTK backend never calls `getenv`, so it must not be declared as
     /// an import; and the activate handler now calls `close`, which must be. Guard
     /// the import plan against reintroducing the dead symbol or dropping `close`.
     #[test]
     fn app_mode_imports_drop_getenv_add_close() {
-        let symbols: Vec<String> = app_mode_imports()
+        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES)
             .into_iter()
             .map(|import| import.symbol)
             .collect();
@@ -990,7 +1116,7 @@ mod import_tests {
     /// accidental reintroduction) instead of panicking.
     #[test]
     fn lib_for_maps_close_to_libc() {
-        assert_eq!(lib_for("close").unwrap(), LIBC);
+        assert_eq!(lib_for("close").unwrap(), "libc.so.6");
         assert!(lib_for("getenv").is_err());
     }
 }
