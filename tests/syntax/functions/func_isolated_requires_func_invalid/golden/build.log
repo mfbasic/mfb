@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/syntax/functions/func_isolated_requires_func_invalid
+   1 | PUBLIC ISOLATED BOGUS weird AS Integer
+     |                 ^^^^^
+tests/syntax/functions/func_isolated_requires_func_invalid/src/main.mfb:1 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               A function declaration must begin with FUNC or SUB.
+   1 | PUBLIC ISOLATED BOGUS weird AS Integer
+   2 |   RETURN 1
+     |   ^^^^^^
+tests/syntax/functions/func_isolated_requires_func_invalid/src/main.mfb:2 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+   1 | PUBLIC ISOLATED BOGUS weird AS Integer
+   2 |   RETURN 1
+   3 | END FUNC
+     | ^^^
+tests/syntax/functions/func_isolated_requires_func_invalid/src/main.mfb:3 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+[exit 1]

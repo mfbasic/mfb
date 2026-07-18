@@ -1470,6 +1470,20 @@ fn function_header_and_body_errors() {
     assert!(try_parse("FUNC f(123)\nEND FUNC\n").is_err());
 }
 
+#[test]
+fn function_declaration_requires_the_func_or_sub_keyword() {
+    // bug-292: with a visibility prefix, `check_top_level_item_start` stops
+    // looking after `ISOLATED`, so `parse_function` is the only place that can
+    // reject what follows it. It used to default every non-`SUB` token to `Func`
+    // and compile these to an executable.
+    assert!(try_parse("PUBLIC ISOLATED BOGUS weird AS Integer\n  RETURN 1\nEND FUNC\n").is_err());
+    assert!(try_parse("PUBLIC ISOLATED ISOLATED f AS Integer\n  RETURN 1\nEND FUNC\n").is_err());
+    // The valid spellings the check must leave alone.
+    assert!(try_parse("PUBLIC ISOLATED FUNC f AS Integer\n  RETURN 0\nEND FUNC\n").is_ok());
+    assert!(try_parse("ISOLATED FUNC f AS Integer\n  RETURN 0\nEND FUNC\n").is_ok());
+    assert!(try_parse("PUBLIC FUNC f AS Integer\n  RETURN 0\nEND FUNC\n").is_ok());
+    assert!(try_parse("EXPORT SUB s\nEND SUB\n").is_ok());
+}
 
 #[test]
 fn trap_header_errors() {

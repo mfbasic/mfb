@@ -43,10 +43,25 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_function(&mut self) -> Option<Function> {
         let isolated = self.match_keyword(Keyword::Isolated);
         let kind_token = self.advance().clone();
-        let kind = if matches!(kind_token.kind, TokenKind::Keyword(Keyword::Sub)) {
-            FunctionKind::Sub
-        } else {
-            FunctionKind::Func
+        // Anything that is not FUNC or SUB is rejected outright (bug-292). The
+        // `else` used to default to `FunctionKind::Func`, so any garbage token in
+        // this position was silently treated as a function header —
+        // `PUBLIC ISOLATED BOGUS name(...)` compiled and linked as if it read
+        // FUNC. Only `check_top_level_item_start` guarded the visibility-less
+        // spelling, so the misparse was reachable exactly through a visibility or
+        // ISOLATED prefix.
+        let kind = match kind_token.kind {
+            TokenKind::Keyword(Keyword::Sub) => FunctionKind::Sub,
+            TokenKind::Keyword(Keyword::Func) => FunctionKind::Func,
+            _ => {
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    "A function declaration must begin with FUNC or SUB.",
+                    &kind_token,
+                );
+                self.synchronize();
+                return None;
+            }
         };
         if isolated && !matches!(kind, FunctionKind::Func) {
             self.report(

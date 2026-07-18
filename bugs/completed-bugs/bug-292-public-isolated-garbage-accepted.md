@@ -1,11 +1,11 @@
 # bug-292: `PUBLIC ISOLATED <garbage>` is silently accepted as a FUNC declaration
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (accepts-invalid)
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/syntax (new) — `PUBLIC ISOLATED BOGUS …` is rejected with `MFB_PARSE_UNEXPECTED_TOKEN`
 
 `check_top_level_item_start`'s visibility arm only checks that the token after the
@@ -84,3 +84,25 @@ covers the `PUBLIC ISOLATED ISOLATED` case. Rejected alternative: only tightenin
 
 A permissive default silently accepts a garbage keyword between `ISOLATED` and the
 signature; a one-line keyword check rejects it. Minimal risk.
+
+## Resolution
+
+`parse_function` selects the kind with a `match` on `Keyword::Sub` /
+`Keyword::Func` and reports `MFB_PARSE_UNEXPECTED_TOKEN` for anything else, then
+synchronizes and returns `None`. The old `else` defaulted every other token to
+`FunctionKind::Func`, so a garbage token in that position was silently treated as
+a function header. Only `check_top_level_item_start` guarded the visibility-less
+spelling, which is why the misparse was reachable exactly through a visibility or
+`ISOLATED` prefix.
+
+Verified: `PUBLIC ISOLATED BOGUS thing() AS Integer` previously built and linked
+(`Wrote executable to …`, exit 0); it now reports
+`error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]` with the caret on `BOGUS`.
+
+Tests: `ast::tests::function_declaration_requires_the_func_or_sub_keyword`
+(covering `PUBLIC ISOLATED BOGUS`, `PUBLIC ISOLATED ISOLATED`, and four valid
+contrast spellings) and the golden fixture
+`tests/syntax/functions/func_isolated_requires_func_invalid/`.
+
+Every claim in this report checked out, including that bare `ISOLATED BOGUS` with
+no visibility was already rejected.
