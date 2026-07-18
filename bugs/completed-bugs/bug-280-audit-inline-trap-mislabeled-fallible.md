@@ -1,11 +1,11 @@
 # bug-280: `mfb audit` reports an inline-`TRAP … RECOVER`-handled call as fallible with propagation `return`
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (security-tooling over-reporting / wrong labeling)
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ audit fixture (new) — a fully inline-recovered call does not mark its function (or transitive callers) fallible
 
 A call whose error is fully handled by an inline `TRAP … RECOVER` is still reported
@@ -99,3 +99,27 @@ walk entirely — wrong, because a handler that re-propagates must still count.
 The audit conflates "call can fail" with "failure escapes the function"; making the
 escape analysis handler-aware fixes both the fallibility over-report and the
 propagation mislabel. Risk is only in correctly modeling a re-propagating handler.
+
+## Resolution
+
+The two AST walkers now thread an `in_trap` flag, so a call site knows whether an
+inline `TRAP ... RECOVER` lexically contains it.
+
+- `block_escapes` ignores a contained call, so a fully-recovered call no longer
+  makes its function -- or, through the fixpoint, every transitive caller --
+  fallible.
+- The call-site `propagation` label is computed per call (`in_trap || has_trap`)
+  instead of from the enclosing function's trap alone, so a contained call reads
+  `trap` rather than `return`.
+
+One subtlety the report did not mention: a handler that itself `FAIL`s or
+`PROPAGATE`s contains nothing, so the guarded expression keeps its *enclosing*
+context (`in_trap || !statements_fail_or_propagate(handler)`) -- which may still
+be a trap one level out. Treating every `Trapped` as containing would have
+under-reported that case, trading this bug for its mirror image. The handler body
+itself is walked in the enclosing context, since that is where its own errors go.
+
+Verified against the repro: `handled` was reported `(fallible)` with
+`fs.readText ... -> return`; it is now unmarked with `-> trap`. A sibling
+`unhandled` in the same file still reports `(fallible)` / `-> return`, confirming
+no over-correction. Acceptance green across all 994 tests with no golden churn.
