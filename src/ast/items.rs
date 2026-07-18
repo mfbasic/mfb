@@ -551,7 +551,29 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_top_level_resource(&mut self) -> Option<ResourceDecl> {
+        let visibility_token = self.peek().clone();
         let visibility = self.parse_visibility().unwrap_or(Visibility::Public);
+        // `PRIVATE` on a RESOURCE was accepted but only half-applied (bug-288).
+        // `scope_privates` renamed the declaration without registering it as a
+        // private *type*, so every reference — type positions like `RES db AS Db`,
+        // LINK signatures, and the resource's own `CLOSE BY` target — kept the
+        // original spelling and resolved to nothing: a wall of SYMBOL_UNKNOWN_TYPE
+        // plus RESOURCE_CLOSE_SIGNATURE naming a mangled `#…$Db`.
+        //
+        // Rejected rather than implemented because the spec's visibility-carrying
+        // items are LET/MUT/FUNC/SUB/TYPE/UNION/ENUM — RESOURCE is not among them,
+        // so a file-private resource type is not a thing the language offers.
+        // `EXPORT` stays legal: it is meaningful and already honored (the audit
+        // reports `exported` from it).
+        if matches!(visibility, Visibility::Private) {
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "PRIVATE is not permitted on a RESOURCE declaration.",
+                &visibility_token,
+            );
+            self.synchronize();
+            return None;
+        }
         let keyword = self.advance().clone(); // the `RESOURCE` contextual keyword
         let Some(name) = self.consume_identifier("Resource name must be an identifier.") else {
             self.synchronize();

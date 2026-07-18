@@ -1,11 +1,11 @@
 # bug-288: `PRIVATE RESOURCE` is accepted by the parser but half-mangled, making it unusable with cascading spurious errors
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness / Footgun
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ (new) — `PRIVATE RESOURCE` is rejected with a targeted diagnostic (or fully supported)
 
 The parser accepts `PRIVATE` on a `RESOURCE` declaration, but `scope_privates`
@@ -90,3 +90,30 @@ footgun that produces confusing errors.
 
 A parser/scope mismatch leaves `PRIVATE RESOURCE` broken; the low-risk fix is to
 reject it per spec. Full support is possible but larger and optional.
+
+## Resolution
+
+Took the report's preferred option: `parse_top_level_resource` rejects `PRIVATE`
+with a targeted `MFB_PARSE_UNEXPECTED_TOKEN` ("PRIVATE is not permitted on a
+RESOURCE declaration") and synchronizes, instead of letting the half-applied
+rename through.
+
+Rejected rather than fully supported because spec 13's visibility-carrying items
+are LET/MUT/FUNC/SUB/TYPE/UNION/ENUM — RESOURCE is not among them, so a
+file-private resource type is not something the language offers.
+
+**`EXPORT` is deliberately still accepted.** The report frames this as "RESOURCE
+is not in the list of visibility-carrying items, so the parser should not accept
+`PRIVATE` on it at all", which read literally would also forbid `EXPORT` — but
+`EXPORT` is meaningful and already honored (`collect_native_resources` reports
+`exported` from it, and the `native-resource-link-valid` fixture depends on it).
+Only `PRIVATE` is rejected.
+
+No new diagnostic code was added; the existing parse code carries the specific
+message, matching how bug-292's fix was done.
+
+Verified: the repro previously failed with `RESOURCE_CLOSE_SIGNATURE` naming a
+mangled `#…$Db` plus repeated `SYMBOL_UNKNOWN_TYPE`, and now emits one diagnostic
+with the caret on `PRIVATE`. Fixture:
+`tests/syntax/resources/private-resource-invalid`. The 47 link/native fixtures and
+74 resource/trap fixtures still pass, confirming `EXPORT`/`PUBLIC` are unaffected.
