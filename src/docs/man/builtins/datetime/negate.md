@@ -59,7 +59,7 @@ has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Negating the `seconds` field, or folding the normalized nanosecond borrow back into it, produces a value outside the signed `Integer` range — which happens when `seconds` is the most negative representable `Integer`. [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | Negating the `seconds` field produces a value outside the signed `Integer` range, which happens exactly when `seconds` is the most negative representable `Integer` (its positive counterpart is unrepresentable). [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
 
 ## Examples
 

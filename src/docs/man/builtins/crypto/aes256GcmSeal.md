@@ -85,7 +85,7 @@ succeed. [[src/builtins/crypto.rs:call_param_names]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 
 ## Examples
 
@@ -94,20 +94,28 @@ Seal a message with a fresh random nonce:
 ```
 IMPORT crypto
 IMPORT encoding
+IMPORT strings
 
 LET key AS List OF Byte = crypto::randomBytes(32)
 LET nonce AS List OF Byte = crypto::randomBytes(12)
+LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
 LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext)
 
 PRINT encoding::hexEncode(box.ciphertext)
 PRINT encoding::hexEncode(box.tag)
 ```
 
-Seal with additional authenticated data (a header), then open it:
+Seal with additional authenticated data (a header), then open it — the same
+`aad` must be supplied to open:
 
 ```
 IMPORT crypto
+IMPORT strings
 
+LET key AS List OF Byte = crypto::randomBytes(32)
+LET nonce AS List OF Byte = crypto::randomBytes(12)
+LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
+LET header AS List OF Byte = strings::toBytes("v1;msg-42")
 LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext, header)
 LET clear AS List OF Byte = crypto::aes256GcmOpen(key, nonce, box.ciphertext, box.tag, header)
 ```

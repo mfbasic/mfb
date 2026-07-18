@@ -45,16 +45,19 @@ never be used for keys, tokens, or nonces; `crypto::randomBytes` is the correct
 source for all such material.
 
 Each call draws fresh entropy, so results are not reproducible across runs.
-`count` must be non-negative; a `count` of 0 returns an empty list, and a
-negative `count` raises `ErrInvalidArgument`. Internally the fill runs in chunks
-of at most 256 bytes (the per-call `getentropy` limit), transparent to the
-caller. [[src/target/shared/code/crypto.rs:GETENTROPY_MAX]]
+`count` must be in the range `0` to `16777216` (16 MiB) inclusive: a `count` of 0
+returns an empty list, while a negative `count` or one above the 16 MiB cap raises
+`ErrInvalidArgument`. The upper bound sits far above any real key-material request
+and rejects an absurd allocation before its size arithmetic can overflow.
+Internally the fill runs in chunks of at most 256 bytes (the per-call
+`getentropy` limit), transparent to the caller.
+[[src/target/shared/code/crypto.rs:GETENTROPY_MAX]] [[src/target/shared/code/crypto.rs:RANDOM_BYTES_MAX_COUNT]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `count` | `Integer` | The number of random bytes to return. Must be non-negative; `0` yields an empty list. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
+| `count` | `Integer` | The number of random bytes to return. Must be in `0` to `16777216` (16 MiB) inclusive; `0` yields an empty list. [[src/target/shared/code/crypto.rs:RANDOM_BYTES_MAX_COUNT]] |
 
 ## Return value
 
@@ -66,7 +69,7 @@ caller. [[src/target/shared/code/crypto.rs:GETENTROPY_MAX]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is negative. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
+| `77050002` | `ErrInvalidArgument` | `count` is negative or exceeds `16777216` (16 MiB). [[src/target/shared/code/crypto.rs:RANDOM_BYTES_MAX_COUNT]] |
 | `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) fails. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
 | `77010001` | `ErrOutOfMemory` | The arena allocation for the result bytes fails. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
 

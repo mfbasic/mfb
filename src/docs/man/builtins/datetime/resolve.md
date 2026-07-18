@@ -62,7 +62,7 @@ copied through verbatim. `resolve` is pure and reads no host state.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range, which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/builtins/datetime_package.mfb:__datetime_resolve]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range — `Integer` `*`/`+`/`-` are overflow-checked and trap at the boundary — which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/builtins/datetime_package.mfb:__datetime_resolve]] [[src/target/shared/code/builder_numeric.rs:emit_overflow_if_flags_set]] |
 
 ## Examples
 

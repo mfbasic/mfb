@@ -20,6 +20,12 @@ DESCRIPTION
   fs::listDirectory, resolves against the new directory rather than the old one.
   The new value can be read back with fs::currentDirectory.
 
+  The working directory is process-global, not per-thread: a change on one thread
+  is observed by every other thread, and there is no thread-scoped current
+  directory. Relative-path fs:: operations are therefore not isolated between
+  concurrently running threads; a program that needs per-thread path resolution
+  must build absolute paths itself rather than relying on setCurrentDirectory.
+
   path is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
   absolute or relative to the current working directory; a relative path, such as
   "tests" or "..", is resolved against the existing working directory before the

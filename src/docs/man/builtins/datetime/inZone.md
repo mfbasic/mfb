@@ -29,9 +29,10 @@ an observer in that zone reads at that moment.
 
 It first resolves the effective UTC offset for `zone` at the instant `at` — the
 same quantity `datetime::offsetAt` returns: zero for a UTC zone
-(`ZoneKind::Utc`), the stored constant for a fixed-offset zone (`ZoneKind::Fixed`,
-built with `datetime::fixedOffset`), and the DST-correct host offset for a local
-zone (`ZoneKind::Local`, kind `2`, built with `datetime::local`). It then adds
+(`ZoneKind::Utc`), the stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`,
+kind `1`, built with `datetime::fixedOffset`), and the DST-correct host offset
+for a local zone (`ZoneKind::Local`, kind `2`, built with `datetime::local`).
+[[src/builtins/datetime_package.mfb:ZoneKind]] [[src/builtins/datetime_package.mfb:__datetime_offsetAt]] It then adds
 that offset, in seconds, to the instant's seconds-since-epoch to obtain a local
 second count, floor-divides that into whole days and the second-of-day, converts
 the day count to a civil year/month/day with the proleptic Gregorian calendar,

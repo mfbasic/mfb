@@ -101,6 +101,8 @@ io::print(encoding::utf8Decode(units))
 
 ## See also
 
+- `mfb man encoding utf8EncodeBytes`
+- `mfb man encoding utf8EncodeInts`
 - `mfb man encoding utf8Decode`
 - `mfb man encoding utf16Encode`
 - `mfb man encoding hexEncode`

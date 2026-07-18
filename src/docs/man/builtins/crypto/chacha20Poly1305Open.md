@@ -90,8 +90,8 @@ must be byte-for-byte identical to the value passed to
 
 | Code | Name | Raised when |
 | --- | --- | --- |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. Both length checks run before verification. [[src/builtins/crypto_package.mfb:__crypto_chacha20Poly1305Open]] |
 | `77050016` | `ErrAuthenticationFailed` | The authentication tag does not verify — the `ciphertext`, `tag`, `nonce`, or `aad` was altered or does not belong to this key. No plaintext is returned. [[src/builtins/crypto_package.mfb:__crypto_chacha20Poly1305Open]] |
-| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_package.mfb:__crypto_chacha20Poly1305Open]] |
 
 ## Examples
 

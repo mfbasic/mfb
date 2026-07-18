@@ -69,7 +69,7 @@ None.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050000` | `ErrUnknown` | The platform key API fails to load or key generation fails (e.g. `SecKeyCreateRandomKey` / `EC_KEY_generate_key` returns an error). [[src/target/shared/code/crypto_ec/macos.rs:generate]] [[src/target/shared/code/crypto_ec/openssl.rs:generate]] |
-| `77010001` | `ErrOutOfMemory` | An arena allocation for the key bytes fails. [[src/target/shared/code/crypto_ec.rs:emit_fail]] |
+| `77010001` | `ErrOutOfMemory` | An arena allocation for the key bytes (or for a byte list built while slicing out the public key) fails. [[src/target/shared/code/crypto_ec/macos.rs:generate]] [[src/target/shared/code/crypto_ec/openssl.rs:generate]] [[src/builtins/crypto_package.mfb:__crypto_bytePrefix]] |
 
 ## Examples
 

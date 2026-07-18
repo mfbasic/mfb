@@ -38,11 +38,13 @@ meaning no byte differed. Every byte position is always examined.
 [[src/builtins/crypto_package.mfb:__crypto_constantTimeEqual]]
 
 **What is and is not secret.** Only the byte contents are protected. The lengths
-of the inputs are not treated as secret: lists of different lengths are reported
-as unequal by a length check that runs before the byte loop, and the running
-time may reveal the lengths. When comparing values that should be a fixed size
-(for example a 32-byte HMAC tag), the byte contents of same-length inputs are
-what stays constant-time. [[src/builtins/crypto_package.mfb:__crypto_constantTimeEqual]]
+of the inputs are not treated as secret. A length difference is folded into the
+accumulated difference rather than taken as an early-return branch, so the
+comparison does not branch on length (in)equality; the per-byte loop still runs
+over the shared prefix, so the running time may reveal the (min) length. When
+comparing values that should be a fixed size (for example a 32-byte HMAC tag), the
+byte contents of same-length inputs are what stays constant-time (bug-269 /
+CRY-03). [[src/builtins/crypto_package.mfb:__crypto_constantTimeEqual]]
 
 The function is **total** — every combination of inputs, including two empty
 lists (which compare equal), yields a Boolean and it never raises an error. Its

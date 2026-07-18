@@ -38,9 +38,10 @@ field in the range `0..999999999`, this truncation drops the fractional
 millisecond rather than rounding it, in either direction.
 
 The arithmetic is checked. For an instant near the extreme edge of the timeline
-the `at.seconds * 1000` scaling can exceed the signed `Integer` range, in which
-case the function raises `ErrOverflow` rather than wrapping. `datetime::toMillis`
-is pure: it reads no host state and depends only on `at`.
+either the `at.seconds * 1000` scaling or the following addition can exceed the
+signed `Integer` range, in which case the function raises `ErrOverflow` rather
+than wrapping. `datetime::toMillis` is pure: it reads no host state and depends
+only on `at`.
 
 `datetime::toMillis` is the inverse of `datetime::fromMillis` to
 whole-millisecond precision; sub-millisecond `nanos` in `at` are not recoverable
@@ -63,7 +64,7 @@ from the result. For full nanosecond precision use `datetime::toNanos`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Scaling `at.seconds` to milliseconds (`at.seconds * 1000`) produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/builtins/datetime_package.mfb:__datetime_toMillis]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000 + at.nanos / 1000000` overflows the signed `Integer` range — either the millisecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/builtins/datetime_package.mfb:__datetime_toMillis]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
 
 ## Examples
 

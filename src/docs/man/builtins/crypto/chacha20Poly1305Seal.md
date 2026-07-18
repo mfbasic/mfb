@@ -97,9 +97,11 @@ Seal a message with a fresh random nonce:
 ```
 IMPORT crypto
 IMPORT encoding
+IMPORT strings
 
 LET key AS List OF Byte = crypto::randomBytes(32)
 LET nonce AS List OF Byte = crypto::randomBytes(12)
+LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
 LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext)
 
 PRINT encoding::hexEncode(box.ciphertext)
@@ -110,7 +112,12 @@ Seal with additional authenticated data (a header), then open it:
 
 ```
 IMPORT crypto
+IMPORT strings
 
+LET key AS List OF Byte = crypto::randomBytes(32)
+LET nonce AS List OF Byte = crypto::randomBytes(12)
+LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
+LET header AS List OF Byte = strings::toBytes("v1")
 LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext, header)
 LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag, header)
 ```

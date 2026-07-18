@@ -24,10 +24,12 @@ IMPORT datetime
 ## Description
 
 `datetime::local` returns the `Zone` that represents the host's local time. The
-returned `Zone` carries a zone kind of `ZoneKind::Local`, marking it as the
-platform-resolved local zone rather than the canonical UTC zone built by
-`datetime::utc` or an arbitrary fixed offset built by `datetime::fixedOffset`.
-[[src/builtins/datetime_package.mfb:__datetime_local]]
+returned `Zone` carries a zone kind of `ZoneKind::Local` (the third `ZoneKind`
+variant, tag `2`), marking it as the platform-resolved local zone rather than the
+canonical UTC zone built by `datetime::utc` (kind `ZoneKind::Utc`, tag `0`) or an
+arbitrary fixed offset built by `datetime::fixedOffset` (kind
+`ZoneKind::FixedOffset`, tag `1`).
+[[src/builtins/datetime_package.mfb:__datetime_local]] [[src/builtins/datetime_package.mfb:ZoneKind]]
 
 Unlike `datetime::utc` and `datetime::fixedOffset`, whose offsets are baked into
 the `Zone` at construction, the local zone holds no fixed offset of its own. The
@@ -60,7 +62,7 @@ the zone is resolved against an instant during projection.
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The host's local zone: a `Zone` with a zone kind of `ZoneKind::Local`, a placeholder offset of zero seconds, and the label `"Local"`. The same value is returned on every call; its effective offset is determined only when the zone is projected against a specific `Instant`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Zone` | The host's local zone: a `Zone` with a zone kind of `ZoneKind::Local` (tag `2`), a placeholder offset of zero seconds, and the label `"Local"`. The same value is returned on every call; its effective offset is determined only when the zone is projected against a specific `Instant`. [[src/builtins/datetime.rs:call_return_type_name]] [[src/builtins/datetime_package.mfb:__datetime_local]] |
 
 ## Errors
 

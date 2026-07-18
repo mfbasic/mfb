@@ -147,6 +147,11 @@ Errors table (required, always present):
   (Errors propagating from evaluating arguments before the call do not count as
   errors this function raises; do not list them.)
 
+Correctness:
+- Existing man page content shuold not be trusted as correct. Verify all existing content
+  against the actual compiler code for correctness.
+- Key to this whole process is that the informaiton in the man pages is valid and correct.
+
 $TEMPLATE"
 
   echo ""

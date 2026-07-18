@@ -40,9 +40,12 @@ scalar. [[src/builtins/crypto_package.mfb:__crypto_ed25519Verify]]
 
 Verification is total and never raises: it always returns a `TRUE`/`FALSE`
 verdict. A `publicKey` that is not exactly 32 bytes, a `signature` that is not
-exactly 64 bytes, a public key that does not decode to a valid curve point, or a
-signature that simply does not match all return `FALSE` — a failed verdict is a
-normal outcome, not an error. [[src/builtins/crypto_package.mfb:__crypto_ed25519Verify]]
+exactly 64 bytes, a public key that does not decode to a valid curve point, a
+signature whose `S` scalar is not canonical (`S >= L`, the group order — such a
+signature is malleable and is rejected so the signature bytes remain a stable
+identity, bug-269 / CRY-02), or a signature that simply does not match all return
+`FALSE` — a failed verdict is a normal outcome, not an error.
+[[src/builtins/crypto_package.mfb:__crypto_ed25519Verify]]
 
 Verification is deterministic and platform-independent: the same
 `(publicKey, message, signature)` triple yields the same verdict on every target
@@ -80,18 +83,24 @@ Generate a key, sign a message, and verify the signature:
 
 ```
 IMPORT crypto
+IMPORT strings
 
 LET kp AS crypto::KeyPair = crypto::generateEd25519()
+LET message AS List OF Byte = strings::toBytes("attack at dawn")
 LET sig AS List OF Byte = crypto::ed25519Sign(kp.privateKey, message)
 LET ok AS Boolean = crypto::ed25519Verify(kp.publicKey, message, sig)
+PRINT ok
 ```
 
 A tampered message fails verification (returns `FALSE`, not an error):
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET ok AS Boolean = crypto::ed25519Verify(kp.publicKey, altered, sig)
+LET altered AS List OF Byte = strings::toBytes("attack at dusk")
+LET bad AS Boolean = crypto::ed25519Verify(kp.publicKey, altered, sig)
+PRINT bad
 ```
 
 ## See also

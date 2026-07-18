@@ -24,8 +24,11 @@ DESCRIPTION
   The optional timeoutMs bounds how long the connection attempt may take, in
   milliseconds. A value greater than zero performs a non-blocking connect bounded
   by that deadline and raises ErrTimeout if it elapses first. When timeoutMs is
-  omitted, zero, or negative, a plain blocking connect is performed and the
-  implementation default applies; the attempt is not guaranteed to be unbounded.
+  omitted, zero, or negative, a bounded implementation-default deadline is applied
+  instead of blocking indefinitely: the connect still uses the non-blocking +
+  poll path and raises ErrTimeout if the default elapses, so a black-holed peer
+  cannot wedge the calling thread forever. The default is generous enough that any
+  real handshake completes well within it.
 
   Socket resources are closed by lexical drop at scope exit or explicitly with
   net::close. Read and write data with net::read, net::readText, net::write, and
@@ -34,13 +37,14 @@ DESCRIPTION
 
 OVERLOADS
   net::connectTcp(host AS String, port AS Integer) AS Socket
-    Resolves host, connects on port using the default (blocking) timeout.
+    Resolves host, connects on port using the bounded default deadline.
 
   net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket
     Resolves host, connects on port, failing if the attempt exceeds timeoutMs.
 
   net::connectTcp(address AS Address) AS Socket
-    Connects to the host and port carried by address using the default timeout.
+    Connects to the host and port carried by address using the bounded default
+    deadline.
 
   net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket
     Connects to the host and port carried by address, failing if the attempt
@@ -62,8 +66,8 @@ PARAMETERS
   timeoutMs AS Integer
     Optional. The maximum time the connection attempt may take, in milliseconds.
     When greater than zero, the attempt is bounded by this deadline and raises
-    ErrTimeout if it elapses. When omitted, zero, or negative, a blocking connect
-    with the implementation default applies.
+    ErrTimeout if it elapses. When omitted, zero, or negative, a bounded
+    implementation-default deadline applies instead of blocking indefinitely.
 
 RETURN VALUE
   AS Socket

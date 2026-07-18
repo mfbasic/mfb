@@ -51,7 +51,9 @@ constructing a `Duration`. [[src/target/shared/code/datetime.rs:lower_datetime_h
 
 `monotonicNanos` is **not pure**: two calls may return different values, and the
 values depend on host clock state. It takes no arguments, reads clock state only,
-and has no side effects.
+and has no side effects. The reading always succeeds — the intrinsic returns an
+`Integer` in the result register with the OK tag set and never raises an error.
+[[src/target/shared/code/datetime.rs:lower_datetime_helper]]
 
 ## Parameters
 

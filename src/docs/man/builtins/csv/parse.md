@@ -24,17 +24,21 @@ IMPORT csv
 
 `csv::parse` scans `value` left to right and returns the resulting document as a
 `List OF List OF String`: an ordered list of rows, each an ordered list of String
-cells. The text is processed grapheme by grapheme as UTF-8, so the scanner never
-splits a multi-byte scalar or a `\r\n` pair incorrectly. [[src/builtins/csv_package.mfb:__csv_parse]]
+cells. Internally the text is decoded to its Unicode scalars in one pass
+(`encoding::utf32Encode`) and scanned scalar by scalar, so the scanner never
+splits a multi-byte code point or a `\r\n` pair incorrectly; each field is
+accumulated in a scalar buffer and re-encoded to a String with
+`encoding::utf32Decode`. Every structural CSV character (comma, quote, CR, LF) is
+ASCII, so the resulting grid is byte-identical to a grapheme-based scan. [[src/builtins/csv_package.mfb:__csv_parse]]
 
-The dialect is RFC-4180-aligned. The field delimiter is always a comma. A record
-separator is a line feed (LF) or a carriage-return/line-feed pair (CRLF); a bare
-CR not followed by LF is ordinary data inside the current field. A field may be
-wrapped in double quotes: the opening quote must be the first grapheme of the
-field, inside a quoted field a literal double quote is written by doubling it
-(`""`), and commas, CR, and LF are ordinary data. The closing quote must be
-immediately followed by a comma, a record separator, or the end of input.
-Whitespace is significant and never trimmed. [[src/builtins/csv_package.mfb:__csv_separatorLength]]
+The dialect is RFC-4180-aligned. The field delimiter is always a comma (scalar
+`44`). A record separator is a line feed (LF, `10`) or a carriage-return/line-feed
+pair (CRLF, `13` then `10`); a bare CR not followed by LF is ordinary data inside
+the current field. A field may be wrapped in double quotes (`34`): the opening
+quote must be the first character of the field, inside a quoted field a literal
+double quote is written by doubling it (`""`), and commas, CR, and LF are ordinary
+data. The closing quote must be immediately followed by a comma, a record
+separator, or the end of input. Whitespace is significant and never trimmed. [[src/builtins/csv_package.mfb:__csv_separatorLength]]
 
 Cells are plain Strings with no type inference and no null: `42`, `true`, and an
 empty field parse to the Strings `"42"`, `"true"`, and `""`. Callers that want

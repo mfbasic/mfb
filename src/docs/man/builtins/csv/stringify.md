@@ -45,14 +45,15 @@ those of `x`, with one normalization: a trailing empty row produced only by
 separator placement is not reintroduced, and a CRLF separator in the original
 text is normalized to LF on output.
 
-The argument may also be passed by the name `value`. `csv::stringify` does not
-mutate `value` and has no side effects. [[src/builtins/csv.rs:call_param_names]]
+The sole argument is named `value`, so it can be supplied positionally or as the
+keyword argument `value :=`. `csv::stringify` does not mutate `value` and has no
+side effects. [[src/builtins/csv.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF List OF String` | The grid of rows of String cells to serialize. May also be supplied by the name `value`. It is never modified. [[src/builtins/csv.rs:call_param_names]] |
+| `value` | `List OF List OF String` | The grid of rows of String cells to serialize. It is never modified. [[src/builtins/csv.rs:call_param_names]] |
 
 ## Return value
 

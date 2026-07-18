@@ -50,6 +50,10 @@ lowercase digits) back into a `List OF Byte`. [[src/builtins/encoding_package.mf
 | --- | --- |
 | `String` | The lowercase hex encoding of `data`, two characters per byte with no separators; the empty string for an empty list. [[src/builtins/encoding.rs:call_return_type_name]] |
 
+## Errors
+
+No errors. Every `List OF Byte` encodes successfully: each byte's nibbles are always in `0`–`15`, valid indices into the 16-character alphabet, so no failure path exists. [[src/builtins/encoding_package.mfb:__encoding_hexEncode]]
+
 ## Examples
 
 Encode bytes to lowercase hex:

@@ -58,7 +58,7 @@ per call), but a signature and its verdict do not depend on that nonce.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `publicKey` | `List OF Byte` | The P-521 public key as the 133-byte SEC1 uncompressed point `0x04 \|\| X \|\| Y` (the `publicKey` field of a `crypto::generateP521` key pair). Any other length, or bytes that do not decode to a valid curve point, is an error, not a `FALSE` verdict. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] |
+| `publicKey` | `List OF Byte` | The P-521 public key as the 133-byte SEC1 uncompressed point `0x04 \|\| X \|\| Y` (the `publicKey` field of a `crypto::generateP521` key pair). Any other length, or bytes that do not decode to a valid curve point, is an error, not a `FALSE` verdict. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] [[src/target/shared/code/crypto_ec/macos.rs:verify]] |
 | `message` | `List OF Byte` | The raw message bytes whose signature is being verified. Any length is accepted, including empty; hashed with SHA-512 internally, so no pre-hashing is required. |
 | `signature` | `List OF Byte` | The candidate signature as an ASN.1 DER (X9.62) `Ecdsa-Sig-Value`. A signature the platform cannot parse verifies as `FALSE`. |
 
@@ -72,9 +72,9 @@ per call), but a signature and its verdict do not depend on that nonce.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `publicKey` is not a well-formed 133-byte P-521 SEC1 point — either not exactly 133 bytes, or bytes that do not decode to a valid curve point. A valid-length key with a non-matching signature returns `FALSE` instead. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] |
-| `77050000` | `ErrUnknown` | The platform crypto library cannot be loaded or a required symbol cannot be resolved. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] |
-| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] |
+| `77050002` | `ErrInvalidArgument` | `publicKey` is not a well-formed 133-byte P-521 SEC1 point — either not exactly 133 bytes, or bytes that do not decode to a valid curve point. A valid-length key with a non-matching (or unparsable) signature returns `FALSE` instead. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] [[src/target/shared/code/crypto_ec/macos.rs:verify]] |
+| `77050000` | `ErrUnknown` | The platform verification call itself fails — the Security.framework / OpenSSL verify or digest-init operation returns an error, or a required library symbol cannot be loaded. This is a real error, not a `FALSE` verdict. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] [[src/target/shared/code/crypto_ec/macos.rs:verify]] |
+| `77010001` | `ErrOutOfMemory` | An internal working buffer (the decoded input bytes or the SPKI-wrapped public key) cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:verify]] [[src/target/shared/code/crypto_ec/macos.rs:verify]] |
 
 ## Examples
 

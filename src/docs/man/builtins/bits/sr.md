@@ -33,8 +33,9 @@ arithmetic right shift `bits::sra`, which preserves the sign bit. For the
 left shift see `bits::sl`.
 
 Unlike the total bitwise operations, `sr` validates `count`: it first checks
-that `count` is in the range `0..63` and raises `ErrInvalidArgument` for any
-value outside it, before performing the shift. Larger shift amounts are not
+that `count` is in the range `0` to `63` inclusive and raises
+`ErrInvalidArgument` for any value outside it, before performing the shift.
+Larger shift amounts are not
 implicitly clamped or reduced modulo the width. The operation has no side
 effects and lowers to a native variable-shift instruction inline rather than
 calling a runtime helper, producing identical results on the native and Binary
@@ -45,7 +46,7 @@ Representation execution paths. [[src/target/shared/code/builder_bits.rs:lower_b
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `Integer` | The value to shift. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
-| `count` | `Integer` | The shift amount in bits. Must be in the range `0..63`; any other value raises `ErrInvalidArgument`. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]] |
+| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]] |
 
 ## Return value
 

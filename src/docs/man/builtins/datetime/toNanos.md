@@ -37,8 +37,9 @@ exact and discards nothing — no truncation or rounding occurs in either
 direction.
 
 The arithmetic is checked. For an instant near the extreme edge of the timeline
-the `at.seconds * 1000000000` scaling can exceed the signed `Integer` range, in
-which case the function raises `ErrOverflow` rather than wrapping. The range of
+either the `at.seconds * 1000000000` scaling or the trailing addition of
+`at.nanos` can exceed the signed `Integer` range, in which case the function
+raises `ErrOverflow` rather than wrapping. The range of
 representable instants is therefore narrower than for `datetime::toMillis`, since
 each second consumes a billion units rather than a thousand.
 `datetime::toNanos` is pure: it reads no host state and depends only on `at`.
@@ -63,7 +64,7 @@ precision of `at`; use it when nanosecond fidelity matters.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Scaling `at.seconds` to nanoseconds (`at.seconds * 1000000000`) produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/builtins/datetime_package.mfb:__datetime_toNanos]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000000000 + at.nanos` overflows the signed `Integer` range — either the nanosecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/builtins/datetime_package.mfb:__datetime_toNanos]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
 
 ## Examples
 

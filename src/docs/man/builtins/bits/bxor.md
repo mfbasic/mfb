@@ -31,7 +31,7 @@ patterns; `bxor` does not interpret sign. The operation is total — it is defin
 for every pair of inputs and never raises — has no side effects, and lowers to a
 single native AArch64 `eor` instruction inline rather than calling a runtime
 helper, producing identical results on the native and Binary Representation
-execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/target/shared/code/builder_bits.rs:lower_bits_call]]
+execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/target/shared/code/builder_bits.rs:lower_bits_binary]] [[src/target/shared/abi.rs:exclusive_or_registers]]
 
 XORing a value with itself yields `0`, and XORing with `0` returns the value
 unchanged, so `bxor` is its own inverse: `bits::bxor(bits::bxor(x, k), k)`

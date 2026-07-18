@@ -33,7 +33,7 @@ UTC at that instant. This is the exact quantity `datetime::inZone` adds to an
 [[src/builtins/datetime_package.mfb:__datetime_inZone]]
 
 How the offset is determined depends on the zone's kind. For a UTC zone
-(`ZoneKind::Utc`) and a fixed-offset zone (`ZoneKind::Fixed`, built with
+(`ZoneKind::Utc`) and a fixed-offset zone (`ZoneKind::FixedOffset`, built with
 `datetime::fixedOffset`) the function returns the zone's stored constant offset
 directly and does not consult `at` — the UTC zone stores zero, and a fixed zone
 stores its single configured offset. For a local zone (`ZoneKind::Local`, built
@@ -43,7 +43,7 @@ the host zone table and is therefore DST-correct, returning the standard-time
 offset for instants outside daylight saving and the shifted offset for instants
 within it. Two calls with the same local zone but instants on opposite sides of
 a DST transition can therefore return different values.
-[[src/builtins/datetime_package.mfb:__datetime_offsetAt]]
+[[src/builtins/datetime_package.mfb:__datetime_offsetAt]] [[src/builtins/datetime_package.mfb:ZoneKind]]
 
 Only the `seconds` field of `at` participates; the sub-second `nanos` field is
 ignored. The function reads no host state for UTC and fixed zones (those are

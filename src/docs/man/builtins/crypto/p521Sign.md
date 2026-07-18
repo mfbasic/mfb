@@ -27,7 +27,7 @@ IMPORT crypto
 on the NIST P-521 curve (FIPS 186), hashing the message with SHA-512 internally.
 The result is an ASN.1 DER `Ecdsa-Sig-Value` (X9.62) returned as a `List OF Byte`.
 Verify it later with `crypto::p521Verify` given the matching public key.
-[[src/target/shared/code/crypto_ec/openssl.rs:sign]]
+[[src/target/shared/code/crypto_ec.rs:ec_call]]
 
 `privateKey` is the 199-byte wire form `0x04 || X || Y || K` — the 133-byte
 uncompressed point (`0x04` prefix plus the two 66-byte field elements `X` and `Y`)
@@ -55,7 +55,7 @@ its bytes with `encoding::hexEncode` (lowercase hex) or `encoding::base64Encode`
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `privateKey` | `List OF Byte` | The 199-byte P-521 private key in the `0x04 \|\| X \|\| Y \|\| K` wire form (the `privateKey` field of a `crypto::generateP521` key pair). Must be exactly 199 bytes: the 133-byte point followed by the 66-byte scalar. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
+| `privateKey` | `List OF Byte` | The 199-byte P-521 private key in the `0x04 \|\| X \|\| Y \|\| K` wire form (the `privateKey` field of a `crypto::generateP521` key pair). Must be exactly 199 bytes: the 133-byte point followed by the 66-byte scalar. [[src/target/shared/code/crypto_ec/openssl.rs:params]] [[src/target/shared/code/crypto_ec.rs:20]] |
 | `message` | `List OF Byte` | The raw bytes to sign. Any length; hashed with SHA-512 internally, so no pre-hashing is required. |
 
 ## Return value
@@ -68,9 +68,9 @@ its bytes with `encoding::hexEncode` (lowercase hex) or `encoding::base64Encode`
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 199 bytes (the P-521 point length plus field length). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
-| `77050000` | `ErrUnknown` | The platform signing call itself fails (e.g. the key material does not decode to a valid P-521 private key). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
-| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
+| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 199 bytes (the P-521 point length plus field length), or the 199 bytes do not decode to a valid P-521 private key. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
+| `77050000` | `ErrUnknown` | The platform signing call itself fails (the OpenSSL / Security.framework signing operation returns an error, or a required library symbol cannot be loaded). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
+| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
 
 ## Examples
 

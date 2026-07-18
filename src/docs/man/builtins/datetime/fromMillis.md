@@ -29,12 +29,15 @@ leap-second-free) from a single count of whole milliseconds measured from
 values select instants after the epoch, and negative values select instants
 before it. [[src/builtins/datetime_package.mfb:__datetime_fromMillis]]
 
-The count is split into a whole-second field and a sub-second nanosecond field
-by floor division. The `seconds` field is `millis / 1000` and the `nanos` field
-is the non-negative millisecond remainder scaled to nanoseconds
-(`remainder * 1000000`). For negative `millis` the split borrows a second so the
-stored `nanos` always lands in `0..999000000` rather than going negative: a
-`millis` of `-1` produces `seconds` `-1` and `nanos` `999000000`, the instant one
+The count is split into a whole-second `seconds` field and a sub-second `nanos`
+field by *floor* division, so the `nanos` remainder is always non-negative. The
+implementation first computes the toward-zero quotient `millis / 1000` and
+remainder `millis MOD 1000`; when that remainder is negative it adds `1000` to
+the remainder and subtracts `1` from the quotient, borrowing one second. The
+`seconds` field is therefore the mathematical floor of `millis / 1000` and the
+`nanos` field is the borrowed, non-negative millisecond remainder scaled to
+nanoseconds (`remainder * 1000000`), always in `0..999000000`. A `millis` of
+`-1` produces `seconds` `-1` and `nanos` `999000000`, the instant one
 millisecond before the epoch. Because the input carries only millisecond
 resolution, the `nanos` field is always a whole number of milliseconds — its
 microsecond and nanosecond digits are zero.

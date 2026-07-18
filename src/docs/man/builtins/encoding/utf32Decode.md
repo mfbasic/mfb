@@ -40,7 +40,7 @@ a byte serialization, so no byte order (endianness) or byte-order mark applies.
 `utf32Decode` is the inverse of `encoding::utf32Encode`: decoding the code points
 that `utf32Encode` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/builtins/encoding.rs:UTF32_DECODE]]
+[[src/builtins/encoding_package.mfb:__encoding_utf32Encode]]
 
 ## Parameters
 

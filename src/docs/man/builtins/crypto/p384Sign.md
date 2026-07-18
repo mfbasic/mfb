@@ -68,9 +68,9 @@ its bytes with `encoding::hexEncode` (lowercase hex) or `encoding::base64Encode`
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 145 bytes (the P-384 point length plus field length). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
-| `77050000` | `ErrUnknown` | The platform signing call itself fails (e.g. the key material does not decode to a valid P-384 private key). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
-| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] |
+| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 145 bytes (the P-384 point length plus field length), or the 145 bytes do not decode to a valid P-384 private key. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
+| `77050000` | `ErrUnknown` | The platform signing call itself fails (the OpenSSL / Security.framework signing operation returns an error, or a required library symbol cannot be loaded). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
+| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
 
 ## Examples
 

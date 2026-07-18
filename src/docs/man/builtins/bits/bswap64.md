@@ -33,9 +33,11 @@ every one of the 64 bits participates in the swap, so no bits are cleared. [[src
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap64` does not interpret sign. The operation is total — it is defined for
-every `Integer` and never raises — has no side effects, and lowers to a native
-byte-reversal instruction inline rather than calling a runtime helper, producing
-identical results on the native and Binary Representation execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
+every `Integer` and never raises; only the variable-shift ops (`sl`/`sr`/`sra`)
+can raise a `bits::` error — has no side effects, and lowers to a native
+doubleword byte-reversal instruction (`rev Xd, Xn`) inline rather than calling a
+runtime helper, producing identical results on the native and Binary
+Representation execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/builtins/bits.rs:is_bits_shift]] [[src/target/shared/abi.rs:reverse_bytes]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
 
 ## Parameters
 

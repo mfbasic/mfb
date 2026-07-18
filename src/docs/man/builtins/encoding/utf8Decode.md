@@ -27,9 +27,11 @@ dependency is required. [[src/builtins/encoding.rs:augmented_project]]
 `encoding::utf8Decode` interprets `value` as a UTF-8 byte sequence and returns the
 corresponding text. Because MFBASIC strings are always well-formed UTF-8, the
 input is validated in full before the string is produced: `utf8Decode` accepts
-only a well-formed UTF-8 sequence, rejecting an out-of-range element, an invalid
-or overlong byte sequence, and any other malformed input. The empty list decodes
-to the empty string. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]]
+only a well-formed UTF-8 sequence and rejects an invalid lead byte, a missing or
+stray continuation byte, a truncated multi-byte sequence, an overlong encoding, a
+surrogate code point (`U+D800`–`U+DFFF`), and any scalar above `U+10FFFF`. The
+empty list decodes to the empty string.
+[[src/builtins/encoding_package.mfb:__encoding_utf8Valid]] [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]]
 
 `utf8Decode` is a **parameter overload** selected by the argument's element type:
 a `List OF Byte` is decoded directly, while a `List OF Integer` is first checked

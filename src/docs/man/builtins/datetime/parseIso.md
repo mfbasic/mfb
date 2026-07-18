@@ -39,9 +39,9 @@ parsing `value` left to right. The components are:
 - `<sep>` — the date/time separator: `T`, `t`, or a single space [[src/builtins/datetime_package.mfb:__datetime_parseIso]]
 - `HH:mm:ss` — two-digit hour, minute, and second on a 24-hour clock, separated by
   literal `:` characters
-- `.fraction` — optional fractional second: a `.` followed by 1 to 9 digits. The
-  digits are scaled to nanoseconds (so `.25` becomes `250000000` ns); any digits
-  beyond the ninth are consumed but ignored [[src/builtins/datetime_package.mfb:__datetime_parseIso]]
+- `.fraction` — optional fractional second: a `.` followed by decimal digits. The
+  first nine digits are scaled to nanoseconds (so `.25` becomes `250000000` ns);
+  any digits beyond the ninth are consumed but ignored [[src/builtins/datetime_package.mfb:__datetime_parseIso]]
 - `<offset>` — required UTC offset: `Z` or `z` for UTC, otherwise a signed
   `+/-HH:MM` or `+/-HHMM` (the colon between offset hours and minutes is optional)
 

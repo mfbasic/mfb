@@ -36,7 +36,7 @@ direction is part of the type, `audio::read` accepts only an `AudioInput` and
 cross a thread boundary, be copied, be stored in a collection, or be carried in a
 record. Each is closed automatically by lexical drop when its binding leaves
 scope, or explicitly with `audio::close`; using a stream after it is closed
-raises an error, and closing twice is a no-op.
+raises an error, and closing twice is a no-op. [[src/builtins/audio.rs:resource_close_function]]
 
 `AudioDevice` is a plain read-only record obtained only from `audio::devices()` —
 a program cannot construct one, because its `id` is an opaque platform handle
@@ -44,7 +44,7 @@ a program cannot construct one, because its `id` is an opaque platform handle
 be handed back to `audio::openInput`/`audio::openOutput` verbatim. It carries no
 channel counts or supported rates: those cannot be reported without opening the
 device on Linux, and a field truthful on one platform and zero on the other would
-be worse than no field.
+be worse than no field. [[src/target/shared/code/audio/macos.rs:SEL_UID]] [[src/target/shared/code/audio/mod.rs]]
 
 ## Types
 
@@ -60,7 +60,7 @@ non-sendable; closed by `audio::close`.
 
 ### AudioDevice
 
-A description of one audio device, obtained only from `audio::devices()`.
+A description of one audio device, obtained only from `audio::devices()`. [[src/builtins/audio.rs:builtin_type_fields]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ A description of one audio device, obtained only from `audio::devices()`.
 
 A linear ADSR amplitude envelope in raw s16 sample units (`0..32767`), passed to
 `audio::render` through an `AudioNote`. Unlike `AudioDevice`, it is an ordinary
-value record: construct it with `AudioEnvelope[...]`.
+value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_package.mfb:AudioEnvelope]] [[src/builtins/audio.rs:builtin_type_fields]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -89,12 +89,12 @@ value record: construct it with `AudioEnvelope[...]`.
 
 A single note for `audio::render` to synthesize: a sine at `frequencyHz` for
 `noteFrames` frames, shaped by `envelope` and scaled by `gainOverall`. A value
-record; construct it with `AudioNote[...]`.
+record; construct it with `AudioNote[...]`. [[src/builtins/audio_package.mfb:AudioNote]] [[src/builtins/audio.rs:builtin_type_fields]]
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `frequencyHz` | `Float` | Sine frequency in hertz. |
-| `noteFrames` | `Integer` | Total length in frames (one frame is 2 bytes of mono s16le at 48 kHz). |
+| `noteFrames` | `Integer` | Total length in frames (one frame is 2 bytes of mono s16le at 48 kHz). [[src/builtins/audio_package.mfb:__audio_render]] |
 | `envelope` | `AudioEnvelope` | The amplitude envelope applied over the note. |
 | `gainOverall` | `Float` | Overall gain scaling the whole note, `0..1`. |
 

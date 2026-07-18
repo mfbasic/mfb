@@ -36,7 +36,11 @@ with two fields: [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]]
 The secret seed is drawn from the OS CSPRNG via `crypto::randomBytes(32)`, so the
 result is random and non-reproducible: every call yields a different key pair.
 There is no seeded or deterministic form; to persist a key, store the returned
-bytes yourself. [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]]
+bytes yourself. Because the count `32` is fixed and valid, the internal
+`randomBytes` call never fails on a bad argument, but it can still surface an OS
+entropy failure (`ErrUnknown`) or an allocation failure (`ErrOutOfMemory`); the
+public-key derivation allocates its own byte lists and can likewise raise
+`ErrOutOfMemory`. [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]] [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]]
 
 Ed25519 is a portable software core, so keys and the algorithm behave identically
 on every target (macOS/Linux, aarch64/x86-64) and use no platform crypto library.
@@ -62,7 +66,10 @@ None.
 
 ## Errors
 
-No errors.
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) fails while drawing the 32-byte seed via `crypto::randomBytes(32)`. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]] |
+| `77010001` | `ErrOutOfMemory` | An arena allocation fails — either for the random seed bytes or for a byte list built while deriving the public key. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] [[src/builtins/crypto_package.mfb:__crypto_ed25519Public]] |
 
 ## Examples
 

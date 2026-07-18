@@ -72,7 +72,7 @@ with `encoding::hexEncode` or `encoding::base64Encode`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `length` is less than 1 or greater than `8160` (`255 * 32`), the maximum output HKDF-Expand can produce for a 32-byte hash. [[src/builtins/crypto_package.mfb:__crypto_hkdfSha256]] |
+| `77050002` | `ErrInvalidArgument` | `length` is less than 1 or greater than `8160` (`255 * 32`), the maximum output HKDF-Expand can produce for a 32-byte hash. [[src/builtins/crypto_package.mfb:__crypto_hkdfSha256]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 
 ## Examples
 

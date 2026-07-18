@@ -66,6 +66,12 @@ are fast and seedable but **not** cryptographically secure. Use
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `min` is greater than `max`, or the range `max - min + 1` overflows a non-negative `Integer` and is too large to sample. [[src/builtins/crypto_package.mfb:__crypto_randomInt]] |
 
+## Type checking
+
+`randomInt` takes exactly two `Integer` arguments and returns `Integer`; no other
+arity or argument type resolves.
+[[src/builtins/crypto.rs:resolve_call]] [[src/builtins/crypto.rs:arity]]
+
 ## Examples
 
 Roll a fair six-sided die:

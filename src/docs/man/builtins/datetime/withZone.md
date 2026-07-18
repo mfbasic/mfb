@@ -37,12 +37,13 @@ The `resolve` step reads the offset already pinned on `dt` to reach the UTC
 timeline without any zone lookup (`daysFromCivil(...) * 86400 + hour * 3600 +
 minute * 60 + second - dt.offset`). The `inZone` step then resolves the effective
 offset for `zone` at that instant — zero for a UTC zone (`ZoneKind::Utc`), the
-stored constant for a fixed-offset zone (`ZoneKind::Fixed`, built with
+stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`, built with
 `datetime::fixedOffset`), and the DST-correct host offset for a local zone
 (`ZoneKind::Local`, built with `datetime::local`) — adds it to the instant's
 seconds, floor-divides into whole days and second-of-day, and splits the result
 into civil year/month/day and hour/minute/second with the proleptic Gregorian
-calendar. [[src/builtins/datetime_package.mfb:__datetime_resolve]]
+calendar. [[src/builtins/datetime_package.mfb:ZoneKind]]
+[[src/builtins/datetime_package.mfb:__datetime_resolve]]
 [[src/builtins/datetime_package.mfb:__datetime_inZone]]
 
 The returned `DateTime` carries the new civil date and time, `zone` itself, and

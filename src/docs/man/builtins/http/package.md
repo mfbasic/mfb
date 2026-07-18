@@ -45,6 +45,22 @@ Read it with the ordinary `collections` accessors — for example
 `collections::hasKey(resp.headers, "location")`. There is no dedicated header
 function. [[src/builtins/http_package.mfb:__http_parseResponse]]
 
+**Bounded exchange (OS-11).** Each exchange applies a bounded default connect
+deadline (30 s) and, on the plaintext path, a per-read deadline (30 s), so a slow
+or black-holed peer cannot wedge the calling thread indefinitely — a stalled
+exchange fails with a timeout rather than blocking forever. The response is
+capped at 64 MiB regardless. [[src/builtins/http_package.mfb:__http_exchangeTcp]]
+
+**No SSRF filtering (OS-10).** The client validates only the URL scheme; it does
+**not** restrict which host or address a request may target. A program that
+builds a `Url` from untrusted input can therefore be steered at `127.0.0.1`, a
+cloud metadata endpoint (`169.254.169.254`), or an RFC-1918/link-local address.
+There is no redirect-based amplification (3xx responses are returned as-is, not
+followed), but a caller that forwards untrusted URLs must apply its own host
+allow/deny policy before calling `http::read`/`http::write`. No default-deny is
+imposed because it would break legitimate localhost clients.
+[[src/builtins/net_package.mfb:__net_toUrl]]
+
 The client always supplies `Host`, `User-Agent` (`mfb-http/1`), `Accept`
 (`*/*`), and `Connection: close`, plus `Content-Length` for `http::write`. A
 caller `headers` entry adds or overrides any request header case-insensitively,
@@ -93,7 +109,7 @@ tearing down the server. `Content-Length`, the reason phrase, and
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by `read`/`write` when the method is empty or contains a space, and by `route` when a `*`/`:name?` segment is not trailing [[src/builtins/http_package.mfb:__http_normalizeMethod]] |
+| `77050002` | `ErrInvalidArgument` | raised by `read`/`write` when the method is empty or contains a space, when a caller header name/value or the URL-derived request-target/Host carries a control byte below `0x20` (in particular CR/LF — request-splitting is rejected, not framed), and by `route` when a `*`/`:name?` segment is not trailing [[src/builtins/http_package.mfb:__http_normalizeMethod]] [[src/builtins/http_package.mfb:__http_hasControlBytes]] |
 | `77050003` | `ErrInvalidFormat` | raised by `read`/`write` on a malformed response status line, header block, or chunked framing; the server maps the same class of request-parse failure (malformed request line, non-text headers, bad multipart framing) to a `400` response [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
 | `77050010` | `ErrOverflow` | raised by `read`/`write` when the response exceeds the internal 64 MiB size cap; the server maps an oversize request to a `413` response [[src/builtins/http_package.mfb:__http_exchangeTcp]] |
 

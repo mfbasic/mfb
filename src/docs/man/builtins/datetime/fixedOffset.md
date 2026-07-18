@@ -30,8 +30,8 @@ value that does not vary with the instant being projected. Unlike
 zone, and unlike `datetime::utc`, the canonical zero-offset zone, a
 fixed-offset `Zone` carries a single signed offset that applies to every
 `Instant` projected through it. The returned `Zone` has a zone kind of
-`ZoneKind::Fixed` and a label rendered in the form `+HH:MM` or `-HH:MM`.
-[[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]]
+`ZoneKind::FixedOffset` and a label rendered in the form `+HH:MM` or `-HH:MM`.
+[[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] [[src/builtins/datetime_package.mfb:ZoneKind]]
 
 A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
 human-readable civil fields of a `DateTime`. Projecting an `Instant` through a
@@ -79,7 +79,7 @@ minutes take the sign of `hours`, so the combined offset is
 
 | Type | Description |
 | --- | --- |
-| `Zone` | A `Zone` with a zone kind of `ZoneKind::Fixed`, the requested constant offset, and a label of the form `+HH:MM` or `-HH:MM`. For a zero offset the label is `+00:00`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Zone` | A `Zone` with a zone kind of `ZoneKind::FixedOffset`, the requested constant offset, and a label of the form `+HH:MM` or `-HH:MM`. For a zero offset the label is `+00:00`. [[src/builtins/datetime.rs:call_return_type_name]] [[src/builtins/datetime_package.mfb:__datetime_offsetLabel]] |
 
 ## Errors
 

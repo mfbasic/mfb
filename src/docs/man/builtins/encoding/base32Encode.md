@@ -30,10 +30,11 @@ selects one character from the uppercase alphabet
 `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`. [[src/builtins/encoding_package.mfb:__encoding_base32Encode]]
 
 Encoding operates on 40-bit (5-byte) groups, each producing eight Base32
-characters. When the final group is short, the trailing bits are left-padded to
-a full symbol and the output is padded with `=` characters until its length is a
-multiple of eight, so the result length is always a multiple of eight. An empty
-list yields the empty string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
+characters. When the final group is short, its remaining bits become the high
+bits of a last symbol and are zero-filled at the low end, then the output is
+padded with `=` characters until its length is a multiple of eight, so the
+result length is always a multiple of eight. An empty list yields the empty
+string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
 
 The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. The inverse operation

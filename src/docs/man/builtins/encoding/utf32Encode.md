@@ -40,7 +40,7 @@ The function is **total** — every string, including the empty string (which
 yields an empty list), encodes successfully, and it never raises a runtime
 error. The inverse operation is `encoding::utf32Decode`, which turns a
 `List OF Integer` of code points back into a `String` and rejects out-of-range
-or surrogate code points. [[src/builtins/encoding.rs:UTF32_ENCODE]]
+or surrogate code points. [[src/builtins/encoding_package.mfb:__encoding_utf32Decode]]
 
 ## Parameters
 

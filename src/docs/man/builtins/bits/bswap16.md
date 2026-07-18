@@ -31,8 +31,7 @@ quantity regardless of the high bits of `value`. [[src/target/shared/code/builde
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap16` does not interpret sign. The operation is total — it is defined for
 every `Integer` and never raises — has no side effects, and lowers to native
-byte-reversal instructions inline rather than calling a runtime helper, producing
-identical results on the native and Binary Representation execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
+byte-reversal instructions inline rather than calling a runtime helper. [[src/builtins/bits.rs:is_bits_shift]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
 
 ## Parameters
 

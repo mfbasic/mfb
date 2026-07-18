@@ -26,9 +26,10 @@ IMPORT datetime
 `datetime::utc` returns the `Zone` that represents Coordinated Universal Time: a
 fixed zone whose offset from UTC is a constant zero seconds and whose label is
 the literal string `"UTC"`. The returned `Zone` carries a zone kind of
-`ZoneKind::Utc`, marking it as the canonical UTC zone rather than an arbitrary
-fixed offset built with `datetime::fixedOffset`.
-[[src/builtins/datetime_package.mfb:__datetime_utc]]
+`ZoneKind::Utc` (the first `ZoneKind` variant, tag `0`), marking it as the
+canonical UTC zone rather than an arbitrary fixed offset built with
+`datetime::fixedOffset` (kind `ZoneKind::FixedOffset`).
+[[src/builtins/datetime_package.mfb:__datetime_utc]] [[src/builtins/datetime_package.mfb:ZoneKind]]
 
 A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
 human-readable civil fields of a `DateTime`. Project an `Instant` through this
@@ -54,7 +55,7 @@ environment. [[src/builtins/datetime.rs:arity]]
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc`, and the label `"UTC"`. The same value is returned on every call. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/builtins/datetime.rs:call_return_type_name]] [[src/builtins/datetime_package.mfb:__datetime_utc]] |
 
 ## Errors
 
