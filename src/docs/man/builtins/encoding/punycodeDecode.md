@@ -47,7 +47,7 @@ The input is expected to be well-formed Punycode. Malformed input — a basic
 (pre-delimiter) byte at or above `128`, a variable-length integer that is
 truncated before it terminates, a byte that is not a valid base-36 digit, or a
 decoded scalar value outside the Unicode range — raises a runtime error rather
-than producing a partial result. [[src/builtins/encoding_package.mfb:__encoding_punyValue]]
+than producing a partial result. [[src/builtins/encoding_package.mfb:__encoding_punyDecodeLabel]] [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]]
 
 ## Parameters
 
@@ -65,7 +65,7 @@ than producing a partial result. [[src/builtins/encoding_package.mfb:__encoding_
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An `xn--` label is malformed Punycode: a pre-delimiter byte is `>= 128`, a variable-length integer is truncated or contains a non-base-36 digit, or a decoded scalar value falls outside the valid Unicode range. [[src/builtins/encoding_package.mfb:__encoding_punyDecodeLabel]] |
+| `77050003` | `ErrInvalidFormat` | An `xn--` label is malformed Punycode: a pre-delimiter byte is `>= 128`, a variable-length integer is truncated or contains a non-base-36 digit, or a decoded scalar value falls outside the valid Unicode range. [[src/builtins/encoding_package.mfb:__encoding_punyDecodeLabel]] [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
 
 ## Examples
 

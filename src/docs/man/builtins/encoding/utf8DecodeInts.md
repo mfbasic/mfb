@@ -48,7 +48,7 @@ round-trips losslessly through the two functions.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer` | The UTF-8 octets to decode, one code unit per element. Each element must be in `0..255` and the sequence must be well-formed UTF-8. [[src/builtins/encoding.rs:call_param_names]] |
+| `value` | `List OF Integer` | The UTF-8 octets to decode, one code unit per element. Each element must be in `0..255` and the sequence must be well-formed UTF-8. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]] |
 
 ## Return value
 

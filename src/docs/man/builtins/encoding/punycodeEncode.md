@@ -38,9 +38,9 @@ Within an encoded label, the basic (ASCII) code points are copied out first,
 followed by a `-` delimiter when any basic code points are present, and then the
 generalized variable-length integers that describe the non-ASCII code points in
 ascending order. The algorithm uses the RFC 3492 parameters (initial `n` = 128,
-initial bias 72, base 36) and the standard bias-adaptation function. The input
+initial bias 72, base 36) and the standard bias-adaptation function. [[src/builtins/encoding_package.mfb:__encoding_punyEncodeLabel]] The input
 `String` is decoded to Unicode scalar values through the package's UTF-8
-decoder before encoding. [[src/builtins/encoding_package.mfb:__encoding_punyEncodeLabel]]
+decoder before encoding. [[src/builtins/encoding_package.mfb:__encoding_codepoints]]
 
 The function is **total**: every `String`, including the empty string and
 all-ASCII hostnames, encodes successfully, and it never raises a runtime error.

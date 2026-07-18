@@ -31,10 +31,11 @@ selects one character from the alphabet
 result uses `+` and `/` for the final two symbols. [[src/builtins/encoding_package.mfb:__encoding_base64Encode]]
 
 Encoding operates on 24-bit (3-byte) groups, each producing four Base64
-characters. When the final group is short, the trailing bits are left-padded to
-a full symbol and the output is padded with `=` characters until its length is a
-multiple of four, so the result length is always a multiple of four. An empty
-list yields the empty string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
+characters. When the final group is short, the remaining data bits occupy the
+high-order bits of the last symbol and the low-order bits are zero-filled, and
+the output is then padded with `=` characters until its length is a multiple of
+four, so the result length is always a multiple of four. An empty list yields
+the empty string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
 
 The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. For the URL- and

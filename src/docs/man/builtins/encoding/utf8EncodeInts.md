@@ -47,7 +47,7 @@ The inverse operation is `encoding::utf8DecodeInts`, which accepts a
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The text to encode. Any string, including the empty string, is accepted. [[src/builtins/encoding.rs:call_param_names]] |
+| `value` | `String` | The text to encode. Any string, including the empty string, is accepted. [[src/builtins/encoding_package.mfb:__encoding_utf8EncodeInts]] |
 
 ## Return value
 

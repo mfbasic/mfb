@@ -76,7 +76,7 @@ LET bytes AS List OF Byte = encoding::sleb128Encode(-123456)
 io::print(encoding::sleb128Decode(bytes))
 ```
 
-Decode a literal two-byte sequence (`-2` = `[0x7E]`, `-64` = `[0x40]`):
+Decode a single terminating byte whose `0x40` sign bit is set (`-2` = `[0x7E]`):
 
 ```
 IMPORT encoding

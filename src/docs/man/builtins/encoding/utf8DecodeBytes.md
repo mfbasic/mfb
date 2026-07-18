@@ -48,7 +48,7 @@ round-trips losslessly through the two functions.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Byte` | The UTF-8 octets to decode, one byte per element. Must form a well-formed UTF-8 sequence. [[src/builtins/encoding.rs:call_param_names]] |
+| `value` | `List OF Byte` | The UTF-8 octets to decode, one byte per element. Must form a well-formed UTF-8 sequence. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]] |
 
 ## Return value
 

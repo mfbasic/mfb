@@ -32,10 +32,11 @@ result uses `-` and `_` for the final two symbols instead of the `+` and `/`
 used by the standard variant. [[src/builtins/encoding_package.mfb:__encoding_base64UrlEncode]]
 
 Encoding operates on 24-bit (3-byte) groups, each producing four Base64
-characters. When the final group is short, the trailing bits are left-padded to
-a full symbol, but **no** `=` padding characters are appended, so the output
-length is not rounded up to a multiple of four. This is the difference from
-`encoding::base64Encode`, which pads with `=`. An empty list yields the empty
+characters. When the final group is short, the remaining data bits occupy the
+high-order bits of the last symbol and the low-order bits are zero-filled, but
+**no** `=` padding characters are appended, so the output length is not rounded
+up to a multiple of four. This is the difference from `encoding::base64Encode`,
+which pads with `=`. An empty list yields the empty
 string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
 
 The function is **total**: every `List OF Byte`, including the empty list,

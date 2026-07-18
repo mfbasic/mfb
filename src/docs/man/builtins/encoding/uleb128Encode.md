@@ -57,7 +57,7 @@ an `Integer`. [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` is negative. [[src/builtins/encoding_package.mfb:__encoding_uleb128Encode]] |
+| `77050003` | `ErrInvalidFormat` | `value` is negative (`value < 0`); unsigned LEB128 has no representation for negative numbers. [[src/builtins/encoding_package.mfb:__encoding_uleb128Encode]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
 
 ## Examples
 

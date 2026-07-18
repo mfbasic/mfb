@@ -41,15 +41,16 @@ and `;`: [[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]]
 - A **named** reference `&…;` (for example `&eacute;`), looked up in the
   built-in entity table. [[src/builtins/encoding_package.mfb:__encoding_htmlEntity]]
 
-The resolved code point is emitted as UTF-8 text. Valid Unicode scalar values in
-the range `0`–`1114111` are accepted.
-[[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]]
+The resolved code point is emitted as UTF-8 text. Any code point in the range
+`0`–`1114111` (`0x10FFFF`) is accepted, including surrogate values, which are
+not screened out. [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]]
 
 The function is **not total**: it fails on a reference that has no `;`
-terminator, on a numeric reference whose digits are empty or malformed, on an
-unknown entity name, and on a numeric reference whose value is out of range. The
-empty string yields the empty string. `encoding::htmlUnescape` is the inverse of
-`encoding::htmlEscape`. [[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]]
+terminator, on a numeric reference whose digits are empty or non-numeric, on an
+unknown entity name, and on a numeric reference whose value exceeds `1114111`.
+The empty string yields the empty string. `encoding::htmlUnescape` is the
+inverse of `encoding::htmlEscape`.
+[[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]]
 
 ## Parameters
 
@@ -67,7 +68,7 @@ empty string yields the empty string. `encoding::htmlUnescape` is the inverse of
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `&` reference is not closed by a `;`; a numeric reference has empty or non-digit digits; a named reference is unknown; or a numeric reference resolves to a value below `0` or above `1114111`. [[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]] [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A `&` reference is not closed by a `;`; a numeric reference has empty or non-digit digits; a named reference is unknown; or a numeric reference resolves to a value above `1114111`. [[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]] [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
 
 ## Examples
 

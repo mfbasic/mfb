@@ -20,6 +20,7 @@ os::cpuCount()
 os::hostName()
 os::userName()
 os::executablePath()
+os::resourcePath(relative)
 ```
 
 ## Description
@@ -38,7 +39,12 @@ arguments **after** the program name (element 0 is the first real argument, not
 the executable — the program name is available through `os::executablePath`).
 `os::pid` and `os::cpuCount` return an `Integer`; `os::hostName`, `os::userName`,
 and `os::executablePath` return a `String` and raise `ErrUnsupported` if the host
-lookup fails. [[src/target/shared/code/os.rs:lower_os_helper]]
+lookup fails. `os::resourcePath(relative)` is the one call taking an argument: it
+maps a build-relative resource path to its absolute on-disk location for the
+running build shape (console → beside the executable; macOS `--app` →
+`Contents/Resources`; Linux `--app` → `usr/share/<name>`), raising
+`ErrInvalidPath` on a `.`/`..` component and `ErrUnsupported` if the executable
+path cannot be found. [[src/target/shared/code/os.rs:lower_os_helper]]
 
 Variable names and values are UTF-8 `String` values passed to and from the host
 C library (`getenv`, `setenv`, `unsetenv`, and the platform environ accessor).
@@ -73,5 +79,6 @@ package holds no resource handles.
 | --- | --- | --- |
 | `77050004` | `ErrNotFound` | `os::getEnv` is given a name that is not set. |
 | `77050002` | `ErrInvalidArgument` | `os::setEnv` is given a name that is empty or contains `=`. |
-| `77050007` | `ErrUnsupported` | `os::hostName`/`os::userName`/`os::executablePath` cannot obtain the value from the host. |
+| `77050007` | `ErrUnsupported` | `os::hostName`/`os::userName`/`os::executablePath`/`os::resourcePath` cannot obtain the value from the host. |
+| `77030002` | `ErrInvalidPath` | `os::resourcePath` is given a `relative` with a `.` or `..` path component. |
 | `77010001` | `ErrOutOfMemory` | The host cannot allocate storage for a set variable or a returned value. |
