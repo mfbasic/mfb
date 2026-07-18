@@ -240,150 +240,150 @@ directory; LOC shown to help sequence the effort.
 
 **`src/`**
 
-- [ ] `src/coverage.rs` (442 loc)
-- [ ] `src/doc.rs` (1098 loc)
-- [ ] `src/escape.rs` (560 loc)
-- [ ] `src/fmt.rs` (959 loc)
-- [ ] `src/internal_name.rs` (149 loc)
-- [ ] `src/lexer.rs` (1754 loc)
-- [ ] `src/main.rs` (878 loc)
-- [ ] `src/numeric.rs` (837 loc)
-- [ ] `src/scope_privates.rs` (733 loc)
-- [ ] `src/target.rs` (369 loc)
-- [ ] `src/terminal_safe.rs` (95 loc)
-- [ ] `src/testing.rs` (464 loc)
-- [ ] `src/unicode_backend.rs` (66 loc)
-- [ ] `src/unicode_runtime_tables.rs` (523 loc)
+- [x] `src/coverage.rs` (442 loc) — clean
+- [x] `src/doc.rs` (1098 loc) — bug-299 (D3)
+- [x] `src/escape.rs` (560 loc) — bug-290, bug-291
+- [x] `src/fmt.rs` (959 loc) — bug-293, bug-299 (D1/D2)
+- [x] `src/internal_name.rs` (149 loc) — clean
+- [x] `src/lexer.rs` (1754 loc) — clean
+- [x] `src/main.rs` (878 loc) — clean
+- [x] `src/numeric.rs` (837 loc) — clean (root cause of bug-286 is ir/lower.rs)
+- [x] `src/scope_privates.rs` (733 loc) — bug-285, bug-288
+- [x] `src/target.rs` (369 loc) — bug-300 (E1)
+- [x] `src/terminal_safe.rs` (95 loc) — clean
+- [x] `src/testing.rs` (464 loc) — bug-287
+- [x] `src/unicode_backend.rs` (66 loc) — clean
+- [x] `src/unicode_runtime_tables.rs` (523 loc) — clean
 
 **`src/arch/`**
 
-- [ ] `src/arch/mod.rs` (6 loc)
-- [ ] `src/arch/ops.rs` (727 loc)
+- [x] `src/arch/mod.rs` (6 loc) — clean
+- [x] `src/arch/ops.rs` (727 loc) — bug-300 (E2)
 
 **`src/arch/aarch64/`**
 
-- [ ] `src/arch/aarch64/backend.rs` (36 loc)
-- [ ] `src/arch/aarch64/mod.rs` (9 loc)
-- [ ] `src/arch/aarch64/regmodel.rs` (272 loc)
-- [ ] `src/arch/aarch64/reloc.rs` (44 loc)
-- [ ] `src/arch/aarch64/select.rs` (101 loc)
+- [x] `src/arch/aarch64/backend.rs` (36 loc) — clean
+- [x] `src/arch/aarch64/mod.rs` (9 loc) — clean
+- [x] `src/arch/aarch64/regmodel.rs` (272 loc) — clean
+- [x] `src/arch/aarch64/reloc.rs` (44 loc) — clean
+- [x] `src/arch/aarch64/select.rs` (101 loc) — clean
 
 **`src/arch/aarch64/encode/`**
 
-- [ ] `src/arch/aarch64/encode/emitter.rs` (1226 loc)
-- [ ] `src/arch/aarch64/encode/mod.rs` (192 loc)
-- [ ] `src/arch/aarch64/encode/operand.rs` (110 loc)
-- [ ] `src/arch/aarch64/encode/sizing.rs` (165 loc)
+- [x] `src/arch/aarch64/encode/emitter.rs` (1226 loc) — bug-284 (C1)
+- [x] `src/arch/aarch64/encode/mod.rs` (192 loc) — clean
+- [x] `src/arch/aarch64/encode/operand.rs` (110 loc) — bug-284 (C1)
+- [x] `src/arch/aarch64/encode/sizing.rs` (165 loc) — bug-284 (C2)
 
 **`src/arch/riscv64/`**
 
-- [ ] `src/arch/riscv64/backend.rs` (55 loc)
-- [ ] `src/arch/riscv64/mod.rs` (21 loc)
-- [ ] `src/arch/riscv64/regmodel.rs` (255 loc)
-- [ ] `src/arch/riscv64/reloc.rs` (48 loc)
-- [ ] `src/arch/riscv64/select.rs` (1100 loc)
-- [ ] `src/arch/riscv64/v128.rs` (1164 loc)
+- [x] `src/arch/riscv64/backend.rs` (55 loc) — clean
+- [x] `src/arch/riscv64/mod.rs` (21 loc) — clean
+- [x] `src/arch/riscv64/regmodel.rs` (255 loc) — clean
+- [x] `src/arch/riscv64/reloc.rs` (48 loc) — clean
+- [x] `src/arch/riscv64/select.rs` (1100 loc) — bug-284 (C3)
+- [x] `src/arch/riscv64/v128.rs` (1164 loc) — bug-284 (C4/C5)
 
 **`src/arch/riscv64/encode/`**
 
-- [ ] `src/arch/riscv64/encode/emitter.rs` (739 loc)
-- [ ] `src/arch/riscv64/encode/mod.rs` (143 loc)
-- [ ] `src/arch/riscv64/encode/operand.rs` (114 loc)
-- [ ] `src/arch/riscv64/encode/sizing.rs` (197 loc)
+- [x] `src/arch/riscv64/encode/emitter.rs` (739 loc) — clean
+- [x] `src/arch/riscv64/encode/mod.rs` (143 loc) — clean
+- [x] `src/arch/riscv64/encode/operand.rs` (114 loc) — clean
+- [x] `src/arch/riscv64/encode/sizing.rs` (197 loc) — clean
 
 **`src/arch/x86_64/`**
 
-- [ ] `src/arch/x86_64/backend.rs` (57 loc)
-- [ ] `src/arch/x86_64/mod.rs` (18 loc)
-- [ ] `src/arch/x86_64/regmodel.rs` (275 loc)
-- [ ] `src/arch/x86_64/reloc.rs` (46 loc)
-- [ ] `src/arch/x86_64/select.rs` (1085 loc)
+- [x] `src/arch/x86_64/backend.rs` (57 loc) — clean
+- [x] `src/arch/x86_64/mod.rs` (18 loc) — clean
+- [x] `src/arch/x86_64/regmodel.rs` (275 loc) — bug-300 (E5)
+- [x] `src/arch/x86_64/reloc.rs` (46 loc) — clean
+- [x] `src/arch/x86_64/select.rs` (1085 loc) — bug-296, bug-284 (C6/C7)
 
 **`src/arch/x86_64/encode/`**
 
-- [ ] `src/arch/x86_64/encode/emitter.rs` (2217 loc)
-- [ ] `src/arch/x86_64/encode/mod.rs` (155 loc)
-- [ ] `src/arch/x86_64/encode/operand.rs` (83 loc)
-- [ ] `src/arch/x86_64/encode/sizing.rs` (12 loc)
+- [x] `src/arch/x86_64/encode/emitter.rs` (2217 loc) — bug-294, bug-295, bug-284 (C6/C7)
+- [x] `src/arch/x86_64/encode/mod.rs` (155 loc) — clean
+- [x] `src/arch/x86_64/encode/operand.rs` (83 loc) — clean
+- [x] `src/arch/x86_64/encode/sizing.rs` (12 loc) — clean
 
 **`src/ast/`**
 
-- [ ] `src/ast/expr.rs` (873 loc)
-- [ ] `src/ast/items.rs` (1621 loc)
-- [ ] `src/ast/lexical.rs` (127 loc)
-- [ ] `src/ast/manifest.rs` (591 loc)
-- [ ] `src/ast/mod.rs` (36 loc)
-- [ ] `src/ast/parser.rs` (349 loc)
-- [ ] `src/ast/serialize.rs` (1725 loc)
-- [ ] `src/ast/stmt.rs` (786 loc)
-- [ ] `src/ast/testing.rs` (154 loc)
-- [ ] `src/ast/types.rs` (749 loc)
+- [x] `src/ast/expr.rs` (873 loc) — clean
+- [x] `src/ast/items.rs` (1621 loc) — bug-292
+- [x] `src/ast/lexical.rs` (127 loc) — clean
+- [x] `src/ast/manifest.rs` (591 loc) — clean
+- [x] `src/ast/mod.rs` (36 loc) — clean
+- [x] `src/ast/parser.rs` (349 loc) — clean
+- [x] `src/ast/serialize.rs` (1725 loc) — bug-300 (E3)
+- [x] `src/ast/stmt.rs` (786 loc) — bug-289
+- [x] `src/ast/testing.rs` (154 loc) — clean
+- [x] `src/ast/types.rs` (749 loc) — clean
 
 **`src/audit/`**
 
-- [ ] `src/audit/json.rs` (552 loc)
-- [ ] `src/audit/mod.rs` (298 loc)
-- [ ] `src/audit/report.rs` (477 loc)
-- [ ] `src/audit/text.rs` (388 loc)
+- [x] `src/audit/json.rs` (552 loc) — bug-283 (A1)
+- [x] `src/audit/mod.rs` (298 loc) — clean
+- [x] `src/audit/report.rs` (477 loc) — clean
+- [x] `src/audit/text.rs` (388 loc) — clean
 
 **`src/audit/collect/`**
 
-- [ ] `src/audit/collect/dependencies.rs` (220 loc)
-- [ ] `src/audit/collect/findings.rs` (513 loc)
-- [ ] `src/audit/collect/lockfile.rs` (163 loc)
-- [ ] `src/audit/collect/mod.rs` (187 loc)
-- [ ] `src/audit/collect/project.rs` (355 loc)
-- [ ] `src/audit/collect/source.rs` (1174 loc)
+- [x] `src/audit/collect/dependencies.rs` (220 loc) — clean
+- [x] `src/audit/collect/findings.rs` (513 loc) — bug-281 (shared)
+- [x] `src/audit/collect/lockfile.rs` (163 loc) — bug-281
+- [x] `src/audit/collect/mod.rs` (187 loc) — bug-283 (A3)
+- [x] `src/audit/collect/project.rs` (355 loc) — clean
+- [x] `src/audit/collect/source.rs` (1174 loc) — bug-278, bug-279, bug-280, bug-283 (A4)
 
 **`src/binary_repr/`**
 
-- [ ] `src/binary_repr/builder.rs` (273 loc)
-- [ ] `src/binary_repr/mod.rs` (699 loc)
-- [ ] `src/binary_repr/reader.rs` (1569 loc)
-- [ ] `src/binary_repr/sections.rs` (860 loc)
-- [ ] `src/binary_repr/util.rs` (304 loc)
-- [ ] `src/binary_repr/writer.rs` (1101 loc)
+- [x] `src/binary_repr/builder.rs` (273 loc) — bug-282 (B2)
+- [x] `src/binary_repr/mod.rs` (699 loc) — clean
+- [x] `src/binary_repr/reader.rs` (1569 loc) — bug-277, bug-282 (B1/B3/B4)
+- [x] `src/binary_repr/sections.rs` (860 loc) — bug-282 (B3)
+- [x] `src/binary_repr/util.rs` (304 loc) — clean
+- [x] `src/binary_repr/writer.rs` (1101 loc) — bug-282 (B4)
 
 **`src/builtins/`**
 
-- [ ] `src/builtins/audio.rs` (757 loc)
-- [ ] `src/builtins/audio_package.mfb` (582 loc)
-- [ ] `src/builtins/bits.rs` (237 loc)
-- [ ] `src/builtins/collections.rs` (533 loc)
-- [ ] `src/builtins/collections_package.mfb` (353 loc)
-- [ ] `src/builtins/crypto.rs` (814 loc)
-- [ ] `src/builtins/crypto_package.mfb` (2262 loc)
-- [ ] `src/builtins/csv.rs` (190 loc)
-- [ ] `src/builtins/csv_package.mfb` (192 loc)
-- [ ] `src/builtins/datetime.rs` (793 loc)
-- [ ] `src/builtins/datetime_package.mfb` (991 loc)
-- [ ] `src/builtins/encoding.rs` (582 loc)
-- [ ] `src/builtins/encoding_package.mfb` (1270 loc)
-- [ ] `src/builtins/errorcode.rs` (118 loc)
-- [ ] `src/builtins/fs.rs` (712 loc)
-- [ ] `src/builtins/general.rs` (1532 loc)
-- [ ] `src/builtins/http.rs` (609 loc)
-- [ ] `src/builtins/http_package.mfb` (1191 loc)
-- [ ] `src/builtins/io.rs` (126 loc)
-- [ ] `src/builtins/json.rs` (279 loc)
-- [ ] `src/builtins/json_package.mfb` (773 loc)
-- [ ] `src/builtins/math.rs` (600 loc)
-- [ ] `src/builtins/mod.rs` (1000 loc)
-- [ ] `src/builtins/money.rs` (166 loc)
-- [ ] `src/builtins/money_package.mfb` (19 loc)
-- [ ] `src/builtins/net.rs` (746 loc)
-- [ ] `src/builtins/net_package.mfb` (283 loc)
-- [ ] `src/builtins/os.rs` (280 loc)
-- [ ] `src/builtins/regex.rs` (304 loc)
-- [ ] `src/builtins/regex_package.mfb` (1811 loc)
-- [ ] `src/builtins/resource.rs` (361 loc)
-- [ ] `src/builtins/strings.rs` (760 loc)
-- [ ] `src/builtins/strings_package.mfb` (77 loc)
-- [ ] `src/builtins/term.rs` (331 loc)
-- [ ] `src/builtins/testing.rs` (175 loc)
-- [ ] `src/builtins/thread.rs` (862 loc)
-- [ ] `src/builtins/tls.rs` (433 loc)
-- [ ] `src/builtins/vector.rs` (791 loc)
+- [x] `src/builtins/audio.rs` (757 loc) — clean
+- [x] `src/builtins/audio_package.mfb` (582 loc) — clean
+- [x] `src/builtins/bits.rs` (237 loc) — clean
+- [x] `src/builtins/collections.rs` (533 loc) — clean
+- [ ] `src/builtins/collections_package.mfb` (353 loc) — .mfb group B (pending)
+- [x] `src/builtins/crypto.rs` (814 loc) — clean
+- [x] `src/builtins/crypto_package.mfb` (2262 loc) — bug-305
+- [x] `src/builtins/csv.rs` (190 loc) — clean
+- [ ] `src/builtins/csv_package.mfb` (192 loc) — .mfb group B (pending)
+- [x] `src/builtins/datetime.rs` (793 loc) — clean
+- [x] `src/builtins/datetime_package.mfb` (991 loc) — bug-306 (F5)
+- [x] `src/builtins/encoding.rs` (582 loc) — clean
+- [x] `src/builtins/encoding_package.mfb` (1270 loc) — bug-306 (F6)
+- [x] `src/builtins/errorcode.rs` (118 loc) — clean
+- [x] `src/builtins/fs.rs` (712 loc) — clean
+- [x] `src/builtins/general.rs` (1532 loc) — clean
+- [x] `src/builtins/http.rs` (609 loc) — clean
+- [x] `src/builtins/http_package.mfb` (1191 loc) — bug-303
+- [x] `src/builtins/io.rs` (126 loc) — clean
+- [x] `src/builtins/json.rs` (279 loc) — clean
+- [x] `src/builtins/json_package.mfb` (773 loc) — bug-302, bug-304
+- [x] `src/builtins/math.rs` (600 loc) — bug-300 (E6/E7)
+- [x] `src/builtins/mod.rs` (1000 loc) — clean
+- [x] `src/builtins/money.rs` (166 loc) — clean
+- [ ] `src/builtins/money_package.mfb` (19 loc) — .mfb group B (pending)
+- [x] `src/builtins/net.rs` (746 loc) — clean
+- [ ] `src/builtins/net_package.mfb` (283 loc) — .mfb group B (pending)
+- [x] `src/builtins/os.rs` (280 loc) — clean
+- [x] `src/builtins/regex.rs` (304 loc) — clean
+- [ ] `src/builtins/regex_package.mfb` (1811 loc) — .mfb group B (pending)
+- [x] `src/builtins/resource.rs` (361 loc) — clean
+- [x] `src/builtins/strings.rs` (760 loc) — clean
+- [ ] `src/builtins/strings_package.mfb` (77 loc) — .mfb group B (pending)
+- [x] `src/builtins/term.rs` (331 loc) — clean
+- [x] `src/builtins/testing.rs` (175 loc) — clean
+- [x] `src/builtins/thread.rs` (862 loc) — clean
+- [x] `src/builtins/tls.rs` (433 loc) — clean
+- [x] `src/builtins/vector.rs` (791 loc) — clean
 
 **`src/cli/`**
 
