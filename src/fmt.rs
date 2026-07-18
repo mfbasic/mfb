@@ -192,6 +192,36 @@ fn scan_line(line: &str) -> Scanned {
                 suppress = false;
                 stmt_start = false;
             }
+            // A backtick Scalar literal is opaque, exactly like a string (bug-293).
+            // Without this arm it fell to the catch-all, so the scanner read the
+            // scalar's *contents* as code: `` `"` `` opened string mode, which then
+            // closed at the next real string's opening quote and left that string's
+            // body scanned as code — any word spelling a keyword got uppercased,
+            // silently rewriting a literal the fmt spec guarantees byte-for-byte.
+            // `` `'` `` desynchronized the same way into comment mode.
+            //
+            // Mirrors the string arm including backslash escapes, since `` `\`` ``
+            // is a legal scalar and its escaped backtick must not close the token.
+            '`' => {
+                out.push('`');
+                i += 1;
+                while i < n {
+                    let d = chars[i];
+                    out.push(d);
+                    i += 1;
+                    if d == '\\' {
+                        if i < n {
+                            out.push(chars[i]);
+                            i += 1;
+                        }
+                    } else if d == '`' {
+                        break;
+                    }
+                }
+                sig.push(Sig::Other);
+                suppress = false;
+                stmt_start = false;
+            }
             '0'..='9' => {
                 while i < n && chars[i].is_ascii_digit() {
                     out.push(chars[i]);
@@ -876,6 +906,36 @@ mod tests {
         // Both an escaped quote and a trailing backslash-escape are copied verbatim.
         let input = "LET s = \"a\\\"b\\\\\"\n";
         assert_eq!(fmt(input), input);
+    }
+
+    /// A backtick Scalar literal is opaque, so a quote or apostrophe inside it
+    /// cannot desynchronize the scanner (bug-293).
+    ///
+    /// `` `"` `` used to open the scanner's *string* mode, which then closed at
+    /// the next real string's opening quote — leaving that string's body scanned
+    /// as code, where any word spelling a keyword got uppercased. That silently
+    /// rewrote a literal the fmt spec guarantees byte-for-byte, changing what the
+    /// rebuilt program prints.
+    #[test]
+    fn scalar_literals_containing_quotes_do_not_desynchronize_the_scanner() {
+        // The reported case: the string after a `"` scalar kept its casing.
+        let input = "LET c AS Scalar = `\"` : LET s AS String = \"print if then\"\n";
+        assert_eq!(fmt(input), input);
+
+        // An apostrophe scalar used to turn the rest of the line into a comment.
+        let input = "LET c AS Scalar = `'` : LET s AS String = \"if then\"\n";
+        assert_eq!(fmt(input), input);
+
+        // A backtick escaped inside a scalar must not close the token early.
+        let input = "LET c AS Scalar = `\\`` : LET s AS String = \"if\"\n";
+        assert_eq!(fmt(input), input);
+
+        // Keywords outside any literal are still normalized, so the new arm did
+        // not simply stop the scanner from doing its job.
+        assert_eq!(
+            fmt("LET c AS Scalar = `\"` : if x then\n"),
+            "LET c AS Scalar = `\"` : IF x THEN\n"
+        );
     }
 
     #[test]

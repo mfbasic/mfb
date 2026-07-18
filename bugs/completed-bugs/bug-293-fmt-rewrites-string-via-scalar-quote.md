@@ -1,11 +1,11 @@
 # bug-293: `mfb fmt` silently rewrites string-literal contents (changing program output) when a backtick Scalar literal contains a quote
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ (new) — `mfb fmt` is idempotent and preserves string/scalar literals containing quote characters
 
 `scan_line` in the formatter models comments, strings, numbers, and words, but a
@@ -89,3 +89,21 @@ just needs to treat it as opaque.
 The formatter's scanner has no case for backtick Scalar literals, so a scalar quote
 hijacks string/comment scanning and can rewrite a string literal. A backtick arm
 fixes it; low risk.
+
+## Resolution
+
+`scan_line` gained a backtick arm that consumes a Scalar literal to its closing
+backtick, mirroring the string arm — including backslash escapes, since `` `\`` ``
+is legal and its escaped backtick must not close the token early.
+
+Verified both ways with the report's exact reproduction:
+`LET c AS Scalar = \`"\` : LET s AS String = "print if then"` was rewritten to
+`"print IF THEN"` before the fix and is byte-identical after.
+
+Test: `fmt::tests::scalar_literals_containing_quotes_do_not_desynchronize_the_scanner`,
+covering the quote case, the apostrophe case (which desynchronized into comment
+mode), an escaped backtick inside a scalar, and — importantly — that keywords
+*outside* any literal are still normalized, so the new arm did not just stop the
+scanner doing its job.
+
+Every claim in this report checked out.
