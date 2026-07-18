@@ -1,12 +1,28 @@
 # bug-272: `mfb repo register` overwrites-then-deletes an owner's existing local keys on any failure (account lockout)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: HIGH
 Class: Correctness (data-loss footgun)
 
-Status: Open
-Regression Test: repository/tests (new) — register-over-existing-keys leaves keys intact on server error
+Status: Fixed 2026-07-18
+Regression Test: `repository/src/client.rs` —
+`client::tests::register_refuses_and_preserves_keys_when_owner_keys_already_exist`
+
+## Resolution
+
+`register` now checks for an existing auth/ident private key for `owner` before it
+generates or writes anything, and returns an actionable error pointing at
+`mfb repo auth` / `mfb repo link`. The guard sits ahead of `ensure_server_key`, so
+the refusal costs no network round trip and cannot reach the truncating writers or
+the `remove_owner_keys` error path.
+
+Cleanup after a failed registration for a genuinely *new* owner is unchanged — the
+rule enforced is only that `register` never deletes keys it did not create.
+
+Verified both directions: with the guard removed, the new test fails with the key
+files deleted from disk (the reported lockout); with the guard in place it passes,
+and the full `repository/` suite is green (131 + 8 tests).
 
 `register` in `repository/src/client.rs` generates fresh auth+ident keypairs and
 writes them to the local key store **before** the network request, using
