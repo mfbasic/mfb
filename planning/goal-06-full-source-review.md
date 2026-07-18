@@ -560,10 +560,10 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/linux_gtk/`**
 
-- [ ] `src/target/linux_gtk/app_io.rs` (647 loc)
-- [ ] `src/target/linux_gtk/bootstrap.rs` (843 loc)
-- [ ] `src/target/linux_gtk/mod.rs` (874 loc)
-- [ ] `src/target/linux_gtk/term_draw.rs` (817 loc)
+- [x] `src/target/linux_gtk/app_io.rs` (647 loc) — clean
+- [x] `src/target/linux_gtk/bootstrap.rs` (843 loc) — clean
+- [x] `src/target/linux_gtk/mod.rs` (874 loc) — clean
+- [x] `src/target/linux_gtk/term_draw.rs` (817 loc) — clean
 
 **`src/target/linux_riscv64/`**
 
@@ -573,9 +573,9 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/linux_x86_64/`**
 
-- [ ] `src/target/linux_x86_64/code.rs` (821 loc)
-- [ ] `src/target/linux_x86_64/mod.rs` (457 loc)
-- [ ] `src/target/linux_x86_64/plan.rs` (526 loc)
+- [x] `src/target/linux_x86_64/code.rs` (821 loc) — bug-300 (E11)
+- [x] `src/target/linux_x86_64/mod.rs` (457 loc) — clean
+- [x] `src/target/linux_x86_64/plan.rs` (526 loc) — bug-300 (E10)
 
 **`src/target/macos_aarch64/`**
 
@@ -586,15 +586,15 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/macos_aarch64/app/`**
 
-- [ ] `src/target/macos_aarch64/app/app_io.rs` (1087 loc)
-- [ ] `src/target/macos_aarch64/app/bootstrap.rs` (978 loc)
-- [ ] `src/target/macos_aarch64/app/icon.rs` (9 loc)
-- [ ] `src/target/macos_aarch64/app/mod.rs` (796 loc)
-- [ ] `src/target/macos_aarch64/app/term_view.rs` (1543 loc)
+- [x] `src/target/macos_aarch64/app/app_io.rs` (1087 loc) — clean
+- [x] `src/target/macos_aarch64/app/bootstrap.rs` (978 loc) — clean
+- [x] `src/target/macos_aarch64/app/icon.rs` (9 loc) — clean
+- [x] `src/target/macos_aarch64/app/mod.rs` (796 loc) — clean
+- [x] `src/target/macos_aarch64/app/term_view.rs` (1543 loc) — clean
 
 **`src/target/package_mfp/`**
 
-- [ ] `src/target/package_mfp/mod.rs` (517 loc)
+- [x] `src/target/package_mfp/mod.rs` (517 loc) — clean
 
 **`src/target/shared/`**
 
@@ -616,9 +616,9 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/target/shared/code/builder_collection_query.rs` (674 loc) — clean
 - [x] `src/target/shared/code/builder_control.rs` (1572 loc) — clean
 - [x] `src/target/shared/code/builder_conversions.rs` (1499 loc) — bug-312 (K2)
-- [ ] `src/target/shared/code/builder_emit_helpers.rs` (525 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/builder_emit_helpers.rs` (525 loc) — clean
 - [x] `src/target/shared/code/builder_fixed_math.rs` (1034 loc) — clean
-- [ ] `src/target/shared/code/builder_fs_paths.rs` (676 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/builder_fs_paths.rs` (676 loc) — bug-318
 - [x] `src/target/shared/code/builder_inplace_assign.rs` (624 loc) — clean
 - [x] `src/target/shared/code/builder_math.rs` (1430 loc) — clean
 - [x] `src/target/shared/code/builder_money.rs` (148 loc) — clean
@@ -635,13 +635,13 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/target/shared/code/builder_value_semantics.rs` (890 loc) — clean
 - [x] `src/target/shared/code/builder_values.rs` (1812 loc) — clean
 - [x] `src/target/shared/code/builder_vector_inline.rs` (408 loc) — clean
-- [ ] `src/target/shared/code/code_impl.rs` (333 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/code_impl.rs` (333 loc) — clean
 - [x] `src/target/shared/code/codegen_utils.rs` (765 loc) — clean
 - [x] `src/target/shared/code/crypto.rs` (276 loc) — clean (self-reviewed)
-- [ ] `src/target/shared/code/crypto_ec.rs` (278 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/data_objects.rs` (1334 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/crypto_ec.rs` (278 loc) — clean
+- [x] `src/target/shared/code/data_objects.rs` (1334 loc) — clean
 - [x] `src/target/shared/code/datetime.rs` (167 loc) — clean
-- [ ] `src/target/shared/code/entry_and_arena.rs` (2379 loc) — PENDING (agent running)
+- [x] `src/target/shared/code/entry_and_arena.rs` (2379 loc) — clean
 - [x] `src/target/shared/code/error_constants.rs` (841 loc) — clean
 - [x] `src/target/shared/code/float_format.rs` (602 loc) — clean
 - [x] `src/target/shared/code/fma_fusion.rs` (308 loc) — clean
@@ -649,25 +649,25 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/target/shared/code/fs_helpers_atomic.rs` (1855 loc) — bug-309
 - [x] `src/target/shared/code/fs_helpers_io.rs` (2841 loc) — bug-311
 - [x] `src/target/shared/code/fs_helpers_paths.rs` (1961 loc) — clean
-- [ ] `src/target/shared/code/function_lowering.rs` (944 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/function_lowering.rs` (944 loc) — clean
 - [x] `src/target/shared/code/io_helpers.rs` (2290 loc) — bug-314 (H1)
 - [x] `src/target/shared/code/link_locator.rs` (666 loc) — clean
 - [x] `src/target/shared/code/link_thunk.rs` (2006 loc) — clean (x86 7-8 arg = bug-296)
-- [ ] `src/target/shared/code/mir.rs` (1797 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/mod.rs` (3548 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/module_analysis.rs` (1090 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/mir.rs` (1797 loc) — clean
+- [x] `src/target/shared/code/mod.rs` (3548 loc) — clean
+- [x] `src/target/shared/code/module_analysis.rs` (1090 loc) — clean
 - [x] `src/target/shared/code/os.rs` (2116 loc) — clean
 - [x] `src/target/shared/code/peephole.rs` (449 loc) — bug-284 (C8)
 - [x] `src/target/shared/code/runtime_helpers.rs` (1054 loc) — clean
 - [x] `src/target/shared/code/runtime_helpers_thread.rs` (1457 loc) — clean
-- [ ] `src/target/shared/code/serialization_utils.rs` (17 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/serialization_utils.rs` (17 loc) — clean
 - [x] `src/target/shared/code/simd_kernel_coeffs.rs` (101 loc) — clean
 - [x] `src/target/shared/code/stdin_broadcast.rs` (1126 loc) — bug-314 (H4)
 - [x] `src/target/shared/code/term.rs` (890 loc) — clean
 - [x] `src/target/shared/code/term_grid.rs` (1085 loc) — bug-313, bug-314 (H3)
-- [ ] `src/target/shared/code/type_utils.rs` (369 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/types.rs` (745 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/validation.rs` (554 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/type_utils.rs` (369 loc) — clean
+- [x] `src/target/shared/code/types.rs` (745 loc) — clean
+- [x] `src/target/shared/code/validation.rs` (554 loc) — bug-300 (E9)
 
 **`src/target/shared/code/audio/`**
 
@@ -677,8 +677,8 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/code/crypto_ec/`**
 
-- [ ] `src/target/shared/code/crypto_ec/macos.rs` (1473 loc)
-- [ ] `src/target/shared/code/crypto_ec/openssl.rs` (1812 loc)
+- [x] `src/target/shared/code/crypto_ec/macos.rs` (1473 loc) — bug-317 (T4)
+- [x] `src/target/shared/code/crypto_ec/openssl.rs` (1812 loc) — clean
 
 **`src/target/shared/code/net/`**
 
@@ -699,9 +699,9 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/code/tls/`**
 
-- [ ] `src/target/shared/code/tls/macos.rs` (3960 loc)
-- [ ] `src/target/shared/code/tls/mod.rs` (416 loc)
-- [ ] `src/target/shared/code/tls/openssl.rs` (2457 loc)
+- [x] `src/target/shared/code/tls/macos.rs` (3960 loc) — bug-317 (T1/T3)
+- [x] `src/target/shared/code/tls/mod.rs` (416 loc) — clean
+- [x] `src/target/shared/code/tls/openssl.rs` (2457 loc) — bug-317 (T2)
 
 **`src/target/shared/nir/`**
 
@@ -720,19 +720,19 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/runtime/`**
 
-- [ ] `src/target/shared/runtime/audio_specs.rs` (356 loc)
-- [ ] `src/target/shared/runtime/catalog.rs` (178 loc)
-- [ ] `src/target/shared/runtime/crypto_specs.rs` (153 loc)
-- [ ] `src/target/shared/runtime/datetime_specs.rs` (48 loc)
-- [ ] `src/target/shared/runtime/fs_specs.rs` (524 loc)
-- [ ] `src/target/shared/runtime/io_specs.rs` (212 loc)
-- [ ] `src/target/shared/runtime/mod.rs` (142 loc)
-- [ ] `src/target/shared/runtime/net_specs.rs` (627 loc)
-- [ ] `src/target/shared/runtime/os_specs.rs` (251 loc)
-- [ ] `src/target/shared/runtime/strings_specs.rs` (189 loc)
-- [ ] `src/target/shared/runtime/term_specs.rs` (227 loc)
-- [ ] `src/target/shared/runtime/thread_specs.rs` (309 loc)
-- [ ] `src/target/shared/runtime/usage.rs` (308 loc)
+- [x] `src/target/shared/runtime/audio_specs.rs` (356 loc) — clean
+- [x] `src/target/shared/runtime/catalog.rs` (178 loc) — clean
+- [x] `src/target/shared/runtime/crypto_specs.rs` (153 loc) — clean
+- [x] `src/target/shared/runtime/datetime_specs.rs` (48 loc) — clean
+- [x] `src/target/shared/runtime/fs_specs.rs` (524 loc) — clean
+- [x] `src/target/shared/runtime/io_specs.rs` (212 loc) — clean
+- [x] `src/target/shared/runtime/mod.rs` (142 loc) — clean
+- [x] `src/target/shared/runtime/net_specs.rs` (627 loc) — clean
+- [x] `src/target/shared/runtime/os_specs.rs` (251 loc) — clean
+- [x] `src/target/shared/runtime/strings_specs.rs` (189 loc) — clean (dead-code = existing bug-120, not re-filed)
+- [x] `src/target/shared/runtime/term_specs.rs` (227 loc) — clean
+- [x] `src/target/shared/runtime/thread_specs.rs` (309 loc) — clean
+- [x] `src/target/shared/runtime/usage.rs` (308 loc) — clean
 
 **`src/testing/`**
 

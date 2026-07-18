@@ -86,6 +86,42 @@ References:
   `math::round(Money)` as the dimension-exit path. The two man pages disagree.
 - Fix: add the `round(Money) AS Integer` (and floor/ceil) rows to the math man pages.
 
+### E9 — plan validation does not cross-check branch `target` fields against defined labels
+- `src/target/shared/code/validation.rs:96` (`CodeFunction::validate`) / `:25`
+  (`CodeInstruction::validate`).
+- `CodeInstruction::validate` only checks that required *fields are present* (a branch
+  has a `target`); `CodeFunction::validate` checks relocation targets resolve but never
+  verifies a `Branch`/`BranchEq`/… `target` names a `Label` present in the function.
+  A codegen bug emitting a branch to an undefined label passes `plan.validate()` —
+  but is caught loudly downstream (the AArch64 encoder errors "branch target label
+  does not resolve", `emitter.rs:1187`), so this is a redundant defense-in-depth gap,
+  not a shippable-wrong-binary path.
+- Fix (low priority): optionally collect `Label` names and assert every branch
+  `target` resolves at plan level, to fail earlier than encode level.
+
+### E10 — `net.write`/`net.writeText` declare a dead libc `write` import on x86_64
+- `src/target/linux_x86_64/plan.rs:336-343` (`runtime_imports`, net arm) via
+  `plan::net_libc_symbols` (`shared/plan/mod.rs:58`).
+- On x86_64 `emit_write` is a raw `SYS_WRITE` syscall (the net write helper derives
+  errno from the negated raw return, bug-109), so the libc `write` PLT symbol is never
+  referenced — leaving an unreferenced `write` in the dynamic symbol table. On aarch64
+  `emit_write` is a libc call, so the same shared `["write"]` list is correct there.
+  Acknowledged in bug-109 ("makes the libc `write` import … dead on x86") but left; the
+  file's `write_is_never_imported` test also omits `net.write`/`net.writeText`.
+- Fix: filter `"write"` out of the x86 net import list; add `net.write`/`net.writeText`
+  to the `write_is_never_imported` test.
+
+### E11 — x86_64 `emit_variadic_call` does not zero AL for variadic SysV calls (latent)
+- `src/target/linux_x86_64/code.rs:776-787` (`emit_variadic_call`).
+- The x86_64 SysV ABI requires AL = number of vector registers used when calling a
+  variadic function; `emit_variadic_call` reuses `emit_libc_call` (plain `call`) with
+  no `xor eax,eax`, and its comment is copied from aarch64 (which has no AL
+  convention). Latent — the only caller is `open` (no float variadic args), so glibc/
+  musl never reads the XMM save area; it would bite only if a float-carrying variadic
+  libc call were routed here.
+- Fix: emit `xor eax,eax` before the variadic `call` on x86_64, or document that only
+  non-float variadics are supported.
+
 ### E8 — dead final `else` arm in `build_project`
 - `src/cli/build.rs:633-638`.
 - The `outputs.is_empty()` block's `else` ("Validated MFBASIC project…") is
