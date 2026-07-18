@@ -12,6 +12,7 @@ pub(super) fn collect_lockfile(
             path: display,
             present: false,
             locked,
+            parsed: false,
             version: None,
             project_hash_matches: None,
         };
@@ -19,9 +20,15 @@ pub(super) fn collect_lockfile(
 
     let mut version = None;
     let mut project_hash_matches = None;
+    // Tracks whether the file actually decoded to a JSON object (bug-281). All
+    // three failure modes — unreadable, invalid JSON, valid JSON that is not an
+    // object — used to collapse into the same "present, hash unknown" state as a
+    // readable lockfile with no `projectHash`, which produced no finding.
+    let mut parsed = false;
     if let Ok(contents) = std::fs::read_to_string(&lock_path) {
         if let Ok(value) = contents.parse::<JsonValue>() {
             if let Some(object) = value.get::<HashMap<String, JsonValue>>() {
+                parsed = true;
                 version = object
                     .get("lockfileVersion")
                     .and_then(|value| value.get::<f64>())
@@ -40,6 +47,7 @@ pub(super) fn collect_lockfile(
         path: display,
         present: true,
         locked,
+        parsed,
         version,
         project_hash_matches,
     }
@@ -146,6 +154,7 @@ mod tests {
         fs::write(dir.path().join("mfb.lock"), "not json at all").unwrap();
         let summary = collect_lockfile(dir.path(), &manifest, false);
         assert!(summary.present);
+        assert!(!summary.parsed, "unparseable content is not `parsed`");
         assert!(summary.version.is_none());
         assert!(summary.project_hash_matches.is_none());
     }
@@ -157,7 +166,24 @@ mod tests {
         fs::write(dir.path().join("mfb.lock"), "[1, 2, 3]").unwrap();
         let summary = collect_lockfile(dir.path(), &manifest, false);
         assert!(summary.present);
+        assert!(!summary.parsed, "valid JSON that is not an object is not `parsed`");
         assert!(summary.version.is_none());
         assert!(summary.project_hash_matches.is_none());
+    }
+
+    /// A readable JSON object *is* parsed even when its fields are missing or
+    /// wrong — `parsed` tracks decodability, not validity (bug-281). Without this
+    /// distinction the malformed finding would fire on a merely-stale lockfile.
+    #[test]
+    fn a_decodable_object_is_parsed_even_with_missing_fields() {
+        let dir = tempdir().unwrap();
+        let manifest: HashMap<String, JsonValue> = HashMap::new();
+        fs::write(dir.path().join("mfb.lock"), "{}").unwrap();
+        let summary = collect_lockfile(dir.path(), &manifest, false);
+        assert!(summary.present);
+        assert!(summary.parsed);
+        // No projectHash field: the empty default will not match, so this is a
+        // STALE lockfile, not a malformed one.
+        assert_eq!(summary.project_hash_matches, Some(false));
     }
 }

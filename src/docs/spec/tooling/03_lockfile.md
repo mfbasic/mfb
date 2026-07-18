@@ -111,6 +111,7 @@ and the finding pass; without it, the same conditions are non-fatal. [[src/audit
 | --- | --- | --- |
 | `mfb.lock` absent | no finding | `AUDIT-LOCK-MISSING`, severity **error** |
 | `projectHash` mismatch | `AUDIT-LOCK-STALE`, severity **warning** | `AUDIT-LOCK-STALE`, severity **error** |
+| `mfb.lock` unreadable / not a JSON object | `AUDIT-LOCK-MALFORMED`, severity **warning** | `AUDIT-LOCK-MALFORMED`, severity **error** |
 | `projectHash` matches | no finding | no finding |
 
 A missing lock file under `--locked` short-circuits: the missing-finding is
@@ -119,7 +120,8 @@ check fires only when the file is present *and* the hash comparison resolved to 
 definite mismatch (`Some(false)`); an unparseable lock file leaves the result
 unset and emits no stale finding. [[src/audit/collect/findings.rs:lockfile_findings]]
 
-`AUDIT-LOCK-MISSING` and `AUDIT-LOCK-STALE` are category `lockfile` findings. The
+`AUDIT-LOCK-MISSING`, `AUDIT-LOCK-STALE` and `AUDIT-LOCK-MALFORMED` are category
+`lockfile` findings. The
 finding catalogue (codes, categories, severities, and the `mfb.audit.v1` JSON
 envelope they appear in) is owned by `./mfb spec tooling audit-format`; this
 topic only states which lock-file conditions raise them.

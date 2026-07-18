@@ -19,6 +19,31 @@ pub(super) fn lockfile_findings(
         return;
     }
 
+    // A lockfile that exists but cannot be parsed can have its hash neither
+    // confirmed nor denied, which is strictly worse than a stale one — yet it
+    // used to rank better, producing no finding and letting `--locked` exit 0
+    // (bug-281). Reported before the staleness check because a malformed file
+    // never reaches a hash comparison.
+    if lockfile.present && !lockfile.parsed {
+        let severity = if lockfile.locked {
+            Severity::Error
+        } else {
+            Severity::Warning
+        };
+        findings.push(Finding {
+            code: "AUDIT-LOCK-MALFORMED".to_string(),
+            category: "lockfile".to_string(),
+            severity,
+            message: "mfb.lock could not be read as a JSON object, so its projectHash \
+                      cannot be verified"
+                .to_string(),
+            path: Some(lockfile.path.clone()),
+            line: None,
+            package: None,
+        });
+        return;
+    }
+
     if lockfile.present && lockfile.project_hash_matches == Some(false) {
         let severity = if lockfile.locked {
             Severity::Error
@@ -235,8 +260,21 @@ mod tests {
             path: "mfb.lock".to_string(),
             present,
             locked,
+            parsed: true,
             version: Some(1),
             project_hash_matches: matches,
+        }
+    }
+
+    /// A present-but-undecodable lockfile (bug-281).
+    fn malformed_lockfile(locked: bool) -> LockfileSummary {
+        LockfileSummary {
+            path: "mfb.lock".to_string(),
+            present: true,
+            locked,
+            parsed: false,
+            version: None,
+            project_hash_matches: None,
         }
     }
 
@@ -338,6 +376,44 @@ mod tests {
         let mut findings = Vec::new();
         lockfile_findings(&lockfile(true, false, Some(true)), &[], &ins, &mut findings);
         assert!(findings.is_empty());
+    }
+
+    /// A present-but-undecodable lockfile is reported, and is an error under
+    /// `--locked` (bug-281).
+    ///
+    /// Previously all three decode failures collapsed to
+    /// `project_hash_matches: None`, which matched no arm — so `mfb audit
+    /// --locked` printed "Lockfile: present", zero errors, and exited 0 on a
+    /// lockfile whose hash could not be checked at all. That ranked a
+    /// cannot-verify lockfile *better* than a stale one.
+    #[test]
+    fn malformed_lockfile_is_a_finding_and_errors_under_locked() {
+        let dir = std::env::temp_dir();
+        let manifest = HashMap::new();
+        let ast = ast::AstProject {
+            name: "a".to_string(),
+            files: Vec::new(),
+        };
+        let ins = inputs(&dir, &manifest, &ast);
+
+        let mut findings = Vec::new();
+        lockfile_findings(&malformed_lockfile(true), &[], &ins, &mut findings);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "AUDIT-LOCK-MALFORMED");
+        assert_eq!(findings[0].severity, Severity::Error);
+
+        // Without --locked it is a warning, matching AUDIT-LOCK-STALE's shape.
+        let mut findings = Vec::new();
+        lockfile_findings(&malformed_lockfile(false), &[], &ins, &mut findings);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "AUDIT-LOCK-MALFORMED");
+        assert_eq!(findings[0].severity, Severity::Warning);
+
+        // A decodable but stale lockfile still reports STALE, not MALFORMED.
+        let mut findings = Vec::new();
+        lockfile_findings(&lockfile(true, true, Some(false)), &[], &ins, &mut findings);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "AUDIT-LOCK-STALE");
     }
 
     #[test]

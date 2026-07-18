@@ -155,18 +155,47 @@ fn repo_rejects_duplicate_and_missing_owner_auth() {
     assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
         .status
         .success());
+    // Re-registering from the machine that already holds alice's keys must fail
+    // *and* leave those keys intact (bug-272).
+    //
+    // This assertion used to read the other way — that `Alice.*` did not exist
+    // afterwards — which passed only because of the bug: register wrote the new
+    // keypair with truncating writers and then deleted it on the server's error.
+    // On a case-insensitive filesystem (macOS) `Alice.*` and `alice.*` are the
+    // same files, so that sequence destroyed alice's real keys and the test
+    // recorded it as success.
+    //
+    // Which layer refuses depends on the filesystem: case-insensitive, the local
+    // guard sees the existing key and stops before any request; case-sensitive,
+    // the names differ locally and the server's folded-name check rejects it.
+    // Both are correct, so accept either message.
     let duplicate = run_mfb(&repo, home.path(), &["repo", "register", "Alice"]);
     assert!(!duplicate.status.success());
+    let duplicate_err = String::from_utf8_lossy(&duplicate.stderr).to_string();
     assert!(
-        String::from_utf8_lossy(&duplicate.stderr).contains("already in use"),
-        "{}",
-        String::from_utf8_lossy(&duplicate.stderr)
+        duplicate_err.contains("already in use") || duplicate_err.contains("already exist locally"),
+        "{duplicate_err}"
     );
     let repo_home = mfb_repo_home(&repo, home.path());
-    assert!(!repo_home.join("keys/Alice.auth.pub").exists());
-    assert!(!repo_home.join("keys/Alice.auth.prv").exists());
-    assert!(!repo_home.join("keys/Alice.ident.pub").exists());
-    assert!(!repo_home.join("keys/Alice.ident.prv").exists());
+    assert!(repo_home.join("keys/alice.auth.prv").exists());
+    assert!(repo_home.join("keys/alice.ident.prv").exists());
+
+    // A *different* machine registering the same owner is still refused by the
+    // server — the local guard cannot see keys it does not hold — and keeps no
+    // keys from the refused attempt, which remains correct cleanup because it
+    // created them itself.
+    let other_home = tempfile::tempdir().unwrap();
+    let remote_duplicate = run_mfb(&repo, other_home.path(), &["repo", "register", "alice"]);
+    assert!(!remote_duplicate.status.success());
+    assert!(
+        String::from_utf8_lossy(&remote_duplicate.stderr).contains("already in use"),
+        "{}",
+        String::from_utf8_lossy(&remote_duplicate.stderr)
+    );
+    let other_repo_home = mfb_repo_home(&repo, other_home.path());
+    assert!(!other_repo_home.join("keys/alice.auth.prv").exists());
+    assert!(!other_repo_home.join("keys/alice.ident.prv").exists());
+
     let opened = open_store(repo_dir.path());
     assert_eq!(opened.store.count_owners().unwrap(), 1);
 

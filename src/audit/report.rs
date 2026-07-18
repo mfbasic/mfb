@@ -4,7 +4,7 @@
 //! rendered deterministically by [`super::text`] and [`super::json`]. Nothing in
 //! this module performs IO so the same report can drive both output formats.
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Severity {
     Error,
     Warning,
@@ -49,6 +49,12 @@ pub struct LockfileSummary {
     pub path: String,
     pub present: bool,
     pub locked: bool,
+    /// False when the file exists but could not be read or parsed as a JSON
+    /// object (bug-281). Distinguishing this from a merely-stale lockfile is the
+    /// point: a hash that *cannot* be checked is strictly worse than one that
+    /// does not match, but with only `project_hash_matches: None` to go on it
+    /// produced no finding at all and silently satisfied `--locked`.
+    pub parsed: bool,
     pub version: Option<i64>,
     pub project_hash_matches: Option<bool>,
 }
@@ -222,6 +228,7 @@ pub(super) mod testsupport {
             lockfile: LockfileSummary {
                 path: "mfb.lock".to_string(),
                 present: true,
+                parsed: true,
                 locked: true,
                 version: Some(1),
                 project_hash_matches: Some(false),
@@ -410,6 +417,7 @@ pub(super) mod testsupport {
             lockfile: LockfileSummary {
                 path: "mfb.lock".to_string(),
                 present: false,
+                parsed: false,
                 locked: false,
                 version: None,
                 project_hash_matches: None,

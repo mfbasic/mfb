@@ -1,12 +1,38 @@
 # bug-281: a corrupt/unparseable `mfb.lock` audits clean, even under `--locked`
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (security-tooling gap)
 
-Status: Open
-Regression Test: tests/ audit fixture (new) — a malformed mfb.lock produces a finding and errors under `--locked`
+Status: Fixed 2026-07-18
+Regression Test: `findings::tests::malformed_lockfile_is_a_finding_and_errors_under_locked`,
+`lockfile::tests::a_decodable_object_is_parsed_even_with_missing_fields`,
+`text::tests::lockfile_state_variants`
+
+## Resolution
+
+`LockfileSummary` gained `parsed: bool`, set only when the file decodes to a JSON
+object. `lockfile_findings` emits `AUDIT-LOCK-MALFORMED` for
+present-but-unparsed — error under `--locked`, warning otherwise — checked before
+the staleness arm, since a malformed file never reaches a hash comparison.
+
+`parsed` tracks *decodability*, not validity: a readable `{}` with no
+`projectHash` is still STALE, not MALFORMED. A regression test pins that
+distinction, because conflating them would fire the new finding on every
+merely-stale lockfile.
+
+The text renderer now prints `present (unreadable)` instead of a bare `present`,
+which read as healthier than a mismatch — the misleading output the repro
+observed.
+
+Doc sync done (required, since this adds a diagnostic code):
+`src/docs/spec/tooling/04_audit-format.md` finding catalogue and
+`src/docs/spec/tooling/03_lockfile.md` severity table.
+
+Verified against the repro: `Lockfile: present (unreadable) [--locked]`,
+`errors: 1`, exit 3 — previously `Lockfile: present [--locked]`, `errors: 0`,
+exit 0.
 
 When `mfb.lock` exists but cannot be read/parsed (I/O error, invalid JSON, or not
 a JSON object), `collect_lockfile` returns `present: true,

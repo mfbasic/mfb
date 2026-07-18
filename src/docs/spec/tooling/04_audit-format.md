@@ -172,6 +172,7 @@ Category rank (lower sorts first):[[src/audit/report.rs:category_rank]]
 |---|---|---|---|
 | `AUDIT-LOCK-MISSING` | lockfile | error | `--locked` set but `mfb.lock` absent |
 | `AUDIT-LOCK-STALE` | lockfile | error if `--locked`, else warning | lockfile present but `projectHash` mismatches `project.json` packages |
+| `AUDIT-LOCK-MALFORMED` | lockfile | error if `--locked`, else warning | lockfile present but unreadable or not a JSON object, so `projectHash` cannot be verified |
 | `AUDIT-DEP-MISSING` | dependency | error | declared package not installed under `packages/` |
 | `AUDIT-DEP-INVALID` | dependency | error | package invalid or unreadable |
 | `AUDIT-DEP-OUTDATED` | dependency | warning | installed package does not satisfy requested version (`needs-update`) |

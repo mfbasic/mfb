@@ -242,14 +242,18 @@ pub fn render(report: &AuditReport) -> String {
 }
 
 fn lockfile_state(lockfile: &LockfileSummary) -> String {
-    let mut state = if lockfile.present {
+    let mut state = if !lockfile.present {
+        "absent".to_string()
+    } else if !lockfile.parsed {
+        // A bare "present" for a file that could not be decoded read as healthier
+        // than a mismatch, which is backwards (bug-281).
+        "present (unreadable)".to_string()
+    } else {
         match lockfile.project_hash_matches {
             Some(true) => "present (projectHash matches)".to_string(),
             Some(false) => "present (projectHash mismatch)".to_string(),
             None => "present".to_string(),
         }
-    } else {
-        "absent".to_string()
     };
     if lockfile.locked {
         state.push_str(" [--locked]");
@@ -357,29 +361,41 @@ mod tests {
             path: "mfb.lock".to_string(),
             present: true,
             locked: false,
+            parsed: true,
             version: None,
             project_hash_matches: Some(true),
         };
         assert_eq!(lockfile_state(&base), "present (projectHash matches)");
 
         let mut none_match = LockfileSummary {
+            path: "mfb.lock".to_string(),
+            present: true,
+            locked: false,
+            parsed: true,
+            version: None,
             project_hash_matches: None,
-            ..LockfileSummary {
-                path: "mfb.lock".to_string(),
-                present: true,
-                locked: false,
-                version: None,
-                project_hash_matches: None,
-            }
         };
         assert_eq!(lockfile_state(&none_match), "present");
         none_match.locked = true;
         assert_eq!(lockfile_state(&none_match), "present [--locked]");
 
+        // A file that could not be decoded says so rather than reading as a
+        // healthy "present" (bug-281).
+        let malformed = LockfileSummary {
+            path: "mfb.lock".to_string(),
+            present: true,
+            locked: true,
+            parsed: false,
+            version: None,
+            project_hash_matches: None,
+        };
+        assert_eq!(lockfile_state(&malformed), "present (unreadable) [--locked]");
+
         let absent = LockfileSummary {
             path: "mfb.lock".to_string(),
             present: false,
             locked: false,
+            parsed: false,
             version: None,
             project_hash_matches: None,
         };
