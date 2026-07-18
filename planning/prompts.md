@@ -150,3 +150,13 @@ Those priorities should define what order things are worked on. If a time doesnt
 ### Done:
 
 You are done when all three artifacts exist: the ordered priority list (Task 1), a fix plan whose sub-plans cover every non-"complete" benchmark (Task 2), and the new-benchmark plan (Task 3). This is a plan-authoring task — do not implement the fixes.
+
+---
+
+Make a new worktree...
+**Base:** `25c38ba1` (`origin/main`), clean tree
+
+In this work tree I want you to review the code and create bugs specifically for cleanup work. duplicate code, file code order, splitting large files, dead-code removal, reorganization of code in a file or of whole files, restructuring or code in a file or of whole features across multiple files, spec document updates, man document updates, etc. This review is specifically for *cleanup* work, not for bug-finding/correctness issues.
+
+You need to take your time and review everything closely.
+
