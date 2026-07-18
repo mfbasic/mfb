@@ -1582,20 +1582,31 @@ impl Store {
         if to_record.id == package_owner.id {
             return Err("cannot transfer a package to its current owner".to_string());
         }
-        let package_id: i64 = {
-            let conn = self.conn();
-            conn.query_row(
-                "SELECT id FROM packages WHERE ident = ?1",
-                params![ident],
-                |row| row.get(0),
-            )
-            .map_err(|err| format!("failed to load package: {err}"))?
-        };
         let now = now_unix();
         let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
+        // Re-read the package inside the *writing* transaction and re-verify
+        // ownership against it (bug-274). The checks above ran under their own
+        // short-lived lock acquisitions, and axum handlers run concurrently over
+        // one `Arc<Mutex<Connection>>`, so between them and this commit an accept
+        // can land and move the package. The UPSERT below resets `accepted_at` to
+        // NULL unconditionally, so without this re-check a still-in-flight offer
+        // could overwrite an already-accepted row and re-list itself as pending
+        // under the previous owner's now-stale authority.
+        //
+        // Returning here rolls the transaction back, which is the intended abort.
+        let (package_id, current_owner_id): (i64, i64) = tx
+            .query_row(
+                "SELECT id, owner_id FROM packages WHERE ident = ?1",
+                params![ident],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|err| format!("failed to load package: {err}"))?;
+        if current_owner_id != package_owner.id {
+            return Err("offering owner does not currently own the package".to_string());
+        }
         tx.execute(
             "INSERT INTO transfer_offers (package_id, from_owner_id, to_owner_id, created_at, accepted_at)
              VALUES (?1, ?2, ?3, ?4, NULL)
@@ -1636,10 +1647,17 @@ impl Store {
             .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
         let offer: Option<(i64, i64)> = tx
             .query_row(
+                // `o.from_owner_id = p.owner_id` is the stale-offer guard
+                // (bug-274): an offer is only acceptable while the account that
+                // made it is still the package's owner. Without it, an offer
+                // resurrected after ownership moved — or simply left pending
+                // across a transfer — could re-bind the package on the authority
+                // of an account that no longer holds it.
                 "SELECT o.id, o.package_id
                  FROM transfer_offers o
                  JOIN packages p ON p.id = o.package_id
-                 WHERE p.ident = ?1 AND o.to_owner_id = ?2 AND o.accepted_at IS NULL",
+                 WHERE p.ident = ?1 AND o.to_owner_id = ?2 AND o.accepted_at IS NULL
+                   AND o.from_owner_id = p.owner_id",
                 params![ident, to_record.id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -2952,6 +2970,94 @@ mod tests {
     }
 
     #[test]
+    /// A transfer offer is only acceptable while the account that made it still
+    /// owns the package (bug-274).
+    ///
+    /// `create_transfer_offer` authorized under one lock acquisition and wrote
+    /// under another, and its UPSERT resets `accepted_at = NULL` unconditionally.
+    /// Since axum handlers run concurrently over one `Arc<Mutex<Connection>>`, an
+    /// in-flight offer could commit *after* an accept and re-list itself as
+    /// pending under the previous owner's stale authority.
+    ///
+    /// Rather than race two threads and hope to hit the window, this writes the
+    /// exact row state that interleaving produces — a pending offer whose
+    /// `from_owner_id` is no longer the owner — and asserts it cannot be
+    /// accepted. That is the outcome the race was able to reach, tested
+    /// deterministically.
+    #[test]
+    fn a_stale_offer_cannot_rebind_a_package_after_ownership_moved() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        register_keys(&store, "carol");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
+            .unwrap();
+
+        // Ownership legitimately moves alice -> bob.
+        store
+            .create_transfer_offer("alice#toolbox", "alice", "bob")
+            .unwrap();
+        store.accept_transfer("alice#toolbox", "bob").unwrap();
+
+        // Reproduce the resurrection: alice's offer row is re-listed as pending
+        // (to carol) with `from_owner_id` still alice, even though bob now owns
+        // the package. This is what the losing side of the race committed.
+        // Resolve carol's id *before* taking the connection: `conn()` holds a
+        // non-reentrant mutex, and `owner_with_ident_key` acquires it too.
+        let carol_id = store.owner_with_ident_key("carol").unwrap().unwrap().0.id;
+        {
+            let conn = store.conn();
+            let package_id: i64 = conn
+                .query_row(
+                    "SELECT id FROM packages WHERE ident = ?1",
+                    params!["alice#toolbox"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            conn.execute(
+                "UPDATE transfer_offers
+                 SET from_owner_id = ?1, to_owner_id = ?2, accepted_at = NULL
+                 WHERE package_id = ?3",
+                params![alice_id, carol_id, package_id],
+            )
+            .unwrap();
+        }
+
+        // Carol must not be able to accept it: alice no longer owns the package.
+        let err = store
+            .accept_transfer("alice#toolbox", "carol")
+            .expect_err("a stale offer must not re-bind the package");
+        assert!(
+            err.contains("no pending transfer"),
+            "expected the stale offer to be invisible, got: {err}"
+        );
+        assert_eq!(
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "bob",
+            "ownership must stay with bob"
+        );
+
+        // And the dispossessed owner cannot open a fresh offer either.
+        assert!(store
+            .create_transfer_offer("alice#toolbox", "alice", "carol")
+            .unwrap_err()
+            .contains("does not currently own"));
+    }
+
     fn transfer_offer_and_accept_error_branches() {
         let (_temp, store) = test_store();
         let alice = register_keys(&store, "alice");

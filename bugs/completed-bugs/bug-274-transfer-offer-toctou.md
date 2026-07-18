@@ -1,12 +1,43 @@
 # bug-274: package-transfer offer authorization is non-atomic (TOCTOU: dispossessed owner can re-bind a stale offer)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security (TOCTOU) / Correctness
 
-Status: Open
-Regression Test: repository/tests (new) — concurrent offer/accept cannot resurrect a stale offer after ownership moves
+Status: Fixed 2026-07-18
+Regression Test: `repository/src/store.rs` —
+`store::tests::a_stale_offer_cannot_rebind_a_package_after_ownership_moved`
+
+## Resolution
+
+Two changes, defense in depth:
+
+1. `create_transfer_offer` re-reads the package row *inside* the writing
+   transaction and aborts unless `owner_id` still equals the account it authorized
+   against. The separate pre-transaction `SELECT id FROM packages` is gone —
+   package id and current owner now come from the same in-transaction read.
+2. `accept_transfer`'s offer lookup gained `AND o.from_owner_id = p.owner_id`, so
+   an offer is only acceptable while the account that made it still owns the
+   package. This neutralizes a resurrected row even if one were somehow written.
+
+Testing note: racing two threads and hoping to hit the window makes a flaky test.
+The regression test instead writes the exact row state the interleave produces — a
+pending offer whose `from_owner_id` is no longer the owner — and asserts it cannot
+be accepted. Deterministic, and it exercises the outcome the race could reach.
+Verified failing without the guard: carol successfully re-binds a package alice no
+longer owns.
+
+### Correction to this report's audit
+
+It states rotate/revoke "run their check and write in the same transaction;
+unaffected". That is **not accurate for `rotate_ident`**: it resolves the current
+key via `owner_with_ident_key` under its own lock acquisition, then inside the
+transaction updates by that captured `old_key.id` without re-verifying it is still
+current — the same check-then-write shape. There is no `revoke_ident`.
+
+Not fixed here, to keep this bug scoped. It is bug-276's R1 item (the `rotate_ident`
+sibling of bug-272's ordering bug) and is addressed there.
 
 `create_transfer_offer` performs its ownership authorization
 (`self.package_owner(ident)` then `fold_owner(...) != fold_owner(from_owner)`)
