@@ -47,15 +47,18 @@ artifact, the flag that produces it, and the pipeline stage it captures.[[src/cl
 | `build/<name>-glibc.out` | `mfb build` executable (Linux) | Native executable (ELF, glibc). |
 | `build/<name>-musl.out` | `mfb build` executable (Linux) | Native executable (ELF, musl). |
 | `build/<name>.app` | `mfb build --app` (macOS) | Application bundle. |
-| `build/<name>.AppImage` | `mfb build --app` (Linux) | Single-file application: the AppImage type-2 runtime with an uncompressed SquashFS image of the AppDir concatenated at the runtime's exact length. Mode 0755. |
-| `build/<name>.AppDir` | `mfb build --app-debug` (Linux) | The directory the AppImage seals: `AppRun` → `usr/bin/<name>`, `<name>.desktop`, `<name>.png` + `.DirIcon`, and `usr/share/icons/hicolor/<N>x<N>/apps/<name>.png`. Directly runnable; kept only by `--app-debug`. |
+| `build/<name>-glibc.AppImage` | `mfb build --app` (Linux) | Single-file application for the glibc world: the AppImage type-2 runtime with an uncompressed SquashFS image of the AppDir concatenated at the runtime's exact length. Mode 0755. |
+| `build/<name>-musl.AppImage` | `mfb build --app` (Linux) | The same, for the musl world. Requires a musl GTK4 host (Alpine's `gtk4.0`). |
+| `build/<name>-<flavor>.AppDir` | `mfb build --app-debug` (Linux) | The directory each AppImage seals: `AppRun` → `usr/bin/<name>`, `<name>.desktop`, `<name>.png` + `.DirIcon`, and `usr/share/icons/hicolor/<N>x<N>/apps/<name>.png`. Directly runnable; kept only by `--app-debug`. |
 | `build/vendor/<unit>-<source>` | `mfb build` with a `vendor` locator | A copied native library the executable's RPATH resolves. |
 | `<name>.mfp` | `mfb build` package | Compiled MFB package. |
 
 Every executable build emits into the project's `build/` directory — on Linux both
 libc flavors share the one directory, and an app build puts its `<name>.app`
-bundle (macOS) or `<name>.AppImage` (Linux) there too. An app build emits exactly
-one artifact per platform, never a console `.out` alongside it. One fixed directory name rather than the project
+bundle (macOS) or its `<name>-<flavor>.AppImage` pair (Linux) there too. A Linux
+app build emits **one AppImage per libc world**, exactly as the console build
+emits one `.out` per libc; macOS emits a single `.app`. Neither emits a console
+`.out` alongside. One fixed directory name rather than the project
 name, so a single `.gitignore` line (`build/`) covers every project's output.
 
 The directory is the unit of relocation: a build that resolves any `vendor`

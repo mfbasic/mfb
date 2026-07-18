@@ -227,7 +227,7 @@ const WINDOW_HEIGHT: &str = "640";
 // The GTK/GLib/Cairo sonames are identical on both libc worlds. The C-library
 // names are NOT: they are resolved by the calling backend's `Platform` and
 // passed in as [`AppLibcNames`] (plan-56-A §4.1), because app mode is no longer
-// glibc-only.
+// no longer glibc-only (plan-56-B).
 
 const GTK: &str = "libgtk-4.so.1";
 const GOBJECT: &str = "libgobject-2.0.so.0";
@@ -679,7 +679,8 @@ fn stage_result_reuse_x86(instructions: &mut Vec<CodeInstruction>) {
 }
 
 /// The app-mode platform import set, shared by the aarch64 and x86-64 Linux
-/// plans (plan-05-linux-app.md §6.4). App mode is glibc-only (§1.1), so the
+/// plans (plan-05-linux-app.md §6.4). The C-library sonames are flavor-derived
+/// (plan-56-A §4.1), so the
 /// library names are fixed: GTK is plain C and every call is an ordinary
 /// imported function; `__libc_start_main` runs the C runtime init before the
 /// real `main`; pthread spawns the language worker; the pipe primitives feed

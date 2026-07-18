@@ -82,9 +82,9 @@ pub(crate) fn write_executable(
 /// Link `image` and write it as an app-mode **AppDir** (plan-51-A §4.1),
 /// returning the path to `build/<name>.AppDir`.
 ///
-/// App mode is glibc-only (GTK is a glibc-world dependency), so there is exactly
-/// one artifact here rather than the console path's flavored pair. The ELF is
-/// encoded through the same [`encode_executable_bytes`] the console path uses, so
+/// One AppDir per libc world (plan-56-B), named `<name>-<flavor>.AppDir` — the
+/// suffix names the container, never its contents. The ELF is encoded through
+/// the same [`encode_executable_bytes`] the console path uses, so
 /// the two are byte-identical unless the build vendors native libraries — in
 /// which case they carry different `DT_RUNPATH` strings, because they load from
 /// different places (plan-51-A §4.4).

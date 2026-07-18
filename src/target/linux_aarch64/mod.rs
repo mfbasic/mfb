@@ -310,9 +310,6 @@ fn write_executable(
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
     let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
-    // App mode (plan-05-linux-app.md §1.1, §5.2) is glibc-only: GTK is a
-    // glibc-world dependency, so app mode emits a single `<name>.out` instead of
-    // the console build's `-glibc.out` + `-musl.out` pair.
     let app_mode = build_mode.is_app();
     // plan-56-B §4.1: app mode is no longer glibc-only. GTK4 exists in the musl
     // world (Alpine's `gtk4.0`), and plan-56-A made the import surface

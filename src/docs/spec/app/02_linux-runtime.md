@@ -6,8 +6,9 @@ worker thread, the transcript/input widgets, a `GtkDrawingArea`+Cairo `term::`
 surface, and the app-mode `io::*`/`term::*` helper bodies. Every GTK / GObject /
 GLib / GIO / Cairo call is an ordinary imported C function reached by `bl
 <symbol>` against the imports declared in `app_mode_imports` — there is no
-`objc_msgSend`-style message layer. The container itself (glibc-only ELF, library
-names) is the linker's concern (`./mfb spec linker static-and-dynamic-output`).
+`objc_msgSend`-style message layer. The container itself (the ELF and its library
+names, one per libc world) is the linker's concern
+(`./mfb spec linker static-and-dynamic-output`).
 [[src/target/linux_gtk/mod.rs:emit_app_program_entry]]
 [[src/target/linux_aarch64/plan.rs:app_mode_imports]]
 
@@ -319,11 +320,23 @@ macOS app runtime:
 
 ## Libraries
 
-App mode is glibc-only. `lib_for` maps each import to its shared object:
-`libgtk-4.so.1` (gtk_* and GDK), `libgobject-2.0.so.0`, `libglib-2.0.so.0`,
-`libgio-2.0.so.0`, `libc.so.6`, `libpthread.so.0`, `libcairo.so.2`. The relocation
-library field is cosmetic (the linker binds by symbol name) but kept accurate for
-artifact debugging. [[src/target/linux_gtk/mod.rs:lib_for]]
+App mode builds for **both** libc worlds. The toolkit sonames are
+libc-independent — `libgtk-4.so.1` (gtk_* and GDK), `libgobject-2.0.so.0`,
+`libglib-2.0.so.0`, `libgio-2.0.so.0`, `libcairo.so.2` — while the C library is
+flavor-derived: `libc.so.6` + `libpthread.so.0` on glibc,
+`libc.musl-<arch>.so.1` on musl (where pthread lives inside libc). The calling
+backend's `Platform` resolves those two names and passes them in as
+`AppLibcNames`. [[src/target/linux_gtk/mod.rs:app_mode_imports]]
+
+The relocation `library` field is cosmetic — the linker binds by symbol name —
+and is filled in after emission from the same import list, so it cannot disagree
+with it. [[src/target/shared/code/mod.rs:bind_deferred_relocation_libraries]]
+
+⚠️ A musl binary that wrongly declares the glibc sonames **runs correctly
+anyway**: musl's loader absorbs `libc.so.6` and `libpthread.so.0` into itself and
+supplies `__libc_start_main` as a compat symbol. No runtime signal distinguishes
+the two, so the flavor correctness of an app build is observable only in the
+emitted `DT_NEEDED`.
 
 ## See Also
 
@@ -331,6 +344,6 @@ artifact debugging. [[src/target/linux_gtk/mod.rs:lib_for]]
 - ./mfb spec app console-io — the io:: window-redirection contract shared with macOS
 - ./mfb spec app term-backend — the GUI term:: grid/cell model
 - ./mfb spec memory program-startup — the console-mode entry/teardown sequence
-- ./mfb spec linker static-and-dynamic-output — glibc-only ELF and app-mode imports
+- ./mfb spec linker static-and-dynamic-output — the ELF container and app-mode imports
 - ./mfb spec threading os-integration — the worker pthread the window drives
 - ./mfb spec architecture commands — the `--app` build flag and `buildMode`

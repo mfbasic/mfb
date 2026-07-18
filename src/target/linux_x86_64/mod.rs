@@ -198,7 +198,7 @@ impl NativeBackend for Backend {
 
     fn supports_app_mode(&self) -> bool {
         // GTK4 app mode (plan-05-linux-app.md), shared with linux-aarch64 via
-        // `target::linux_gtk` — glibc-only, like the aarch64 flavor.
+        // `target::linux_gtk` — both libc worlds, like the aarch64 flavor.
         true
     }
 
@@ -326,9 +326,7 @@ fn write_executable(
     // `Platform::libc()` names the library each import binds to); on x86-64 the
     // two worlds share every kernel struct layout the codegen bakes in
     // (stat/dirent/termios, pthread object sizes), so only the import library
-    // names and the interpreter differ. App mode (plan-05-linux-app.md §5.2) is
-    // glibc-only (GTK is a glibc-world dependency) and emits a single
-    // `<name>.out`, exactly like linux-aarch64.
+    // names and the interpreter differ.
     let app_mode = build_mode.is_app();
     // plan-56-B §4.1: app mode is no longer glibc-only. GTK4 exists in the musl
     // world (Alpine's `gtk4.0`), and plan-56-A made the import surface

@@ -153,11 +153,15 @@ macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `--app` y
 `NativeBuildMode::LinuxApp`/`MacApp`; console builds use `NativeBuildMode::Console`.
 
 **Output shape per target.** A macOS `--app` build emits a single
-`build/<name>.app` bundle. A Linux `--app` build emits a single, directly
-executable `build/<name>.AppImage` (mode 0755) and no console `.out`; the
-intermediate AppDir the seal consumes is deleted. `--app-debug` is the same build
-with that AppDir retained beside the AppImage, for inspecting the payload that
-went in — the AppImage bytes are identical either way. `--app-debug` **implies
+`build/<name>.app` bundle. A Linux `--app` build emits **two** directly
+executable AppImages (mode 0755) — `build/<name>-glibc.AppImage` and
+`build/<name>-musl.AppImage`, one per libc world, mirroring the console build's
+two flavored `.out` files — and no console `.out`; the intermediate AppDirs the
+seals consume are deleted. Each AppImage is single-libc, not a fat binary: the
+musl one needs a musl GTK4 host (Alpine's `gtk4.0`), the glibc one a glibc GTK4
+host. `--app-debug` is the same build with both AppDirs retained beside the
+AppImages, for inspecting the payloads that went in — the AppImage bytes are
+identical either way. `--app-debug` **implies
 `--app`**, so `--app --app-debug` is accepted and means the same thing; a
 duplicate yields `mfb build accepts at most one --app-debug option`. On
 `macos-aarch64` the flag is accepted and changes nothing, because a `.app` is a
