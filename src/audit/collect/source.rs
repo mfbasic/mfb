@@ -41,7 +41,11 @@ pub(super) fn collect_source(
                     // call fully recovered by an inline `TRAP … RECOVER` was
                     // reported as `return` — auto-propagates to the caller — which
                     // is the opposite of what happens.
-                    let propagation = if in_trap || has_trap { "trap" } else { "return" };
+                    let propagation = if in_trap || has_trap {
+                        "trap"
+                    } else {
+                        "return"
+                    };
                     let capability = builtin_capability(callee, &aliases);
                     if let Some(capability) = capability {
                         permissions.push(PermissionEntry {
@@ -293,8 +297,12 @@ fn walk_statements(body: &[Statement], in_trap: bool, visit: &mut impl FnMut(&st
                 }
             }
             Statement::Assign { value, line, .. } => walk_expression(value, *line, in_trap, visit),
-            Statement::StateAssign { value, line, .. } => walk_expression(value, *line, in_trap, visit),
-            Statement::Expression { expression, line } => walk_expression(expression, *line, in_trap, visit),
+            Statement::StateAssign { value, line, .. } => {
+                walk_expression(value, *line, in_trap, visit)
+            }
+            Statement::Expression { expression, line } => {
+                walk_expression(expression, *line, in_trap, visit)
+            }
             Statement::If {
                 condition,
                 then_body,
@@ -376,7 +384,9 @@ fn walk_expression(
             for argument in arguments {
                 match argument {
                     CallArg::Positional(value) => walk_expression(value, line, in_trap, visit),
-                    CallArg::Named { value, line, .. } => walk_expression(value, *line, in_trap, visit),
+                    CallArg::Named { value, line, .. } => {
+                        walk_expression(value, *line, in_trap, visit)
+                    }
                 }
             }
             visit(callee, line, in_trap);
@@ -390,7 +400,9 @@ fn walk_expression(
         Expression::Constructor { arguments, .. } => {
             for argument in arguments {
                 match argument {
-                    ConstructorArg::Positional(value) => walk_expression(value, line, in_trap, visit),
+                    ConstructorArg::Positional(value) => {
+                        walk_expression(value, line, in_trap, visit)
+                    }
                     ConstructorArg::Named { value, line, .. } => {
                         walk_expression(value, *line, in_trap, visit)
                     }
@@ -895,9 +907,7 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
         "fs.openWithin" => Some(("File", "fs.close")),
         "http.server" => Some(("Listener", "net.close")),
         "audio.openInput" | "audio.openInputDevice" => Some(("AudioInput", "audio.closeInput")),
-        "audio.openOutput" | "audio.openOutputDevice" => {
-            Some(("AudioOutput", "audio.closeOutput"))
-        }
+        "audio.openOutput" | "audio.openOutputDevice" => Some(("AudioOutput", "audio.closeOutput")),
         _ => None,
     }
 }

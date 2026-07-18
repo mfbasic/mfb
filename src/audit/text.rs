@@ -425,7 +425,10 @@ mod tests {
             version: None,
             project_hash_matches: None,
         };
-        assert_eq!(lockfile_state(&malformed), "present (unreadable) [--locked]");
+        assert_eq!(
+            lockfile_state(&malformed),
+            "present (unreadable) [--locked]"
+        );
 
         let absent = LockfileSummary {
             path: "mfb.lock".to_string(),

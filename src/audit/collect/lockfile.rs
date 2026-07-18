@@ -166,7 +166,10 @@ mod tests {
         fs::write(dir.path().join("mfb.lock"), "[1, 2, 3]").unwrap();
         let summary = collect_lockfile(dir.path(), &manifest, false);
         assert!(summary.present);
-        assert!(!summary.parsed, "valid JSON that is not an object is not `parsed`");
+        assert!(
+            !summary.parsed,
+            "valid JSON that is not an object is not `parsed`"
+        );
         assert!(summary.version.is_none());
         assert!(summary.project_hash_matches.is_none());
     }

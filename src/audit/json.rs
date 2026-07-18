@@ -613,11 +613,11 @@ mod tests {
     #[test]
     fn write_string_escapes_the_terminal_unsafe_set() {
         for (raw, needle) in [
-            ("a\u{1b}[31mb", "\\u001b"),   // C0 ESC
-            ("a\u{7f}b", "\\u007f"),       // DEL
-            ("a\u{9b}b", "\\u009b"),       // C1 CSI
-            ("a\u{202e}b", "\\u202e"),     // RLO bidi override
-            ("a\u{feff}b", "\\ufeff"),     // BOM / zero-width no-break space
+            ("a\u{1b}[31mb", "\\u001b"), // C0 ESC
+            ("a\u{7f}b", "\\u007f"),     // DEL
+            ("a\u{9b}b", "\\u009b"),     // C1 CSI
+            ("a\u{202e}b", "\\u202e"),   // RLO bidi override
+            ("a\u{feff}b", "\\ufeff"),   // BOM / zero-width no-break space
         ] {
             let mut out = String::new();
             write_string(&mut out, raw);
