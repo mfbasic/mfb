@@ -434,6 +434,28 @@ pub fn vendor_path(project_root: &Path, source: &str) -> std::path::PathBuf {
     project_root.join("vendor").join(source)
 }
 
+/// The per-package directory a downloaded imported-binding vendor file lands in
+/// (plan-48-B §4.3): `<project>/packages/<declaring-unit>.vendor/`, a sibling of
+/// `packages/<name>.mfp`. Deliberately not `<project>/vendor/` (which belongs to
+/// the consumer's own `libraries` section — an imported blob must never overwrite
+/// a file the user placed there) and per-package rather than flat (two packages
+/// may each vendor a same-named file with different bytes; §5).
+pub fn imported_vendor_dir(project_root: &Path, declaring_unit: &str) -> std::path::PathBuf {
+    project_root
+        .join("packages")
+        .join(format!("{declaring_unit}.vendor"))
+}
+
+/// The full path of one imported-binding vendor file (plan-48-B §4.3). `source`
+/// is a validated bare filename, so it cannot escape the `.vendor` directory.
+pub fn imported_vendor_path(
+    project_root: &Path,
+    declaring_unit: &str,
+    source: &str,
+) -> std::path::PathBuf {
+    imported_vendor_dir(project_root, declaring_unit).join(source)
+}
+
 /// sha256 a file, streamed in bounded chunks — a vendored `.so` can be tens of
 /// megabytes, so it must not be read whole into memory.
 pub fn sha256_file(path: &Path) -> Result<[u8; 32], String> {

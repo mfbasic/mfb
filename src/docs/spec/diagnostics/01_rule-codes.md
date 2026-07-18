@@ -533,6 +533,8 @@ bytes gets its own code, emitted by the build gate after the
 | `6-605-0007` | `PACKAGE_UNSIGNED_REMOTE` | error | unsigned package from a non-local source requires --unsigned |
 | `6-605-0008` | `PACKAGE_IDENT_REANCHORED` | error | owner ident changed with no chain link from the pinned key; verify out-of-band |
 | `6-605-0009` | `REGISTRY_LOG_ROLLBACK` | error | registry transparency log shrank or forked relative to the pinned checkpoint |
+| `6-605-0010` | `PACKAGE_VENDOR_BLOB_MISSING` | error | registry has no blob for a vendored native library the package's section-10 table names |
+| `6-605-0011` | `PACKAGE_VENDOR_BLOB_HASH_MISMATCH` | error | downloaded vendor blob does not match the sha256 recorded in the signed section-10 table |
 
 ### `0-000` — Fallback (synthetic)
 

@@ -182,6 +182,13 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         err
     })?;
 
+    // plan-48-B §4.2: upload every `vendor` locator's file as its own blob —
+    // skipping any the registry already has — BEFORE publishing the `.mfp`. The
+    // `.mfp` is the commit point; blobs first means a successful publish never
+    // leaves a section-10 hash dangling (the registry enforces the converse).
+    let (_name, native_libraries) = binary_repr::read_package_native_libraries(&package_path)?;
+    upload_vendor_blobs(&repo_url, &paths, owner, project_dir, &native_libraries)?;
+
     let report =
         mfb_repository::client::validate_package(&repo_url, &paths, owner, &artifact_request)?;
     print_publish_verify_report(&report);
@@ -214,6 +221,74 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         "Inclusion verified against checkpoint (size {}, root {})",
         checkpoint.size, checkpoint.root_hash
     );
+    Ok(())
+}
+
+/// plan-48-B §4.2: upload every `vendor` locator's file as its own blob before
+/// the `.mfp` is published, skipping any the registry already holds.
+///
+/// A library may list the same vendored file for several platforms, so dedup by
+/// content hash — HEAD/PUT each distinct blob at most once. The section-10 hash
+/// **is** the upload key; the file is not re-hashed here (a second computation is
+/// a second chance to disagree — plan-48-B §4.2), and the registry re-hashes the
+/// body before storing regardless.
+fn upload_vendor_blobs(
+    repo_url: &str,
+    paths: &mfb_repository::local::LocalPaths,
+    owner: &str,
+    project_dir: &Path,
+    native_libraries: &binary_repr::NativeLibraryTable,
+) -> Result<(), String> {
+    use crate::manifest::libraries::LibType;
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut uploaded = 0usize;
+    let mut skipped = 0usize;
+    let mut session_token: Option<String> = None;
+    for entry in &native_libraries.entries {
+        for locator in &entry.locators {
+            if locator.lib_type != LibType::Vendor {
+                continue;
+            }
+            // A vendor locator always carries a hash (encoder enforces it).
+            let Some(hash) = locator.hash else { continue };
+            let hash_hex = hex_bytes(&hash);
+            if !seen.insert(hash_hex.clone()) {
+                continue;
+            }
+            if mfb_repository::client::blob_exists(repo_url, &hash_hex)? {
+                skipped += 1;
+                continue;
+            }
+            let vendor_path = crate::manifest::libraries::vendor_path(project_dir, &locator.source);
+            let bytes = fs::read(&vendor_path).map_err(|err| {
+                format!(
+                    "failed to read vendored library '{}': {err}",
+                    vendor_path.display()
+                )
+            })?;
+            let token = match &session_token {
+                Some(token) => token.clone(),
+                None => {
+                    let token = mfb_repository::local::read_session(paths, owner)?;
+                    session_token = Some(token.clone());
+                    token
+                }
+            };
+            println!(
+                "Uploading vendor blob for \"{}\" ({}, {} bytes)",
+                entry.logical,
+                locator.source,
+                bytes.len()
+            );
+            mfb_repository::client::put_blob(repo_url, &hash_hex, bytes, &token)?;
+            uploaded += 1;
+        }
+    }
+    if uploaded + skipped > 0 {
+        println!("Vendor blobs: {uploaded} uploaded, {skipped} already present");
+    }
     Ok(())
 }
 
@@ -459,6 +534,24 @@ fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
     let source_path = package_file_url_path(url)?;
     let package = read_mfp_header(&source_path)?;
 
+    // plan-48-B (Open Decisions): a `file://` add is a local copy with no
+    // registry to fetch vendor blobs from. A package that vendors native
+    // libraries would install but never build, so refuse it explicitly rather
+    // than leaving a silently unusable install.
+    let (_name, native_libraries) = binary_repr::read_package_native_libraries(&source_path)?;
+    if native_libraries
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.locators)
+        .any(|locator| locator.lib_type == crate::manifest::libraries::LibType::Vendor)
+    {
+        return Err(format!(
+            "`{}` vendors native libraries, which a `file://` add cannot fetch (there is no \
+             registry). Publish it and `mfb pkg add {}#…` instead.",
+            package.name, package.ident
+        ));
+    }
+
     let project_path = project_dir.join("project.json");
     let contents = fs::read_to_string(&project_path)
         .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
@@ -559,6 +652,11 @@ fn add_package_from_registry(project_dir: &Path, target: &str) -> Result<(), Str
     super::install_verified_package(&packages_dir, &header.name, &blob, Some(&index.ident_key))
         .map_err(|detail| format!("refusing to add `{}`: {detail}", header.name))?;
 
+    // plan-48-B §4.4: the `.mfp` is now verified, so section 10 is trusted.
+    // Download every vendor blob it names, verify each against the signed hash,
+    // and place it under `packages/<name>.vendor/` where the build finds it.
+    install_vendor_blobs(&repo_url, project_dir, &header.name)?;
+
     let dependency = ProjectPackageDependency {
         name: header.name.clone(),
         ident: full_ident.clone(),
@@ -578,6 +676,99 @@ fn add_package_from_registry(project_dir: &Path, target: &str) -> Result<(), Str
         index.ident,
         project_path.display()
     );
+    Ok(())
+}
+
+/// plan-48-B §4.4: download and place every `vendor` blob a just-verified
+/// package's section-10 table names.
+///
+/// Called only after the `.mfp` fully verified, so section 10 — and every hash
+/// in it — is trusted. Each blob is fetched by content hash (`fetch_blob`
+/// re-hashes, so a substituted blob fails there), then placed under
+/// `packages/<name>.vendor/<source>` with stage-verify-rename. A missing or
+/// tampered blob is fatal and leaves nothing usable on disk.
+///
+/// Every vendor blob in the table is downloaded — not just the host target's —
+/// so a later cross-compile and an offline build both work.
+// coverage:off — reaches a live registry; covered by the package-add integration
+// harness and the end-to-end acceptance run.
+pub(crate) fn install_vendor_blobs(
+    repo_url: &str,
+    project_dir: &Path,
+    package_name: &str,
+) -> Result<(), String> {
+    use crate::manifest::libraries::LibType;
+    use std::collections::HashSet;
+
+    let installed = project_dir
+        .join("packages")
+        .join(format!("{package_name}.mfp"));
+    let (_name, table) = binary_repr::read_package_native_libraries(&installed)?;
+    let vendor_dir = crate::manifest::libraries::imported_vendor_dir(project_dir, package_name);
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut placed = 0usize;
+    for entry in &table.entries {
+        for locator in &entry.locators {
+            if locator.lib_type != LibType::Vendor {
+                continue;
+            }
+            let Some(hash) = locator.hash else { continue };
+            let hash_hex = hex_bytes(&hash);
+            if !seen.insert(hash_hex.clone()) {
+                continue;
+            }
+            // `source` came from the `.mfp` — untrusted input. plan-46-B §4.1's
+            // decoder already re-checked the bare-filename rule, but do not assume
+            // it: re-validate before `source` becomes a path.
+            if let Err(reason) = crate::manifest::libraries::source_is_bare(&locator.source) {
+                return Err(format!(
+                    "package `{package_name}` names an unsafe vendored file \"{}\": {reason}",
+                    locator.source
+                ));
+            }
+            let bytes = match mfb_repository::client::fetch_blob(repo_url, &hash_hex) {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    // `fetch_blob` re-hashes, so a substituted blob fails there with
+                    // a distinct message; anything else is a missing blob.
+                    if err.contains("does not match the requested content hash") {
+                        crate::rules::show_general_diagnostic(
+                            "PACKAGE_VENDOR_BLOB_HASH_MISMATCH",
+                            &format!(
+                                "the registry served a blob for \"{}\" (native library \"{}\") \
+                                 whose contents do not match the sha256 `{hash_hex}` recorded in \
+                                 `{package_name}`'s signed section-10 table.",
+                                locator.source, entry.logical
+                            ),
+                        );
+                        return Err(format!(
+                            "vendor blob for `{package_name}` failed hash verification"
+                        ));
+                    }
+                    crate::rules::show_general_diagnostic(
+                        "PACKAGE_VENDOR_BLOB_MISSING",
+                        &format!(
+                            "the registry has no blob {hash_hex} for vendored native library \
+                             \"{}\" (\"{}\") that `{package_name}` requires: {err}",
+                            locator.source, entry.logical
+                        ),
+                    );
+                    return Err(format!(
+                        "vendor blob for `{package_name}` is missing from the registry"
+                    ));
+                }
+            };
+            super::install_vendor_file(&vendor_dir, &locator.source, &bytes)?;
+            placed += 1;
+        }
+    }
+    if placed > 0 {
+        println!(
+            "Downloaded {placed} vendor {} for {package_name}",
+            if placed == 1 { "library" } else { "libraries" }
+        );
+    }
     Ok(())
 }
 

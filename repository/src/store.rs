@@ -250,7 +250,14 @@ impl Store {
             CREATE TABLE IF NOT EXISTS package_blobs (
                 hash TEXT PRIMARY KEY,
                 path TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'package',
                 created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS package_version_blobs (
+                package_version_id INTEGER NOT NULL REFERENCES package_versions(id),
+                hash TEXT NOT NULL REFERENCES package_blobs(hash),
+                PRIMARY KEY (package_version_id, hash)
             );
 
             CREATE TABLE IF NOT EXISTS release_state_changes (
@@ -312,6 +319,14 @@ impl Store {
             &conn,
             "package_versions",
             "abi_index TEXT NOT NULL DEFAULT '{}'",
+        )?;
+        // plan-48-A §4.1: blobs gain a kind so native library blobs are stored
+        // and served honestly. The default migrates every pre-existing row to
+        // `package`, matching how they were always stored.
+        add_column_if_missing(
+            &conn,
+            "package_blobs",
+            "kind TEXT NOT NULL DEFAULT 'package'",
         )?;
         Ok(())
     }
@@ -1129,6 +1144,7 @@ impl Store {
         hash: &str,
         blob_path: &str,
         abi_index: &str,
+        vendor_hashes: &[String],
     ) -> Result<PublishedVersion, String> {
         // REPO-17: validate the ident's package component and the version against
         // an explicit safe charset/length before either reaches the log payload,
@@ -1158,8 +1174,8 @@ impl Store {
             .map_err(|err| format!("failed to load package identity: {err}"))?
             .ok_or_else(|| "package identity is owned by another owner".to_string())?;
         tx.execute(
-            "INSERT OR IGNORE INTO package_blobs (hash, path, created_at)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO package_blobs (hash, path, kind, created_at)
+             VALUES (?1, ?2, 'package', ?3)",
             params![hash, blob_path, now],
         )
         .map_err(|err| format!("failed to store package blob metadata: {err}"))?;
@@ -1175,6 +1191,19 @@ impl Store {
                 format!("failed to publish package version: {err}")
             }
         })?;
+        // plan-48-A §4.5: record the version→native-blob edges so a future GC
+        // (plan-49) has the reachability data. The vendor blobs were already
+        // uploaded via PUT /blob and their `package_blobs` rows exist; nothing
+        // reads these edges in this plan.
+        let package_version_id = tx.last_insert_rowid();
+        for vendor_hash in vendor_hashes {
+            tx.execute(
+                "INSERT OR IGNORE INTO package_version_blobs (package_version_id, hash)
+                 VALUES (?1, ?2)",
+                params![package_version_id, vendor_hash],
+            )
+            .map_err(|err| format!("failed to record version blob edge: {err}"))?;
+        }
         let log_entry = append_log_tx(
             &tx,
             "publish",
@@ -1195,6 +1224,36 @@ impl Store {
             state: "available".to_string(),
             log_entry,
         })
+    }
+
+    /// The stored `kind` of a blob (`"package"` or `"native"`), or `None` when
+    /// no blob row exists for `hash` (plan-48-A §4.1). Lets `GET /blob/<hash>`
+    /// 404 an unknown hash from SQLite and select the right backend name/suffix
+    /// without an S3 round trip.
+    pub fn blob_kind(&self, hash: &str) -> Result<Option<String>, String> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT kind FROM package_blobs WHERE hash = ?1",
+            params![hash],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load blob kind: {err}"))
+    }
+
+    /// Record a freshly uploaded native-library blob's metadata row
+    /// (plan-48-A §4.3). Idempotent: re-uploading an existing blob leaves the
+    /// original row untouched.
+    pub fn record_native_blob(&self, hash: &str, blob_path: &str) -> Result<(), String> {
+        let now = now_unix();
+        let conn = self.conn();
+        conn.execute(
+            "INSERT OR IGNORE INTO package_blobs (hash, path, kind, created_at)
+             VALUES (?1, ?2, 'native', ?3)",
+            params![hash, blob_path, now],
+        )
+        .map_err(|err| format!("failed to store native blob metadata: {err}"))?;
+        Ok(())
     }
 
     /// Resolve an owner name to its row (any account: user or org).
@@ -2228,7 +2287,7 @@ mod tests {
         register_keys(&store, "axb");
         let axb_id = store.owner_with_ident_key("axb").unwrap().unwrap().0.id;
         store
-            .publish_package_version(axb_id, "axb#pkg", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(axb_id, "axb#pkg", "1.0.0", "hash", "path", "{}", &[])
             .unwrap();
 
         // The real entry resolves.
@@ -2267,7 +2326,7 @@ mod tests {
         ] {
             assert!(
                 store
-                    .publish_package_version(id, ident, "1.0.0", "h", "p", "{}")
+                    .publish_package_version(id, ident, "1.0.0", "h", "p", "{}", &[])
                     .is_err(),
                 "{ident} should be rejected"
             );
@@ -2275,14 +2334,14 @@ mod tests {
         for version in ["1.0 0", "1.0\"0", "1.0%0", "1/0", "1.0\n0", ""] {
             assert!(
                 store
-                    .publish_package_version(id, "alice#pkg", version, "h", "p", "{}")
+                    .publish_package_version(id, "alice#pkg", version, "h", "p", "{}", &[])
                     .is_err(),
                 "{version} should be rejected"
             );
         }
         // A clean publish still works.
         assert!(store
-            .publish_package_version(id, "alice#pkg", "1.0.0", "h", "p", "{}")
+            .publish_package_version(id, "alice#pkg", "1.0.0", "h", "p", "{}", &[])
             .is_ok());
     }
 
@@ -2583,7 +2642,15 @@ mod tests {
 
         // publish
         store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
             .unwrap();
         assert_eq!(store.log_size().unwrap(), 3);
 
@@ -2651,7 +2718,15 @@ mod tests {
         let keys = register_keys(&store, "alice");
         let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
             .unwrap();
 
         // A one-edit-away ident is flagged; an exact match and a far ident are not.
@@ -2883,7 +2958,15 @@ mod tests {
         register_keys(&store, "bob");
         let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
-            .publish_package_version(alice_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
             .unwrap();
 
         // Unknown package.
@@ -2948,7 +3031,15 @@ mod tests {
             .unwrap_err()
             .contains("is not published"));
         store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
             .unwrap();
         store
             .set_release_state("alice#toolbox", "1.0.0", "deprecated")
@@ -2965,7 +3056,15 @@ mod tests {
         let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         let empty = store.index_canonical_hash().unwrap();
         store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
             .unwrap();
         let with_pkg = store.index_canonical_hash().unwrap();
         assert_ne!(empty, with_pkg);
@@ -3039,14 +3138,30 @@ mod tests {
             .package_version_exists("alice#toolbox", "1.0.0")
             .unwrap());
         store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+            )
             .unwrap();
         assert!(store
             .package_version_exists("alice#toolbox", "1.0.0")
             .unwrap());
         // A duplicate publish is rejected.
         assert!(store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[]
+            )
             .unwrap_err()
             .contains("already published"));
         // publish_log_entry finds the publish; a missing one is None.
@@ -3071,16 +3186,16 @@ mod tests {
         let bob = store.owner_with_ident_key("bob").unwrap().unwrap().0.id;
         assert_eq!(store.owner_version_count(alice).unwrap(), 0);
         store
-            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}")
+            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
             .unwrap();
         store
-            .publish_package_version(alice, "alice#toolbox", "1.1.0", "h2", "p2", "{}")
+            .publish_package_version(alice, "alice#toolbox", "1.1.0", "h2", "p2", "{}", &[])
             .unwrap();
         store
-            .publish_package_version(alice, "alice#widgets", "0.1.0", "h3", "p3", "{}")
+            .publish_package_version(alice, "alice#widgets", "0.1.0", "h3", "p3", "{}", &[])
             .unwrap();
         store
-            .publish_package_version(bob, "bob#thing", "1.0.0", "h4", "p4", "{}")
+            .publish_package_version(bob, "bob#thing", "1.0.0", "h4", "p4", "{}", &[])
             .unwrap();
         // Three versions across two of alice's packages; bob's row is not counted.
         assert_eq!(store.owner_version_count(alice).unwrap(), 3);

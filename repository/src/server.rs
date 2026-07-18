@@ -1,4 +1,4 @@
-use crate::blobstore::{BlobFetch, BlobStore};
+use crate::blobstore::{BlobFetch, BlobKind, BlobStore};
 use crate::store::{now_unix, NewSession, Store};
 use crate::{crypto, package};
 use axum::extract::{ConnectInfo, State};
@@ -631,6 +631,12 @@ const AUTH_GLOBAL_CEILING: usize = 2000;
 /// or `/publish` for permanent disk (audit-2 REPO-13 / bug-188).
 const VALIDATE_PER_OWNER_MAX: usize = 60;
 const PUBLISH_PER_OWNER_MAX: usize = 30;
+/// Per-owner sliding-window cap on native-blob uploads (plan-48-A §4.3).
+/// Non-optional: without it an authenticated publisher can fill the datapath
+/// with 64 MiB objects that nothing can ever reclaim (the registry has no GC).
+/// A 7-slot binding is 7 PUTs, so this must comfortably clear one binding's
+/// full target set while still bounding a flood.
+const BLOB_UPLOAD_PER_OWNER_MAX: usize = 120;
 /// Per-owner published-version quota: the total number of `package_versions`
 /// rows an owner may accumulate. Bounds permanent blob/DB growth from an
 /// authenticated flood without constraining any realistic publisher.
@@ -681,7 +687,10 @@ pub async fn serve(
         .route("/machines/revoke/challenge", post(revoke_challenge))
         .route("/machines/revoke", post(revoke_machine))
         .route("/index/:ident", get(package_index))
-        .route("/blob/:hash", get(package_blob))
+        .route(
+            "/blob/:hash",
+            get(package_blob).head(head_blob).put(put_blob),
+        )
         .route("/release-state", post(release_state))
         .route("/orgs/members", post(org_members))
         .route("/tokens", post(issue_token))
@@ -1390,10 +1399,10 @@ async fn release_state(
 /// redirect to a short-lived presigned URL, so the bytes never transit the app
 /// server; the client re-hashes what it downloads, so the integrity check moves
 /// to the client on that path.
-async fn package_blob(
-    State(state): State<AppState>,
-    axum::extract::Path(hash): axum::extract::Path<String>,
-) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+/// Validate a `/blob/<hash>` path component: 64 lowercase hex characters.
+/// Shared by `GET`, `HEAD`, and `PUT` so all three reject malformed hashes
+/// identically.
+fn validate_blob_hash(hash: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if hash.len() != 64
         || !hash
             .bytes()
@@ -1403,7 +1412,42 @@ async fn package_blob(
             "blob hash must be 64 lowercase hex characters".to_string(),
         ));
     }
-    let fetch = match state.blob_store.get(&hash).await.map_err(internal)? {
+    Ok(())
+}
+
+/// Resolve a blob hash to its stored [`BlobKind`], or `None` if the registry
+/// has no such blob. A blob predating the `kind` column reads back as
+/// `package` via the column default.
+async fn resolve_blob_kind(
+    state: &AppState,
+    hash: &str,
+) -> Result<Option<BlobKind>, (StatusCode, Json<ErrorResponse>)> {
+    match state.store.blob_kind(hash).map_err(internal)? {
+        Some(kind) => Ok(Some(BlobKind::from_db_str(&kind).map_err(internal)?)),
+        None => Ok(None),
+    }
+}
+
+async fn package_blob(
+    State(state): State<AppState>,
+    axum::extract::Path(hash): axum::extract::Path<String>,
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+    validate_blob_hash(&hash)?;
+    // Learn the blob's kind from the index first: an unknown hash 404s here
+    // without touching the backend (no S3 round trip), and the kind selects the
+    // right on-disk/S3 name suffix.
+    let kind = match resolve_blob_kind(&state, &hash).await? {
+        Some(kind) => kind,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "no blob with that hash".to_string(),
+                }),
+            ));
+        }
+    };
+    let fetch = match state.blob_store.get(&hash, kind).await.map_err(internal)? {
         Some(fetch) => fetch,
         None => {
             return Err((
@@ -1438,6 +1482,89 @@ async fn package_blob(
             .body(axum::body::Body::empty())
             .map_err(|err| internal(format!("failed to build blob redirect: {err}"))),
     }
+}
+
+/// `HEAD /blob/<hash>` — the dedup probe (plan-48-A §4.2). `200` if a servable
+/// blob exists, `404` otherwise; no body, no auth (it discloses only whether a
+/// content hash the caller already knows is present, exactly what `GET` reveals).
+async fn head_blob(
+    State(state): State<AppState>,
+    axum::extract::Path(hash): axum::extract::Path<String>,
+) -> StatusCode {
+    if validate_blob_hash(&hash).is_err() {
+        return StatusCode::BAD_REQUEST;
+    }
+    match state.store.blob_kind(&hash) {
+        Ok(Some(kind)) => match BlobKind::from_db_str(&kind) {
+            Ok(kind) => match state.blob_store.exists(&hash, kind).await {
+                Ok(true) => StatusCode::OK,
+                Ok(false) => StatusCode::NOT_FOUND,
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            },
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        },
+        Ok(None) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+/// `PUT /blob/<hash>` — the write half (plan-48-A §4.3). Session-authenticated
+/// via `Authorization: Bearer`, hash-verified before storage, idempotent, and
+/// rate-limited per owner. Stores the raw bytes as a native-library `.bin` blob.
+async fn put_blob(
+    State(state): State<AppState>,
+    axum::extract::Path(hash): axum::extract::Path<String>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    validate_blob_hash(&hash)?;
+    // Auth: the session JWT rides in an Authorization: Bearer header here — the
+    // only header-borne credential on this server, because a raw-body PUT cannot
+    // carry the body-field `sessionToken` every other authenticated route uses.
+    let token = bearer_token(&headers)?;
+    let claims = verify_session_token(&state.store, token).map_err(|err| unauthorized(&err))?;
+    // Per-owner upload throttle (§4.3): non-optional given there is no GC, so an
+    // authenticated publisher cannot fill the datapath with unreclaimable bytes.
+    if !state.rate_limiter.allow(
+        &format!("blob:{}", claims.sub),
+        BLOB_UPLOAD_PER_OWNER_MAX,
+        60,
+    ) {
+        return Err(too_many_requests());
+    }
+    // Content-address verification before storing anything: the store is keyed
+    // by content hash, so this is the invariant that keeps it honest.
+    let actual = hex::encode(crypto::sha256(&body));
+    if actual != hash {
+        return Err(bad_request(format!(
+            "blob body hash {actual} does not match path hash {hash}"
+        )));
+    }
+    // Idempotent: re-uploading an existing blob is a cheap success, not an error.
+    if state
+        .blob_store
+        .exists(&hash, BlobKind::Native)
+        .await
+        .map_err(internal)?
+    {
+        return Ok(StatusCode::OK);
+    }
+    // stage → row → promote, aborting on failure — the exact order publish uses,
+    // preserving the "no servable orphan" invariant.
+    let staged = state
+        .blob_store
+        .stage(&hash, BlobKind::Native, body.to_vec())
+        .await
+        .map_err(internal)?;
+    let blob_ref = state.blob_store.blob_ref(&hash, BlobKind::Native);
+    if let Err(err) = state.store.record_native_blob(&hash, &blob_ref) {
+        state.blob_store.abort(staged).await;
+        return Err(internal(err));
+    }
+    if let Err(err) = state.blob_store.promote(staged).await {
+        return Err(internal(err));
+    }
+    Ok(StatusCode::CREATED)
 }
 
 async fn rotate_ident(
@@ -1901,7 +2028,21 @@ async fn publish_package(
     }
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let hash = report.content_hash;
-    let already_present = state.blob_store.exists(&hash).await.map_err(internal)?;
+    // The vendor blob hashes section 10 names — recorded as version→blob edges
+    // so a future GC (plan-49) can compute reachability (plan-48-A §4.5). Their
+    // existence was already enforced by the validation above; re-parse the
+    // already-verified payload rather than threading the list through `report`.
+    let vendor_hashes: Vec<String> = match package::parse_mfp_package(&artifact) {
+        Ok(package) => crate::abi::parse_vendor_blobs(&package.payload)
+            .map(|refs| refs.into_iter().map(|vref| vref.hash).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let already_present = state
+        .blob_store
+        .exists(&hash, BlobKind::Package)
+        .await
+        .map_err(internal)?;
     // Blob-ordering fix (plan-10-A §2.6): stage the blob, commit the DB row, and
     // only then promote it to servable — a failed transaction leaves no orphan
     // blob, and a served blob always has a committed version row. The blob
@@ -1913,7 +2054,7 @@ async fn publish_package(
         Some(
             state
                 .blob_store
-                .stage(&hash, artifact)
+                .stage(&hash, BlobKind::Package, artifact)
                 .await
                 .map_err(internal)?,
         )
@@ -1929,8 +2070,9 @@ async fn publish_package(
         &request.ident,
         &request.version,
         &hash,
-        &state.blob_store.blob_ref(&hash),
+        &state.blob_store.blob_ref(&hash, BlobKind::Package),
         &abi_index,
+        &vendor_hashes,
     ) {
         Ok(published) => published,
         Err(err) => {
@@ -2116,6 +2258,31 @@ async fn validate_package_request(
         ));
     }
 
+    // plan-48-A §4.4: every `vendor` locator named by section 10 must already
+    // have its blob uploaded, so a successful publish can never leave a
+    // section-10 hash dangling. Applied on both /validate (a dry run reports
+    // missing blobs before the publisher uploads anything) and /publish (which
+    // funnels through this function). The section rides inside the signed+welded
+    // payload, so these hashes are authenticated by re-hash alone (§3.2).
+    match crate::abi::parse_vendor_blobs(&package.payload) {
+        Ok(vendor_blobs) => {
+            for vref in &vendor_blobs {
+                if !state
+                    .blob_store
+                    .exists(&vref.hash, BlobKind::Native)
+                    .await
+                    .map_err(internal)?
+                {
+                    diagnostics.push(format!(
+                        "native library '{}' references vendor blob {} ({}) that is not uploaded",
+                        vref.logical, vref.hash, vref.source
+                    ));
+                }
+            }
+        }
+        Err(err) => diagnostics.push(format!("native library table is malformed: {err}")),
+    }
+
     // The per-symbol ABI index (plan-10-B1) is parsed best-effort from the
     // payload; it is covered by packageBinaryHash + the signature, so the
     // registry serves it for resolution without having to trust it.
@@ -2174,6 +2341,35 @@ fn internal(message: String) -> (StatusCode, Json<ErrorResponse>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse { error: message }),
     )
+}
+
+fn unauthorized(message: &str) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ErrorResponse {
+            error: message.to_string(),
+        }),
+    )
+}
+
+/// Extract the bearer token from an `Authorization: Bearer <token>` header —
+/// the one header-borne credential on this server (plan-48-A §4.3), used by
+/// `PUT /blob/<hash>` because a raw-body request cannot carry the body-field
+/// `sessionToken` every other authenticated route uses.
+fn bearer_token(
+    headers: &axum::http::HeaderMap,
+) -> Result<&str, (StatusCode, Json<ErrorResponse>)> {
+    let value = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .ok_or_else(|| unauthorized("missing Authorization header"))?;
+    let value = value
+        .to_str()
+        .map_err(|_| unauthorized("malformed Authorization header"))?;
+    value
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| unauthorized("Authorization header must be `Bearer <token>`"))
 }
 
 #[cfg(test)]
@@ -2756,6 +2952,147 @@ mod tests {
             .expect("publish succeeds")
             .0;
         (artifact, response.hash)
+    }
+
+    /// plan-48-A §4.2/§4.3: the native-blob write half. A blob PUTs, HEADs, and
+    /// GETs back byte-identically under the `.bin` namespace; a hash-mismatched
+    /// body stores nothing; a re-PUT is a cheap success; an unauthenticated or
+    /// bogus-token PUT is refused.
+    #[tokio::test]
+    async fn native_blob_put_head_get_roundtrip_and_auth() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
+            rate_limiter: RateLimiter::new(),
+        };
+
+        let body = b"\x7fELF vendored native library payload".to_vec();
+        let hash = hex::encode(crypto::sha256(&body));
+        let bearer = |token: &str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                format!("Bearer {token}").parse().unwrap(),
+            );
+            headers
+        };
+
+        // Nothing stored yet.
+        assert_eq!(
+            head_blob(State(state.clone()), axum::extract::Path(hash.clone())).await,
+            StatusCode::NOT_FOUND
+        );
+
+        // No Authorization header at all → 401, and nothing is stored.
+        let no_auth = put_blob(
+            State(state.clone()),
+            axum::extract::Path(hash.clone()),
+            axum::http::HeaderMap::new(),
+            axum::body::Bytes::from(body.clone()),
+        )
+        .await;
+        assert_eq!(no_auth.err().unwrap().0, StatusCode::UNAUTHORIZED);
+
+        // A syntactically valid but unknown token → 401.
+        let bad_token = put_blob(
+            State(state.clone()),
+            axum::extract::Path(hash.clone()),
+            bearer("not.a.session"),
+            axum::body::Bytes::from(body.clone()),
+        )
+        .await;
+        assert_eq!(bad_token.err().unwrap().0, StatusCode::UNAUTHORIZED);
+        assert!(!state
+            .blob_store
+            .exists(&hash, BlobKind::Native)
+            .await
+            .unwrap());
+
+        // A real session stores the blob.
+        let created = put_blob(
+            State(state.clone()),
+            axum::extract::Path(hash.clone()),
+            bearer(&token),
+            axum::body::Bytes::from(body.clone()),
+        )
+        .await
+        .expect("authenticated put stores the blob");
+        assert_eq!(created, StatusCode::CREATED);
+
+        // HEAD now reports it, and it lives under the `.bin` namespace — never
+        // `<hash>.mfp`, which would lie about what the file is.
+        assert_eq!(
+            head_blob(State(state.clone()), axum::extract::Path(hash.clone())).await,
+            StatusCode::OK
+        );
+        assert!(opened.packages_dir.join(format!("{hash}.bin")).exists());
+        assert!(!opened.packages_dir.join(format!("{hash}.mfp")).exists());
+
+        // GET serves the exact bytes back.
+        let response = package_blob(State(state.clone()), axum::extract::Path(hash.clone()))
+            .await
+            .expect("native blob served");
+        let served = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(served.as_ref(), body.as_slice());
+
+        // Re-uploading the same blob is a cheap success, not an error, and does
+        // not duplicate anything.
+        let again = put_blob(
+            State(state.clone()),
+            axum::extract::Path(hash.clone()),
+            bearer(&token),
+            axum::body::Bytes::from(body.clone()),
+        )
+        .await
+        .expect("re-put is idempotent");
+        assert_eq!(again, StatusCode::OK);
+
+        // A body that does not hash to the path is refused and stores NOTHING.
+        let other_hash = hex::encode(crypto::sha256(b"entirely different bytes"));
+        let mismatch = put_blob(
+            State(state.clone()),
+            axum::extract::Path(other_hash.clone()),
+            bearer(&token),
+            axum::body::Bytes::from(body.clone()),
+        )
+        .await;
+        assert_eq!(mismatch.err().unwrap().0, StatusCode::BAD_REQUEST);
+        assert!(!state
+            .blob_store
+            .exists(&other_hash, BlobKind::Native)
+            .await
+            .unwrap());
+        assert_eq!(
+            head_blob(State(state.clone()), axum::extract::Path(other_hash)).await,
+            StatusCode::NOT_FOUND
+        );
+
+        // A non-hex path is a 400 on both verbs.
+        assert_eq!(
+            head_blob(
+                State(state.clone()),
+                axum::extract::Path("nothex".to_string())
+            )
+            .await,
+            StatusCode::BAD_REQUEST
+        );
+        let malformed = put_blob(
+            State(state.clone()),
+            axum::extract::Path("nothex".to_string()),
+            bearer(&token),
+            axum::body::Bytes::from(body.clone()),
+        )
+        .await;
+        assert_eq!(malformed.err().unwrap().0, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

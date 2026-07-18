@@ -10,9 +10,101 @@ use std::collections::BTreeMap;
 
 const MFPC_MAGIC: &[u8; 4] = b"MFPC";
 const SECTION_STRING_POOL: u16 = 2;
+const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
 const SECTION_ABI_INDEX: u16 = 15;
 const ABI_FORMAT_VERSION: u16 = 1;
 const ABI_HASH_LEN: usize = 32;
+
+/// Wire discriminant for a `vendor` native-library locator (plan-46-B §4.1).
+/// A vendor locator carries a 32-byte SHA-256 of the file; a `system` locator
+/// (discriminant 0) names a file the registry never sees and carries no hash.
+const WIRE_LIB_TYPE_VENDOR: u8 = 1;
+const NATIVE_LIBRARY_HASH_LEN: usize = 32;
+
+/// One `vendor` locator drawn from a package's section-10 `NATIVE_LIBRARY_TABLE`
+/// — the logical library it belongs to, its bare source filename, and the hex
+/// SHA-256 that is the vendored file's blob key (plan-48-A §4.4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VendorBlobRef {
+    pub logical: String,
+    pub source: String,
+    pub hash: String,
+}
+
+/// Parse every `vendor` locator's blob hash from a package's `packageBinaryRepr`
+/// payload (plan-48-A §4.4). Returns an empty vector when the package carries no
+/// section-10 table (nothing to vendor). Errors only when a table is present but
+/// malformed — which, since section 10 rides inside the signed+welded payload,
+/// means a broken or tampered package the caller should refuse rather than
+/// silently treat as vendoring nothing.
+pub fn parse_vendor_blobs(payload: &[u8]) -> Result<Vec<VendorBlobRef>, String> {
+    // A payload that is not even an MFPC container carries no section 10, so it
+    // vendors nothing. Treated best-effort (like `abi_index_json`): the payload
+    // is welded to the signature, so a genuinely broken one fails
+    // `verify_payload_hash` elsewhere, and the registry never has to trust the
+    // table for correctness. Only a *malformed section 10 inside a valid
+    // container* is a real error worth surfacing.
+    let Ok(sections) = read_section_table(payload) else {
+        return Ok(Vec::new());
+    };
+    let Some(table_bytes) = sections.get(&SECTION_NATIVE_LIBRARY_TABLE) else {
+        return Ok(Vec::new());
+    };
+    let string_bytes = sections
+        .get(&SECTION_STRING_POOL)
+        .ok_or_else(|| "package is missing the string pool section".to_string())?;
+    let strings = read_string_pool(string_bytes)?;
+    read_native_vendor_locators(table_bytes, &strings)
+}
+
+fn read_native_vendor_locators(
+    bytes: &[u8],
+    strings: &[String],
+) -> Result<Vec<VendorBlobRef>, String> {
+    let mut offset = 0usize;
+    let entry_count = read_u32(bytes, offset)? as usize;
+    offset += 4;
+    let mut refs = Vec::new();
+    for _ in 0..entry_count {
+        let logical = table_string(strings, read_u32(bytes, offset)?)?;
+        offset += 4;
+        let locator_count = read_u32(bytes, offset)? as usize;
+        offset += 4;
+        for _ in 0..locator_count {
+            // os, arch: interned string ids (skipped — not needed here).
+            offset += 4; // os
+            offset += 4; // arch
+            let _libc = read_u8(bytes, offset)?;
+            offset += 1;
+            let lib_type = read_u8(bytes, offset)?;
+            offset += 1;
+            let source = table_string(strings, read_u32(bytes, offset)?)?;
+            offset += 4;
+            if lib_type == WIRE_LIB_TYPE_VENDOR {
+                let end = offset
+                    .checked_add(NATIVE_LIBRARY_HASH_LEN)
+                    .ok_or("native library locator hash overflows")?;
+                let raw = bytes
+                    .get(offset..end)
+                    .ok_or("truncated native library locator hash")?;
+                refs.push(VendorBlobRef {
+                    logical: logical.clone(),
+                    source,
+                    hash: hex::encode(raw),
+                });
+                offset = end;
+            }
+        }
+    }
+    Ok(refs)
+}
+
+fn table_string(strings: &[String], id: u32) -> Result<String, String> {
+    strings
+        .get(id as usize)
+        .cloned()
+        .ok_or_else(|| "native library table names an out-of-range string".to_string())
+}
 
 /// Parse the exported-symbol ABI map from a package's `packageBinaryRepr`
 /// payload: `{ "<name>": "<hex sigHash>" }`, keys sorted. Errors if the payload
@@ -208,6 +300,86 @@ mod tests {
         assert_eq!(abi_index_json(b"MFPCtestpayload"), serde_json::json!({}));
     }
 
+    /// Build a section-10 `NATIVE_LIBRARY_TABLE`. Each locator is
+    /// `(os_id, arch_id, libc, lib_type, source_id, hash)`; `hash` is present iff
+    /// `lib_type` is vendor (1).
+    fn native_library_table(
+        entries: &[(u32, &[(u32, u32, u8, u8, u32, Option<[u8; 32]>)])],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, entries.len() as u32);
+        for (logical, locators) in entries {
+            put_u32(&mut bytes, *logical);
+            put_u32(&mut bytes, locators.len() as u32);
+            for (os, arch, libc, lib_type, source, hash) in *locators {
+                put_u32(&mut bytes, *os);
+                put_u32(&mut bytes, *arch);
+                bytes.push(*libc);
+                bytes.push(*lib_type);
+                put_u32(&mut bytes, *source);
+                if let Some(hash) = hash {
+                    bytes.extend_from_slice(hash);
+                }
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn parses_vendor_hashes_from_section_ten() {
+        // strings: 0=sqlite3, 1=linux, 2=x86_64, 3=libsqlite3.so, 4=libc.so.6
+        let strings = string_pool(&["sqlite3", "linux", "x86_64", "libsqlite3.so", "libc.so.6"]);
+        let table = native_library_table(&[(
+            0,
+            &[
+                // vendor locator carrying a hash
+                (1, 2, 1, 1, 3, Some([0x11; 32])),
+                // a system locator (lib_type 0) with no hash — must be skipped
+                (1, 2, 1, 0, 4, None),
+            ],
+        )]);
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let refs = parse_vendor_blobs(&payload).unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].logical, "sqlite3");
+        assert_eq!(refs[0].source, "libsqlite3.so");
+        assert_eq!(refs[0].hash, hex::encode([0x11; 32]));
+    }
+
+    #[test]
+    fn no_section_ten_means_no_vendor_blobs() {
+        // A container with only a string pool vendors nothing.
+        let payload = container(&[(SECTION_STRING_POOL, string_pool(&["x"]))]);
+        assert!(parse_vendor_blobs(&payload).unwrap().is_empty());
+        // A non-container payload is best-effort empty, not an error (§ abi weld).
+        assert!(parse_vendor_blobs(b"MFPCnope").unwrap().is_empty());
+    }
+
+    #[test]
+    fn truncated_vendor_hash_is_rejected() {
+        let strings = string_pool(&["sqlite3", "linux", "x86_64", "libsqlite3.so"]);
+        // A vendor locator whose 32-byte hash is missing from the bytes.
+        let mut table = Vec::new();
+        put_u32(&mut table, 1); // one entry
+        put_u32(&mut table, 0); // logical = "sqlite3"
+        put_u32(&mut table, 1); // one locator
+        put_u32(&mut table, 1); // os
+        put_u32(&mut table, 2); // arch
+        table.push(1); // libc
+        table.push(1); // lib_type = vendor
+        put_u32(&mut table, 3); // source — but no hash follows
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        assert!(parse_vendor_blobs(&payload)
+            .unwrap_err()
+            .contains("truncated native library locator hash"));
+    }
+
     #[test]
     fn missing_string_pool_or_abi_section_is_an_error() {
         // Only the ABI section present: the string pool is missing.
@@ -318,6 +490,10 @@ mod tests {
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
     let slice = bytes.get(offset..offset + 2).ok_or("truncated u16")?;
     Ok(u16::from_le_bytes([slice[0], slice[1]]))
+}
+
+fn read_u8(bytes: &[u8], offset: usize) -> Result<u8, String> {
+    bytes.get(offset).copied().ok_or("truncated u8".to_string())
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {

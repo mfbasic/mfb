@@ -136,6 +136,9 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
                 package.name, package.selected
             )
         })?;
+        // plan-48-B §4.4: the `.mfp` verified, so download every vendor blob its
+        // section-10 table names into `packages/<name>.vendor/`.
+        super::pkg::install_vendor_blobs(&repo_url, project_dir, &package.name)?;
         println!(
             "Installed {} {} ({})",
             package.name, package.selected, package.state

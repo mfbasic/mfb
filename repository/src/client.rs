@@ -1039,6 +1039,67 @@ pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// `HEAD /blob/<hash>` (plan-48-B §4.2): probe whether the registry already
+/// holds a blob for `hash`. The dedup win on publish — an unchanged vendored
+/// library uploads once, ever, across every version that ships it.
+pub fn blob_exists(repo_url: &str, hash: &str) -> Result<bool, String> {
+    ensure_transport_security(repo_url)?;
+    let url = format!("{}/blob/{}", repo_url.trim_end_matches('/'), hash);
+    let response = http_client()?
+        .head(&url)
+        .send()
+        .map_err(|err| format!("failed to connect to repository service: {err}"))?;
+    let status = response.status();
+    if status.is_success() {
+        Ok(true)
+    } else if status == reqwest::StatusCode::NOT_FOUND {
+        Ok(false)
+    } else {
+        Err(format!(
+            "repository HEAD /blob request failed with status {status}"
+        ))
+    }
+}
+
+/// `PUT /blob/<hash>` (plan-48-B §4.2): upload raw native-library bytes,
+/// authenticated with the session token in an `Authorization: Bearer` header —
+/// the one header-borne credential on this server (plan-48-A §4.3), because a
+/// raw-body request cannot carry the body-field `sessionToken`. The server
+/// re-hashes the body before storing, so a corrupt upload is rejected there and
+/// the client need not verify a response.
+pub fn put_blob(
+    repo_url: &str,
+    hash: &str,
+    bytes: Vec<u8>,
+    session_token: &str,
+) -> Result<(), String> {
+    ensure_transport_security(repo_url)?;
+    let url = format!("{}/blob/{}", repo_url.trim_end_matches('/'), hash);
+    // Blob uploads share the download's generous deadline — a large library
+    // needs far more than the control-plane 30s to move (plan-48-B §4.1).
+    let response = http_client()?
+        .put(&url)
+        .bearer_auth(session_token)
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .timeout(BLOB_TIMEOUT)
+        .body(bytes)
+        .send()
+        .map_err(|err| format!("failed to connect to repository service: {err}"))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response
+        .text()
+        .unwrap_or_else(|_| "repository request failed".to_string());
+    if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
+        return Err(error.error);
+    }
+    Err(format!(
+        "repository PUT /blob request failed with status {status}: {text}"
+    ))
+}
+
 pub struct PackageArtifact<'a> {
     pub ident: &'a str,
     pub version: &'a str,

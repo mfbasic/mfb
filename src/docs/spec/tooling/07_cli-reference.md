@@ -210,11 +210,15 @@ absolute and end `.mfp`), copies it into `packages/`, and records a pinned
 dependency in `project.json` — for a **signed** package the dependency entry
 also pins the header `identKey` on this first add (trust-on-first-use); the
 pin, never the file-embedded key, is the trust anchor every later build
-verifies against.[[src/cli/pkg.rs:add_package]] `info <package>`
+verifies against.[[src/cli/pkg.rs:add_package]] A `file://` add of a package that
+**vendors native libraries** is refused: there is no registry to fetch the
+library bytes from, so it would install in a silently unusable state. `info
+<package>`
 prints the package report (below). `verify` checks each `project.json`
 dependency. `validate <package>` checks an **existing** `.mfp` — "is this
 package correct?" (below). `publish <owner> <package>` rebuilds and signs the
-package then uploads it. `doc <name-or-path> [--out file]` renders a compiled
+package, uploads any vendored native-library blobs the registry does not already
+have, then uploads the package itself. `doc <name-or-path> [--out file]` renders a compiled
 package's doc section (`run_pkg_doc`, default out
 `doc.html`).[[src/cli/pkg.rs:run_pkg_doc]] Each subcommand's arity error and the
 fallthrough `unknown pkg command` exit `2`; runtime failures exit `1`.

@@ -78,6 +78,49 @@ pub(crate) fn install_verified_package(
     Ok(destination)
 }
 
+/// Place a downloaded, already hash-verified vendor library file at
+/// `dir/filename`, using the same stage-verify-rename discipline as
+/// [`install_verified_package`] (plan-48-B §4.4). The bytes arrive from
+/// `fetch_blob`, which re-hashes them against the content address, so they are
+/// trusted by the time they reach here; staging under an exclusively created
+/// `.part` name (bug-27) still matters because `dir/filename` could be a
+/// pre-planted symlink, and `fs::write` would follow it.
+///
+/// `filename` must be a validated bare filename (the caller re-checks the
+/// section-10 `source` rule); it is joined onto `dir` without further escaping.
+pub(crate) fn install_vendor_file(
+    dir: &Path,
+    filename: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, String> {
+    use std::io::Write;
+
+    std::fs::create_dir_all(dir)
+        .map_err(|err| format!("failed to create '{}': {err}", dir.display()))?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let staged = dir.join(format!(".{filename}.{}.{nanos}.part", std::process::id()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|err| {
+            let _ = std::fs::remove_file(&staged);
+            format!("failed to write '{}': {err}", staged.display())
+        })?;
+    let destination = dir.join(filename);
+    std::fs::rename(&staged, &destination).map_err(|err| {
+        let _ = std::fs::remove_file(&staged);
+        format!("failed to install '{}': {err}", destination.display())
+    })?;
+    Ok(destination)
+}
+
 /// Resolve the local key/session store scoped to a specific repository URL.
 ///
 /// Local credentials are keyed only by owner name, so a single owner used

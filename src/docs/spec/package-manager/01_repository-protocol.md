@@ -72,7 +72,9 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/log/consistency` | GET | none | `?from=M&to=N` | `ConsistencyProofResponse` | append-only audit |
 | `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
 | `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
-| `/blob/<hash>` | GET | none | — | raw `.mfp` bytes (or `302` to a presigned URL in S3 mode) | `pkg add` (registry) |
+| `/blob/<hash>` | GET | none | — | raw blob bytes (or `302` to a presigned URL in S3 mode) | `pkg add` (registry) |
+| `/blob/<hash>` | HEAD | none | — | `200` if present, `404` otherwise (no body) | `pkg publish` (dedup probe) |
+| `/blob/<hash>` | PUT | `Authorization: Bearer` session token | raw bytes (`application/octet-stream`) | `201` stored, `200` already present | `pkg publish` (vendor blobs) |
 | `/release-state` | POST | session + ident signature | `ReleaseStateRequest` | `ReleaseStateResponse` | `pkg release-state` |
 | `/orgs/members` | POST | session + ident signature | `OrgMemberRequest` | `OrgMemberResponse` | `org grant`/`org remove` |
 | `/tokens` | POST | session + ident signature | `TokenIssueRequest` | `TokenIssueResponse` | `token issue` |
@@ -591,9 +593,24 @@ The client picks the requested version (any non-`blocked`/`legal-tombstoned`
 state) or, for a floating add, the newest version whose state is `available`
 or `deprecated`.[[src/cli/pkg.rs:select_index_version]]
 
-### Blob — `GET /blob/<hash>`
+### Blob — `GET`/`HEAD`/`PUT /blob/<hash>`
 
-Serves the content-addressed `<hash>.mfp` blob with immutable, long-cache
+Blobs are content-addressed by SHA-256 and come in two **kinds**, which select
+the stored object's name so an operator listing the datapath sees honest
+filenames:
+
+| kind | stored as | holds |
+| --- | --- | --- |
+| `package` | `<hash>.mfp` | a published package artifact |
+| `native` | `<hash>.bin` | one vendored native library file (plan-48-A) |
+
+The kind is recorded in `package_blobs.kind` (defaulting to `package`, so blobs
+predating the column need no migration), and `GET`/`HEAD` learn it from that
+primary-key lookup — which also lets an unknown hash `404` without touching the
+storage backend. Both kinds are served by the *same* `GET` path with the same
+shape.[[repository/src/blobstore.rs:BlobKind]]
+
+Serves the content-addressed blob with immutable, long-cache
 headers (`Cache-Control: public, max-age=31536000, immutable`). The hash must be
 64 lowercase hex characters (else `400`); an absent blob is `404`. With the
 local backend the server streams the bytes, recomputing the SHA-256 and refusing
@@ -612,6 +629,91 @@ temp file and promotes with an atomic rename; the S3 backend PUTs the immutable
 content-addressed object (unreachable until the committed index row exposes its
 hash) and deletes it on
 failure.[[repository/src/server.rs:publish_package]][[repository/src/blobstore.rs:BlobStore]]
+
+#### `HEAD /blob/<hash>` — the dedup probe
+
+`200` if a servable blob exists, `404` otherwise; no body and no auth. It
+discloses only whether a content hash the caller **already possesses** is
+present — exactly what `GET` already reveals — and the design already relies on
+hashes being unguessable. A publisher uses it to skip re-uploading an unchanged
+library on every version bump.[[repository/src/server.rs:head_blob]]
+
+#### `PUT /blob/<hash>` — uploading a vendored native library
+
+Stores raw native-library bytes as a `native` (`<hash>.bin`) blob.
+
+- **Auth — the one header-borne credential.** Every other authenticated route
+  carries its session JWT in a `sessionToken` **body field**, which a raw-body
+  `PUT` cannot do. This route alone takes `Authorization: Bearer <token>`,
+  verified with the same session check (`exp` *and* a live `jti` session row).
+  This is a deliberate, documented exception to the body-field convention, not
+  an oversight.
+- **Body.** Raw bytes, `application/octet-stream`, subject to the shared 64 MiB
+  body cap (`413` above it). Raw bytes lift the effective ceiling from ~48 MiB
+  (base64) to a full 64 MiB. Streaming and presigned `PUT` are deliberately not
+  offered: the upload is proxied so the server can verify the hash before the
+  bytes land.
+- **Verification before storage.** The server computes `sha256(body)`; if it
+  does not equal the `<hash>` in the path it answers `400` and stores
+  **nothing**. The store is content-addressed, so this is the invariant that
+  keeps it honest.
+- **Idempotent.** An already-present blob answers `200` without re-staging; a
+  fresh store answers `201`. Racing uploads of identical bytes are harmless.
+- **Ordering.** stage → `package_blobs` row → promote, aborting on failure —
+  the same protocol publish uses, preserving the "no servable orphan"
+  invariant.
+- **Rate limited** per owner, alongside the `/validate` and `/publish` caps.
+  The registry performs no garbage collection, so without a cap an
+  authenticated publisher could fill the datapath with bytes nothing can ever
+  reclaim.[[repository/src/server.rs:put_blob]]
+
+#### Publish refuses a dangling vendor hash
+
+A package's section-10 `NATIVE_LIBRARY_TABLE` names each vendored library by
+SHA-256. `/validate` and `/publish` parse that table and require **every**
+`vendor` locator's blob to already exist; a missing one is reported as a
+validation diagnostic and the publish is refused (`400`), naming the hash, the
+logical library, and the source filename. Combined with the client uploading
+blobs **before** the `.mfp`, this makes "a published package never references a
+blob that does not exist" a guarantee rather than a convention.
+
+The registry needs no new trust to do this: section 10 lives inside the payload
+that `packageBinaryHash` welds to the package signature, so the vendor hashes
+are transitively authenticated and a blob fetched by one of them needs only to
+be re-hashed — the same argument the registry already makes for the ABI index.
+The publish transaction also records the version→blob edges in
+`package_version_blobs`, which nothing reads today; it exists so a future
+garbage collector can compute
+reachability.[[repository/src/abi.rs:parse_vendor_blobs]][[repository/src/server.rs:validate_package_request]]
+
+### Vendor blobs on install
+
+A binding that vendors native libraries carries only their **hashes** in its
+`.mfp`, never their bytes. After `pkg add`/`pkg install` has fetched and fully
+verified the `.mfp` — and therefore trusts section 10 — it downloads every
+`vendor` blob the table names via the same `GET /blob/<hash>`, which re-hashes
+the bytes against the content address before returning them.
+
+Files land at **`<project>/packages/<name>.vendor/<source>`**, one directory per
+package, written with the same stage-verify-rename discipline as the `.mfp`
+itself (an exclusively created `.part` file, then a rename — so a pre-planted
+symlink at the destination is replaced, never written through). This is
+deliberately *not* `<project>/vendor/`, which belongs to the consumer's own
+`libraries` section and must never be overwritten by an imported package, and
+deliberately per-package, because two packages may each vendor a same-named file
+with different bytes.
+
+`source` arrives from the `.mfp` and is untrusted: it is re-validated as a bare
+filename (no separators, no `..`, no NUL) before it becomes a path. A blob the
+registry does not have is `PACKAGE_VENDOR_BLOB_MISSING` (`6-605-0010`); one whose
+bytes do not match the signed table is `PACKAGE_VENDOR_BLOB_HASH_MISMATCH`
+(`6-605-0011`). Either is fatal and leaves nothing usable on disk. Every vendor
+blob in the table is downloaded — not just the host target's — so a later
+cross-compile and an offline build both work.
+
+A `pkg add file://…` is a local copy with no registry to fetch from, so a package
+that vendors native libraries is refused outright rather than installed in a
+silently unusable state.[[src/cli/pkg.rs:install_vendor_blobs]]
 
 ## Release States — `POST /release-state`
 
@@ -824,13 +926,29 @@ package version.[[repository/src/server.rs:publish_package]]
 2. `build --sign <owner>` in `Validate` mode to produce the signed `<name>.mfp`.
 3. Read and re-parse the `.mfp`; compute the content hash and assemble a
    `PackageArtifact` from the package metadata.
-4. Call **`/validate`** (`client::validate_package`); print the report; abort
+4. **Upload vendor blobs.** Read the `.mfp`'s section-10 table; for each
+   `vendor` locator `HEAD /blob/<hash>` and, when absent, `PUT` the bytes of
+   `<project root>/vendor/<source>`. The section-10 hash **is** the upload key,
+   so the file is not re-hashed here — a second computation is a second chance
+   to disagree. Distinct hashes are uploaded at most once, so a library shared
+   across platforms or unchanged across versions transfers
+   once.[[src/cli/pkg.rs:upload_vendor_blobs]]
+5. Call **`/validate`** (`client::validate_package`); print the report; abort
    with `package validation failed` if `valid` is false.
-5. Call **`/publish`** (`client::publish_package`); print `Published
+6. Call **`/publish`** (`client::publish_package`); print `Published
    <ident>@<version> as <hash>`.
 
 The client never publishes a package that did not validate; the server enforces
 the same invariant independently by re-validating inside `/publish`.[[repository/src/client.rs:validate_package]][[repository/src/client.rs:publish_package]]
+
+**Blobs go up before the `.mfp`, and come down after it.** Both directions
+follow from the same fact: the `.mfp` is the only thing that names the blobs, so
+it is the commit point. Publishing blobs first means a successful publish never
+leaves a section-10 hash dangling (the registry enforces the converse); a
+failure after the blobs but before the publish leaves unreferenced blobs —
+garbage, not a broken package. On install the `.mfp` is fetched and **fully
+verified** first, so section 10 is trusted before any hash in it is used;
+fetching blobs first would mean acting on attacker-supplied hashes.
 
 ## See Also
 

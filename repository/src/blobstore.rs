@@ -137,9 +137,51 @@ fn normalize_prefix(prefix: &str) -> String {
     }
 }
 
-/// The content-addressed object/file name for a blob hash.
-fn blob_name(hash: &str) -> String {
-    format!("{hash}.mfp")
+/// What a stored blob *is* — a package `.mfp` artifact or a vendored native
+/// library file (plan-48-A §4.1). The kind selects the on-disk/S3 filename
+/// suffix so an operator listing the datapath sees honest names, and it is
+/// persisted in `package_blobs.kind` so `GET /blob/<hash>` can learn a blob's
+/// kind from a primary-key lookup before touching the backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlobKind {
+    Package,
+    Native,
+}
+
+impl BlobKind {
+    /// The content-addressed filename suffix for this kind. `Package` keeps the
+    /// historical `.mfp` (so existing blobs need no migration); native library
+    /// blobs use `.bin`.
+    fn suffix(self) -> &'static str {
+        match self {
+            BlobKind::Package => "mfp",
+            BlobKind::Native => "bin",
+        }
+    }
+
+    /// The `package_blobs.kind` column value.
+    pub fn db_str(self) -> &'static str {
+        match self {
+            BlobKind::Package => "package",
+            BlobKind::Native => "native",
+        }
+    }
+
+    /// Parse a `package_blobs.kind` column value back into a `BlobKind`. An
+    /// unknown value (never written by this code) is rejected rather than
+    /// silently coerced.
+    pub fn from_db_str(value: &str) -> Result<Self, String> {
+        match value {
+            "package" => Ok(BlobKind::Package),
+            "native" => Ok(BlobKind::Native),
+            other => Err(format!("unknown blob kind '{other}'")),
+        }
+    }
+}
+
+/// The content-addressed object/file name for a blob hash and kind.
+fn blob_name(hash: &str, kind: BlobKind) -> String {
+    format!("{hash}.{}", kind.suffix())
 }
 
 /// Live blob storage backend. Cheap to clone (the S3 client is internally
@@ -165,43 +207,51 @@ impl BlobStore {
 
     /// A human-readable reference to where the blob lives, recorded in the
     /// `package_blobs.path` column. Informational only — serving is by hash.
-    pub fn blob_ref(&self, hash: &str) -> String {
+    pub fn blob_ref(&self, hash: &str, kind: BlobKind) -> String {
         match self {
             BlobStore::Local(local) => local
                 .dir
-                .join(blob_name(hash))
+                .join(blob_name(hash, kind))
                 .to_string_lossy()
                 .into_owned(),
             #[cfg(feature = "s3")]
-            BlobStore::S3(s3) => format!("s3://{}/{}{}", s3.bucket, s3.prefix, blob_name(hash)),
+            BlobStore::S3(s3) => {
+                format!("s3://{}/{}{}", s3.bucket, s3.prefix, blob_name(hash, kind))
+            }
         }
     }
 
     /// Whether a servable blob already exists for `hash`.
-    pub async fn exists(&self, hash: &str) -> Result<bool, String> {
+    pub async fn exists(&self, hash: &str, kind: BlobKind) -> Result<bool, String> {
         match self {
-            BlobStore::Local(local) => Ok(local.dir.join(blob_name(hash)).exists()),
+            BlobStore::Local(local) => Ok(local.dir.join(blob_name(hash, kind)).exists()),
             #[cfg(feature = "s3")]
-            BlobStore::S3(s3) => s3.exists(hash).await,
+            BlobStore::S3(s3) => s3.exists(hash, kind).await,
         }
     }
 
     /// Stage `bytes` for `hash`. The staged blob is not yet servable (local
     /// backend) or is written to its final immutable key (S3 backend); either
     /// way it is not committed until [`BlobStore::promote`].
-    pub async fn stage(&self, hash: &str, bytes: Vec<u8>) -> Result<StagedBlob, String> {
+    pub async fn stage(
+        &self,
+        hash: &str,
+        kind: BlobKind,
+        bytes: Vec<u8>,
+    ) -> Result<StagedBlob, String> {
         match self {
             BlobStore::Local(local) => {
-                let final_path = local.dir.join(blob_name(hash));
-                let temp = local
-                    .dir
-                    .join(format!("{}.tmp-{}", blob_name(hash), Uuid::new_v4()));
+                let final_path = local.dir.join(blob_name(hash, kind));
+                let temp =
+                    local
+                        .dir
+                        .join(format!("{}.tmp-{}", blob_name(hash, kind), Uuid::new_v4()));
                 std::fs::write(&temp, &bytes)
                     .map_err(|err| format!("failed to stage package blob: {err}"))?;
                 Ok(StagedBlob::Local { temp, final_path })
             }
             #[cfg(feature = "s3")]
-            BlobStore::S3(s3) => s3.stage(hash, bytes).await,
+            BlobStore::S3(s3) => s3.stage(hash, kind, bytes).await,
         }
     }
 
@@ -240,10 +290,10 @@ impl BlobStore {
     }
 
     /// Fetch a blob for download. Returns `None` when no blob exists for `hash`.
-    pub async fn get(&self, hash: &str) -> Result<Option<BlobFetch>, String> {
+    pub async fn get(&self, hash: &str, kind: BlobKind) -> Result<Option<BlobFetch>, String> {
         match self {
             BlobStore::Local(local) => {
-                let path = local.dir.join(blob_name(hash));
+                let path = local.dir.join(blob_name(hash, kind));
                 match std::fs::read(&path) {
                     Ok(bytes) => Ok(Some(BlobFetch::Bytes(bytes))),
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -251,14 +301,14 @@ impl BlobStore {
                 }
             }
             #[cfg(feature = "s3")]
-            BlobStore::S3(s3) => s3.get(hash).await,
+            BlobStore::S3(s3) => s3.get(hash, kind).await,
         }
     }
 }
 
 #[cfg(feature = "s3")]
 mod s3_impl {
-    use super::{blob_name, BlobFetch, BlobStore, StagedBlob};
+    use super::{blob_name, BlobFetch, BlobKind, BlobStore, StagedBlob};
     use aws_config::BehaviorVersion;
     use aws_sdk_s3::config::Region;
     use aws_sdk_s3::presigning::PresigningConfig;
@@ -306,16 +356,16 @@ mod s3_impl {
     }
 
     impl S3BlobStore {
-        fn key(&self, hash: &str) -> String {
-            format!("{}{}", self.prefix, blob_name(hash))
+        fn key(&self, hash: &str, kind: BlobKind) -> String {
+            format!("{}{}", self.prefix, blob_name(hash, kind))
         }
 
-        pub(super) async fn exists(&self, hash: &str) -> Result<bool, String> {
+        pub(super) async fn exists(&self, hash: &str, kind: BlobKind) -> Result<bool, String> {
             match self
                 .client
                 .head_object()
                 .bucket(&self.bucket)
-                .key(self.key(hash))
+                .key(self.key(hash, kind))
                 .send()
                 .await
             {
@@ -337,8 +387,13 @@ mod s3_impl {
             }
         }
 
-        pub(super) async fn stage(&self, hash: &str, bytes: Vec<u8>) -> Result<StagedBlob, String> {
-            let key = self.key(hash);
+        pub(super) async fn stage(
+            &self,
+            hash: &str,
+            kind: BlobKind,
+            bytes: Vec<u8>,
+        ) -> Result<StagedBlob, String> {
+            let key = self.key(hash, kind);
             self.client
                 .put_object()
                 .bucket(&self.bucket)
@@ -363,18 +418,22 @@ mod s3_impl {
                 .await;
         }
 
-        pub(super) async fn get(&self, hash: &str) -> Result<Option<BlobFetch>, String> {
+        pub(super) async fn get(
+            &self,
+            hash: &str,
+            kind: BlobKind,
+        ) -> Result<Option<BlobFetch>, String> {
             // HEAD first so a missing blob yields our own 404 rather than
             // redirecting the client to an S3 error page. Presigning itself is a
             // local signing operation with no network round trip.
-            if !self.exists(hash).await? {
+            if !self.exists(hash, kind).await? {
                 return Ok(None);
             }
             let presigned = self
                 .client
                 .get_object()
                 .bucket(&self.bucket)
-                .key(self.key(hash))
+                .key(self.key(hash, kind))
                 .presigned(
                     PresigningConfig::expires_in(PRESIGN_TTL)
                         .map_err(|err| format!("failed to configure presigned URL: {err}"))?,
@@ -484,8 +543,28 @@ mod tests {
     #[test]
     fn blob_ref_and_name_are_content_addressed() {
         let store = BlobStore::local("/data");
-        assert_eq!(store.blob_ref("abc123"), "/data/abc123.mfp");
-        assert_eq!(blob_name("abc123"), "abc123.mfp");
+        // Package blobs keep the historical `.mfp` name — byte-for-byte
+        // unchanged, so existing blobs need no migration.
+        assert_eq!(
+            store.blob_ref("abc123", BlobKind::Package),
+            "/data/abc123.mfp"
+        );
+        assert_eq!(blob_name("abc123", BlobKind::Package), "abc123.mfp");
+        // Native library blobs land in a new `.bin` namespace.
+        assert_eq!(
+            store.blob_ref("abc123", BlobKind::Native),
+            "/data/abc123.bin"
+        );
+        assert_eq!(blob_name("abc123", BlobKind::Native), "abc123.bin");
+    }
+
+    #[test]
+    fn blob_kind_db_roundtrip() {
+        assert_eq!(BlobKind::Package.db_str(), "package");
+        assert_eq!(BlobKind::Native.db_str(), "native");
+        assert_eq!(BlobKind::from_db_str("package").unwrap(), BlobKind::Package);
+        assert_eq!(BlobKind::from_db_str("native").unwrap(), BlobKind::Native);
+        assert!(BlobKind::from_db_str("bogus").is_err());
     }
 
     #[tokio::test]
@@ -495,19 +574,44 @@ mod tests {
         let store = backend.into_store().await.unwrap();
         let hash = "d".repeat(64);
 
-        assert!(!store.exists(&hash).await.unwrap());
-        assert!(store.get(&hash).await.unwrap().is_none());
+        assert!(!store.exists(&hash, BlobKind::Package).await.unwrap());
+        assert!(store.get(&hash, BlobKind::Package).await.unwrap().is_none());
 
-        let staged = store.stage(&hash, b"payload".to_vec()).await.unwrap();
+        let staged = store
+            .stage(&hash, BlobKind::Package, b"payload".to_vec())
+            .await
+            .unwrap();
         // Not servable until promoted.
-        assert!(!store.exists(&hash).await.unwrap());
+        assert!(!store.exists(&hash, BlobKind::Package).await.unwrap());
         store.promote(staged).await.unwrap();
 
-        assert!(store.exists(&hash).await.unwrap());
-        match store.get(&hash).await.unwrap() {
+        assert!(store.exists(&hash, BlobKind::Package).await.unwrap());
+        match store.get(&hash, BlobKind::Package).await.unwrap() {
             Some(BlobFetch::Bytes(bytes)) => assert_eq!(bytes, b"payload"),
             Some(BlobFetch::Redirect(_)) => panic!("local backend must serve inline bytes"),
             None => panic!("promoted blob should be servable"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_native_blob_roundtrip_uses_bin_suffix() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = BlobStore::local(temp.path());
+        let hash = "f".repeat(64);
+
+        let staged = store
+            .stage(&hash, BlobKind::Native, b"\x7fELFnative".to_vec())
+            .await
+            .unwrap();
+        store.promote(staged).await.unwrap();
+
+        assert!(store.exists(&hash, BlobKind::Native).await.unwrap());
+        // The `.bin` blob is not visible under the `.mfp` (package) name.
+        assert!(!store.exists(&hash, BlobKind::Package).await.unwrap());
+        assert!(temp.path().join(format!("{hash}.bin")).exists());
+        match store.get(&hash, BlobKind::Native).await.unwrap() {
+            Some(BlobFetch::Bytes(bytes)) => assert_eq!(bytes, b"\x7fELFnative"),
+            _ => panic!("native blob should serve inline bytes"),
         }
     }
 
@@ -516,9 +620,12 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let store = BlobStore::local(temp.path());
         let hash = "e".repeat(64);
-        let staged = store.stage(&hash, b"payload".to_vec()).await.unwrap();
+        let staged = store
+            .stage(&hash, BlobKind::Package, b"payload".to_vec())
+            .await
+            .unwrap();
         store.abort(staged).await;
-        assert!(!store.exists(&hash).await.unwrap());
+        assert!(!store.exists(&hash, BlobKind::Package).await.unwrap());
         // The temp file is gone too — no orphan left behind.
         let leftovers: Vec<_> = std::fs::read_dir(temp.path())
             .unwrap()

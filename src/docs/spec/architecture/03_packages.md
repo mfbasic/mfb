@@ -52,6 +52,14 @@ package in one of two forms and reports a status:
 The compiled `.mfp` file is checked first; the source-package manifest is the
 fallback. If neither exists, the status is `InvalidPackage`.[[src/cli/pkg.rs:verify_package_dependency]]
 
+A third entry may sit beside them: `packages/<name>.vendor/`, holding the
+native-library files a compiled package vendors. It appears only for a package
+whose section-10 table carries `vendor` locators, and `mfb pkg add`/`pkg install`
+populates it by downloading and hash-verifying each library from the registry —
+one directory per package, so two dependencies vendoring a same-named file never
+collide, and an imported library never overwrites something in the project's own
+`vendor/`.[[src/cli/pkg.rs:install_vendor_blobs]]
+
 The dependency-status check produces one of three outcomes:[[src/cli/pkg.rs:package_dependency_status]]
 
 - `InvalidPackage` — the installed `name` does not equal the declared name, the

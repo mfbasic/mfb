@@ -1182,6 +1182,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "registry transparency log shrank or forked relative to the pinned checkpoint",
     },
     Rule {
+        code: "6-605-0010",
+        name: "PACKAGE_VENDOR_BLOB_MISSING",
+        severity: Severity::Error,
+        message: "registry has no blob for a vendored native library the package's section-10 table names",
+    },
+    Rule {
+        code: "6-605-0011",
+        name: "PACKAGE_VENDOR_BLOB_HASH_MISMATCH",
+        severity: Severity::Error,
+        message: "downloaded vendor blob does not match the sha256 recorded in the signed section-10 table",
+    },
+    Rule {
         code: "3-304-0002",
         name: "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
         severity: Severity::Error,

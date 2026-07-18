@@ -446,10 +446,23 @@ for a `vendor` one:
 
 ### Vendor verification
 
-A `vendor` locator names a file the **consumer** author places by hand at
-`<consumer project root>/vendor/<source>` — the `.mfp` carries the library's
-sha256, never its bytes, and nothing is fetched automatically. At build time the
-compiler hashes that file and compares it to the recorded digest:
+A `.mfp` carries a vendored library's **sha256, never its bytes**. Where the file
+comes from depends on who declared the locator:
+
+| whose locator | vendor file read from | who puts it there |
+| --- | --- | --- |
+| the project's own `libraries` section | `<project>/vendor/<source>` | the author, by hand |
+| an imported binding's section-10 table | `<project>/packages/<name>.vendor/<source>` | `mfb pkg add`/`pkg install`, automatically |
+
+An imported binding's vendored libraries **arrive with the package**: publishing
+uploads each one to the registry as its own content-addressed blob, and
+installing downloads every blob the package's section-10 table names, verifying
+each against the signed hash before it is allowed to exist under a usable name.
+Nothing has to be placed by hand. (See `./mfb spec package-manager
+repository-protocol` for the blob endpoints and the ordering argument.)
+
+At build time the compiler hashes the resolved file and compares it to the
+recorded digest, whichever root it came from:
 
 - missing/unreadable → `NATIVE_LIBRARY_FILE_MISSING` (build error, naming the full
   expected path);
@@ -485,12 +498,13 @@ that declared the locator, then the filename — because the output directory is
 flat and the filename *is* the library's identity to `dlopen`. Two packages each
 vendoring a `libfoo.so` would otherwise silently load one another's library.
 
-**Known limitation.** That prefix disambiguates the *output*, not the *input*: a
-consumer supplies each vendored file at `<project root>/vendor/<source>`, keyed by
-the bare filename. If two imported packages vendor libraries that share a
-filename, the consumer cannot supply both, and the build fails closed with
-`NATIVE_LIBRARY_HASH_MISMATCH` naming the package and both digests. It never loads
-the wrong library — but the two packages cannot currently be combined.
+The *input* side is disambiguated too, by a different mechanism: an imported
+binding's vendored files live in a per-package `packages/<name>.vendor/`
+directory, so two imported packages that each vendor a `libfoo.so` hold distinct
+files on disk and both resolve. The prefix then keeps them distinct in the flat
+output directory. Only a project that shares its own name with one of its
+dependencies could still collide, which
+`NATIVE_LIBRARY_VENDOR_COLLISION` catches and which should never occur.
 
 The build performs **no signature check** on a vendored dylib, and adds no
 diagnostic for it. Worth knowing rather than discovering: Apple Silicon requires

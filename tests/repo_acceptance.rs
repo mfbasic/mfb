@@ -1719,3 +1719,250 @@ fn repo_publish_rejects_non_package_and_missing_session() {
         String::from_utf8_lossy(&missing_session.stderr)
     );
 }
+
+/// plan-48 end-to-end: a binding's vendored native libraries travel with the
+/// package.
+///
+/// `pkg publish` uploads each `vendor` locator's file as its own content-addressed
+/// blob before the `.mfp`; `pkg add` downloads every blob the section-10 table
+/// names and hash-verifies it into `packages/<name>.vendor/`; and a consumer
+/// `mfb build` then finds the library with no file placed by hand. This is the
+/// acceptance for the whole plan-46 + plan-48 arc.
+#[test]
+fn repo_vendored_native_libraries_publish_and_install_with_the_package() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // A binding package that vendors one native library per platform slot. The
+    // bytes are arbitrary — nothing dlopens them here; what is under test is that
+    // they travel, and that every hash matches on the way back down.
+    let vendor_files: [(&str, &[u8]); 5] = [
+        ("libdemo.dylib", b"macos-any-arch demo library bytes"),
+        ("libdemo-aarch64-glibc.so", b"linux aarch64 glibc bytes"),
+        ("libdemo-x86_64-glibc.so", b"linux x86_64 glibc bytes"),
+        ("libdemo-aarch64-musl.so", b"linux aarch64 musl bytes"),
+        ("libdemo-x86_64-musl.so", b"linux x86_64 musl bytes"),
+    ];
+
+    let package_dir = work.path().join("vendorbind");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let write_manifest = |version: &str| {
+        std::fs::write(
+            package_dir.join("project.json"),
+            format!(
+                r#"{{
+  "name": "vendorbind",
+  "version": "{version}",
+  "mfb": "1.0",
+  "kind": "package",
+  "ident": "alice#vendorbind",
+  "libraries": {{
+    "demo": [
+      {{ "os": "macos", "type": "vendor", "source": "libdemo.dylib" }},
+      {{ "os": "linux", "arch": "aarch64", "libc": "glibc", "type": "vendor", "source": "libdemo-aarch64-glibc.so" }},
+      {{ "os": "linux", "arch": "x86_64", "libc": "glibc", "type": "vendor", "source": "libdemo-x86_64-glibc.so" }},
+      {{ "os": "linux", "arch": "aarch64", "libc": "musl", "type": "vendor", "source": "libdemo-aarch64-musl.so" }},
+      {{ "os": "linux", "arch": "x86_64", "libc": "musl", "type": "vendor", "source": "libdemo-x86_64-musl.so" }}
+    ]
+  }},
+  "sources": [ {{ "root": "src", "role": "package", "include": ["**/*.mfb"] }} ]
+}}
+"#
+            ),
+        )
+        .unwrap();
+    };
+    write_manifest("0.1.0");
+    std::fs::write(
+        package_dir.join("src/lib.mfb"),
+        r#"LINK "demo" AS demoLink
+  FUNC ping() AS Integer
+    SYMBOL "demo_ping"
+    ABI (value OUT CInt32) AS status CInt32
+    RETURN value
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC demoPing() AS Integer
+  RETURN demoLink::ping()
+END FUNC
+"#,
+    )
+    .unwrap();
+    let vendor_dir = package_dir.join("vendor");
+    std::fs::create_dir_all(&vendor_dir).unwrap();
+    for (name, bytes) in &vendor_files {
+        std::fs::write(vendor_dir.join(name), bytes).unwrap();
+    }
+
+    // --- publish: blobs first, then the .mfp -------------------------------
+    let published = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    );
+    assert!(
+        published.status.success(),
+        "publish failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&published.stdout),
+        String::from_utf8_lossy(&published.stderr)
+    );
+    let publish_out = String::from_utf8_lossy(&published.stdout).into_owned();
+    assert!(
+        publish_out.contains("Vendor blobs: 5 uploaded, 0 already present"),
+        "publish should upload every vendor blob exactly once: {publish_out}"
+    );
+
+    // Each vendored file is stored as its own `<hash>.bin` native blob, beside —
+    // never inside — the package's own `<hash>.mfp`.
+    let stored_bin: Vec<_> = std::fs::read_dir(repo_dir.path().join("packages"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("bin"))
+        .collect();
+    assert_eq!(
+        stored_bin.len(),
+        vendor_files.len(),
+        "one native blob per vendored file, got {stored_bin:?}"
+    );
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    for path in &stored_bin {
+        let bytes = std::fs::read(path).unwrap();
+        let expected = path.file_stem().unwrap().to_str().unwrap();
+        assert_eq!(
+            hex(&crypto::sha256(&bytes)),
+            expected,
+            "a native blob must be stored under its own content hash"
+        );
+    }
+
+    // --- re-publish an unchanged library uploads no bytes ------------------
+    write_manifest("0.2.0");
+    let republished = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    );
+    assert!(
+        republished.status.success(),
+        "re-publish failed: {}",
+        String::from_utf8_lossy(&republished.stderr)
+    );
+    let republish_out = String::from_utf8_lossy(&republished.stdout).into_owned();
+    assert!(
+        republish_out.contains("Vendor blobs: 0 uploaded, 5 already present"),
+        "an unchanged library must upload once, ever: {republish_out}"
+    );
+
+    // --- install: the libraries arrive with the package --------------------
+    let app_dir = work.path().join("vendor_consumer");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    let run_in = |dir: &std::path::Path, args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+
+    let add = run_in(&app_dir, &["pkg", "add", "alice#vendorbind"]);
+    assert!(
+        add.status.success(),
+        "vendor add failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&add.stdout),
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    // EVERY vendor blob is downloaded — not just the host target's — so a later
+    // cross-compile and an offline build both work. They land per-package, never
+    // in the consumer's own `vendor/`.
+    let installed_vendor = app_dir.join("packages/vendorbind.vendor");
+    for (name, bytes) in &vendor_files {
+        let path = installed_vendor.join(name);
+        assert!(
+            path.is_file(),
+            "{} should have been downloaded",
+            path.display()
+        );
+        assert_eq!(&std::fs::read(&path).unwrap(), bytes, "{name} bytes differ");
+    }
+    assert!(
+        !app_dir.join("vendor").exists(),
+        "an imported binding must never write into the consumer's own vendor/"
+    );
+
+    // The build finds the library with no file placed by hand, verifies its hash,
+    // and copies it into the output beside the executable.
+    let build = run_in(&app_dir, &["build"]);
+    assert!(
+        build.status.success(),
+        "consumer build failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    // --- a tampered blob fails closed and leaves nothing -------------------
+    let victim = stored_bin
+        .iter()
+        .find(|path| {
+            std::fs::read(path)
+                .map(|bytes| bytes == b"macos-any-arch demo library bytes")
+                .unwrap_or(false)
+        })
+        .cloned()
+        .unwrap_or_else(|| stored_bin[0].clone());
+    let mut corrupt = std::fs::read(&victim).unwrap();
+    let last = corrupt.len() - 1;
+    corrupt[last] ^= 0x01;
+    std::fs::write(&victim, &corrupt).unwrap();
+
+    let app2 = work.path().join("vendor_consumer_tampered");
+    let app2_arg = app2.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app2_arg]).status.success());
+    let tampered = run_in(&app2, &["pkg", "add", "alice#vendorbind"]);
+    assert!(
+        !tampered.status.success(),
+        "a tampered vendor blob must fail the add"
+    );
+    let tampered_err = format!(
+        "{}{}",
+        String::from_utf8_lossy(&tampered.stdout),
+        String::from_utf8_lossy(&tampered.stderr)
+    );
+    assert!(
+        tampered_err.contains("PACKAGE_VENDOR_BLOB_HASH_MISMATCH")
+            || tampered_err.contains("does not match"),
+        "expected a hash-mismatch refusal, got: {tampered_err}"
+    );
+    // Nothing usable is left behind — not even a `.part`.
+    let leftover = app2.join("packages/vendorbind.vendor");
+    if leftover.exists() {
+        let names: Vec<_> = std::fs::read_dir(&leftover)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains("libdemo.dylib"))
+            .collect();
+        assert!(
+            names.is_empty(),
+            "a failed vendor download must leave no file (not even a .part): {names:?}"
+        );
+    }
+}

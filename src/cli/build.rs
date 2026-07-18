@@ -505,7 +505,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     return Err(());
                 }
             };
-            if !verify_vendor_libraries(&vendored, &options.location) {
+            if !verify_vendor_libraries(&vendored, &options.location, &ir.name) {
                 return Err(());
             }
             let codegen_start = std::time::Instant::now();
@@ -539,6 +539,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             if let Err(err) = copy_vendor_libraries(
                 &vendored,
                 &options.location,
+                &ir.name,
                 &vendor_output_dirs(output_dir, &ir.name, build_mode),
             ) {
                 eprintln!("error: {err}");
@@ -1433,19 +1434,43 @@ fn resolved_vendor_libraries(
     Ok(vendored)
 }
 
+/// The on-disk source of a resolved vendor library (plan-48-B §4.3): the
+/// consumer's own `libraries` locators read from `<project>/vendor/`, an imported
+/// binding's from `<project>/packages/<declaring-unit>.vendor/` — where `pkg add`
+/// placed the downloaded blob. `own_unit` is the project's own name (`ir.name`),
+/// which `declaring_unit` equals exactly for a locator from the project's own
+/// `libraries` section.
+fn vendor_source_path(
+    project_root: &Path,
+    own_unit: &str,
+    library: &link_locator::ResolvedLibrary,
+) -> PathBuf {
+    if library.declaring_unit == own_unit {
+        crate::manifest::libraries::vendor_path(project_root, &library.locator.source)
+    } else {
+        crate::manifest::libraries::imported_vendor_path(
+            project_root,
+            &library.declaring_unit,
+            &library.locator.source,
+        )
+    }
+}
+
 /// Hash-verify each resolved `vendor` library against the sha256 the declaring
-/// binding recorded in its section-10 table (plan-46-C §4.4).
+/// binding recorded in its section-10 table (plan-46-C §4.4, plan-48-B §4.3).
 ///
-/// The file is the one the **consumer** author placed at
-/// `<consumer project root>/vendor/<source>` by hand — the `.mfp` carries the
-/// hash, never the blob.
+/// The consumer's own `libraries` locators read the file the author placed at
+/// `<project>/vendor/<source>` by hand; an imported binding's read the blob
+/// `pkg add` downloaded to `<project>/packages/<declaring-unit>.vendor/<source>`.
+/// Either way the `.mfp` carries the hash, never the blob.
 fn verify_vendor_libraries(
     vendored: &[link_locator::ResolvedLibrary],
     project_root: &Path,
+    own_unit: &str,
 ) -> bool {
     let mut ok = true;
     for library in vendored {
-        let path = crate::manifest::libraries::vendor_path(project_root, &library.locator.source);
+        let path = vendor_source_path(project_root, own_unit, library);
         let actual = match crate::manifest::libraries::sha256_file(&path) {
             Ok(hash) => hash,
             Err(reason) => {
@@ -1588,6 +1613,7 @@ fn resource_output_dir(
 fn copy_vendor_libraries(
     vendored: &[link_locator::ResolvedLibrary],
     project_root: &Path,
+    own_unit: &str,
     output_dirs: &[PathBuf],
 ) -> Result<(), String> {
     if vendored.is_empty() {
@@ -1627,8 +1653,7 @@ fn copy_vendor_libraries(
         std::fs::create_dir_all(output_dir)
             .map_err(|err| format!("failed to create '{}': {err}", output_dir.display()))?;
         for library in vendored {
-            let from =
-                crate::manifest::libraries::vendor_path(project_root, &library.locator.source);
+            let from = vendor_source_path(project_root, own_unit, library);
             let to = output_dir.join(&library.dlopen_name);
             std::fs::copy(&from, &to).map_err(|err| {
                 format!(
@@ -2542,6 +2567,20 @@ mod tests {
         }
     }
 
+    /// The consumer project's own name in these tests. Every `resolved(unit, …)`
+    /// below uses a `unit` different from this, so the library reads from the
+    /// imported-package location `packages/<unit>.vendor/` (plan-48-B §4.3).
+    const OWN_UNIT: &str = "app";
+
+    /// Write a resolved library's source bytes where `vendor_source_path` will
+    /// look for them given `OWN_UNIT` — the imported `packages/<unit>.vendor/`
+    /// directory for a unit other than `OWN_UNIT`.
+    fn write_vendor_source(root: &Path, library: &link_locator::ResolvedLibrary, bytes: &[u8]) {
+        let path = vendor_source_path(root, OWN_UNIT, library);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+    }
+
     /// The file written and the string emitted must be the SAME string: a
     /// divergence is a `dlopen` miss at runtime and invisible at build time. Both
     /// sides build it through `dlopen_name`, so pin that they agree.
@@ -2549,17 +2588,54 @@ mod tests {
     fn the_copied_filename_is_the_emitted_dlopen_name() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("vendor")).unwrap();
-        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
 
         let library = resolved("sqlite3", "libfoo.so");
+        write_vendor_source(root, &library, b"bytes");
         let out = root.join("out");
-        copy_vendor_libraries(std::slice::from_ref(&library), root, &[out.clone()])
-            .expect("copy succeeds");
+        copy_vendor_libraries(
+            std::slice::from_ref(&library),
+            root,
+            OWN_UNIT,
+            &[out.clone()],
+        )
+        .expect("copy succeeds");
 
         // The file on disk is named exactly what plan-46-C emits into the binary.
         assert!(out.join(&library.dlopen_name).is_file());
         assert_eq!(library.dlopen_name, "sqlite3-libfoo.so");
+    }
+
+    /// An imported binding's vendor file is read from its per-package
+    /// `packages/<unit>.vendor/` directory, never the consumer's own `vendor/`
+    /// (plan-48-B §4.3).
+    #[test]
+    fn imported_vendor_file_is_read_from_the_per_package_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        let library = resolved("sqlite3", "libfoo.so");
+        // Placed in the imported location; a same-named file in the consumer's own
+        // `vendor/` must NOT be picked up in its place.
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::write(
+            root.join("vendor").join("libfoo.so"),
+            b"WRONG own-vendor bytes",
+        )
+        .unwrap();
+        write_vendor_source(root, &library, b"right imported bytes");
+
+        let out = root.join("out");
+        copy_vendor_libraries(
+            std::slice::from_ref(&library),
+            root,
+            OWN_UNIT,
+            &[out.clone()],
+        )
+        .expect("copy succeeds");
+        assert_eq!(
+            std::fs::read(out.join(&library.dlopen_name)).unwrap(),
+            b"right imported bytes"
+        );
     }
 
     /// The collision this prefix exists to prevent: two packages each vendoring a
@@ -2570,15 +2646,16 @@ mod tests {
     fn two_packages_vendoring_the_same_filename_land_as_two_distinct_files() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("vendor")).unwrap();
-        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
 
         let a = resolved("sqlite3", "libfoo.so");
         let b = resolved("imaging", "libfoo.so");
+        write_vendor_source(root, &a, b"bytes");
+        write_vendor_source(root, &b, b"bytes");
         assert_ne!(a.dlopen_name, b.dlopen_name);
 
         let out = root.join("out");
-        copy_vendor_libraries(&[a.clone(), b.clone()], root, &[out.clone()]).expect("copy");
+        copy_vendor_libraries(&[a.clone(), b.clone()], root, OWN_UNIT, &[out.clone()])
+            .expect("copy");
         assert!(out.join("sqlite3-libfoo.so").is_file());
         assert!(out.join("imaging-libfoo.so").is_file());
         assert_eq!(std::fs::read_dir(&out).unwrap().count(), 2);
@@ -2591,14 +2668,13 @@ mod tests {
     fn colliding_output_names_with_differing_hashes_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("vendor")).unwrap();
-        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
 
         let mut a = resolved("same", "libfoo.so");
         let mut b = resolved("same", "libfoo.so");
         a.locator.hash = Some([1u8; 32]);
         b.locator.hash = Some([2u8; 32]);
-        let error = copy_vendor_libraries(&[a, b], root, &[root.join("out")])
+        write_vendor_source(root, &a, b"bytes");
+        let error = copy_vendor_libraries(&[a, b], root, OWN_UNIT, &[root.join("out")])
             .expect_err("differing hashes on one output name must be rejected");
         assert!(error.contains("collision"), "error: {error}");
     }
@@ -2609,12 +2685,11 @@ mod tests {
     fn colliding_output_names_with_identical_hashes_are_allowed() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("vendor")).unwrap();
-        std::fs::write(root.join("vendor").join("libfoo.so"), b"bytes").unwrap();
 
         let a = resolved("same", "libfoo.so");
         let b = resolved("same", "libfoo.so");
-        copy_vendor_libraries(&[a, b], root, &[root.join("out")])
+        write_vendor_source(root, &a, b"bytes");
+        copy_vendor_libraries(&[a, b], root, OWN_UNIT, &[root.join("out")])
             .expect("identical bytes may share an output name");
     }
 
@@ -2623,7 +2698,7 @@ mod tests {
     fn no_vendor_locators_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("out");
-        copy_vendor_libraries(&[], dir.path(), &[out.clone()]).expect("no-op");
+        copy_vendor_libraries(&[], dir.path(), OWN_UNIT, &[out.clone()]).expect("no-op");
         assert!(
             !out.exists(),
             "an empty vendor set must not create the directory"
