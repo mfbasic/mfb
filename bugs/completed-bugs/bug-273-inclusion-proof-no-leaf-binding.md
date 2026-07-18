@@ -1,12 +1,39 @@
 # bug-273: `verify_publish_inclusion` never binds the transparency-log leaf to the queried package
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security (trust-boundary gap)
 
-Status: Open
-Regression Test: repository/tests (new) — inclusion proof for ident@version rejects a leaf whose payload is a different entry
+Status: Fixed 2026-07-18
+Regression Test: `repository/src/client.rs` —
+`client::tests::publish_inclusion_rejects_a_leaf_for_a_different_package`,
+`client::tests::publish_leaf_payload_matches_the_store_encoding`
+
+## Resolution
+
+`verify_publish_inclusion` takes the expected content hash, rebuilds the canonical
+leaf payload from `(ident, version, hash)` via `publish_leaf_payload`, and requires
+it to equal the served leaf. The payload is reconstructed from values the client
+already holds — hashing a server-supplied payload would still let the registry pick
+what the leaf describes.
+
+Both callers thread the hash through:
+
+- the post-publish self-check passes `response.hash`;
+- `mfb pkg verify --proof` computes it from the installed file with
+  `package_content_hash_file` (streamed, since a `packages/*.mfp` is untrusted
+  input of arbitrary size). That digest is provably the published one:
+  `install_verified_package` stages the downloaded blob verbatim and renames it,
+  `fetch_blob` re-hashes against the content address, and nothing appends to an
+  installed `.mfp` afterwards (no append-mode writes exist in `src/`).
+
+Verified both directions with a stub registry that is honest about the Merkle math
+and dishonest about *which* entry it returns: it always answers `/log/publish` with
+entry E and serves a genuinely valid RFC-6962 proof for E. Pre-fix, a query for a
+completely different `ident@version` returned `Ok` — "inclusion verified" for a
+publish that never happened. Post-fix that query is refused while the honest query
+for E still verifies, which is what keeps the fix from being "reject everything".
 
 The client's publish-inclusion check fetches `(index, leafHash)` from
 `/log/publish?ident=&version=` and verifies the RFC-6962 inclusion proof against

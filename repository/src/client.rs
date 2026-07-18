@@ -486,14 +486,33 @@ pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<Checkpoint
     Ok(checkpoint)
 }
 
-/// Verify that the publish of `ident@version` is included in the registry
-/// log under the current (verified, rollback-checked) checkpoint. Returns
-/// the log entry and the checkpoint it verified against.
+/// The canonical `publish` log payload, byte-for-byte as the registry writes it
+/// in `store.rs` (`{"ident":…,"version":…,"hash":…}`, `serde_json`-escaped).
+///
+/// The client reconstructs this from values it already knows so the leaf can be
+/// bound to a specific package; see `verify_publish_inclusion`. It must track
+/// `store.rs`'s encoding exactly — a drift in field order or escaping turns every
+/// honest inclusion check into a failure.
+fn publish_leaf_payload(ident: &str, version: &str, content_hash: &str) -> String {
+    let encode = |value: &str| serde_json::to_string(value).expect("JSON string encoding is total");
+    format!(
+        "{{\"ident\":{},\"version\":{},\"hash\":{}}}",
+        encode(ident),
+        encode(version),
+        encode(content_hash),
+    )
+}
+
+/// Verify that the publish of `ident@version` with content hash
+/// `expected_content_hash` is included in the registry log under the current
+/// (verified, rollback-checked) checkpoint. Returns the log entry and the
+/// checkpoint it verified against.
 pub fn verify_publish_inclusion(
     repo_url: &str,
     paths: &LocalPaths,
     ident: &str,
     version: &str,
+    expected_content_hash: &str,
 ) -> Result<(LogEntry, CheckpointResponse), String> {
     let checkpoint = fetch_checkpoint(repo_url, paths)?;
     let entry = get_json::<LogEntry>(
@@ -514,6 +533,25 @@ pub fn verify_publish_inclusion(
     let leaf = decode_hex32(&entry.leaf_hash, "leafHash")?;
     if decode_hex32(&proof.leaf_hash, "leafHash")? != leaf {
         return Err("inclusion proof leaf does not match the publish entry".to_string());
+    }
+    // Bind the leaf to *this* package (bug-273). Proving the served leaf is in the
+    // tree says nothing about which entry it is: the client knows ident, version
+    // and content hash but previously verified none of them, so a hostile registry
+    // could answer with the (index, leafHash) of any genuine entry — its own
+    // `register`, an unrelated publish — and the RFC-6962 math would check out,
+    // reporting "inclusion verified" for a publish that never happened.
+    //
+    // The payload is rebuilt from values the client independently holds; hashing a
+    // server-supplied payload instead would leave the registry free to choose what
+    // the leaf describes.
+    let expected_leaf = crate::log::leaf_hash(
+        publish_leaf_payload(ident, version, expected_content_hash).as_bytes(),
+    );
+    if expected_leaf != leaf {
+        return Err(format!(
+            "publish log leaf does not match {ident}@{version}: the registry served \
+             an entry for different contents"
+        ));
     }
     let root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
     let mut path = Vec::new();
@@ -1225,6 +1263,129 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
 
+    /// An inclusion proof must be bound to the package being verified (bug-273).
+    ///
+    /// The registry here is honest about the Merkle math and dishonest about
+    /// *which* entry it hands back: `/log/publish` always answers with entry E,
+    /// and serves a genuinely valid RFC-6962 proof for E. That is the correct
+    /// answer for E's own package and a forgery for anything else.
+    ///
+    /// Before the fix the client checked only that the served leaf was in the tree,
+    /// so both queries below returned "verified". Asserting the honest query still
+    /// passes is what keeps the fix from being "reject everything".
+    #[test]
+    fn publish_inclusion_rejects_a_leaf_for_a_different_package() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+
+        // Entry E — the one real publish the registry will keep pointing at.
+        let (e_ident, e_version, e_hash) = ("alice#real", "2.0.0", "b".repeat(64));
+        let e_leaf = crate::log::leaf_hash(publish_leaf_payload(e_ident, e_version, &e_hash).as_bytes());
+        // A second leaf so the tree has a non-trivial inclusion path.
+        let other_leaf = crate::log::leaf_hash(b"{\"kind\":\"register\"}");
+        let leaves = [e_leaf, other_leaf];
+        let root = crate::log::root(&leaves);
+        let path: Vec<String> = crate::log::inclusion_path(0, &leaves)
+            .iter()
+            .map(hex::encode)
+            .collect();
+
+        let (server_public, server_private) = crypto::generate_keypair();
+        let signature = crypto::sign(
+            &server_private,
+            &crate::log::checkpoint_signing_input(leaves.len() as u64, &root),
+        )
+        .unwrap();
+
+        let ident_body = format!(
+            "{{\"serverKey\":\"{}\",\"serverFingerprint\":\"{}\"}}",
+            crypto::encode_bytes(&server_public),
+            crypto::fingerprint(&server_public)
+        );
+        let checkpoint_body = format!(
+            "{{\"size\":{},\"rootHash\":\"{}\",\"signature\":\"{}\"}}",
+            leaves.len(),
+            hex::encode(root),
+            crypto::encode_bytes(&signature)
+        );
+        let publish_body = format!("{{\"index\":0,\"leafHash\":\"{}\"}}", hex::encode(e_leaf));
+        let proof_body = format!(
+            "{{\"index\":0,\"size\":{},\"leafHash\":\"{}\",\"path\":[{}]}}",
+            leaves.len(),
+            hex::encode(e_leaf),
+            path.iter()
+                .map(|node| format!("\"{node}\""))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            // Two verifications × four requests each (/ident, /log/checkpoint,
+            // /log/publish, /log/proof). `Connection: close` keeps them on
+            // separate accepts so the dispatch below stays simple.
+            for _ in 0..8 {
+                let Ok((mut sock, _)) = listener.accept() else {
+                    return;
+                };
+                let mut scratch = [0u8; 4096];
+                let read = sock.read(&mut scratch).unwrap_or(0);
+                let head = String::from_utf8_lossy(&scratch[..read]).to_string();
+                let body = if head.contains("/ident") {
+                    &ident_body
+                } else if head.contains("/log/checkpoint") {
+                    &checkpoint_body
+                } else if head.contains("/log/publish") {
+                    &publish_body
+                } else {
+                    &proof_body
+                };
+                let _ = write!(
+                    sock,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.flush();
+            }
+        });
+        let url = format!("http://127.0.0.1:{port}");
+
+        // Honest query: the served leaf really is this package's.
+        let (entry, checkpoint) =
+            verify_publish_inclusion(&url, &paths, e_ident, e_version, &e_hash)
+                .expect("a genuinely logged publish still verifies");
+        assert_eq!(entry.index, 0);
+        assert_eq!(checkpoint.size, leaves.len() as i64);
+
+        // Substituted query: same valid proof, different package. Must be refused.
+        let err = verify_publish_inclusion(&url, &paths, "alice#pkg", "1.0.0", &"a".repeat(64))
+            .expect_err("a leaf for a different package must not verify");
+        assert!(
+            err.contains("does not match"),
+            "error should name the leaf mismatch, got: {err}"
+        );
+
+        drop(server);
+    }
+
+    /// The reconstructed leaf payload must match `store.rs`'s canonical encoding
+    /// byte-for-byte, including `serde_json` escaping — any drift turns every
+    /// honest inclusion check into a failure.
+    #[test]
+    fn publish_leaf_payload_matches_the_store_encoding() {
+        assert_eq!(
+            publish_leaf_payload("alice#pkg", "1.0.0", "abc"),
+            "{\"ident\":\"alice#pkg\",\"version\":\"1.0.0\",\"hash\":\"abc\"}"
+        );
+        // Quotes and backslashes must escape exactly as serde_json writes them.
+        assert_eq!(
+            publish_leaf_payload("a\"b", "1.0\\0", "h"),
+            "{\"ident\":\"a\\\"b\",\"version\":\"1.0\\\\0\",\"hash\":\"h\"}"
+        );
+    }
+
     /// `register` for an owner whose keys are already on this machine must refuse
     /// without touching them (bug-272).
     ///
@@ -1909,7 +2070,7 @@ mod tests {
         assert!(verify_log_consistency(DEAD_URL, &paths)
             .unwrap_err()
             .contains("failed to connect"));
-        assert!(verify_publish_inclusion(DEAD_URL, &paths, "a#p", "1.0.0")
+        assert!(verify_publish_inclusion(DEAD_URL, &paths, "a#p", "1.0.0", "deadbeef")
             .unwrap_err()
             .contains("failed to connect"));
         // register with a valid name reaches the network step and fails there;

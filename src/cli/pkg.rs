@@ -217,6 +217,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         &paths,
         &response.ident,
         &response.version,
+        &response.hash,
     )?;
     println!(
         "Inclusion verified against checkpoint (size {}, root {})",
@@ -1030,14 +1031,27 @@ fn verify_packages(project_dir: &Path, demand_proof: bool) -> Result<(), String>
                 let version = read_mfp_header(&package_file)
                     .map(|header| header.version)
                     .unwrap_or_default();
-                match super::local_paths_for_repo(&repo_url).and_then(|paths| {
-                    mfb_repository::client::verify_publish_inclusion(
-                        &repo_url,
-                        &paths,
-                        &dependency.ident,
-                        &version,
-                    )
-                }) {
+                // bug-273: the log leaf is bound to `(ident, version, contentHash)`,
+                // so the hash has to come from the installed file, not from the
+                // registry — otherwise the server still picks what the leaf
+                // describes. `install_verified_package` stages the downloaded blob
+                // verbatim and renames it, and `fetch_blob` re-hashes against the
+                // content address, so this digest is exactly the published one.
+                // Streamed from disk because a `packages/*.mfp` is untrusted input
+                // of arbitrary size.
+                match target::package_mfp::package_content_hash_file(&package_file)
+                    .map(|hash| hex_bytes(&hash))
+                    .and_then(|content_hash| {
+                        super::local_paths_for_repo(&repo_url).and_then(|paths| {
+                            mfb_repository::client::verify_publish_inclusion(
+                                &repo_url,
+                                &paths,
+                                &dependency.ident,
+                                &version,
+                                &content_hash,
+                            )
+                        })
+                    }) {
                     Ok((entry, checkpoint)) => {
                         suffix.push_str(&format!(
                             " (log index {} ⊂ checkpoint size {})",
