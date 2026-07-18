@@ -693,9 +693,9 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/code/regalloc/`**
 
-- [ ] `src/target/shared/code/regalloc/analysis.rs` (710 loc)
-- [ ] `src/target/shared/code/regalloc/linear_scan.rs` (402 loc)
-- [ ] `src/target/shared/code/regalloc/mod.rs` (405 loc)
+- [x] `src/target/shared/code/regalloc/analysis.rs` (710 loc) — clean (self-reviewed)
+- [x] `src/target/shared/code/regalloc/linear_scan.rs` (402 loc) — clean (self-reviewed)
+- [x] `src/target/shared/code/regalloc/mod.rs` (405 loc) — clean (self-reviewed)
 
 **`src/target/shared/code/tls/`**
 
