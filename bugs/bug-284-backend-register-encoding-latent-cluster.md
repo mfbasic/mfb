@@ -107,6 +107,27 @@ References:
   everywhere except the intentionally token-aware arms, so a new producer fails the
   build instead of miscompiling.
 
+### C8 — peephole store-to-load forwarding models `Mul`/`UMulH`/`SMulH`/`SDiv`/`UDiv`/`MSub` as `DefDst`, ignoring x86 implicit rdx:rax clobbers
+- `src/target/shared/code/peephole.rs:82-143` (`classify`), run for all backends via
+  `src/target/shared/code/function_lowering.rs:783` (`forward_stores_to_loads`).
+- `forward_stores_to_loads` forwards an sp-slot reload to a `mov` from the register
+  that last stored the slot, invalidating a slot only when its source register is the
+  `dst` of a modelled op. `classify` puts `Mul`/`UMulH`/`SMulH`/`SDiv`/`UDiv`/`MSub`
+  in the `DefDst` set (defines exactly `dst`) — correct on aarch64/riscv (no implicit
+  clobbers) but on x86 these expand to instructions that clobber rdx:rax
+  (see C6/`div_seq`, `umulh`, `msub`). If a value ever lived in rax/rdx (a forwarding
+  source) across one of these ops whose `dst` is a different register, the slot would
+  not be invalidated and the reload would be forwarded to a clobbered register →
+  silent wrong code. Latent for the same reason as C6: the x86 register model
+  currently never colors a value onto rax/rdx across these ops (rax/rdx reserved for
+  return/div staging). This is a soundness reliance, not a live bug.
+- Fix: classify the implicit-clobber ops as `Barrier` (flush) for x86 targets, or
+  make the forwarding invalidate the arch's implicit-clobber set for these ops
+  (thread the active backend's clobber mask into `classify`, as `remove_fp_shuttles`
+  already threads `is_riscv`).
+- Prior-work: new (sibling of C6; the peephole's arch-neutral register-effect model
+  does not account for x86 implicit clobbers).
+
 ## Goal
 
 - Each latent corner is either loudly rejected or correctly handled, so no future
