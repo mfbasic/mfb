@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "trap_body_local_shadows_private_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "#c2515768f1aa7dc6$x", "line": 9, "visibility": "private", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "42" } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 12, "mutable": false, "name": "x", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "bad", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "nope" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "bad" }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "trap",
+      "line": 16,
+      "name": "e",
+      "body": [
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Unknown", "target": "io.print", "args": [{ "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "local", "name": "x" }] }] } },
+      { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,20 @@
+' bug-285: a function-level TRAP body sees the function body's locals, so a body
+' local that shadows a same-named file PRIVATE must win there too. The scope
+' rewriter seeded the trap block with params + the trap binding only, so `x`
+' below was mangled to the file private and the trap returned 42 instead of 7 —
+' meaning adding an unrelated file-scope PRIVATE silently changed an existing
+' function's behavior.
+IMPORT io
+
+PRIVATE LET x AS Integer = 42
+
+FUNC main() AS Integer
+  LET x AS Integer = 7
+  LET bad AS Integer = toInt("nope")
+  io::print(toString(bad))
+  RETURN 1
+  TRAP(e)
+    io::print(toString(x))
+    RETURN 0
+  END TRAP
+END FUNC

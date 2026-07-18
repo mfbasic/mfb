@@ -1,11 +1,11 @@
 # bug-285: function-level TRAP body reference to a body local is mis-mangled to a file `PRIVATE` when names collide (silent wrong value)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ (new) — a function-level TRAP returning a body local returns the local, not a same-named file PRIVATE
 
 `rewrite_item_refs` rewrites a function-level TRAP body with `trap_locals` = params
@@ -94,3 +94,24 @@ shadowed.
 A scoping omission lets an unrelated file-private silently hijack a shadowed trap
 local. Extending `trap_locals` with body-declared names fixes it; risk is matching
 the resolver's exact visibility rules.
+
+## Resolution
+
+`rewrite_item_refs` seeded the function-level TRAP block with params plus the trap
+binding only, so a body local shadowing a same-named file `PRIVATE` was not
+shielded and its trap-body reference was mangled to the private.
+
+The trap block is now seeded with the body's *top-level* `LET` names as well,
+mirroring `Resolver::resolve_function` exactly: it resolves the body with
+`&mut locals`, so every top-level `LET`/`MUT` is still in scope when the trap
+block is resolved, while nested blocks (IF/FOR/WHILE/MATCH) go through
+`resolve_nested_block`, which clones and therefore does not leak. Matching that
+rule rather than "all locals anywhere in the body" is what keeps the fix from
+over-shielding names the resolver would not have seen.
+
+Verified both ways with the report's own reproduction: **42** (the file private)
+before, **7** (the body local) after.
+
+Regression fixture: `tests/rt-behavior/trap/trap-body-local-shadows-private-rt`,
+whose golden `build.log` records the executed program printing `7` — so a
+regression shows up as `42`, not as a silent pass.

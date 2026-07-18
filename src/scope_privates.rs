@@ -170,9 +170,27 @@ fn rewrite_item_refs(
                 }
                 locals.insert(param.name.clone());
             }
+            // bug-285: a function-level TRAP body sees the function body's locals,
+            // not just the params. `Resolver::resolve_function` resolves the body
+            // with `&mut locals`, so every *top-level* `LET`/`MUT` in the body is
+            // still in `locals` when the trap block is resolved; nested blocks
+            // (IF/FOR/WHILE/MATCH) go through `resolve_nested_block`, which clones
+            // and therefore does not leak. Mirror exactly that rule here — without
+            // it, a body local shadowing a same-named file PRIVATE is not shielded
+            // and its trap-body reference is mangled to the private (silent wrong
+            // value).
+            let body_locals: Vec<String> = function
+                .body
+                .iter()
+                .filter_map(|stmt| match stmt {
+                    Statement::Let { name, .. } => Some(name.clone()),
+                    _ => None,
+                })
+                .collect();
             rewrite_block(&mut function.body, rename, types, &locals);
             if let Some(trap) = function.trap.as_mut() {
                 let mut trap_locals = locals.clone();
+                trap_locals.extend(body_locals);
                 trap_locals.insert(trap.name.clone());
                 rewrite_block(&mut trap.body, rename, types, &trap_locals);
             }
