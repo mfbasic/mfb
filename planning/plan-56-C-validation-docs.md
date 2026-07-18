@@ -23,8 +23,8 @@ References (read first):
   already ships the artifact over ssh and has the `timeout_run` watchdog.
 - plan-56-A §2.4 — the musl-absorbs-glibc-names finding and its evidence.
 - `.ai/specifications.md` — the spec-currency obligation.
-- `.ai/remote_systems.md` — box 2227 (Alpine x86_64, musl, GTK4 installed,
-  gcompat removed), the musl proof surface.
+- `.ai/remote_systems.md` — the proof surface, now three of four (arch × libc)
+  quadrants (§4.2.1).
 - `src/docs/spec/app/02_linux-runtime.md:1-40` — the glibc-only claims.
 - `bugs/bug-320-*` — `test-accept.sh` has no `.run` watchdog; unrelated but in
   the same script family, do not conflate.
@@ -33,7 +33,8 @@ References (read first):
 
 - `scripts/test-appimage.sh --libc musl` asserts the musl AppImage's inner ELF
   has **zero** glibc library names in `DT_NEEDED`, and fails if any appear.
-- The same script runs the musl AppImage on box 2227 and the glibc one on 2228.
+- The same script runs each artifact on a box of its own libc world, covering
+  three of the four (arch × libc) quadrants (§4.2.1).
 - Every spec page that says app mode is glibc-only, or names one Linux app
   artifact, matches the compiler.
 
@@ -56,11 +57,11 @@ References (read first):
 
 ### 2.1 The verification gap, stated precisely
 
-On box 2227 (stock Alpine x86_64, gcompat removed), a musl app binary whose
-`DT_NEEDED` contains `libc.musl-x86_64.so.1`, `libpthread.so.0` **and**
-`libc.so.6` loads and runs. `ldd` reports `libpthread.so.0 =>
-/lib/ld-musl-x86_64.so.1` and omits `libc.so.6` entirely; musl also supplies
-`__libc_start_main` as a compat symbol.
+On **both** stock Alpine boxes — 2227 (x86_64) and 2224 (aarch64), each with
+gcompat absent and no `/lib/libc.so.6` — a musl app binary whose `DT_NEEDED`
+contains `libc.musl-<arch>.so.1`, `libpthread.so.0` **and** `libc.so.6` loads and
+runs. `ldd` reports `libpthread.so.0 => /lib/ld-musl-<arch>.so.1` and omits
+`libc.so.6` entirely; musl also supplies `__libc_start_main` as a compat symbol.
 
 So every runtime signal — exit code, stdout marker, GTK reaching its display
 probe — is **identical** between a correct and an incorrect musl build. The
@@ -128,8 +129,8 @@ scripts/test-appimage.sh <mfb-exe> [--box <port>] [--libc glibc|musl] [--gui]
 
 - `--libc` selects which artifact to ship and which assertions to apply;
   default: run **both**.
-- Box selection: glibc → 2228 (Ubuntu x86_64 GTK), musl → 2227 (Alpine x86_64
-  GTK). aarch64 glibc → 2226 when reachable.
+- Box selection by (arch, libc) per §4.2.1: x86_64-glibc → 2228, x86_64-musl →
+  2227, aarch64-musl → 2224, aarch64-glibc → 2226 when reachable.
 - Every plan-51-D case (mode 0755, mount+start, `--appimage-extract-and-run`,
   extract-vs-AppDir, `desktop-file-validate`, corrupted-superblock-fails,
   vendored library, RUNPATH, loader expansion) runs per flavor.
@@ -137,10 +138,26 @@ scripts/test-appimage.sh <mfb-exe> [--box <port>] [--libc glibc|musl] [--gui]
   (`libsndfile.so.1.0.37-x86_64-musl` vs `-glibc`) and asserts the *other*
   flavor's blob is **absent** from the image (plan-56-B §4.3's routing).
 
-Box 2227 has **no `fusermount`**, so the FUSE mount path is unavailable there.
-The musl run must use `--appimage-extract-and-run`, and the script must detect
-this rather than reporting a false failure — check for `fusermount`/`fusermount3`
-and select the path, logging which one it used.
+#### 4.2.1 The measured box matrix
+
+Probed 2026-07-18. **Re-probe, do not assume** — three of these facts changed
+during plan-56 itself:
+
+| box | arch | libc | GTK4 | `/dev/fuse` | suid `fusermount3` | FUSE mount |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2228 | x86_64 | glibc | yes | yes | yes | **works** |
+| 2227 | x86_64 | musl | yes | yes | yes | **works** |
+| 2224 | aarch64 | musl | yes | **no** | yes | **unavailable** |
+| 2226 | aarch64 | glibc | yes | — | — | box offline |
+
+Three of four (arch × libc) quadrants are live; aarch64-glibc waits on 2226.
+
+⚠️ **A FUSE mount needs BOTH `/dev/fuse` and a suid `fusermount3`, and the two
+fail independently.** 2224 has the binary but not the device; 2227 was in the
+mirror-image state (device, no binary) earlier the same day. The script must
+probe both preconditions and fall back to `--appimage-extract-and-run`, logging
+which path it took — never infer one from the other, and never report a missing
+mount path as a product failure.
 
 ### 4.3 Doc sync
 
@@ -151,8 +168,8 @@ and select the path, logging which one it used.
 | `src/docs/spec/app/02_linux-runtime.md` | app mode is **not** glibc-only; the C-library imports are flavor-derived; a musl app needs a musl GTK4 host (Alpine `gtk4.0`) |
 | `src/docs/spec/app/spec.md` | the Linux output shape is two files |
 | `src/docs/spec/language/17_native-libraries.md` | the per-flavor vendor table (plan-56-B §4.3) |
-| `.ai/remote_systems.md` | 2227 is the musl app-mode proof surface; note it has GTK4 but no `fusermount`, and that gcompat was removed deliberately so glibc deps fail loudly |
-| `.ai/compiler.md` | app-mode proof now spans two boxes and two libcs; a musl AppImage **cannot** be validated by launching it |
+| `.ai/remote_systems.md` | the §4.2.1 matrix: which box covers which (arch × libc), that gcompat was removed from both Alpines deliberately so glibc deps fail loudly, and each box's FUSE state |
+| `.ai/compiler.md` | app-mode proof spans four boxes and two libcs; a musl AppImage **cannot** be validated by launching it |
 
 Also `grep -rn "glibc-only" src/ planning/` and correct every stale claim,
 **except** inside `planning/old-plans/` (archived history stays as written).
@@ -201,8 +218,9 @@ Commit: —
 - **Tests:** the script is the test. Its own acceptance criterion is Phase 1's —
   it must go red on a known-bad musl binary. A green script that cannot go red is
   the specific failure this sub-plan exists to prevent.
-- **Runtime proof:** both AppImages run on their own box — glibc on 2228, musl on
-  2227 via `--appimage-extract-and-run` (no `fusermount` there). ⚠️ Treat the
+- **Runtime proof:** each AppImage runs on a box of its own libc world per
+  §4.2.1 — x86_64 glibc on 2228, x86_64 musl on 2227 (real FUSE mount), aarch64
+  musl on 2224 (`--appimage-extract-and-run`; no `/dev/fuse`). ⚠️ Treat every
   launch as a **liveness** check only; the `DT_NEEDED` assertion is the
   correctness check.
 - **Doc sync:** Phase 3.
@@ -213,7 +231,7 @@ Commit: —
 
 - **Default `--libc` to both vs. glibc** — recommend both, so the musl path
   cannot rot unnoticed. The cost is one extra box round-trip per run.
-- **Fail vs. skip when box 2227 is unreachable** — recommend skip (matching
+- **Fail vs. skip when a box is unreachable** — recommend skip (matching
   plan-51-D's rule that the GTK boxes are developer infrastructure, not CI), but
   **fail** when the box is reachable and `readelf` is missing, since that is a
   broken check rather than absent infrastructure.

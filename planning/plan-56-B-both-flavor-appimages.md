@@ -51,8 +51,18 @@ References (read first):
   runtime blob is static musl and runs anywhere, but the *payload* is
   libc-specific and GTK4 is not bundled (plan-51-A §1). A musl AppImage needs a
   musl GTK4 host (Alpine's `gtk4.0`); a glibc one needs a glibc GTK4 host.
-- **No riscv64.** No GTK entry ported (bug-117.1) and no upstream AppImage
-  runtime (plan-51-A §3.3). `linux_riscv64` keeps rejecting app mode.
+- **No riscv64**, and note this is *not* a GTK availability question. Box 2232
+  (Debian riscv64, glibc 2.41) **does** have `libgtk-4.so.1`, FUSE, and
+  `readelf` — so the host side is ready. It stays out because of two compiler-
+  side blockers, either of which alone is disqualifying:
+  1. the GTK app entry was never ported to rv64 (bug-117.1), so
+     `linux_riscv64::supports_app_mode()` is `false`; and
+  2. **AppImage/type2-runtime publishes no riscv64 runtime** — upstream's
+     `build-runtime.sh` `exit 2`s on anything outside x86_64/aarch64/armhf/i686 —
+     so even a ported entry could not be *sealed*.
+  Porting (1) would yield only a runnable AppDir, and plan-51-A §3.3 already
+  rejected shipping a mode whose artifact *shape* differs by target. Lifting this
+  needs an upstream runtime or a hand-built one, which is its own plan.
 - **No console-path change.** `<name>-glibc.out` / `<name>-musl.out` keep their
   names, bytes, and `$ORIGIN/vendor` RUNPATH.
 - **No macOS change.** `.app` stays one artifact with no flavor component;

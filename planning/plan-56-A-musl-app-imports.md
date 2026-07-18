@@ -136,11 +136,20 @@ source of truth is already plumbed to the place that needs it.
 ### 2.4 Why nobody noticed
 
 ⚠️ **musl's loader silently absorbs the glibc compat names.** Verified
-empirically on box 2227 (Alpine x86_64) with `gcompat` **removed** and no
-`/lib/libc.so.6` on disk: a musl app binary carrying `DT_NEEDED [libc.so.6]` and
-`[libpthread.so.0]` loads and runs anyway. `ldd` reports
-`libpthread.so.0 => /lib/ld-musl-x86_64.so.1` and does not list `libc.so.6` at
-all; musl also provides `__libc_start_main` as a compat symbol.
+empirically on **both** musl boxes — 2227 (Alpine x86_64) and 2224 (Alpine
+aarch64) — each with `gcompat` absent and no `/lib/libc.so.6` on disk. A musl app
+binary whose `DT_NEEDED` is:
+
+```text
+libc.musl-<arch>.so.1   libgio-2.0.so.0   libgtk-4.so.1   libglib-2.0.so.0
+libgobject-2.0.so.0     libcairo.so.2     libpthread.so.0   libc.so.6
+```
+
+loads and reaches GTK anyway. `ldd` reports
+`libpthread.so.0 => /lib/ld-musl-<arch>.so.1` and does not list `libc.so.6` at
+all; musl also provides `__libc_start_main` as a compat symbol. The obvious
+explanation — that `gcompat` was covering for it — was tested and **disproved**:
+the box was stock Alpine at the time.
 
 This is the single most important fact in plan-56: **a wrongly-linked musl binary
 runs fine and looks correct.** Launching it proves nothing. The only detector is
