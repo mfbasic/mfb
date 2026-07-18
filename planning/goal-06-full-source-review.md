@@ -567,9 +567,9 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/linux_riscv64/`**
 
-- [ ] `src/target/linux_riscv64/code.rs` (764 loc)
-- [ ] `src/target/linux_riscv64/mod.rs` (458 loc)
-- [ ] `src/target/linux_riscv64/plan.rs` (488 loc)
+- [x] `src/target/linux_riscv64/code.rs` (764 loc) — clean
+- [x] `src/target/linux_riscv64/mod.rs` (458 loc) — clean
+- [x] `src/target/linux_riscv64/plan.rs` (488 loc) — clean
 
 **`src/target/linux_x86_64/`**
 
@@ -579,10 +579,10 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/macos_aarch64/`**
 
-- [ ] `src/target/macos_aarch64/code.rs` (794 loc)
-- [ ] `src/target/macos_aarch64/mod.rs` (437 loc)
-- [ ] `src/target/macos_aarch64/plan.rs` (862 loc)
-- [ ] `src/target/macos_aarch64/tls.rs` (230 loc)
+- [x] `src/target/macos_aarch64/code.rs` (794 loc) — clean
+- [x] `src/target/macos_aarch64/mod.rs` (437 loc) — clean
+- [x] `src/target/macos_aarch64/plan.rs` (862 loc) — clean
+- [x] `src/target/macos_aarch64/tls.rs` (230 loc) — clean
 
 **`src/target/macos_aarch64/app/`**
 
@@ -736,4 +736,4 @@ directory; LOC shown to help sequence the effort.
 
 **`src/testing/`**
 
-- [ ] `src/testing/desugar.rs` (1326 loc)
+- [x] `src/testing/desugar.rs` (1326 loc) — bug-287 (collections/fs alias half; no new bug)
