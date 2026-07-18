@@ -1,7 +1,28 @@
 # goal-06: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-17
-Status: IN PROGRESS (0 / 307 files reviewed)
+Status: IN PROGRESS (~217 / 307 files reviewed; bug-272..316 filed)
+
+RESUME NOTE (2026-07-18): review interrupted by a session usage limit. Everything
+outside `src/target/shared/code/**` non-collection/string/math/fs areas is done and
+checked off below. **Remaining unreviewed files** (re-dispatch reviewers for these):
+- `src/target/shared/code/`: builder_arena_transfer, builder_bits, builder_control,
+  builder_emit_helpers, builder_fs_paths, builder_inplace_assign, builder_search,
+  code_impl, data_objects, datetime, entry_and_arena, error_constants,
+  function_lowering, link_locator, link_thunk, mir, mod, module_analysis, peephole,
+  runtime_helpers, runtime_helpers_thread, serialization_utils, type_utils, types,
+  validation  (codegen_utils.rs already confirmed clean)
+- crypto/tls/audio: crypto.rs, crypto_ec.rs, crypto_ec/{macos,openssl}.rs,
+  tls/{mod,macos,openssl}.rs, audio/{alsa,macos,mod}.rs
+- regalloc/{analysis,linear_scan,mod}.rs
+- `src/target/shared/` non-code: abi.rs, validate.rs, regmodel.rs, lower.rs, mod.rs,
+  nir/{json,lower,mod,symbols}.rs, plan/{function_builder,json,lower,mod,symbols}.rs,
+  runtime/*.rs (13 files)
+- platform: linux_aarch64/{code,mod,plan}, linux_riscv64/{code,mod,plan},
+  linux_x86_64/{code,mod,plan}, macos_aarch64/{code,mod,plan,tls} + app/*,
+  linux_gtk/*, package_mfp/mod
+- `src/testing/desugar.rs` (bug-287 already covers the ensure_import alias class;
+  check for other instances)
 
 ## Objective
 
@@ -211,8 +232,49 @@ call.)
 | bug-274 | repository/src/store.rs | Security (TOCTOU) | MEDIUM | Open |
 | bug-275 | repository/src/server.rs, abi.rs | Security (DoS) | MEDIUM | Open |
 | bug-276 | repository/src/{client,server,store,abi,local,main}.rs | mixed cluster | LOW | Open |
+| bug-277 | src/binary_repr/reader.rs | Correctness (ABI hash) | MEDIUM | Open |
+| bug-278 | src/audit/collect/source.rs | Correctness (under-report) | MEDIUM | Open |
+| bug-279 | src/audit/collect/source.rs | Correctness | MEDIUM | Open |
+| bug-280 | src/audit/collect/source.rs | Correctness | MEDIUM | Open |
+| bug-281 | src/audit/collect/lockfile.rs, findings.rs | Correctness | MEDIUM | Open |
+| bug-282 | src/binary_repr/** | Security/Dead-code cluster | LOW | Open |
+| bug-283 | src/audit/** | Security/Docs cluster | LOW | Open |
+| bug-284 | src/arch/{aarch64,riscv64,x86_64}/** | Footgun latent cluster | LOW | Open |
+| bug-285 | src/scope_privates.rs | Correctness | MEDIUM | Open |
+| bug-286 | src/ir/lower.rs | Correctness | MEDIUM | Open |
+| bug-287 | src/testing.rs, src/testing/desugar.rs | Correctness | MEDIUM | Open |
+| bug-288 | src/scope_privates.rs | Correctness/Footgun | MEDIUM | Open |
+| bug-289 | src/ast/stmt.rs | Correctness (parser DoS) | HIGH | Open |
+| bug-290 | src/escape.rs | Correctness (resource UAF) | HIGH | Open |
+| bug-291 | src/escape.rs | Correctness (double-close) | HIGH | Open |
+| bug-292 | src/ast/items.rs | Correctness (accepts-invalid) | MEDIUM | Open |
+| bug-293 | src/fmt.rs | Correctness (semantics) | MEDIUM | Open |
+| bug-294 | src/arch/x86_64/encode/emitter.rs | Correctness | MEDIUM | Open |
+| bug-295 | src/arch/x86_64/encode/emitter.rs | Correctness (divergence) | MEDIUM | Open |
+| bug-296 | src/arch/x86_64/select.rs | Correctness (ABI) | MEDIUM | Open |
+| bug-297 | src/ir/verify/mod.rs | Memory-safety (untrusted .mfp) | MEDIUM | Open |
+| bug-298 | src/cli/build.rs, manifest/mod.rs | Security (exfiltration) | MEDIUM | Open |
+| bug-299 | src/fmt.rs, src/doc.rs | Correctness cluster | LOW | Open |
+| bug-300 | cross-module | Docs/Dead-code cluster | LOW | Open |
+| bug-301 | src/resolver, ir/verify, syntaxcheck | Correctness/Dead cluster | LOW | Open |
+| bug-302 | src/builtins/json_package.mfb | Robustness (DoS crash) | HIGH | Open |
+| bug-303 | src/builtins/http_package.mfb | Correctness | HIGH | Open |
+| bug-304 | src/builtins/json_package.mfb | Correctness | MEDIUM | Open |
+| bug-305 | src/builtins/crypto_package.mfb | Correctness (DoS hang) | MEDIUM | Open |
+| bug-306 | src/builtins/*_package.mfb | Error-handling cluster | LOW | Open |
+| bug-307 | src/target/shared/code/builder_collection_queries.rs | Memory-safety (leak) | MEDIUM | Open |
+| bug-308 | src/target/shared/code/builder_simd_math.rs | Correctness | MEDIUM | Open |
+| bug-309 | src/target/shared/code/fs_helpers_atomic.rs | Correctness (macOS broken) | HIGH | Open |
+| bug-310 | src/target/shared/code/net/poll.rs | Correctness | MEDIUM | Open |
+| bug-311 | src/target/shared/code/fs_helpers_io.rs | Correctness (data dup) | MEDIUM | Open |
+| bug-312 | src/target/shared/code/builder_{strings,conversions,numeric}.rs | Correctness cluster | LOW | Open |
+| bug-313 | src/target/shared/code/term_grid.rs | Memory-safety | MEDIUM | Open |
+| bug-314 | src/target/shared/code/{io_helpers,net/io,term_grid,stdin_broadcast}.rs | Correctness cluster | LOW | Open |
+| bug-315 | src/builtins/regex_package.mfb | Robustness (DoS crash+ReDoS) | HIGH | Open |
+| bug-316 | src/builtins/regex_package.mfb | Correctness | MEDIUM | Open |
 
-Tallies: CRITICAL 0 · HIGH 1 · MEDIUM 3 · LOW 1(cluster, 10 items) · dead-code (R2 in bug-276).
+Tallies (bug-272..316 filed): CRITICAL 0 · HIGH 7 (272, 289, 290, 291, 302, 303, 309, 315 — 8 docs) · MEDIUM 19 · LOW 10 clusters (~50 sub-items). Some HIGH/MEDIUM counts include multi-item clusters; see each doc.
+Note: HIGH docs = bug-272, 289, 290, 291, 302, 303, 309, 315 (8).
 
 ## File census & progress
 
