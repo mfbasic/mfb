@@ -2266,13 +2266,26 @@ async fn validate_package_request(
     // payload, so these hashes are authenticated by re-hash alone (§3.2).
     match crate::abi::parse_vendor_blobs(&package.payload) {
         Ok(vendor_blobs) => {
+            // Probe each distinct hash once (bug-275). A library legitimately
+            // lists the same vendored file for several platforms, so without
+            // dedup every repeat costs another backend round trip; the parser's
+            // locator cap bounds the count, and this bounds the duplicates.
+            let mut probed: std::collections::HashMap<&str, bool> =
+                std::collections::HashMap::new();
             for vref in &vendor_blobs {
-                if !state
-                    .blob_store
-                    .exists(&vref.hash, BlobKind::Native)
-                    .await
-                    .map_err(internal)?
-                {
+                if !probed.contains_key(vref.hash.as_str()) {
+                    let exists = state
+                        .blob_store
+                        .exists(&vref.hash, BlobKind::Native)
+                        .await
+                        .map_err(internal)?;
+                    probed.insert(vref.hash.as_str(), exists);
+                }
+            }
+            // Diagnostics stay per-locator so a missing blob still names every
+            // logical library and source filename that referenced it.
+            for vref in &vendor_blobs {
+                if !probed.get(vref.hash.as_str()).copied().unwrap_or(false) {
                     diagnostics.push(format!(
                         "native library '{}' references vendor blob {} ({}) that is not uploaded",
                         vref.logical, vref.hash, vref.source

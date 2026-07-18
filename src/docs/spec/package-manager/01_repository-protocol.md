@@ -686,6 +686,16 @@ The publish transaction also records the version→blob edges in
 garbage collector can compute
 reachability.[[repository/src/abi.rs:parse_vendor_blobs]][[repository/src/server.rs:validate_package_request]]
 
+Section 10 is bounded before any of that work happens: a table declaring more
+than **1024 entries** or more than **4096 locators in total** is rejected as
+malformed, and the existence probes run over the *distinct* hashes rather than
+once per locator. Both counts are raw `u32`s in an attacker-supplied payload and
+each probe is a blob-store round trip (a `head_object` on the hosted backend), so
+without those bounds a single `/validate` or `/publish` from any self-registered
+owner could fan out to roughly a million backend operations. The limits sit far
+above any real table — one entry per logical library, one locator per supported
+platform triple.[[repository/src/abi.rs:read_native_vendor_locators]]
+
 ### Vendor blobs on install
 
 A binding that vendors native libraries carries only their **hashes** in its

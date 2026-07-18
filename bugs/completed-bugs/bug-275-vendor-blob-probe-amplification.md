@@ -1,12 +1,46 @@
 # bug-275: unbounded per-request vendor-blob existence probes from an attacker-controlled section-10 table
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Security (resource amplification / DoS)
 
-Status: Open
-Regression Test: repository/tests (new) — a package with an oversized vendor-locator table is rejected before probing blobs
+Status: Fixed 2026-07-18
+Regression Test: `repository/src/abi.rs` —
+`abi::tests::oversized_vendor_table_is_rejected_before_probing`,
+`abi::tests::normal_sized_vendor_table_still_parses`
+
+## Resolution
+
+`read_native_vendor_locators` rejects a table declaring more than
+`MAX_VENDOR_ENTRIES` (1024) entries or more than `MAX_VENDOR_LOCATORS` (4096)
+locators in total, both checked on the declared counts before any locator is
+parsed. The total is a *running* one across entries, not per-entry: many small
+entries reach the same fan-out as one oversized entry, and a per-entry check would
+let that straight through.
+
+`validate_package_request` now probes each distinct hash once and reuses the
+result, so a library that legitimately lists the same file for several platforms
+costs one round trip rather than one per locator. Diagnostics stay per-locator, so
+a missing blob still names every logical library and source filename referencing
+it.
+
+The limits sit orders of magnitude above any real table (one entry per logical
+library, one locator per supported platform triple); `normal_sized_vendor_table_still_parses`
+guards that direction.
+
+Verified both directions. With the caps removed the oversized-table test fails with
+`truncated u8` — i.e. the parser walks locators until it runs off the payload,
+which is precisely the amplification: on a real ~48 MiB payload that is ~1M
+locators, each costing a blob-store probe.
+
+Note on writing the test: a table cannot declare locators it does not supply bytes
+for, because the parser walks each entry's locators before reaching the next. The
+running-total case therefore has to emit real (`system`, hash-free) locators; an
+earlier version declared counts with no bytes and failed for the wrong reason.
+
+Doc sync done: the limits and the dedup are recorded in
+`src/docs/spec/package-manager/01_repository-protocol.md`.
 
 The plan-48-A vendor-blob check in `validate_package_request` iterates *every*
 locator returned by `crate::abi::parse_vendor_blobs(&package.payload)` and calls

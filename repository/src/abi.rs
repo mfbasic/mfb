@@ -21,6 +21,22 @@ const ABI_HASH_LEN: usize = 32;
 const WIRE_LIB_TYPE_VENDOR: u8 = 1;
 const NATIVE_LIBRARY_HASH_LEN: usize = 32;
 
+/// Ceilings on what section 10 may declare (bug-275).
+///
+/// `entry_count` and `locator_count` are raw `u32`s read straight off an
+/// attacker-controlled payload, and parsing previously stopped only when the
+/// offset ran off the end. At ~46 bytes per locator a single ~48 MiB payload can
+/// encode on the order of a million of them, and `validate_package_request`
+/// probes the blob store once per locator — an S3 `head_object` each on the
+/// hosted backend. One `/validate` or `/publish` could therefore fan out to ~1M
+/// backend operations, reachable by any self-registered owner.
+///
+/// A real `libraries` table is one entry per logical library with one locator per
+/// supported platform triple, so these bounds are orders of magnitude above any
+/// legitimate package while capping the fan-out.
+const MAX_VENDOR_ENTRIES: usize = 1024;
+const MAX_VENDOR_LOCATORS: usize = 4096;
+
 /// One `vendor` locator drawn from a package's section-10 `NATIVE_LIBRARY_TABLE`
 /// — the logical library it belongs to, its bare source filename, and the hex
 /// SHA-256 that is the vendored file's blob key (plan-48-A §4.4).
@@ -64,12 +80,27 @@ fn read_native_vendor_locators(
     let mut offset = 0usize;
     let entry_count = read_u32(bytes, offset)? as usize;
     offset += 4;
+    // Reject on the declared count before allocating or probing anything.
+    if entry_count > MAX_VENDOR_ENTRIES {
+        return Err(format!(
+            "native library table declares {entry_count} entries (limit {MAX_VENDOR_ENTRIES})"
+        ));
+    }
+    let mut total_locators = 0usize;
     let mut refs = Vec::new();
     for _ in 0..entry_count {
         let logical = table_string(strings, read_u32(bytes, offset)?)?;
         offset += 4;
         let locator_count = read_u32(bytes, offset)? as usize;
         offset += 4;
+        // Bound the *total* across entries, not just each entry: many small
+        // entries reach the same fan-out as one oversized one.
+        total_locators = total_locators.saturating_add(locator_count);
+        if total_locators > MAX_VENDOR_LOCATORS {
+            return Err(format!(
+                "native library table declares more than {MAX_VENDOR_LOCATORS} locators"
+            ));
+        }
         for _ in 0..locator_count {
             // os, arch: interned string ids (skipped — not needed here).
             offset += 4; // os
@@ -378,6 +409,109 @@ mod tests {
         assert!(parse_vendor_blobs(&payload)
             .unwrap_err()
             .contains("truncated native library locator hash"));
+    }
+
+    /// An oversized section-10 table is rejected on its declared counts, before
+    /// any locator is parsed or any blob probed (bug-275).
+    ///
+    /// The counts are raw `u32`s off an attacker-controlled payload and the
+    /// caller probes the blob store once per locator, so an unbounded table turns
+    /// one `/validate` into ~1M backend operations. Both shapes are covered: one
+    /// entry declaring a huge locator count, and many entries each declaring a
+    /// modest one — the second is why the locator bound has to be a running total
+    /// rather than per-entry.
+    #[test]
+    fn oversized_vendor_table_is_rejected_before_probing() {
+        let strings = string_pool(&["sqlite3", "linux", "x86_64", "libsqlite3.so"]);
+
+        // Shape 1: a single entry claiming far more locators than the cap. Note
+        // the bytes for those locators are never supplied — rejection has to come
+        // from the count itself, not from running off the end of the payload.
+        let mut table = Vec::new();
+        put_u32(&mut table, 1); // one entry
+        put_u32(&mut table, 0); // logical = "sqlite3"
+        put_u32(&mut table, 1_000_000); // locator count
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings.clone()),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let err = parse_vendor_blobs(&payload).unwrap_err();
+        assert!(
+            err.contains("locators"),
+            "expected a locator-cap rejection, got: {err}"
+        );
+
+        // Shape 2: an absurd entry count, rejected before the entry loop starts.
+        let mut table = Vec::new();
+        put_u32(&mut table, 5_000_000); // entry count
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings.clone()),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let err = parse_vendor_blobs(&payload).unwrap_err();
+        assert!(
+            err.contains("entries"),
+            "expected an entry-cap rejection, got: {err}"
+        );
+
+        // Shape 3: many entries, each with a modest locator count that no
+        // per-entry check would object to. Only a running total catches this.
+        //
+        // The bytes have to be real: the parser walks each entry's locators
+        // before reaching the next entry, so the total cannot accumulate over
+        // declared-but-absent locators. `system` locators (lib_type 0) carry no
+        // hash, which keeps the payload small.
+        let mut table = Vec::new();
+        let entries = 64u32;
+        let per_entry = 100u32; // 6400 total, well past MAX_VENDOR_LOCATORS
+        put_u32(&mut table, entries);
+        for _ in 0..entries {
+            put_u32(&mut table, 0); // logical = "sqlite3"
+            put_u32(&mut table, per_entry);
+            for _ in 0..per_entry {
+                put_u32(&mut table, 1); // os
+                put_u32(&mut table, 2); // arch
+                table.push(1); // libc
+                table.push(0); // lib_type = system (no hash follows)
+                put_u32(&mut table, 3); // source
+            }
+        }
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let err = parse_vendor_blobs(&payload).unwrap_err();
+        assert!(
+            err.contains("locators"),
+            "expected the running total to reject, got: {err}"
+        );
+    }
+
+    /// A table within the caps still parses — the bound must not reject packages
+    /// that legitimately vendor a library for several platforms.
+    #[test]
+    fn normal_sized_vendor_table_still_parses() {
+        let strings = string_pool(&["sqlite3", "linux", "x86_64", "libsqlite3.so"]);
+        let mut table = Vec::new();
+        put_u32(&mut table, 1); // one entry
+        put_u32(&mut table, 0); // logical = "sqlite3"
+        put_u32(&mut table, 2); // two platform locators
+        for _ in 0..2 {
+            put_u32(&mut table, 1); // os
+            put_u32(&mut table, 2); // arch
+            table.push(1); // libc
+            table.push(1); // lib_type = vendor
+            put_u32(&mut table, 3); // source
+            table.extend_from_slice(&[0xcd; NATIVE_LIBRARY_HASH_LEN]);
+        }
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let refs = parse_vendor_blobs(&payload).expect("a normal table parses");
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].logical, "sqlite3");
+        assert_eq!(refs[0].hash, hex::encode([0xcd; NATIVE_LIBRARY_HASH_LEN]));
     }
 
     #[test]
