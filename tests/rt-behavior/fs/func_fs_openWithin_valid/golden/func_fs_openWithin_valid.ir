@@ -1,0 +1,85 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_openWithin_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "attempt",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "root", "line": 10, "type": "String", "default": null },
+    { "name": "rel", "line": 10, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": false, "name": "$trap_res0", "type": "Result OF File", "value": { "kind": "callResult", "type": "File", "target": "fs.openWithin", "args": [{ "kind": "local", "name": "root" }, { "kind": "local", "name": "rel" }, { "kind": "const", "type": "String", "value": "r" }] } },
+    { "op": "bind", "line": 11, "mutable": true, "name": "$trap_val1", "type": "File", "value": null },
+    {
+      "op": "if",
+      "line": 11,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 11, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "File", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 11, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      {
+        "op": "if",
+        "line": 12,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+        "then": [
+        { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "rejected-invalid" } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "line": 15,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77030003" } },
+          "then": [
+          { "op": "return", "line": 16, "value": { "kind": "const", "type": "String", "value": "rejected-symlink" } }
+          ],
+          "else": [
+          { "op": "return", "line": 18, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rejected-" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } } }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "line": 11, "mutable": false, "name": "f", "type": "File", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "body", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 22, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "ok:" }, "right": { "kind": "local", "name": "body" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 26, "mutable": false, "name": "root", "type": "String", "value": { "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/func_fs_openWithin_valid/data" } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "contained=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "sub/data.txt" }] } }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "absolute=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "/etc/hostname" }] } }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "dotdot=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "../../../etc/hostname" }] } }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "symlink=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "evillink/hostname" }] } }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "g", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openWithin", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "sub/data.txt" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "twoarg=ok:" }, "right": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "g" }] } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "g" }] } },
+    { "op": "return", "line": 39, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

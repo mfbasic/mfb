@@ -1,0 +1,82 @@
+{
+  "project": "func_fs_openWithin_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 6 },
+    { "module": "io", "line": 7 },
+    { "module": "errorCode", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "attempt",
+      "line": 10,
+      "params": [
+      { "name": "root", "type": "String", "default": null, "line": 10 },
+      { "name": "rel", "type": "String", "default": null, "line": 10 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 11,
+        "expression": { "kind": "call", "callee": "fs.openWithin", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "identifier", "value": "rel" }, { "kind": "string", "value": "r" }] },
+        "handler": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+          "line": 12,
+          "then": [
+          { "kind": "return", "value": { "kind": "string", "value": "rejected-invalid" }, "line": 13 }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrAccessDenied" } },
+          "line": 15,
+          "then": [
+          { "kind": "return", "value": { "kind": "string", "value": "rejected-symlink" }, "line": 16 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rejected-" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 18 }
+        ]
+      }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "body", "type": "String", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok:" }, "right": { "kind": "identifier", "value": "body" } }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 25,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "root", "type": "String", "value": { "kind": "string", "value": "tests/rt-behavior/fs/func_fs_openWithin_valid/data" }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contained=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "sub/data.txt" }] } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "absolute=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "/etc/hostname" }] } }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dotdot=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "../../../etc/hostname" }] } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "symlink=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "evillink/hostname" }] } }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": null, "value": { "kind": "call", "callee": "fs.openWithin", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "sub/data.txt" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "twoarg=ok:" }, "right": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "g" }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

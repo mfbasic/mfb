@@ -315,13 +315,13 @@ fn lower_net_endpoint_helper(
                                      // — the real port is patched into sin_port afterward). bug-113.
     const SERVICE_OFFSET: usize = 144;
     const SERVICE_STR_OFFSET: usize = 152; // holds the bytes "0\0…"
-    // bug-261: a non-positive `timeoutMs` no longer blocks indefinitely. Instead
-    // of a plain blocking connect (which a black-holed peer or a firewall dropping
-    // SYNs wedges past any reasonable deadline), the non-positive case falls
-    // through to the same non-blocking-connect + `poll` machinery the positive
-    // case uses, seeded with this bounded default. 120 s comfortably exceeds any
-    // real TCP handshake while still bounding the wedge (docs already state the
-    // default "is not guaranteed to be unbounded").
+                                           // bug-261: a non-positive `timeoutMs` no longer blocks indefinitely. Instead
+                                           // of a plain blocking connect (which a black-holed peer or a firewall dropping
+                                           // SYNs wedges past any reasonable deadline), the non-positive case falls
+                                           // through to the same non-blocking-connect + `poll` machinery the positive
+                                           // case uses, seeded with this bounded default. 120 s comfortably exceeds any
+                                           // real TCP handshake while still bounding the wedge (docs already state the
+                                           // default "is not guaranteed to be unbounded").
     const DEFAULT_CONNECT_TIMEOUT_MS: &str = "120000";
 
     let null_host = format!("{symbol}_null_host");

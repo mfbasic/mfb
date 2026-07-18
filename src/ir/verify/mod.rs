@@ -1675,8 +1675,12 @@ impl TypeEnv {
         // Only a *numeric* literal can overflow a numeric range; a non-numeric
         // Const in a numeric position (e.g. a String arg where Integer is
         // expected) is an argument/assignment mismatch, not a literal overflow.
-        let numeric =
-            |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Scalar");
+        let numeric = |t: &str| {
+            matches!(
+                t,
+                "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Scalar"
+            )
+        };
         match value {
             IrValue::Const { type_, value } if numeric(type_) => {
                 self.check_const_literal(expected, value)

@@ -1,0 +1,11 @@
+IMPORT fs
+
+FUNC main AS Integer
+  RES tooFew AS File = fs::openWithin("root")
+  RES wrongRoot AS File = fs::openWithin(1, "rel")
+  RES wrongRel AS File = fs::openWithin("root", 2)
+  RES wrongMode AS File = fs::openWithin("root", "rel", 3)
+  RES tooMany AS File = fs::openWithin("root", "rel", "read", "x")
+  RES badName AS File = fs::openWithin(root := "a", relPath := "b")
+  RETURN 0
+END FUNC

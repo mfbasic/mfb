@@ -120,7 +120,11 @@ impl plan::NativePlanPlatform for Platform {
                 self.libc_import("getuid", spec.symbol),
                 self.libc_import("getpwuid", spec.symbol),
             ],
-            "os.executablePath" => vec![self.libc_import("readlink", spec.symbol)],
+            // plan-55-B: `os.resourcePath` reuses the `readlink("/proc/self/exe")`
+            // acquisition, so it needs the same import.
+            "os.executablePath" | "os.resourcePath" => {
+                vec![self.libc_import("readlink", spec.symbol)]
+            }
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
@@ -209,6 +213,7 @@ impl plan::NativePlanPlatform for Platform {
             "fs.open"
             | "fs.openFile"
             | "fs.openFileNoFollow"
+            | "fs.openWithin"
             | "fs.createTempFile"
             | "fs.readText"
             | "fs.readBytes"
@@ -239,10 +244,14 @@ impl plan::NativePlanPlatform for Platform {
                 if matches!(spec.call, "fs.createTempFile") {
                     imports.push(self.libc_import("getentropy", spec.symbol));
                 }
-                if matches!(spec.call, "fs.openFileNoFollow") {
-                    // bug-260: openFileNoFollow uses openat2(RESOLVE_NO_SYMLINKS) via
-                    // the libc `syscall` wrapper to reject symlinks at any component.
+                if matches!(spec.call, "fs.openFileNoFollow" | "fs.openWithin") {
+                    // bug-260/bug-259: openFileNoFollow/openWithin use openat2 via the libc
+                    // `syscall` wrapper to reject symlinks (RESOLVE_NO_SYMLINKS).
                     imports.push(self.libc_import("syscall", spec.symbol));
+                }
+                if matches!(spec.call, "fs.openWithin") {
+                    // bug-259: openWithin canonicalizes its trusted root via realpath.
+                    imports.push(self.libc_import("realpath", spec.symbol));
                 }
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
                     imports.push(self.libc_import("mkstemps", spec.symbol));

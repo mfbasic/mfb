@@ -371,6 +371,14 @@ fn apply_default_args(target: &str, args: &mut Vec<NirValue>, loc: NirSourceLoc)
                 value: "read".to_string(),
             });
         }
+        // bug-259: `fs.openWithin(root, relPath)` defaults its omitted mode to
+        // "read", exactly like the openFile family's 1-arg form.
+        ("fs.openWithin", 2) => {
+            args.push(NirValue::Const {
+                type_: "String".to_string(),
+                value: "read".to_string(),
+            });
+        }
         ("fs.createTempFile", 0) => {
             args.push(NirValue::RuntimeCall {
                 helper: super::runtime::RuntimeHelper::Fs,

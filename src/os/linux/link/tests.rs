@@ -1432,9 +1432,12 @@ fn dynamic_elf_relro_covers_the_dynamic_segment() {
         .expect("dynamic elf");
         let (relro_vaddr, relro_size) =
             phdr_range(&bytes, PT_GNU_RELRO).expect("PT_GNU_RELRO present");
-        assert_eq!(relro_vaddr % 0x1000, 0, "{arch}: RELRO start is page-aligned");
-        let (dyn_vaddr, dyn_size) =
-            phdr_range(&bytes, PT_DYNAMIC).expect("PT_DYNAMIC present");
+        assert_eq!(
+            relro_vaddr % 0x1000,
+            0,
+            "{arch}: RELRO start is page-aligned"
+        );
+        let (dyn_vaddr, dyn_size) = phdr_range(&bytes, PT_DYNAMIC).expect("PT_DYNAMIC present");
         assert!(
             relro_vaddr <= dyn_vaddr && dyn_vaddr + dyn_size <= relro_vaddr + relro_size,
             "{arch}: RELRO [{relro_vaddr:#x}, {:#x}) must cover DYNAMIC [{dyn_vaddr:#x}, {:#x})",

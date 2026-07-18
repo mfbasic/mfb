@@ -1116,6 +1116,7 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_runtime_helper(
             symbol,
             module.build_mode,
+            &module.project,
             term_state_offset,
             uses_rng,
             &platform_imports,
@@ -1332,6 +1333,7 @@ pub(crate) fn lower_module_mir_for_platform(
 fn lower_runtime_helper(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
+    module_name: &str,
     term_state_offset: Option<usize>,
     uses_rng: bool,
     platform_imports: &HashMap<String, String>,
@@ -1456,8 +1458,14 @@ fn lower_runtime_helper(
             })
         }
         call if builtins::os::is_os_call(call) => {
-            let (frame, instructions, relocations, stack_slots) =
-                os::lower_os_helper(spec.call, symbol, platform_imports, platform)?;
+            let (frame, instructions, relocations, stack_slots) = os::lower_os_helper(
+                spec.call,
+                symbol,
+                build_mode,
+                module_name,
+                platform_imports,
+                platform,
+            )?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -1875,6 +1883,29 @@ fn lower_runtime_helper(
             let no_follow = spec.call == "fs.openFileNoFollow";
             let (frame, instructions, relocations, stack_slots) =
                 lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
+        "fs.openWithin" => {
+            let (frame, instructions, relocations, stack_slots) =
+                lower_fs_open_within_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),

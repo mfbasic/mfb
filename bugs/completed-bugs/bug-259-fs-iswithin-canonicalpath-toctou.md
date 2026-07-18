@@ -5,11 +5,24 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security
 
-Status: Assessed — requires a NEW public open-beneath API (a feature, not an
-isolated code fix). Concrete design below; the kernel primitives it needs are now
-in place (landed by bug-260). Not implemented in isolation because it adds public
-surface whose shape/semantics is a design decision.
-Regression Test: (pending the feature)
+Status: Fixed
+Regression Test: `tests/rt-behavior/fs/func_fs_openWithin_valid` (contained path
+opens; absolute/`..`/symlink relPath refused), `tests/syntax/fs/func_fs_openWithin_invalid`.
+Hardware-validated on macOS + Linux x86_64/aarch64/riscv64 x glibc/musl.
+
+## Resolution
+
+Implemented the new public API `fs::openWithin(root, relPath[, mode]) AS File`
+(bug-259 / OS-03). It canonicalizes the trusted `root` once with `realpath`,
+rejects a `relPath` that is absolute or contains a `..` component, joins them, and
+opens the join with the same whole-path no-symlink resolution as openFileNoFollow
+(Linux `openat2(RESOLVE_NO_SYMLINKS)`, macOS `O_NOFOLLOW_ANY`). Because the
+canonical root is symlink-free and every component is re-checked at open time, a
+post-canonicalization component swap to a symlink is rejected rather than followed
+— closing the isWithin+open TOCTOU. `lower_fs_open_within_helper`
+(`fs_helpers_io.rs`); wired through fs.rs, fs_specs/catalog, nir default-args, the
+four target plans + capability lists, and a man page.
+
 
 ## Assessment
 

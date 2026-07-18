@@ -915,6 +915,455 @@ pub(super) fn lower_fs_open_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+/// `fs::openWithin(root, relPath[, mode])` (bug-259 / OS-03): open `relPath`
+/// resolved beneath the trusted directory `root`, refusing any escape. The
+/// containment is enforced at open time, closing the check-then-open TOCTOU that
+/// an `isWithin`+`open` pair leaves: `root` is canonicalized once (`realpath`,
+/// which resolves the trusted root's own symlinks), `relPath` is rejected if it
+/// is absolute or contains a `..` component, the two are joined, and the join is
+/// opened with the SAME whole-path no-symlink resolution as `openFileNoFollow`
+/// (Linux `openat2(RESOLVE_NO_SYMLINKS)`, macOS `O_NOFOLLOW_ANY`). Because the
+/// canonical root is symlink-free and every component is re-checked at open time,
+/// a post-canonicalization component swap to a symlink is *rejected* rather than
+/// followed — so the open cannot be redirected outside `root`.
+pub(super) fn lower_fs_open_within_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    const PATH_MAX_PLUS_NUL: usize = 4097;
+    let linux = platform.target().starts_with("linux");
+    // Whole-path no-symlink flags — the same set `openFileNoFollow` uses (macOS
+    // carries O_NOFOLLOW_ANY here; Linux carries O_NOFOLLOW and adds
+    // RESOLVE_NO_SYMLINKS via openat2 below).
+    let flags = open_flag_set(platform.target(), true);
+
+    let root_alloc_ok = format!("{symbol}_root_alloc_ok");
+    let root_copy_loop = format!("{symbol}_root_copy_loop");
+    let root_copy_done = format!("{symbol}_root_copy_done");
+    let buffer_alloc_ok = format!("{symbol}_buffer_alloc_ok");
+    let realpath_ok = format!("{symbol}_realpath_ok");
+    let realpath_error = format!("{symbol}_realpath_error");
+    let rlen_loop = format!("{symbol}_rlen_loop");
+    let rlen_done = format!("{symbol}_rlen_done");
+    let scan_loop = format!("{symbol}_rel_scan_loop");
+    let scan_slash = format!("{symbol}_rel_scan_slash");
+    let scan_reset = format!("{symbol}_rel_scan_reset");
+    let scan_notslash = format!("{symbol}_rel_scan_notslash");
+    let scan_advance = format!("{symbol}_rel_scan_advance");
+    let scan_end = format!("{symbol}_rel_scan_end");
+    let scan_ok = format!("{symbol}_rel_scan_ok");
+    let append_loop = format!("{symbol}_append_loop");
+    let append_done = format!("{symbol}_append_done");
+    let read = format!("{symbol}_mode_read");
+    let write = format!("{symbol}_mode_write");
+    let read_write = format!("{symbol}_mode_read_write");
+    let append = format!("{symbol}_mode_append");
+    let flags_done = format!("{symbol}_flags_done");
+    let open_ok = format!("{symbol}_open_ok");
+    let file_alloc_ok = format!("{symbol}_file_alloc_ok");
+    let open_error = format!("{symbol}_open_error");
+    let invalid = format!("{symbol}_invalid");
+    let openat2_mode_zero = format!("{symbol}_openat2_mode_zero");
+    let done = format!("{symbol}_done");
+
+    let mut vregs = Vregs::new();
+    let root = vregs.next();
+    let rel = vregs.next();
+    let mode = vregs.next();
+    let root_cstr = vregs.next();
+    let c_path = vregs.next(); // the PATH_MAX join buffer (canonical root + "/" + rel)
+    let flag_val = vregs.next();
+    let fd = vregs.next();
+    let len0 = vregs.next();
+    let len = vregs.next();
+    let src = vregs.next();
+    let dst = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
+    let rlen = vregs.next();
+    let rel_len = vregs.next();
+    let relcur = vregs.next();
+    let comp_len = vregs.next();
+    let comp_dots = vregs.next();
+    let mode_len = vregs.next();
+    let mode_byte = vregs.next();
+    let how_scratch = vregs.next();
+    let how_mode_bit = vregs.next();
+    let openat2_errno = vregs.next();
+    let need = vregs.next();
+
+    let mut relocations: Vec<CodeRelocation> = Vec::new();
+    // Each `bl ARENA_ALLOC` site needs its own relocation (matching the other fs
+    // helpers). This helper allocates three times: root C string, PATH_MAX join
+    // buffer, and the File record.
+    let alloc_call = |ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>| {
+        rel.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+        ins.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
+    };
+
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&root, abi::return_register()),
+        abi::move_register(&rel, abi::RET[1]),
+        abi::move_register(&mode, abi::RET[2]),
+        // root must be non-empty.
+        abi::load_u64(&len0, &root, 0),
+        abi::compare_immediate(&len0, "0"),
+        abi::branch_eq(&invalid),
+        // Allocate + copy root into a C string.
+        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+    ];
+    alloc_call(&mut instructions, &mut relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&root_alloc_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&root_alloc_ok),
+        abi::move_register(&root_cstr, abi::RET[1]),
+        abi::load_u64(&len, &root, 0),
+        abi::add_immediate(&src, &root, 8),
+        abi::move_register(&dst, &root_cstr),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::label(&root_copy_loop),
+        abi::compare_registers(&index, &len),
+        abi::branch_eq(&root_copy_done),
+        abi::load_u8(&byte, &src, 0),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&invalid),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&root_copy_loop),
+        abi::label(&root_copy_done),
+        abi::store_u8(abi::ZERO, &dst, 0),
+        // Allocate the PATH_MAX realpath/join buffer.
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &PATH_MAX_PLUS_NUL.to_string(),
+        ),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+    ]);
+    alloc_call(&mut instructions, &mut relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&buffer_alloc_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&buffer_alloc_ok),
+        abi::move_register(&c_path, abi::RET[1]),
+        // realpath(root_cstr, c_path): canonicalize the trusted root (resolving its
+        // own symlinks). NULL return => the root does not resolve.
+        abi::move_register(abi::return_register(), &root_cstr),
+        abi::move_register(abi::ARG[1], &c_path),
+    ]);
+    platform.emit_realpath(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&realpath_ok),
+        abi::branch(&realpath_error),
+        abi::label(&realpath_ok),
+        // Measure the canonical root length (strlen).
+        abi::move_immediate(&rlen, "Integer", "0"),
+        abi::label(&rlen_loop),
+        abi::load_u8(&byte, &c_path, 0),
+        // c_path is the base; index via rlen. Reload byte at c_path+rlen.
+    ]);
+    // Recompute byte at c_path + rlen each iteration.
+    instructions.extend([
+        abi::add_registers(&dst, &c_path, &rlen),
+        abi::load_u8(&byte, &dst, 0),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&rlen_done),
+        abi::add_immediate(&rlen, &rlen, 1),
+        abi::branch(&rlen_loop),
+        abi::label(&rlen_done),
+        // Validate relPath: non-empty, not absolute, no ".." component.
+        abi::load_u64(&rel_len, &rel, 0),
+        abi::compare_immediate(&rel_len, "0"),
+        abi::branch_eq(&invalid),
+        abi::add_immediate(&relcur, &rel, 8), // first char
+        abi::load_u8(&byte, &relcur, 0),
+        abi::compare_immediate(&byte, "47"), // '/' => absolute
+        abi::branch_eq(&invalid),
+        // Component scan: reject a ".." component (comp of length 2, both dots).
+        abi::move_register(&relcur, &rel_len), // reuse relcur as remaining count
+        abi::add_immediate(&src, &rel, 8),
+        abi::move_immediate(&comp_len, "Integer", "0"),
+        abi::move_immediate(&comp_dots, "Integer", "0"),
+        abi::label(&scan_loop),
+        abi::compare_immediate(&relcur, "0"),
+        abi::branch_eq(&scan_end),
+        abi::load_u8(&byte, &src, 0),
+        abi::compare_immediate(&byte, "47"), // '/'
+        abi::branch_ne(&scan_notslash),
+        abi::label(&scan_slash),
+        abi::compare_immediate(&comp_len, "2"),
+        abi::branch_ne(&scan_reset),
+        abi::compare_immediate(&comp_dots, "2"),
+        abi::branch_eq(&invalid),
+        abi::label(&scan_reset),
+        abi::move_immediate(&comp_len, "Integer", "0"),
+        abi::move_immediate(&comp_dots, "Integer", "0"),
+        abi::branch(&scan_advance),
+        abi::label(&scan_notslash),
+        abi::add_immediate(&comp_len, &comp_len, 1),
+        abi::compare_immediate(&byte, "46"), // '.'
+        abi::branch_ne(&scan_advance),
+        abi::add_immediate(&comp_dots, &comp_dots, 1),
+        abi::label(&scan_advance),
+        abi::add_immediate(&src, &src, 1),
+        abi::subtract_immediate(&relcur, &relcur, 1),
+        abi::branch(&scan_loop),
+        abi::label(&scan_end),
+        abi::compare_immediate(&comp_len, "2"),
+        abi::branch_ne(&scan_ok),
+        abi::compare_immediate(&comp_dots, "2"),
+        abi::branch_eq(&invalid),
+        abi::label(&scan_ok),
+        // Bounds: canonical_root + '/' + rel + NUL must fit PATH_MAX+1.
+        abi::add_registers(&need, &rlen, &rel_len),
+        abi::add_immediate(&need, &need, 2),
+        abi::compare_immediate(&need, &PATH_MAX_PLUS_NUL.to_string()),
+        abi::branch_hi(&invalid),
+        // Append "/" + rel to the canonical root at c_path+rlen.
+        abi::add_registers(&dst, &c_path, &rlen),
+        abi::move_immediate(&byte, "Integer", "47"),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&src, &rel, 8),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::label(&append_loop),
+        abi::compare_registers(&index, &rel_len),
+        abi::branch_eq(&append_done),
+        abi::load_u8(&byte, &src, 0),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&invalid),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&append_loop),
+        abi::label(&append_done),
+        abi::store_u8(abi::ZERO, &dst, 0),
+        // c_path now holds the full canonical join. Match the mode → flags.
+        abi::load_u64(&mode_len, &mode, 0),
+    ]);
+    for (lit, target) in [
+        (&b"r"[..], &read),
+        (&b"read"[..], &read),
+        (&b"w"[..], &write),
+        (&b"write"[..], &write),
+        (&b"rw"[..], &read_write),
+        (&b"readWrite"[..], &read_write),
+        (&b"a"[..], &append),
+        (&b"append"[..], &append),
+    ] {
+        emit_branch_if_ascii_literal(
+            &mut instructions,
+            &mode,
+            &mode_len,
+            &mode_byte,
+            lit,
+            target,
+            symbol,
+        );
+    }
+    instructions.extend([
+        abi::branch(&invalid),
+        abi::label(&read),
+        abi::move_immediate(&flag_val, "Integer", flags.read),
+        abi::branch(&flags_done),
+        abi::label(&write),
+        abi::move_immediate(&flag_val, "Integer", flags.write),
+        abi::branch(&flags_done),
+        abi::label(&read_write),
+        abi::move_immediate(&flag_val, "Integer", flags.read_write),
+        abi::branch(&flags_done),
+        abi::label(&append),
+        abi::move_immediate(&flag_val, "Integer", flags.append),
+        abi::label(&flags_done),
+    ]);
+    // Whole-path no-symlink open on c_path — identical to openFileNoFollow.
+    if linux {
+        instructions.extend([
+            abi::store_u64(&flag_val, abi::stack_pointer(), 0),
+            abi::move_immediate(&how_scratch, "Integer", "0"),
+            abi::move_immediate(&how_mode_bit, "Integer", "64"),
+            abi::and_registers(&how_mode_bit, &flag_val, &how_mode_bit),
+            abi::compare_immediate(&how_mode_bit, "0"),
+            abi::branch_eq(&openat2_mode_zero),
+            abi::move_immediate(&how_scratch, "Integer", "384"),
+            abi::label(&openat2_mode_zero),
+            abi::store_u64(&how_scratch, abi::stack_pointer(), 8),
+            abi::move_immediate(&how_scratch, "Integer", "4"), // RESOLVE_NO_SYMLINKS
+            abi::store_u64(&how_scratch, abi::stack_pointer(), 16),
+            abi::move_immediate(abi::ARG[0], "Integer", "437"), // SYS_openat2
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 100), // AT_FDCWD
+            abi::move_register(abi::ARG[2], &c_path),
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0),
+            abi::move_immediate(abi::ARG[4], "Integer", "24"),
+        ]);
+        platform.emit_variadic_call(
+            "syscall",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ge(&open_ok),
+        ]);
+        platform.emit_errno(
+            symbol,
+            &openat2_errno,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate(&openat2_errno, "38"), // ENOSYS -> plain open fallback
+            abi::branch_ne(&open_error),
+        ]);
+    }
+    instructions.extend([
+        abi::move_register(abi::return_register(), &c_path),
+        abi::move_register(abi::ARG[1], &flag_val),
+        abi::move_immediate(abi::ARG[2], "Integer", "384"),
+    ]);
+    platform.emit_open_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ge(&open_ok),
+        abi::branch(&open_error),
+        abi::label(&open_ok),
+        abi::move_register(&fd, abi::return_register()),
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    alloc_call(&mut instructions, &mut relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&file_alloc_ok),
+        abi::move_register(abi::return_register(), &fd),
+    ]);
+    platform.emit_close_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&file_alloc_ok),
+        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&invalid),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&realpath_error),
+        abi::label(&open_error),
+    ]);
+    let errno_reg = vregs.next();
+    platform.emit_errno(
+        symbol,
+        &errno_reg,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fs_path_errno_error_mapping(
+        symbol,
+        &errno_reg,
+        platform.target(),
+        true,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = if linux {
+        finalize_vreg_body_with_locals(&mut instructions, &[], 24)
+    } else {
+        finalize_vreg_body(&mut instructions, &[])
+    };
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
 pub(super) fn lower_fs_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,

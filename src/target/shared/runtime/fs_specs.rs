@@ -259,6 +259,35 @@ pub(crate) const FS_OPEN_FILE_NO_FOLLOW_SPEC: RuntimeHelperSpec = RuntimeHelperS
     },
 };
 
+const FS_OPEN_WITHIN_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "root",
+        type_: "String",
+        location: abi::ARG[0],
+    },
+    RuntimeAbiParam {
+        name: "relPath",
+        type_: "String",
+        location: abi::ARG[1],
+    },
+    RuntimeAbiParam {
+        name: "mode",
+        type_: "String",
+        location: abi::ARG[2],
+    },
+];
+
+pub(crate) const FS_OPEN_WITHIN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Fs,
+    call: "fs.openWithin",
+    symbol: "_mfb_rt_fs_fs_openWithin",
+    abi: RuntimeHelperAbi {
+        params: FS_OPEN_WITHIN_PARAMS,
+        returns: "File",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const FS_CREATE_TEMP_FILE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.createTempFile",

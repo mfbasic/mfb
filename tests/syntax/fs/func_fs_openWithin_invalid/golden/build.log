@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/fs/func_fs_openWithin_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES tooFew AS File = fs::openWithin("root")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openWithin` has 1 argument(s), expected 2 to 3.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES tooFew AS File = fs::openWithin("root")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooFew` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   RES tooFew AS File = fs::openWithin("root")
+   5 |   RES wrongRoot AS File = fs::openWithin(1, "rel")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openWithin` has argument type(s) (Integer, String), expected String, String[, String].
+   3 | FUNC main AS Integer
+   4 |   RES tooFew AS File = fs::openWithin("root")
+   5 |   RES wrongRoot AS File = fs::openWithin(1, "rel")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongRoot` does not have a known type.
+   4 |   RES tooFew AS File = fs::openWithin("root")
+   5 |   RES wrongRoot AS File = fs::openWithin(1, "rel")
+   6 |   RES wrongRel AS File = fs::openWithin("root", 2)
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openWithin` has argument type(s) (String, Integer), expected String, String[, String].
+   4 |   RES tooFew AS File = fs::openWithin("root")
+   5 |   RES wrongRoot AS File = fs::openWithin(1, "rel")
+   6 |   RES wrongRel AS File = fs::openWithin("root", 2)
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongRel` does not have a known type.
+   5 |   RES wrongRoot AS File = fs::openWithin(1, "rel")
+   6 |   RES wrongRel AS File = fs::openWithin("root", 2)
+   7 |   RES wrongMode AS File = fs::openWithin("root", "rel", 3)
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openWithin` has argument type(s) (String, String, Integer), expected String, String[, String].
+   5 |   RES wrongRoot AS File = fs::openWithin(1, "rel")
+   6 |   RES wrongRel AS File = fs::openWithin("root", 2)
+   7 |   RES wrongMode AS File = fs::openWithin("root", "rel", 3)
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongMode` does not have a known type.
+   6 |   RES wrongRel AS File = fs::openWithin("root", 2)
+   7 |   RES wrongMode AS File = fs::openWithin("root", "rel", 3)
+   8 |   RES tooMany AS File = fs::openWithin("root", "rel", "read", "x")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openWithin` has 4 argument(s), expected 2 to 3.
+   6 |   RES wrongRel AS File = fs::openWithin("root", 2)
+   7 |   RES wrongMode AS File = fs::openWithin("root", "rel", 3)
+   8 |   RES tooMany AS File = fs::openWithin("root", "rel", "read", "x")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

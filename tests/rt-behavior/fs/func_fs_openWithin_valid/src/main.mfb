@@ -1,0 +1,40 @@
+' bug-259: fs::openWithin(root, relPath[, mode]) opens relPath resolved beneath
+' the trusted root, refusing any escape at open time (closing the isWithin+open
+' TOCTOU). A relPath that is absolute, contains a `..` component, or traverses a
+' symlink is rejected; a contained relPath opens. Both overloads (with and
+' without an explicit mode) are exercised.
+IMPORT fs
+IMPORT io
+IMPORT errorCode
+
+FUNC attempt(root AS String, rel AS String) AS String
+  RES f = fs::openWithin(root, rel, "r") TRAP(e)
+    IF e.code = errorCode::ErrInvalidArgument THEN
+      RETURN "rejected-invalid"
+    END IF
+    IF e.code = errorCode::ErrAccessDenied THEN
+      RETURN "rejected-symlink"
+    END IF
+    RETURN "rejected-" & toString(e.code)
+  END TRAP
+  LET body AS String = fs::readAll(f)
+  fs::close(f)
+  RETURN "ok:" & body
+END FUNC
+
+FUNC main AS Integer
+  LET root AS String = "tests/rt-behavior/fs/func_fs_openWithin_valid/data"
+  ' A contained relative path opens.
+  io::print("contained=" & attempt(root, "sub/data.txt"))
+  ' An absolute relPath is refused.
+  io::print("absolute=" & attempt(root, "/etc/hostname"))
+  ' A `..` component is refused.
+  io::print("dotdot=" & attempt(root, "../../../etc/hostname"))
+  ' Traversing a symlink (evillink -> /etc) is refused.
+  io::print("symlink=" & attempt(root, "evillink/hostname"))
+  ' The two-argument overload defaults the mode to "read".
+  RES g = fs::openWithin(root, "sub/data.txt")
+  io::print("twoarg=ok:" & fs::readAll(g))
+  fs::close(g)
+  RETURN 0
+END FUNC

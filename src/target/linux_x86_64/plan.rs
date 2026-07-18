@@ -126,7 +126,11 @@ impl NativePlanPlatform for Platform {
                 self.libc_import("getuid", spec.symbol),
                 self.libc_import("getpwuid", spec.symbol),
             ],
-            "os.executablePath" => vec![self.libc_import("readlink", spec.symbol)],
+            // plan-55-B: `os.resourcePath` reuses the `readlink("/proc/self/exe")`
+            // acquisition, so it needs the same import.
+            "os.executablePath" | "os.resourcePath" => {
+                vec![self.libc_import("readlink", spec.symbol)]
+            }
             // `write` is a raw syscall on x86 (`emit_write`, nr 1), never a libc
             // PLT call, so these helpers import nothing (bug-79.4). Every backend
             // that raw-syscalls `write` omits the import.
@@ -220,6 +224,7 @@ impl NativePlanPlatform for Platform {
             "fs.open"
             | "fs.openFile"
             | "fs.openFileNoFollow"
+            | "fs.openWithin"
             | "fs.createTempFile"
             | "fs.readText"
             | "fs.readBytes"
@@ -259,10 +264,14 @@ impl NativePlanPlatform for Platform {
                     // temp file, so the helper needs the `unlink` wrapper too.
                     imports.push(self.libc_import("unlink", spec.symbol));
                 }
-                if matches!(spec.call, "fs.openFileNoFollow") {
-                    // bug-260: openFileNoFollow uses openat2(RESOLVE_NO_SYMLINKS) via
-                    // the libc `syscall` wrapper to reject symlinks at any component.
+                if matches!(spec.call, "fs.openFileNoFollow" | "fs.openWithin") {
+                    // bug-260/bug-259: openFileNoFollow/openWithin use openat2 via the libc
+                    // `syscall` wrapper to reject symlinks (RESOLVE_NO_SYMLINKS).
                     imports.push(self.libc_import("syscall", spec.symbol));
+                }
+                if matches!(spec.call, "fs.openWithin") {
+                    // bug-259: openWithin canonicalizes its trusted root via realpath.
+                    imports.push(self.libc_import("realpath", spec.symbol));
                 }
                 imports
             }

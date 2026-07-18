@@ -253,7 +253,9 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: spec.symbol.to_string(),
                 },
             ],
-            "os.executablePath" => vec![PlatformImport {
+            // plan-55-B: `os.resourcePath` reuses the same exe-path acquisition as
+            // `os.executablePath`, so it needs the identical libc import.
+            "os.executablePath" | "os.resourcePath" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "__NSGetExecutablePath".to_string(),
                 required_by: spec.symbol.to_string(),
@@ -479,6 +481,7 @@ impl plan::NativePlanPlatform for Platform {
             "fs.open"
             | "fs.openFile"
             | "fs.openFileNoFollow"
+            | "fs.openWithin"
             | "fs.createTempFile"
             | "fs.readText"
             | "fs.readBytes"
@@ -538,6 +541,15 @@ impl plan::NativePlanPlatform for Platform {
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_getentropy".to_string(),
+                        required_by: spec.symbol.to_string(),
+                    });
+                }
+                if matches!(spec.call, "fs.openWithin") {
+                    // bug-259: openWithin canonicalizes its trusted root via realpath
+                    // (macOS uses O_NOFOLLOW_ANY on the join, already in the flag set).
+                    imports.push(PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: "_realpath".to_string(),
                         required_by: spec.symbol.to_string(),
                     });
                 }

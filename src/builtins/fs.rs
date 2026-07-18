@@ -16,6 +16,7 @@ const APPEND_TEXT: &str = "fs.appendText";
 const OPEN: &str = "fs.open";
 const OPEN_FILE: &str = "fs.openFile";
 const OPEN_FILE_NO_FOLLOW: &str = "fs.openFileNoFollow";
+const OPEN_WITHIN: &str = "fs.openWithin";
 const CREATE_TEMP_FILE: &str = "fs.createTempFile";
 const TEMP_DIRECTORY: &str = "fs.tempDirectory";
 const READ_LINE: &str = "fs.readLine";
@@ -65,6 +66,7 @@ pub(crate) fn is_fs_call(name: &str) -> bool {
             | OPEN
             | OPEN_FILE
             | OPEN_FILE_NO_FOLLOW
+            | OPEN_WITHIN
             | CREATE_TEMP_FILE
             | TEMP_DIRECTORY
             | READ_LINE
@@ -126,6 +128,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         WRITE_BYTES | WRITE_BYTES_ATOMIC | APPEND_BYTES => Some(&[&["path"], &["bytes", "value"]]),
         WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT => Some(&[&["path"], &["value"]]),
         OPEN | OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some(&[&["path"], &["mode"]]),
+        OPEN_WITHIN => Some(&[&["root"], &["relPath"], &["mode"]]),
         CREATE_TEMP_FILE => Some(&[&["directory"]]),
         TEMP_DIRECTORY | CURRENT_DIRECTORY => Some(&[]),
         READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => {
@@ -164,7 +167,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         | CREATE_DIRECTORIES
         | DELETE_DIRECTORY
         | SET_CURRENT_DIRECTORY => Some("Nothing"),
-        OPEN | OPEN_FILE | OPEN_FILE_NO_FOLLOW | CREATE_TEMP_FILE => Some(FILE_TYPE),
+        OPEN | OPEN_FILE | OPEN_FILE_NO_FOLLOW | OPEN_WITHIN | CREATE_TEMP_FILE => Some(FILE_TYPE),
         LIST_DIRECTORY => Some("List OF String"),
         _ => None,
     }
@@ -203,6 +206,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         OPEN if exact(arg_types, &["String", "String"]) => Cow::Borrowed(FILE_TYPE),
         OPEN_FILE | OPEN_FILE_NO_FOLLOW
             if exact(arg_types, &["String"]) || exact(arg_types, &["String", "String"]) =>
+        {
+            Cow::Borrowed(FILE_TYPE)
+        }
+        OPEN_WITHIN
+            if exact(arg_types, &["String", "String"])
+                || exact(arg_types, &["String", "String", "String"]) =>
         {
             Cow::Borrowed(FILE_TYPE)
         }
@@ -253,6 +262,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         // `mode` is optional (arity 1..=2), so spell it as such rather than
         // advertising only the maximal form (bug-213).
         OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some("String[, String]"),
+        OPEN_WITHIN => Some("String, String[, String]"),
         CREATE_TEMP_FILE => Some("String"),
         READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => {
             Some(FILE_TYPE)
@@ -290,6 +300,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
             Some((2, 2))
         }
         OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some((1, 2)),
+        OPEN_WITHIN => Some((2, 3)),
         CREATE_TEMP_FILE => Some((0, 1)),
         READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => Some((1, 1)),
         PATH_JOIN => Some((1, 1)),
@@ -333,6 +344,7 @@ mod tests {
         OPEN,
         OPEN_FILE,
         OPEN_FILE_NO_FOLLOW,
+        OPEN_WITHIN,
         CREATE_TEMP_FILE,
         TEMP_DIRECTORY,
         READ_LINE,
