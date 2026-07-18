@@ -1557,9 +1557,20 @@ async fn put_blob(
         .await
         .map_err(internal)?;
     let blob_ref = state.blob_store.blob_ref(&hash, BlobKind::Native);
-    if let Err(err) = state.store.record_native_blob(&hash, &blob_ref) {
+    let promote_bin = match state.store.record_native_blob(&hash, &blob_ref) {
+        Ok(promote_bin) => promote_bin,
+        Err(err) => {
+            state.blob_store.abort(staged).await;
+            return Err(internal(err));
+        }
+    };
+    if !promote_bin {
+        // These bytes are already stored under another kind, and `GET /blob` will
+        // serve them from that row (bug-276 R5). Promoting would leave a second,
+        // unreferenced copy, so drop the staging instead and report the upload as
+        // the no-op it is.
         state.blob_store.abort(staged).await;
-        return Err(internal(err));
+        return Ok(StatusCode::OK);
     }
     if let Err(err) = state.blob_store.promote(staged).await {
         return Err(internal(err));

@@ -44,6 +44,12 @@ const CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
 /// wedged socket. A true stall timeout needs the async API or a chunked reader.
 const BLOB_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// Ceilings on how much of a response body is buffered (bug-276 R3). Control-plane
+/// JSON is small by construction; a blob is a vendored native library, and 96 MiB
+/// leaves generous slack over the ~64 MiB such a file realistically reaches.
+const MAX_JSON_BYTES: u64 = 1024 * 1024;
+const MAX_BLOB_BYTES: u64 = 96 * 1024 * 1024;
+
 /// The one shared HTTP client for every registry call.
 ///
 /// Built once, for two reasons. Each blocking `Client` owns a tokio runtime on a
@@ -369,6 +375,14 @@ pub fn rotate_ident(
     let possession_message = crypto::registration_message(crypto::ROLE_IDENT, owner, &new_public);
     let possession_proof = crypto::sign(&new_private, &possession_message)?;
 
+    // Stage the new keypair *before* asking the server to commit the rotation
+    // (bug-276 R1). The server marks the old ident `past` inside its transaction,
+    // so if the new private key only existed in memory until after a successful
+    // response, then a lost response or a failing disk write would leave this
+    // machine holding a key that is no longer the account authority and no copy
+    // of the one that is. Rotation exists precisely because other machines are
+    // lost or untrusted, so that can brick the account.
+    local::write_pending_ident_keypair(paths, owner, &new_public, &new_private)?;
     let response = post_json::<RotateResponse>(
         repo_url,
         "/keys/rotate",
@@ -379,9 +393,63 @@ pub fn rotate_ident(
             possession_proof: crypto::encode_bytes(&possession_proof),
             session_token,
         },
-    )?;
-    local::write_ident_keypair(paths, owner, &new_public, &new_private)?;
-    Ok(response)
+    );
+    match response {
+        Ok(response) => {
+            local::promote_pending_ident_keypair(paths, owner)?;
+            Ok(response)
+        }
+        Err(err) => {
+            // The request failed, but "failed" includes a response lost after the
+            // server already committed — the case that actually strands the
+            // account. Ask the registry which ident it now holds: if it is the
+            // staged key, the rotation did happen and promoting is the recovery.
+            // Only discard the staging when the server demonstrably still has the
+            // old key.
+            match reconcile_pending_ident(repo_url, paths, owner, &new_public) {
+                Ok(true) => Ok(RotateResponse {
+                    owner: owner.to_string(),
+                    ident_fingerprint: crypto::fingerprint(&new_public),
+                }),
+                // Server still on the old ident: the rotation did not happen.
+                Ok(false) => Err(err),
+                // Could not reach the server to decide. Leave the staged key in
+                // place — it is the only copy of a possibly-authoritative key,
+                // and a later rotate/auth reconciles it.
+                Err(_) => Err(format!(
+                    "{err}; a staged ident key was left at '{}' because the \
+                     registry could not be reached to confirm whether the rotation \
+                     committed — re-run `mfb repo rotate` once it is reachable",
+                    paths.ident_pending_private_key_path(owner).display()
+                )),
+            }
+        }
+    }
+}
+
+/// Decide the fate of a staged ident rotation by asking the registry which ident
+/// key it currently holds (bug-276 R1).
+///
+/// Returns `Ok(true)` when the staged key *is* the registry's current ident (the
+/// rotation committed and has now been promoted locally), `Ok(false)` when the
+/// registry still holds a different key (the staging was discarded), and `Err`
+/// when the registry could not be consulted, in which case the staging is left
+/// untouched — deleting a key that might be the account authority is the one
+/// outcome worth avoiding.
+fn reconcile_pending_ident(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    staged_public: &[u8],
+) -> Result<bool, String> {
+    let chain = fetch_ident_chain(repo_url, owner)?;
+    let current = crypto::decode_bytes(&chain.ident_key, "identKey")?;
+    if current == staged_public {
+        local::promote_pending_ident_keypair(paths, owner)?;
+        return Ok(true);
+    }
+    local::remove_pending_ident_keypair(paths, owner);
+    Ok(false)
 }
 
 /// Fetch the owner's current ident binding and the signed rotation chain.
@@ -457,7 +525,17 @@ pub fn revoke_machine(
 /// and enforce append-only growth against the locally pinned checkpoint
 /// (plan-23-B3): a shrunken tree, or a different root at the same size, is a
 /// hard error — never silently re-pinned.
-pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<CheckpointResponse, String> {
+/// Fetch and verify the signed checkpoint **without** pinning it.
+///
+/// Splitting the pin out matters for `verify_log_consistency` (bug-276 R2):
+/// pinning the new head before the consistency proof is checked means a detected
+/// fork has already overwritten the pin it would be detected against, so the
+/// evidence self-destructs after a single error and the next call succeeds
+/// against the forked history.
+fn fetch_checkpoint_unpinned(
+    repo_url: &str,
+    paths: &LocalPaths,
+) -> Result<CheckpointResponse, String> {
     let server_key = ensure_server_key(repo_url, paths)?;
     let checkpoint = get_json::<CheckpointResponse>(repo_url, "/log/checkpoint")?;
     let root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
@@ -482,6 +560,12 @@ pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<Checkpoint
             );
         }
     }
+    Ok(checkpoint)
+}
+
+/// Fetch, verify and pin the current checkpoint.
+pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<CheckpointResponse, String> {
+    let checkpoint = fetch_checkpoint_unpinned(repo_url, paths)?;
     local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
     Ok(checkpoint)
 }
@@ -570,13 +654,18 @@ pub fn verify_publish_inclusion(
 
 /// Fetch and verify a consistency proof between the pinned checkpoint and
 /// the current one.
-pub fn verify_log_consistency(repo_url: &str, paths: &LocalPaths) -> Result<(), String> {
+pub fn verify_log_consistency(
+    repo_url: &str,
+    paths: &LocalPaths,
+) -> Result<CheckpointResponse, String> {
     let Some((pinned_size, pinned_root)) = local::read_checkpoint(paths)? else {
         // Nothing pinned yet: fetch_checkpoint establishes the first pin.
-        fetch_checkpoint(repo_url, paths)?;
-        return Ok(());
+        return fetch_checkpoint(repo_url, paths);
     };
-    let checkpoint = fetch_checkpoint(repo_url, paths)?;
+    // Deliberately unpinned (bug-276 R2): the candidate head must not overwrite
+    // the pin until its consistency against that pin has been proven, or a fork
+    // erases the very evidence it would be caught by.
+    let checkpoint = fetch_checkpoint_unpinned(repo_url, paths)?;
     let proof = get_json::<ConsistencyProofResponse>(
         repo_url,
         &format!("/log/consistency?from={pinned_size}&to={}", checkpoint.size),
@@ -593,7 +682,10 @@ pub fn verify_log_consistency(repo_url: &str, paths: &LocalPaths) -> Result<(), 
         &old_root,
         &new_root,
         &path,
-    )
+    )?;
+    // Proven an extension of the pinned history — only now advance the pin.
+    local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
+    Ok(checkpoint)
 }
 
 fn decode_hex32(value: &str, field: &str) -> Result<[u8; 32], String> {
@@ -1079,9 +1171,9 @@ pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
         .map_err(|err| format!("failed to connect to repository service: {err}"))?;
     let status = response.status();
     if !status.is_success() {
-        let text = response
-            .text()
-            .unwrap_or_else(|_| "repository request failed".to_string());
+        let body = read_body_capped(response, MAX_JSON_BYTES, "repository error body")
+            .unwrap_or_else(|_| b"repository request failed".to_vec());
+        let text = String::from_utf8_lossy(&body);
         if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
             return Err(error.error);
         }
@@ -1089,10 +1181,7 @@ pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
             "repository request failed with status {status}: {text}"
         ));
     }
-    let bytes = response
-        .bytes()
-        .map_err(|err| format!("failed to read blob body: {err}"))?
-        .to_vec();
+    let bytes = read_body_capped(response, MAX_BLOB_BYTES, "blob body")?;
     if hex::encode(crypto::sha256(&bytes)) != hash {
         return Err("downloaded blob does not match the requested content hash".to_string());
     }
@@ -1236,18 +1325,60 @@ fn get_json<T: DeserializeOwned>(repo_url: &str, path: &str) -> Result<T, String
     read_json_response(response)
 }
 
+/// Read a response body with a hard ceiling (bug-276 R3).
+///
+/// Every body used to be buffered whole with no length check, and for a blob the
+/// SHA-256 check only runs *after* buffering. A hostile registry — or the
+/// presigned-URL host that `fetch_blob` silently follows on a 302 from the S3
+/// backend — could therefore stream for up to `BLOB_TIMEOUT` (600s) and force a
+/// multi-gigabyte allocation before anything got the chance to reject it.
+/// Integrity was never at risk; availability was.
+///
+/// `Content-Length` is honored when present so an oversized body is refused
+/// before a byte of it is read, but it is only a hint: the read itself is capped
+/// at `limit + 1` so a chunked or lying response is bounded just the same.
+fn read_body_capped(
+    mut response: reqwest::blocking::Response,
+    limit: u64,
+    what: &str,
+) -> Result<Vec<u8>, String> {
+    use std::io::Read as _;
+
+    if let Some(length) = response.content_length() {
+        if length > limit {
+            return Err(format!(
+                "{what} is {length} bytes, over the {limit}-byte limit"
+            ));
+        }
+    }
+    let mut body = Vec::new();
+    response
+        .by_ref()
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut body)
+        .map_err(|err| format!("failed to read {what}: {err}"))?;
+    if body.len() as u64 > limit {
+        return Err(format!("{what} exceeds the {limit}-byte limit"));
+    }
+    Ok(body)
+}
+
 fn read_json_response<T: DeserializeOwned>(
     response: reqwest::blocking::Response,
 ) -> Result<T, String> {
     let status = response.status();
+    let body = match read_body_capped(response, MAX_JSON_BYTES, "repository response") {
+        Ok(body) => body,
+        Err(err) if status.is_success() => return Err(err),
+        // An unreadable or oversized *error* body must not mask the status it
+        // arrived with, so fall back to the same generic text as before.
+        Err(_) => b"repository request failed".to_vec(),
+    };
     if status.is_success() {
-        return response
-            .json::<T>()
+        return serde_json::from_slice::<T>(&body)
             .map_err(|err| format!("invalid repository response: {err}"));
     }
-    let text = response
-        .text()
-        .unwrap_or_else(|_| "repository request failed".to_string());
+    let text = String::from_utf8_lossy(&body);
     if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
         return Err(error.error);
     }

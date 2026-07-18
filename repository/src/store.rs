@@ -1244,16 +1244,39 @@ impl Store {
     /// Record a freshly uploaded native-library blob's metadata row
     /// (plan-48-A §4.3). Idempotent: re-uploading an existing blob leaves the
     /// original row untouched.
-    pub fn record_native_blob(&self, hash: &str, blob_path: &str) -> Result<(), String> {
+    /// Returns whether the caller should go on to promote a `<hash>.bin`.
+    ///
+    /// `package_blobs` is keyed by hash alone and `GET /blob/<hash>` picks the
+    /// backend file from that row's `kind`. So when a package blob already exists
+    /// with these exact bytes, the `INSERT OR IGNORE` is ignored and the row keeps
+    /// `kind='package'` — at which point writing a `.bin` too produced a second
+    /// copy that nothing ever reads or collects (bug-276 R5).
+    ///
+    /// Reporting `false` there is safe precisely because the blob is
+    /// content-addressed: the existing object holds byte-identical content and
+    /// `GET` already serves it under the recorded kind, so the upload is a
+    /// genuine no-op rather than a dropped write.
+    pub fn record_native_blob(&self, hash: &str, blob_path: &str) -> Result<bool, String> {
         let now = now_unix();
         let conn = self.conn();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT kind FROM package_blobs WHERE hash = ?1",
+                params![hash],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load native blob metadata: {err}"))?;
+        if let Some(kind) = existing {
+            return Ok(kind == "native");
+        }
         conn.execute(
-            "INSERT OR IGNORE INTO package_blobs (hash, path, kind, created_at)
+            "INSERT INTO package_blobs (hash, path, kind, created_at)
              VALUES (?1, ?2, 'native', ?3)",
             params![hash, blob_path, now],
         )
         .map_err(|err| format!("failed to store native blob metadata: {err}"))?;
-        Ok(())
+        Ok(true)
     }
 
     /// Resolve an owner name to its row (any account: user or org).
@@ -1941,6 +1964,18 @@ impl Store {
     /// The ordered leaf hashes of the first `size` log entries (the whole
     /// log when `size` is None).
     pub fn log_leaf_hashes(&self, size: Option<i64>) -> Result<Vec<[u8; 32]>, String> {
+        // A negative size silently selected zero leaves (`WHERE idx < -1`), and
+        // `log_consistency_proof` would then compute `to = 0` and hand back a
+        // structurally "valid" empty-range proof for a log that is not empty
+        // (bug-276 R6). The callers take an unvalidated `Option<i64>` straight off
+        // a query string, so a rewriting proxy could feed a client that view and
+        // weaken an integrity signal it is trusting. Reject rather than clamp: a
+        // negative size is never a meaningful request.
+        if let Some(size) = size {
+            if size < 0 {
+                return Err("log size must not be negative".to_string());
+            }
+        }
         let conn = self.conn();
         let limit = size.unwrap_or(i64::MAX);
         let mut statement = conn
@@ -2138,10 +2173,22 @@ fn append_log_tx(
 }
 
 pub fn now_unix() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(elapsed) => elapsed.as_secs() as i64,
+        // A pre-1970 host clock used to fall through `unwrap_or_default()` to 0,
+        // which silently stamps every `created_at`/`expires_at` as the epoch — so
+        // freshly issued challenges, sessions and pairing blobs are born already
+        // expired and nothing says why (bug-276 R7). Self-inflicted
+        // misconfiguration rather than an attack, but it presents as an
+        // inexplicable "everything expires instantly" outage, so say so loudly.
+        Err(err) => {
+            eprintln!(
+                "warning: host clock is before the Unix epoch ({err}); timestamps \
+                 will be recorded as 0 and time-limited records will appear expired"
+            );
+            0
+        }
+    }
 }
 
 /// Add a column to a table if it is not already present (idempotent
@@ -2970,6 +3017,81 @@ mod tests {
     }
 
     #[test]
+    /// A negative log size is refused rather than silently selecting zero leaves
+    /// (bug-276 R6).
+    ///
+    /// `WHERE idx < ?1` with a negative bound returns nothing, and
+    /// `log_consistency_proof` would then compute `to = 0` and produce a
+    /// structurally valid empty-range proof for a log that is not empty. The
+    /// handlers take this straight off an unvalidated query parameter.
+    #[test]
+    fn a_negative_log_size_is_rejected() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+
+        assert!(store
+            .log_leaf_hashes(Some(-1))
+            .unwrap_err()
+            .contains("must not be negative"));
+        // Zero and None remain meaningful: an empty prefix and "everything".
+        assert!(store.log_leaf_hashes(Some(0)).unwrap().is_empty());
+        assert!(!store.log_leaf_hashes(None).unwrap().is_empty());
+    }
+
+    /// A native PUT whose bytes are already stored as a package blob must not
+    /// write a second, unreferenced `.bin` (bug-276 R5).
+    ///
+    /// `package_blobs` is keyed by hash alone and `GET /blob/<hash>` picks the
+    /// file from that row's `kind`, so the existing object already serves these
+    /// exact bytes. `record_native_blob` reports whether a `.bin` promote is
+    /// warranted; on a kind collision it is not.
+    #[test]
+    fn recording_a_native_blob_over_a_package_blob_skips_the_bin_promote() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "sharedhash",
+                "path",
+                "{}",
+                &[],
+            )
+            .unwrap();
+
+        // The publish recorded `sharedhash` as a package blob.
+        assert_eq!(
+            store.blob_kind("sharedhash").unwrap().as_deref(),
+            Some("package")
+        );
+        // A native upload of identical bytes must not promote a `.bin`, and must
+        // leave the existing row's kind alone.
+        assert!(!store
+            .record_native_blob("sharedhash", "blobs/sharedhash.bin")
+            .unwrap());
+        assert_eq!(
+            store.blob_kind("sharedhash").unwrap().as_deref(),
+            Some("package"),
+            "the existing row's kind must not be rewritten"
+        );
+
+        // A genuinely new native hash still records and promotes.
+        assert!(store
+            .record_native_blob("nativehash", "blobs/nativehash.bin")
+            .unwrap());
+        assert_eq!(
+            store.blob_kind("nativehash").unwrap().as_deref(),
+            Some("native")
+        );
+        // Idempotent re-upload of the same native blob still promotes.
+        assert!(store
+            .record_native_blob("nativehash", "blobs/nativehash.bin")
+            .unwrap());
+    }
+
     /// A transfer offer is only acceptable while the account that made it still
     /// owns the package (bug-274).
     ///

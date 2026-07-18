@@ -176,7 +176,13 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
     // Refuse to publish into a suspect registry: the checkpoint must verify
     // under the pinned server key and be append-only relative to the pinned
     // one (plan-23-B3) BEFORE anything is uploaded.
-    mfb_repository::client::fetch_checkpoint(&repo_url, &paths).map_err(|err| {
+    //
+    // `verify_log_consistency` rather than `fetch_checkpoint` (bug-276 R2):
+    // fetch_checkpoint only enforces monotonicity, so a fork that simply grows
+    // passes it. Demanding the RFC-6962 consistency proof against the pinned head
+    // is what actually establishes the new head extends the history this client
+    // already saw.
+    mfb_repository::client::verify_log_consistency(&repo_url, &paths).map_err(|err| {
         if err.contains("ROLLBACK") || err.contains("FORK") {
             crate::rules::show_general_diagnostic("REGISTRY_LOG_ROLLBACK", &err);
         }

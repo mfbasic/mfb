@@ -86,7 +86,20 @@ async fn main() {
                         process::exit(1);
                     }
                 };
-                let expires_at = mfb_repository::store::now_unix() + expires_days * 24 * 3600;
+                // `--expires-days` is operator input with no range check: a huge
+                // value overflowed (debug panic, release wrap) and a negative one
+                // produced an already-expired registry root (bug-276 R10).
+                let Some(expires_at) = expires_days
+                    .checked_mul(24 * 3600)
+                    .and_then(|seconds| mfb_repository::store::now_unix().checked_add(seconds))
+                    .filter(|_| expires_days > 0)
+                else {
+                    eprintln!(
+                        "error: --expires-days must be a positive number of days that does \
+                         not overflow (got {expires_days})"
+                    );
+                    process::exit(1);
+                };
                 match opened.store.init_registry_root(&registry_id, expires_at) {
                     Ok(root_private) => {
                         let config = opened

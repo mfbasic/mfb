@@ -275,6 +275,24 @@ impl BlobStore {
     }
 
     /// Discard a staged blob after a failed publish, leaving no servable orphan.
+    ///
+    /// Local staging uses a per-request UUID temp file, so removing it is always
+    /// safe and always right.
+    ///
+    /// S3 is deliberately different: it stages and promotes to the *same*
+    /// content-addressed key, so the staged key is not this request's private
+    /// object — it is the object. Two concurrent publishes of identical bytes
+    /// share it, and the one that loses the unique-constraint race used to
+    /// `delete` it on abort, destroying the blob the winner had just committed
+    /// (the winner's `promote` is a no-op) and leaving a `package_versions` row
+    /// whose blob 404s (bug-276 R4).
+    ///
+    /// There is no safe narrowing here: S3's PUT does not report whether it
+    /// created or replaced an object, and a HEAD-before-PUT is itself racy. So
+    /// abort does not delete. The cost is a possible unreferenced object, which
+    /// is byte-identical to what a legitimate publish stores and is what the
+    /// `package_version_blobs` reachability edges exist to let a GC reclaim. The
+    /// cost of the alternative is destroying live data.
     pub async fn abort(&self, staged: StagedBlob) {
         match staged {
             StagedBlob::Local { temp, .. } => {
@@ -282,9 +300,7 @@ impl BlobStore {
             }
             #[cfg(feature = "s3")]
             StagedBlob::S3 { key } => {
-                if let BlobStore::S3(s3) = self {
-                    s3.delete(&key).await;
-                }
+                let _ = key;
             }
         }
     }

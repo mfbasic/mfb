@@ -302,7 +302,10 @@ pub(crate) fn resolve(
     }
     packages.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let checkpoint = client::fetch_checkpoint(&repo_url, &paths)?;
+    // Consistency-proved rather than merely monotonic (bug-276 R2): a forked log
+    // that keeps growing satisfies fetch_checkpoint's size/root checks, so the
+    // proof against the pinned head is what makes this an append-only guarantee.
+    let checkpoint = client::verify_log_consistency(&repo_url, &paths)?;
     let repo_fingerprint = nodes
         .values()
         .next()

@@ -198,7 +198,13 @@ fn read_string_pool(bytes: &[u8]) -> Result<Vec<String>, String> {
     let mut offset = 0usize;
     let count = read_u32(bytes, offset)? as usize;
     offset += 4;
-    let mut strings = Vec::with_capacity(count.min(bytes.len()));
+    // Bound the pre-allocation by how many entries the section could actually
+    // hold, not by its byte length (bug-276 R8). A `String` is 24 bytes while the
+    // smallest possible entry is its 4-byte length prefix, so `count.min(len)`
+    // over-reserved by up to 24x — a ~48 MiB section declaring a huge count forced
+    // a ~1.15 GiB transient allocation, on every /validate and /publish, for a
+    // pool that can hold at most `len / 4` strings.
+    let mut strings = Vec::with_capacity(count.min(bytes.len() / 4));
     for _ in 0..count {
         let length = read_u32(bytes, offset)? as usize;
         offset += 4;
@@ -484,6 +490,27 @@ mod tests {
         assert!(
             err.contains("locators"),
             "expected the running total to reject, got: {err}"
+        );
+    }
+
+    /// The string-pool pre-allocation is bounded by what the section could hold,
+    /// not by its byte length (bug-276 R8).
+    ///
+    /// A `String` is 24 bytes and the smallest entry is its 4-byte length prefix,
+    /// so reserving `count.min(bytes.len())` over-reserved by up to 24x — a
+    /// ~48 MiB section declaring a huge count forced a ~1.15 GiB transient on
+    /// every /validate and /publish. The declared count here is far larger than
+    /// the section can hold; the parse must reject on truncation without first
+    /// trying to reserve for `count` strings.
+    #[test]
+    fn string_pool_does_not_preallocate_beyond_what_the_section_can_hold() {
+        let mut pool = Vec::new();
+        put_u32(&mut pool, u32::MAX); // declared count
+        pool.extend_from_slice(&[0u8; 64]); // but only 64 bytes of entries
+        let err = read_string_pool(&pool).unwrap_err();
+        assert!(
+            err.contains("truncated"),
+            "expected a truncation rejection, got: {err}"
         );
     }
 

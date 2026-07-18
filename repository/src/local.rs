@@ -50,6 +50,18 @@ impl LocalPaths {
         self.keys_dir().join(format!("{owner}.ident.prv"))
     }
 
+    /// Staging paths for an ident rotation in flight (bug-276 R1). The new
+    /// keypair is written here *before* `POST /keys/rotate`, so a rotation the
+    /// server commits can never leave the client without the key that is now the
+    /// account authority.
+    pub fn ident_pending_public_key_path(&self, owner: &str) -> PathBuf {
+        self.keys_dir().join(format!("{owner}.ident.next.pub"))
+    }
+
+    pub fn ident_pending_private_key_path(&self, owner: &str) -> PathBuf {
+        self.keys_dir().join(format!("{owner}.ident.next.prv"))
+    }
+
     /// The pinned registry public key (plan-23 index §10.3): fetched from
     /// `GET /ident` on first contact and pinned thereafter.
     pub fn server_key_path(&self) -> PathBuf {
@@ -127,7 +139,16 @@ pub fn read_snapshot_version(paths: &LocalPaths) -> Result<Option<i64>, String> 
             path.display()
         )
     })?;
-    Ok(value.trim().parse::<i64>().ok())
+    // Fail closed on a present-but-unparseable file (bug-276 R9). Returning
+    // `Ok(None)` here let `verify_pinned_metadata`'s `.unwrap_or(0)` drop the
+    // anti-rollback floor to 0 with no error, so a corrupted pin silently
+    // disabled rollback protection instead of reporting it. `read_checkpoint`
+    // below already fails closed on the same class of corruption; this matches it.
+    value
+        .trim()
+        .parse::<i64>()
+        .map(Some)
+        .map_err(|_| format!("malformed pinned snapshot version '{}'", path.display()))
 }
 
 /// Persist the last-seen log checkpoint.
@@ -190,6 +211,67 @@ pub fn write_ident_keypair(
         &crypto::encode_bytes(private),
     )?;
     Ok(())
+}
+
+/// Stage a rotated ident keypair before the server is asked to commit it
+/// (bug-276 R1).
+pub fn write_pending_ident_keypair(
+    paths: &LocalPaths,
+    owner: &str,
+    public: &[u8],
+    private: &[u8],
+) -> Result<(), String> {
+    create_private_dir(&paths.keys_dir())?;
+    write_private_file(
+        &paths.ident_pending_public_key_path(owner),
+        &crypto::encode_bytes(public),
+    )?;
+    write_private_file(
+        &paths.ident_pending_private_key_path(owner),
+        &crypto::encode_bytes(private),
+    )?;
+    Ok(())
+}
+
+/// Read a staged rotation's public key, if one is present.
+pub fn read_pending_ident_public_key(
+    paths: &LocalPaths,
+    owner: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let path = paths.ident_pending_public_key_path(owner);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    read_key_file(&path, "pending ident public key").map(Some)
+}
+
+/// Promote a staged rotation to the live ident keypair.
+pub fn promote_pending_ident_keypair(paths: &LocalPaths, owner: &str) -> Result<(), String> {
+    for (from, to) in [
+        (
+            paths.ident_pending_public_key_path(owner),
+            paths.ident_public_key_path(owner),
+        ),
+        (
+            paths.ident_pending_private_key_path(owner),
+            paths.ident_private_key_path(owner),
+        ),
+    ] {
+        fs::rename(&from, &to).map_err(|err| {
+            format!(
+                "failed to promote '{}' to '{}': {err}",
+                from.display(),
+                to.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Discard a staged rotation the server did not accept.
+pub fn remove_pending_ident_keypair(paths: &LocalPaths, owner: &str) {
+    let _ = fs::remove_file(paths.ident_pending_public_key_path(owner));
+    let _ = fs::remove_file(paths.ident_pending_private_key_path(owner));
 }
 
 pub fn remove_owner_keys(paths: &LocalPaths, owner: &str) {
@@ -420,9 +502,15 @@ mod tests {
         assert!(read_snapshot_version(&paths).unwrap().is_none());
         write_snapshot_version(&paths, 42).unwrap();
         assert_eq!(read_snapshot_version(&paths).unwrap(), Some(42));
-        // A non-numeric file parses to None rather than erroring.
+        // A present-but-unparseable file fails closed (bug-276 R9). It used to
+        // return `Ok(None)`, which `verify_pinned_metadata`'s `.unwrap_or(0)`
+        // turned into an anti-rollback floor of 0 — silently disabling rollback
+        // protection on a corrupt pin. `read_checkpoint` already errors on the
+        // same corruption; this now matches it.
         fs::write(paths.snapshot_version_path(), "not-a-number").unwrap();
-        assert_eq!(read_snapshot_version(&paths).unwrap(), None);
+        assert!(read_snapshot_version(&paths)
+            .unwrap_err()
+            .contains("malformed pinned snapshot version"));
     }
 
     #[test]

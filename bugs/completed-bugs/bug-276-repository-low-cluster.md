@@ -1,12 +1,79 @@
 # bug-276: repository-crate LOW cluster (durability ordering, fail-open pins, unbounded reads, dead code, timestamp/overflow edges)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: medium (1h–2h across items)
 Severity: LOW
 Class: Correctness / Security (defense-in-depth) / Dead-code / Footgun
 
-Status: Open
-Regression Test: per-item (see each)
+Status: Fixed 2026-07-18
+Regression Test: per item — `local::tests::snapshot_version_round_trips_and_reads_none_when_absent`
+(R9), `abi::tests::string_pool_does_not_preallocate_beyond_what_the_section_can_hold`
+(R8), `store::tests::a_negative_log_size_is_rejected` (R6),
+`store::tests::recording_a_native_blob_over_a_package_blob_skips_the_bin_promote` (R5)
+
+## Resolution
+
+All ten items landed. Per item:
+
+- **R1** — `rotate_ident` writes the new keypair to `<owner>.ident.next.{pub,prv}`
+  *before* `POST /keys/rotate` and promotes on success. On failure it asks the
+  registry which ident it now holds: if that is the staged key the rotation did
+  commit (a lost response) and the staging is promoted; if the registry still has
+  the old key the staging is discarded; if the registry cannot be reached the
+  staging is **left in place** and the error says so, because deleting a key that
+  might be the account authority is the one outcome worth avoiding.
+- **R2** — split `fetch_checkpoint_unpinned` out of `fetch_checkpoint` so
+  `verify_log_consistency` verifies the consistency proof *before* advancing the
+  pin; previously a detected fork had already overwritten the pin it would be
+  caught against. Also wired `verify_log_consistency` into its two production
+  entry points (`cli/pkg.rs` publish, `cli/resolve.rs`), which previously called
+  `fetch_checkpoint` and so only enforced monotonicity — a fork that simply grows
+  passed. It now returns the checkpoint so both callers keep their value.
+- **R3** — `read_body_capped` bounds every body: 1 MiB for JSON/error bodies,
+  96 MiB for blobs. `Content-Length` is honored as an early reject and the read is
+  independently capped at `limit + 1`, so a chunked or lying response is bounded
+  too. An unreadable/oversized *error* body falls back to the previous generic
+  text rather than masking the status it arrived with.
+- **R4** — S3 `abort` no longer deletes. Staged and promoted keys are both the
+  content hash, so the loser of a concurrent identical publish was deleting the
+  winner's committed object. S3's PUT does not report create-vs-replace and a
+  HEAD-before-PUT is racy, so there is no safe narrowing; a possible unreferenced
+  object is what the `package_version_blobs` edges exist to let a GC reclaim,
+  whereas the alternative destroys live data. Local staging is per-request and
+  still removed.
+- **R5** — `record_native_blob` returns whether a `.bin` promote is warranted and
+  reports `false` when a row already exists under a different kind. Safe because
+  the store is content-addressed: the existing object holds byte-identical bytes
+  and `GET /blob/<hash>` already serves them under the recorded kind, so the
+  upload is a genuine no-op rather than a dropped write. `put_blob` aborts the
+  staging and returns 200 in that case.
+- **R6** — `log_leaf_hashes` rejects a negative size instead of selecting zero
+  leaves and letting `log_consistency_proof` emit an empty-range proof for a
+  non-empty log.
+- **R7** — `now_unix` warns loudly on a pre-epoch clock instead of silently
+  returning 0, which stamped every record as already-expired with no explanation.
+- **R8** — string-pool capacity is bounded by `bytes.len() / 4` (the smallest
+  possible entry) rather than `bytes.len()`, removing the ~24x over-reservation.
+- **R9** — `read_snapshot_version` fails closed on a present-but-unparseable file,
+  matching `read_checkpoint`. **Its existing unit test asserted the fail-open
+  behavior** ("a non-numeric file parses to None rather than erroring") — the test
+  encoded the defect and was updated to assert the fix.
+- **R10** — `--expires-days` must be positive and is computed with
+  `checked_mul`/`checked_add`.
+
+Validated: `repository/` suite green (147), main crate 2991 debug tests green,
+acceptance green across all 994 tests.
+
+Note: `cargo test --release` fails `rules::tests::unknown_rule_name_trips_the_debug_assert`
+because `debug_assert!` is compiled out in release. Pre-existing and unrelated;
+debug is the correct gate for that test.
+
+### Scope note
+
+R2's second half wires consistency checking into the publish and resolve entry
+points. `verify_publish_inclusion` still calls `fetch_checkpoint` directly, so
+`mfb pkg verify --proof` invoked on its own does not demand a consistency proof.
+Changing that adds a round trip to a different flow and is left alone deliberately.
 
 A cluster of LOW-severity, mostly latent or defense-in-depth findings across the
 `mfb-repo` registry crate, discovered during the goal-06 full source review. Each
