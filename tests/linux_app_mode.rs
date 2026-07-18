@@ -104,25 +104,35 @@ fn linux_app_mode_emits_a_single_sealed_appimage() {
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
         .collect();
+    // plan-56-B: one AppImage per libc world, mirroring the console build's two
+    // flavored `.out` files.
     assert_eq!(
         written.len(),
-        1,
-        "app mode is glibc-only and emits a single artifact, got: {written:?}"
+        2,
+        "app mode emits one artifact per libc flavor, got: {written:?}"
     );
+    let names: Vec<&str> = written
+        .iter()
+        .map(|p| p.rsplit('/').next().unwrap())
+        .collect();
+    assert!(names.contains(&"linux_app_exe-glibc.AppImage"), "{names:?}");
+    assert!(names.contains(&"linux_app_exe-musl.AppImage"), "{names:?}");
     let path = PathBuf::from(written[0]);
-    assert_eq!(
-        path.file_name().and_then(|n| n.to_str()),
-        Some("linux_app_exe.AppImage"),
-        "app mode emits <name>.AppImage, got {}",
-        path.display()
-    );
-    assert!(
-        !project.join("build/linux_app_exe.AppDir").exists(),
-        "a plain --app build leaves no AppDir behind (plan-51-C §3.3)"
-    );
+    for flavor in ["glibc", "musl"] {
+        assert!(
+            !project
+                .join(format!("build/linux_app_exe-{flavor}.AppDir"))
+                .exists(),
+            "a plain --app build leaves no AppDir behind (plan-51-C §3.3)"
+        );
+    }
     assert!(
         !project.join("build/linux_app_exe.out").exists(),
         "the pre-plan-51 bare <name>.out must be gone"
+    );
+    assert!(
+        !project.join("build/linux_app_exe.AppImage").exists(),
+        "the unflavored pre-plan-56 name must be gone"
     );
 
     let bytes = fs::read(&path).expect("read AppImage");
@@ -177,10 +187,43 @@ fn linux_app_debug_keeps_the_appdir_beside_the_appimage() {
     let (ok, stdout, stderr) = run_mfb(&project, &["--app-debug", "-target", TARGET]);
     assert!(ok, "build --app-debug failed:\n{stdout}\n{stderr}");
 
-    let appimage = project.join("build/linux_app_dbg.AppImage");
-    let appdir = project.join("build/linux_app_dbg.AppDir");
+    let appimage = project.join("build/linux_app_dbg-glibc.AppImage");
+    let appdir = project.join("build/linux_app_dbg-glibc.AppDir");
     assert!(appimage.is_file(), "--app-debug still emits the AppImage");
     assert!(appdir.is_dir(), "--app-debug keeps the AppDir");
+    assert!(
+        project.join("build/linux_app_dbg-musl.AppImage").is_file(),
+        "--app-debug emits the musl AppImage too"
+    );
+    assert!(
+        project.join("build/linux_app_dbg-musl.AppDir").is_dir(),
+        "--app-debug keeps BOTH flavors' AppDirs (plan-56-B)"
+    );
+
+    // plan-56-A: each flavor's inner ELF names only its own libc world. This is
+    // the ONLY observable difference — musl's loader absorbs the glibc compat
+    // sonames, so a wrongly-linked musl binary runs identically.
+    let musl_elf =
+        std::fs::read(project.join("build/linux_app_dbg-musl.AppDir/usr/bin/linux_app_dbg"))
+            .expect("musl ELF");
+    let contains = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).any(|w| w == needle);
+    assert!(
+        contains(&musl_elf, b"libc.musl-aarch64.so.1"),
+        "the musl build must name the musl libc"
+    );
+    assert!(
+        !contains(&musl_elf, b"libc.so.6"),
+        "the musl build must NOT name libc.so.6 (plan-56-A)"
+    );
+    assert!(
+        !contains(&musl_elf, b"libpthread.so.0"),
+        "on musl, pthread lives in libc"
+    );
+    let glibc_elf =
+        std::fs::read(project.join("build/linux_app_dbg-glibc.AppDir/usr/bin/linux_app_dbg"))
+            .expect("glibc ELF");
+    assert!(contains(&glibc_elf, b"libc.so.6"));
+    assert!(!contains(&glibc_elf, b"libc.musl-"));
 
     // Every path plan-51-A §4.1 promises.
     assert!(appdir.join("usr/bin/linux_app_dbg").is_file());

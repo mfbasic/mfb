@@ -172,21 +172,21 @@ pub(crate) trait NativeBackend: Sync {
     /// place (plan-51-C §3.2).
     ///
     /// Runs after `copy_vendor_libraries`/`copy_resources`, which is the only
-    /// correct point: a sealed artifact cannot gain files afterwards. Returns the
-    /// path that replaces what [`NativeBackend::write_executable`] reported, or
-    /// `None` to keep it.
+    /// correct point: a sealed artifact cannot gain files afterwards. Returns
+    /// every artifact that replaces what [`NativeBackend::write_executable`]
+    /// reported, or an empty vec to keep those.
     ///
-    /// macOS returns `None` — a `.app` is a directory and is already complete.
-    /// The Linux backends seal the AppDir into a single `.AppImage` and, unless
-    /// `keep_intermediate` (`--app-debug`), delete the AppDir.
+    /// macOS returns empty — a `.app` is a directory and is already complete.
+    /// The Linux backends seal **one AppImage per libc flavor** (plan-56-B §4.4)
+    /// and, unless `keep_intermediate` (`--app-debug`), delete each AppDir.
     fn finalize_app_bundle(
         &self,
         project_dir: &Path,
         project_name: &str,
         keep_intermediate: bool,
-    ) -> Result<Option<PathBuf>, String> {
+    ) -> Result<Vec<PathBuf>, String> {
         let _ = (project_dir, project_name, keep_intermediate);
-        Ok(None)
+        Ok(Vec::new())
     }
 }
 
@@ -295,8 +295,8 @@ pub fn write_executable(
 ///
 /// Called from the CLI *after* `copy_vendor_libraries` and `copy_resources`,
 /// because an AppImage is a sealed file: the libraries have to be inside the
-/// image before it closes. `Some(path)` replaces the paths `write_executable`
-/// reported; `None` keeps them.
+/// image before it closes. A non-empty result replaces the paths
+/// `write_executable` reported; an empty one keeps them.
 ///
 /// A no-op for console builds and for macOS, whose `.app` is a directory and is
 /// already complete when `write_executable` returns.
@@ -306,9 +306,9 @@ pub fn finalize_app_bundle(
     target: &BuildTarget,
     build_mode: NativeBuildMode,
     keep_intermediate: bool,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<Vec<PathBuf>, String> {
     if !build_mode.is_app() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     backend_for(target)?.finalize_app_bundle(project_dir, project_name, keep_intermediate)
 }

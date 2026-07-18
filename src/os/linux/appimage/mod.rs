@@ -140,9 +140,17 @@ fn elf_image_end(runtime: &[u8]) -> Result<u64, String> {
 /// `runtime-x86_64` is 944632 bytes (`% 4096 == 2552`), deliberately unaligned.
 /// Any padding between the runtime and the squashfs would be read as the
 /// superblock and fail the mount.
-pub(crate) fn seal(project_dir: &Path, project_name: &str, arch: &str) -> Result<PathBuf, String> {
+pub(crate) fn seal(
+    project_dir: &Path,
+    project_name: &str,
+    flavor_suffix: &str,
+    arch: &str,
+) -> Result<PathBuf, String> {
     let build_dir = project_dir.join(BUILD_DIR);
-    let appdir = build_dir.join(format!("{project_name}.AppDir"));
+    let appdir = build_dir.join(crate::os::linux::appdir::appdir_name(
+        project_name,
+        flavor_suffix,
+    ));
     if !appdir.is_dir() {
         return Err(format!(
             "cannot seal an AppImage: '{}' does not exist",
@@ -167,7 +175,7 @@ pub(crate) fn seal(project_dir: &Path, project_name: &str, arch: &str) -> Result
     sealed.extend_from_slice(runtime);
     sealed.extend_from_slice(&image);
 
-    let path = build_dir.join(format!("{project_name}.AppImage"));
+    let path = build_dir.join(format!("{project_name}-{flavor_suffix}.AppImage"));
     fs::write(&path, &sealed)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
     let mut permissions = fs::metadata(&path)
@@ -183,10 +191,17 @@ pub(crate) fn seal(project_dir: &Path, project_name: &str, arch: &str) -> Result
 /// §3.3). `--app` emits one artifact, matching macOS `--app`'s single `.app`;
 /// `--app-debug` keeps this directory for the case where you need to see what
 /// went in.
-pub(crate) fn remove_appdir(project_dir: &Path, project_name: &str) -> Result<(), String> {
+pub(crate) fn remove_appdir(
+    project_dir: &Path,
+    project_name: &str,
+    flavor_suffix: &str,
+) -> Result<(), String> {
     let appdir = project_dir
         .join(BUILD_DIR)
-        .join(format!("{project_name}.AppDir"));
+        .join(crate::os::linux::appdir::appdir_name(
+            project_name,
+            flavor_suffix,
+        ));
     match fs::remove_dir_all(&appdir) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -314,7 +329,7 @@ mod tests {
     /// Build a small AppDir on disk, matching plan-51-A's shape closely enough to
     /// exercise every node type the reader has to handle.
     fn fixture_appdir(root: &Path) -> PathBuf {
-        let appdir = root.join(BUILD_DIR).join("hello.AppDir");
+        let appdir = root.join(BUILD_DIR).join("hello-glibc.AppDir");
         fs::create_dir_all(appdir.join("usr/bin")).unwrap();
         fs::create_dir_all(appdir.join("usr/share/applications")).unwrap();
         fs::write(appdir.join("usr/bin/hello"), b"\x7fELF fake").unwrap();
@@ -406,8 +421,8 @@ mod tests {
     fn seal_concatenates_the_runtime_and_a_valid_squashfs() {
         let dir = tempfile::tempdir().unwrap();
         fixture_appdir(dir.path());
-        let path = seal(dir.path(), "hello", "x86_64").expect("seal");
-        assert_eq!(path, dir.path().join("build").join("hello.AppImage"));
+        let path = seal(dir.path(), "hello", "glibc", "x86_64").expect("seal");
+        assert_eq!(path, dir.path().join("build").join("hello-glibc.AppImage"));
         let sealed = fs::read(&path).unwrap();
 
         // The first runtime.len() bytes are the blob, byte-for-byte as published.
@@ -430,8 +445,8 @@ mod tests {
     fn seal_is_deterministic() {
         let dir = tempfile::tempdir().unwrap();
         fixture_appdir(dir.path());
-        let first = fs::read(seal(dir.path(), "hello", "x86_64").expect("seal")).unwrap();
-        let second = fs::read(seal(dir.path(), "hello", "x86_64").expect("seal")).unwrap();
+        let first = fs::read(seal(dir.path(), "hello", "glibc", "x86_64").expect("seal")).unwrap();
+        let second = fs::read(seal(dir.path(), "hello", "glibc", "x86_64").expect("seal")).unwrap();
         assert_eq!(first, second, "two seals of one AppDir must be identical");
     }
 
@@ -439,14 +454,14 @@ mod tests {
     fn seal_uses_the_arch_specific_runtime() {
         let dir = tempfile::tempdir().unwrap();
         fixture_appdir(dir.path());
-        let arm = fs::read(seal(dir.path(), "hello", "aarch64").expect("seal")).unwrap();
+        let arm = fs::read(seal(dir.path(), "hello", "glibc", "aarch64").expect("seal")).unwrap();
         assert_eq!(&arm[..RUNTIME_AARCH64.len()], RUNTIME_AARCH64);
     }
 
     #[test]
     fn seal_reports_a_missing_appdir() {
         let dir = tempfile::tempdir().unwrap();
-        let err = seal(dir.path(), "hello", "x86_64").expect_err("no AppDir");
+        let err = seal(dir.path(), "hello", "glibc", "x86_64").expect_err("no AppDir");
         assert!(err.contains("does not exist"), "{err}");
     }
 
@@ -454,8 +469,9 @@ mod tests {
     fn remove_appdir_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         fixture_appdir(dir.path());
-        remove_appdir(dir.path(), "hello").expect("first remove");
-        assert!(!dir.path().join("build/hello.AppDir").exists());
-        remove_appdir(dir.path(), "hello").expect("removing an absent AppDir is not an error");
+        remove_appdir(dir.path(), "hello", "glibc").expect("first remove");
+        assert!(!dir.path().join("build/hello-glibc.AppDir").exists());
+        remove_appdir(dir.path(), "hello", "glibc")
+            .expect("removing an absent AppDir is not an error");
     }
 }

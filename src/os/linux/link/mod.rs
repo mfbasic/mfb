@@ -98,7 +98,14 @@ pub(crate) fn write_appdir(
     app_version: &str,
 ) -> Result<PathBuf, String> {
     let bytes = encode_executable_bytes(arch, flavor, image)?;
-    super::appdir::write_appdir(project_dir, project_name, &bytes, app_icon, app_version)
+    super::appdir::write_appdir(
+        project_dir,
+        project_name,
+        flavor.suffix(),
+        &bytes,
+        app_icon,
+        app_version,
+    )
 }
 
 /// Encode the final ELF image to bytes, shared by the console `<name>-*.out` and

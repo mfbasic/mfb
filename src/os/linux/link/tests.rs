@@ -319,7 +319,7 @@ fn write_appdir_puts_the_same_elf_under_usr_bin() {
         "0.1.0",
     )
     .expect("link app-mode AppDir");
-    assert!(appdir.ends_with("myapp.AppDir"));
+    assert!(appdir.ends_with("myapp-glibc.AppDir"));
     assert!(
         !appdir.join("..").join("myapp.out").exists(),
         "app mode emits no bare <name>.out"

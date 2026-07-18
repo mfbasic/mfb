@@ -1,6 +1,6 @@
 /// App-mode AppDir emission (plan-51-A): the launchable directory tree a Linux
 /// `--app` build produces, and the payload plan-51-C seals into an `.AppImage`.
-mod appdir;
+pub(crate) mod appdir;
 /// AppImage sealing (plan-51-C): the embedded type-2 runtime plus the
 /// AppDir → squashfs → single-file concatenation.
 mod appimage;
@@ -76,15 +76,20 @@ pub(crate) fn write_linked_appdir(
 pub(crate) fn seal_appimage(
     project_dir: &Path,
     project_name: &str,
+    flavor: LinuxFlavor,
     arch: &str,
 ) -> Result<PathBuf, String> {
-    appimage::seal(project_dir, project_name, arch)
+    appimage::seal(project_dir, project_name, flavor.suffix(), arch)
 }
 
 /// Remove the intermediate AppDir the seal consumed (plan-51-C §3.3). Skipped by
 /// `--app-debug`, which keeps it for inspection.
-pub(crate) fn remove_appdir(project_dir: &Path, project_name: &str) -> Result<(), String> {
-    appimage::remove_appdir(project_dir, project_name)
+pub(crate) fn remove_appdir(
+    project_dir: &Path,
+    project_name: &str,
+    flavor: LinuxFlavor,
+) -> Result<(), String> {
+    appimage::remove_appdir(project_dir, project_name, flavor.suffix())
 }
 
 #[cfg(test)]
@@ -210,7 +215,10 @@ mod tests {
             "0.1.0",
         )
         .expect("appdir");
-        assert_eq!(appdir, dir.path().join("build").join("windowed.AppDir"));
+        assert_eq!(
+            appdir,
+            dir.path().join("build").join("windowed-glibc.AppDir")
+        );
         assert!(appdir.join("usr/bin/windowed").is_file());
         assert!(appdir.join("windowed.desktop").is_file());
         assert!(appdir
