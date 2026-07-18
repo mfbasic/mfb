@@ -682,14 +682,14 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/code/net/`**
 
-- [ ] `src/target/shared/code/net/io.rs` (1876 loc)
-- [ ] `src/target/shared/code/net/mod.rs` (869 loc)
-- [ ] `src/target/shared/code/net/poll.rs` (255 loc)
+- [x] `src/target/shared/code/net/io.rs` (1876 loc) — bug-314 (H2)
+- [x] `src/target/shared/code/net/mod.rs` (869 loc) — clean
+- [x] `src/target/shared/code/net/poll.rs` (255 loc) — bug-310
 
 **`src/target/shared/code/private/`**
 
-- [ ] `src/target/shared/code/private/mod.rs` (1 loc)
-- [ ] `src/target/shared/code/private/unicode.rs` (983 loc)
+- [x] `src/target/shared/code/private/mod.rs` (1 loc) — clean
+- [x] `src/target/shared/code/private/unicode.rs` (983 loc) — clean
 
 **`src/target/shared/code/regalloc/`**
 
