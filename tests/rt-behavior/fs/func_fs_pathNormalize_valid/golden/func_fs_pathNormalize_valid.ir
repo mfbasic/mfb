@@ -27,7 +27,11 @@
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "a/b/../.." }] }] } },
     { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "a/../.." }] }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "/a/.." }] }] } },
-    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "../.." }] }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "../../a" }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "../../.." }] }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "../a/.." }] }] } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

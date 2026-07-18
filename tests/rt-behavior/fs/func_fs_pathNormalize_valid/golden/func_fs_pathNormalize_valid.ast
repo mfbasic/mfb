@@ -26,7 +26,11 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "a/b/../.." }] }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "a/../.." }] }] }, "line": 13 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "/a/.." }] }] }, "line": 14 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "../.." }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "../../a" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "../../.." }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "../a/.." }] }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
       ]
     }
     ]

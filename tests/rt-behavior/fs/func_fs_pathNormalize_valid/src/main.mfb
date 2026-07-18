@@ -12,5 +12,12 @@ FUNC main AS Integer
   io::print(fs::pathNormalize("a/b/../.."))
   io::print(fs::pathNormalize("a/../.."))
   io::print(fs::pathNormalize("/a/.."))
+  ' bug-318: a leading run of ".." has no earlier component to cancel, so each is
+  ' kept in place. These used to collapse ("../.." -> ".", "../../a" -> "a"),
+  ' which silently stripped parent traversal from an escaping path.
+  io::print(fs::pathNormalize("../.."))
+  io::print(fs::pathNormalize("../../a"))
+  io::print(fs::pathNormalize("../../.."))
+  io::print(fs::pathNormalize("../a/.."))
   RETURN 0
 END FUNC

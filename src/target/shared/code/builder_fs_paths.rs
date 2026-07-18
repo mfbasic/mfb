@@ -324,6 +324,7 @@ impl CodeBuilder<'_> {
         let previous_ready = self.label("fs_path_normalize_previous_ready");
         let append_dot_dot = self.label("fs_path_normalize_append_dot_dot");
         let pop_previous = self.label("fs_path_normalize_pop_previous");
+        let leading_component = self.label("fs_path_normalize_leading_component");
         let pop_scan = self.label("fs_path_normalize_pop_scan");
         let pop_store = self.label("fs_path_normalize_pop_store");
         let finish = self.label("fs_path_normalize_finish");
@@ -530,7 +531,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&previous_ready));
         self.emit(abi::move_register(&scratch14, &scratch13));
         self.emit(abi::compare_immediate(&scratch13, "0"));
-        self.emit(abi::branch_eq(&pop_previous));
+        self.emit(abi::branch_eq(&leading_component));
         self.emit(abi::add_immediate(&scratch14, &scratch13, 1));
         self.emit(abi::subtract_registers(&scratch15, &scratch8, &scratch14));
         self.emit(abi::compare_immediate(&scratch15, "2"));
@@ -540,6 +541,34 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch17, "46"));
         self.emit(abi::branch_ne(&pop_previous));
         self.emit(abi::load_u8(&scratch17, &scratch16, 1));
+        self.emit(abi::compare_immediate(&scratch17, "46"));
+        self.emit(abi::branch_eq(&append_dot_dot));
+        self.emit(abi::branch(&pop_previous));
+
+        // `previous_scan` left `scratch13 == 0`, which is ambiguous: either it found
+        // the root '/' at index 0 (absolute path), or it ran off the front without
+        // finding any slash, in which case the previous component is the *leading*
+        // one and spans the whole output `[0, out_len)`.
+        //
+        // The block above only recognizes an un-poppable `".."` when a real slash
+        // precedes it, so before this the leading case fell straight into
+        // `pop_previous` and a leading `".."` was cancelled by the next one:
+        // `"../.."` collapsed to `"."` and `"../../a"` to `"a"` (bug-318). That
+        // silently strips parent-directory traversal, defeating any caller using
+        // `pathNormalize` to test whether a path escapes a root.
+        //
+        // Same two-dot test as above, with `prev_start = 0` and `prev_len = out_len`.
+        // An absolute path is routed to `pop_previous` unchanged so bug-132's
+        // keep-the-root-slash behavior still applies.
+        self.emit(abi::label(&leading_component));
+        self.emit(abi::load_u8(&scratch17, &scratch12, 0));
+        self.emit(abi::compare_immediate(&scratch17, "47"));
+        self.emit(abi::branch_eq(&pop_previous));
+        self.emit(abi::compare_immediate(&scratch8, "2"));
+        self.emit(abi::branch_ne(&pop_previous));
+        self.emit(abi::compare_immediate(&scratch17, "46"));
+        self.emit(abi::branch_ne(&pop_previous));
+        self.emit(abi::load_u8(&scratch17, &scratch12, 1));
         self.emit(abi::compare_immediate(&scratch17, "46"));
         self.emit(abi::branch_eq(&append_dot_dot));
 
