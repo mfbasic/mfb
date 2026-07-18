@@ -392,6 +392,17 @@ impl<'a> FileParser<'a> {
         self.consume_statement_end("Expected end of statement after TRAP header.");
         self.skip_separators();
 
+        // A handler statement may itself carry a postfix trap, so this loop is a
+        // `parse_statement → parse_simple_statement → maybe_attach_postfix_trap →
+        // parse_statement` recursion funnel just like `parse_statement_block` —
+        // and it was the one funnel bug-183's cap never counted, so deeply nested
+        // inline traps overflowed the native stack with no diagnostic (bug-289).
+        // Counting it here bounds both the parse frames and the equally recursive
+        // `Expression::Trapped` re-walks in the passes that run before
+        // `ir::verify`'s own depth backstop.
+        if !self.enter_stmt() {
+            return None;
+        }
         let mut handler = Vec::new();
         while !self.is_at_end() && !self.is_end_block(Keyword::Trap) {
             if let Some(statement) = self.parse_statement() {
@@ -401,6 +412,7 @@ impl<'a> FileParser<'a> {
             }
             self.skip_separators();
         }
+        self.leave_stmt();
         if !self.consume_end_block(Keyword::Trap, "TRAP block must end with END TRAP.") {
             return None;
         }

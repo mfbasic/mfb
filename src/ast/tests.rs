@@ -1470,6 +1470,7 @@ fn function_header_and_body_errors() {
     assert!(try_parse("FUNC f(123)\nEND FUNC\n").is_err());
 }
 
+
 #[test]
 fn trap_header_errors() {
     // Bare TRAP (no `(ident)` binding) is a valid function-level trap: plan-37
@@ -2346,6 +2347,41 @@ fn inline_trap_error_paths() {
         "FUNC f(RES h AS File STATE Integer)\n  h.state = risky() TRAP(e)\n    notify()\n  END TRAP\nEND FUNC\n",
     );
     assert!(json.contains("\"kind\": \"stateAssignment\""));
+}
+
+#[test]
+fn deeply_nested_inline_traps_hit_the_statement_depth_cap() {
+    // bug-289: a handler statement carrying its own postfix trap re-enters
+    // `parse_statement` through `maybe_attach_postfix_trap`, a recursion funnel
+    // the `MAX_STMT_DEPTH` latch did not count — thousands of levels aborted the
+    // compiler with a native stack overflow and zero diagnostics. The cap is 256,
+    // so a nesting depth well past it must unwind as an ordinary parse error.
+    // Parsing (and dropping) a legal 200-deep nest is itself recursive and needs
+    // more than a test thread's default stack, so run on a generous one; the
+    // parser's own cap is what we assert.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let nest = |depth: usize| {
+                let mut src = String::from("FUNC f AS Integer\n");
+                for index in 0..depth {
+                    src.push_str(&format!("  LET x{index} = risky() TRAP\n"));
+                }
+                for _ in 0..depth {
+                    src.push_str("  END TRAP\n");
+                }
+                src.push_str("  RETURN 0\nEND FUNC\n");
+                src
+            };
+            // Within the cap this still parses, so the guard did not shrink the
+            // usable nesting budget.
+            assert!(try_parse(&nest(200)).is_ok());
+            // Past the cap, and far past the depth that used to overflow.
+            assert!(try_parse(&nest(4000)).is_err());
+        })
+        .expect("spawn")
+        .join()
+        .expect("deep inline-trap nesting must not overflow the stack");
 }
 
 #[test]

@@ -1,0 +1,607 @@
+FUNC main AS Integer
+  LET x0 = risky() TRAP
+  LET x1 = risky() TRAP
+  LET x2 = risky() TRAP
+  LET x3 = risky() TRAP
+  LET x4 = risky() TRAP
+  LET x5 = risky() TRAP
+  LET x6 = risky() TRAP
+  LET x7 = risky() TRAP
+  LET x8 = risky() TRAP
+  LET x9 = risky() TRAP
+  LET x10 = risky() TRAP
+  LET x11 = risky() TRAP
+  LET x12 = risky() TRAP
+  LET x13 = risky() TRAP
+  LET x14 = risky() TRAP
+  LET x15 = risky() TRAP
+  LET x16 = risky() TRAP
+  LET x17 = risky() TRAP
+  LET x18 = risky() TRAP
+  LET x19 = risky() TRAP
+  LET x20 = risky() TRAP
+  LET x21 = risky() TRAP
+  LET x22 = risky() TRAP
+  LET x23 = risky() TRAP
+  LET x24 = risky() TRAP
+  LET x25 = risky() TRAP
+  LET x26 = risky() TRAP
+  LET x27 = risky() TRAP
+  LET x28 = risky() TRAP
+  LET x29 = risky() TRAP
+  LET x30 = risky() TRAP
+  LET x31 = risky() TRAP
+  LET x32 = risky() TRAP
+  LET x33 = risky() TRAP
+  LET x34 = risky() TRAP
+  LET x35 = risky() TRAP
+  LET x36 = risky() TRAP
+  LET x37 = risky() TRAP
+  LET x38 = risky() TRAP
+  LET x39 = risky() TRAP
+  LET x40 = risky() TRAP
+  LET x41 = risky() TRAP
+  LET x42 = risky() TRAP
+  LET x43 = risky() TRAP
+  LET x44 = risky() TRAP
+  LET x45 = risky() TRAP
+  LET x46 = risky() TRAP
+  LET x47 = risky() TRAP
+  LET x48 = risky() TRAP
+  LET x49 = risky() TRAP
+  LET x50 = risky() TRAP
+  LET x51 = risky() TRAP
+  LET x52 = risky() TRAP
+  LET x53 = risky() TRAP
+  LET x54 = risky() TRAP
+  LET x55 = risky() TRAP
+  LET x56 = risky() TRAP
+  LET x57 = risky() TRAP
+  LET x58 = risky() TRAP
+  LET x59 = risky() TRAP
+  LET x60 = risky() TRAP
+  LET x61 = risky() TRAP
+  LET x62 = risky() TRAP
+  LET x63 = risky() TRAP
+  LET x64 = risky() TRAP
+  LET x65 = risky() TRAP
+  LET x66 = risky() TRAP
+  LET x67 = risky() TRAP
+  LET x68 = risky() TRAP
+  LET x69 = risky() TRAP
+  LET x70 = risky() TRAP
+  LET x71 = risky() TRAP
+  LET x72 = risky() TRAP
+  LET x73 = risky() TRAP
+  LET x74 = risky() TRAP
+  LET x75 = risky() TRAP
+  LET x76 = risky() TRAP
+  LET x77 = risky() TRAP
+  LET x78 = risky() TRAP
+  LET x79 = risky() TRAP
+  LET x80 = risky() TRAP
+  LET x81 = risky() TRAP
+  LET x82 = risky() TRAP
+  LET x83 = risky() TRAP
+  LET x84 = risky() TRAP
+  LET x85 = risky() TRAP
+  LET x86 = risky() TRAP
+  LET x87 = risky() TRAP
+  LET x88 = risky() TRAP
+  LET x89 = risky() TRAP
+  LET x90 = risky() TRAP
+  LET x91 = risky() TRAP
+  LET x92 = risky() TRAP
+  LET x93 = risky() TRAP
+  LET x94 = risky() TRAP
+  LET x95 = risky() TRAP
+  LET x96 = risky() TRAP
+  LET x97 = risky() TRAP
+  LET x98 = risky() TRAP
+  LET x99 = risky() TRAP
+  LET x100 = risky() TRAP
+  LET x101 = risky() TRAP
+  LET x102 = risky() TRAP
+  LET x103 = risky() TRAP
+  LET x104 = risky() TRAP
+  LET x105 = risky() TRAP
+  LET x106 = risky() TRAP
+  LET x107 = risky() TRAP
+  LET x108 = risky() TRAP
+  LET x109 = risky() TRAP
+  LET x110 = risky() TRAP
+  LET x111 = risky() TRAP
+  LET x112 = risky() TRAP
+  LET x113 = risky() TRAP
+  LET x114 = risky() TRAP
+  LET x115 = risky() TRAP
+  LET x116 = risky() TRAP
+  LET x117 = risky() TRAP
+  LET x118 = risky() TRAP
+  LET x119 = risky() TRAP
+  LET x120 = risky() TRAP
+  LET x121 = risky() TRAP
+  LET x122 = risky() TRAP
+  LET x123 = risky() TRAP
+  LET x124 = risky() TRAP
+  LET x125 = risky() TRAP
+  LET x126 = risky() TRAP
+  LET x127 = risky() TRAP
+  LET x128 = risky() TRAP
+  LET x129 = risky() TRAP
+  LET x130 = risky() TRAP
+  LET x131 = risky() TRAP
+  LET x132 = risky() TRAP
+  LET x133 = risky() TRAP
+  LET x134 = risky() TRAP
+  LET x135 = risky() TRAP
+  LET x136 = risky() TRAP
+  LET x137 = risky() TRAP
+  LET x138 = risky() TRAP
+  LET x139 = risky() TRAP
+  LET x140 = risky() TRAP
+  LET x141 = risky() TRAP
+  LET x142 = risky() TRAP
+  LET x143 = risky() TRAP
+  LET x144 = risky() TRAP
+  LET x145 = risky() TRAP
+  LET x146 = risky() TRAP
+  LET x147 = risky() TRAP
+  LET x148 = risky() TRAP
+  LET x149 = risky() TRAP
+  LET x150 = risky() TRAP
+  LET x151 = risky() TRAP
+  LET x152 = risky() TRAP
+  LET x153 = risky() TRAP
+  LET x154 = risky() TRAP
+  LET x155 = risky() TRAP
+  LET x156 = risky() TRAP
+  LET x157 = risky() TRAP
+  LET x158 = risky() TRAP
+  LET x159 = risky() TRAP
+  LET x160 = risky() TRAP
+  LET x161 = risky() TRAP
+  LET x162 = risky() TRAP
+  LET x163 = risky() TRAP
+  LET x164 = risky() TRAP
+  LET x165 = risky() TRAP
+  LET x166 = risky() TRAP
+  LET x167 = risky() TRAP
+  LET x168 = risky() TRAP
+  LET x169 = risky() TRAP
+  LET x170 = risky() TRAP
+  LET x171 = risky() TRAP
+  LET x172 = risky() TRAP
+  LET x173 = risky() TRAP
+  LET x174 = risky() TRAP
+  LET x175 = risky() TRAP
+  LET x176 = risky() TRAP
+  LET x177 = risky() TRAP
+  LET x178 = risky() TRAP
+  LET x179 = risky() TRAP
+  LET x180 = risky() TRAP
+  LET x181 = risky() TRAP
+  LET x182 = risky() TRAP
+  LET x183 = risky() TRAP
+  LET x184 = risky() TRAP
+  LET x185 = risky() TRAP
+  LET x186 = risky() TRAP
+  LET x187 = risky() TRAP
+  LET x188 = risky() TRAP
+  LET x189 = risky() TRAP
+  LET x190 = risky() TRAP
+  LET x191 = risky() TRAP
+  LET x192 = risky() TRAP
+  LET x193 = risky() TRAP
+  LET x194 = risky() TRAP
+  LET x195 = risky() TRAP
+  LET x196 = risky() TRAP
+  LET x197 = risky() TRAP
+  LET x198 = risky() TRAP
+  LET x199 = risky() TRAP
+  LET x200 = risky() TRAP
+  LET x201 = risky() TRAP
+  LET x202 = risky() TRAP
+  LET x203 = risky() TRAP
+  LET x204 = risky() TRAP
+  LET x205 = risky() TRAP
+  LET x206 = risky() TRAP
+  LET x207 = risky() TRAP
+  LET x208 = risky() TRAP
+  LET x209 = risky() TRAP
+  LET x210 = risky() TRAP
+  LET x211 = risky() TRAP
+  LET x212 = risky() TRAP
+  LET x213 = risky() TRAP
+  LET x214 = risky() TRAP
+  LET x215 = risky() TRAP
+  LET x216 = risky() TRAP
+  LET x217 = risky() TRAP
+  LET x218 = risky() TRAP
+  LET x219 = risky() TRAP
+  LET x220 = risky() TRAP
+  LET x221 = risky() TRAP
+  LET x222 = risky() TRAP
+  LET x223 = risky() TRAP
+  LET x224 = risky() TRAP
+  LET x225 = risky() TRAP
+  LET x226 = risky() TRAP
+  LET x227 = risky() TRAP
+  LET x228 = risky() TRAP
+  LET x229 = risky() TRAP
+  LET x230 = risky() TRAP
+  LET x231 = risky() TRAP
+  LET x232 = risky() TRAP
+  LET x233 = risky() TRAP
+  LET x234 = risky() TRAP
+  LET x235 = risky() TRAP
+  LET x236 = risky() TRAP
+  LET x237 = risky() TRAP
+  LET x238 = risky() TRAP
+  LET x239 = risky() TRAP
+  LET x240 = risky() TRAP
+  LET x241 = risky() TRAP
+  LET x242 = risky() TRAP
+  LET x243 = risky() TRAP
+  LET x244 = risky() TRAP
+  LET x245 = risky() TRAP
+  LET x246 = risky() TRAP
+  LET x247 = risky() TRAP
+  LET x248 = risky() TRAP
+  LET x249 = risky() TRAP
+  LET x250 = risky() TRAP
+  LET x251 = risky() TRAP
+  LET x252 = risky() TRAP
+  LET x253 = risky() TRAP
+  LET x254 = risky() TRAP
+  LET x255 = risky() TRAP
+  LET x256 = risky() TRAP
+  LET x257 = risky() TRAP
+  LET x258 = risky() TRAP
+  LET x259 = risky() TRAP
+  LET x260 = risky() TRAP
+  LET x261 = risky() TRAP
+  LET x262 = risky() TRAP
+  LET x263 = risky() TRAP
+  LET x264 = risky() TRAP
+  LET x265 = risky() TRAP
+  LET x266 = risky() TRAP
+  LET x267 = risky() TRAP
+  LET x268 = risky() TRAP
+  LET x269 = risky() TRAP
+  LET x270 = risky() TRAP
+  LET x271 = risky() TRAP
+  LET x272 = risky() TRAP
+  LET x273 = risky() TRAP
+  LET x274 = risky() TRAP
+  LET x275 = risky() TRAP
+  LET x276 = risky() TRAP
+  LET x277 = risky() TRAP
+  LET x278 = risky() TRAP
+  LET x279 = risky() TRAP
+  LET x280 = risky() TRAP
+  LET x281 = risky() TRAP
+  LET x282 = risky() TRAP
+  LET x283 = risky() TRAP
+  LET x284 = risky() TRAP
+  LET x285 = risky() TRAP
+  LET x286 = risky() TRAP
+  LET x287 = risky() TRAP
+  LET x288 = risky() TRAP
+  LET x289 = risky() TRAP
+  LET x290 = risky() TRAP
+  LET x291 = risky() TRAP
+  LET x292 = risky() TRAP
+  LET x293 = risky() TRAP
+  LET x294 = risky() TRAP
+  LET x295 = risky() TRAP
+  LET x296 = risky() TRAP
+  LET x297 = risky() TRAP
+  LET x298 = risky() TRAP
+  LET x299 = risky() TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC risky AS Integer
+  RETURN 1
+END FUNC
