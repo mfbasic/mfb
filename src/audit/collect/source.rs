@@ -32,11 +32,16 @@ pub(super) fn collect_source(
             };
 
             let has_trap = function.trap.is_some();
-            let propagation = if has_trap { "trap" } else { "return" };
 
             let mut calls = Vec::new();
             {
-                let mut visit = |callee: &str, line: usize| {
+                let mut visit = |callee: &str, line: usize, in_trap: bool| {
+                    // Where this call's error actually goes (bug-280). The label
+                    // used to be chosen from the *function's* trap alone, so a
+                    // call fully recovered by an inline `TRAP … RECOVER` was
+                    // reported as `return` — auto-propagates to the caller — which
+                    // is the opposite of what happens.
+                    let propagation = if in_trap || has_trap { "trap" } else { "return" };
                     let capability = builtin_capability(callee, &aliases);
                     if let Some(capability) = capability {
                         permissions.push(PermissionEntry {
@@ -61,9 +66,9 @@ pub(super) fn collect_source(
                         });
                     }
                 };
-                walk_statements(&function.body, &mut visit);
+                walk_statements(&function.body, false, &mut visit);
                 if let Some(trap) = &function.trap {
-                    walk_statements(&trap.body, &mut visit);
+                    walk_statements(&trap.body, false, &mut visit);
                 }
             }
 
@@ -200,56 +205,56 @@ fn collect_resources(function: &str, path: &str, body: &[Statement], out: &mut V
 }
 
 /// Visits every statement and reports each call expression's callee and line.
-fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
+fn walk_statements(body: &[Statement], in_trap: bool, visit: &mut impl FnMut(&str, usize, bool)) {
     for statement in body {
         match statement {
             Statement::Let { value, line, .. } => {
                 if let Some(expr) = value {
-                    walk_expression(expr, *line, visit);
+                    walk_expression(expr, *line, in_trap, visit);
                 }
             }
             Statement::Return { value, line } => {
                 if let Some(expr) = value {
-                    walk_expression(expr, *line, visit);
+                    walk_expression(expr, *line, in_trap, visit);
                 }
             }
             Statement::Exit { code, line, .. } => {
                 if let Some(expr) = code {
-                    walk_expression(expr, *line, visit);
+                    walk_expression(expr, *line, in_trap, visit);
                 }
             }
             Statement::Continue { .. } => {}
-            Statement::Fail { error, line } => walk_expression(error, *line, visit),
+            Statement::Fail { error, line } => walk_expression(error, *line, in_trap, visit),
             Statement::Propagate { .. } => {}
             Statement::Recover { value, line } => {
                 if let Some(expr) = value {
-                    walk_expression(expr, *line, visit);
+                    walk_expression(expr, *line, in_trap, visit);
                 }
             }
-            Statement::Assign { value, line, .. } => walk_expression(value, *line, visit),
-            Statement::StateAssign { value, line, .. } => walk_expression(value, *line, visit),
-            Statement::Expression { expression, line } => walk_expression(expression, *line, visit),
+            Statement::Assign { value, line, .. } => walk_expression(value, *line, in_trap, visit),
+            Statement::StateAssign { value, line, .. } => walk_expression(value, *line, in_trap, visit),
+            Statement::Expression { expression, line } => walk_expression(expression, *line, in_trap, visit),
             Statement::If {
                 condition,
                 then_body,
                 else_body,
                 line,
             } => {
-                walk_expression(condition, *line, visit);
-                walk_statements(then_body, visit);
-                walk_statements(else_body, visit);
+                walk_expression(condition, *line, in_trap, visit);
+                walk_statements(then_body, in_trap, visit);
+                walk_statements(else_body, in_trap, visit);
             }
             Statement::Match {
                 expression,
                 cases,
                 line,
             } => {
-                walk_expression(expression, *line, visit);
+                walk_expression(expression, *line, in_trap, visit);
                 for case in cases {
                     if let Some(guard) = &case.guard {
-                        walk_expression(guard, case.line, visit);
+                        walk_expression(guard, case.line, in_trap, visit);
                     }
-                    walk_statements(&case.body, visit);
+                    walk_statements(&case.body, in_trap, visit);
                 }
             }
             Statement::For {
@@ -260,12 +265,12 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                 line,
                 ..
             } => {
-                walk_expression(start, *line, visit);
-                walk_expression(end, *line, visit);
+                walk_expression(start, *line, in_trap, visit);
+                walk_expression(end, *line, in_trap, visit);
                 if let Some(step) = step {
-                    walk_expression(step, *line, visit);
+                    walk_expression(step, *line, in_trap, visit);
                 }
-                walk_statements(body, visit);
+                walk_statements(body, in_trap, visit);
             }
             Statement::ForEach {
                 iterable,
@@ -273,8 +278,8 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                 line,
                 ..
             } => {
-                walk_expression(iterable, *line, visit);
-                walk_statements(body, visit);
+                walk_expression(iterable, *line, in_trap, visit);
+                walk_statements(body, in_trap, visit);
             }
             Statement::While {
                 kind: _,
@@ -282,76 +287,88 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                 body,
                 line,
             } => {
-                walk_expression(condition, *line, visit);
-                walk_statements(body, visit);
+                walk_expression(condition, *line, in_trap, visit);
+                walk_statements(body, in_trap, visit);
             }
             Statement::DoUntil {
                 body,
                 condition,
                 line,
             } => {
-                walk_statements(body, visit);
-                walk_expression(condition, *line, visit);
+                walk_statements(body, in_trap, visit);
+                walk_expression(condition, *line, in_trap, visit);
             }
         }
     }
 }
 
-fn walk_expression(expression: &Expression, line: usize, visit: &mut impl FnMut(&str, usize)) {
+fn walk_expression(
+    expression: &Expression,
+    line: usize,
+    in_trap: bool,
+    visit: &mut impl FnMut(&str, usize, bool),
+) {
     match expression {
         Expression::Call {
             callee, arguments, ..
         } => {
             for argument in arguments {
                 match argument {
-                    CallArg::Positional(value) => walk_expression(value, line, visit),
-                    CallArg::Named { value, line, .. } => walk_expression(value, *line, visit),
+                    CallArg::Positional(value) => walk_expression(value, line, in_trap, visit),
+                    CallArg::Named { value, line, .. } => walk_expression(value, *line, in_trap, visit),
                 }
             }
-            visit(callee, line);
+            visit(callee, line, in_trap);
         }
         Expression::Binary { left, right, .. } => {
-            walk_expression(left, line, visit);
-            walk_expression(right, line, visit);
+            walk_expression(left, line, in_trap, visit);
+            walk_expression(right, line, in_trap, visit);
         }
-        Expression::Unary { operand, .. } => walk_expression(operand, line, visit),
-        Expression::Lambda { body, .. } => walk_expression(body, line, visit),
+        Expression::Unary { operand, .. } => walk_expression(operand, line, in_trap, visit),
+        Expression::Lambda { body, .. } => walk_expression(body, line, in_trap, visit),
         Expression::Constructor { arguments, .. } => {
             for argument in arguments {
                 match argument {
-                    ConstructorArg::Positional(value) => walk_expression(value, line, visit),
+                    ConstructorArg::Positional(value) => walk_expression(value, line, in_trap, visit),
                     ConstructorArg::Named { value, line, .. } => {
-                        walk_expression(value, *line, visit)
+                        walk_expression(value, *line, in_trap, visit)
                     }
                 }
             }
         }
         Expression::WithUpdate { target, updates } => {
-            walk_expression(target, line, visit);
+            walk_expression(target, line, in_trap, visit);
             for update in updates {
-                walk_expression(&update.value, update.line, visit);
+                walk_expression(&update.value, update.line, in_trap, visit);
             }
         }
         Expression::ListLiteral(items) => {
             for item in items {
-                walk_expression(item, line, visit);
+                walk_expression(item, line, in_trap, visit);
             }
         }
         Expression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                walk_expression(key, line, visit);
-                walk_expression(value, line, visit);
+                walk_expression(key, line, in_trap, visit);
+                walk_expression(value, line, in_trap, visit);
             }
         }
-        Expression::MemberAccess { target, .. } => walk_expression(target, line, visit),
+        Expression::MemberAccess { target, .. } => walk_expression(target, line, in_trap, visit),
         Expression::Trapped {
             expression,
             handler,
             line: trap_line,
             ..
         } => {
-            walk_expression(expression, *trap_line, visit);
-            walk_statements(handler, visit);
+            // An inline `TRAP … RECOVER` contains the guarded call's error, so
+            // calls inside it are walked as trapped (bug-280). A handler that
+            // itself `FAIL`s or `PROPAGATE`s does not contain anything, so in
+            // that case the guarded expression keeps the enclosing context —
+            // which may still be a trap one level out.
+            let contained = in_trap || !statements_fail_or_propagate(handler);
+            walk_expression(expression, *trap_line, contained, visit);
+            // The handler runs in the enclosing context, not under its own trap.
+            walk_statements(handler, in_trap, visit);
         }
         Expression::String(_)
         | Expression::Number(_)
@@ -440,15 +457,19 @@ fn fallible_functions(ast: &ast::AstProject) -> Fallibility {
 /// name-union set, so a call resolves conservatively across overloads.
 fn block_escapes(body: &[Statement], fallible: &HashSet<String>) -> bool {
     let mut escapes = false;
-    let mut check = |callee: &str, _line: usize| {
-        if is_fallible_call(callee, fallible) {
+    // A call whose error an inline `TRAP … RECOVER` fully handles does not escape
+    // the function, so it must not make the function fallible (bug-280).
+    // Previously every fallible call counted regardless, so a fully-recovered
+    // call marked its function — and transitively every caller — fallible.
+    let mut check = |callee: &str, _line: usize, in_trap: bool| {
+        if !in_trap && is_fallible_call(callee, fallible) {
             escapes = true;
         }
     };
     if statements_fail_or_propagate(body) {
         return true;
     }
-    walk_statements(body, &mut check);
+    walk_statements(body, false, &mut check);
     escapes
 }
 
