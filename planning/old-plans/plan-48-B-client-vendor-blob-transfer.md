@@ -400,17 +400,17 @@ existing call. Landed ahead of Phases 2-3, which need plan-48-A's endpoints.
 
 Acceptance: a blob whose body arrives after 30 s downloads successfully, where it
 failed before. Verified by the regression test against a real socket.
-Commit: —
+Commit: 09d6efcd
 
 ### Phase 2 — publish uploads vendor blobs
 
-- [ ] Add a `put_blob(repo_url, hash, bytes, session_token)` client helper — the
+- [x] Add a `put_blob(repo_url, hash, bytes, session_token)` client helper — the
       first `PUT` in the codebase (§2.2) — and a `blob_exists(repo_url, hash)`
       `HEAD` helper.
-- [ ] Wire §4.2 into `publish_package_project` (`pkg.rs:121-218`) between build
+- [x] Wire §4.2 into `publish_package_project` (`pkg.rs:121-218`) between build
       and `POST /validate`: read section 10, HEAD each, PUT the missing, report
       progress.
-- [ ] Tests: publishing a binding with vendor locators uploads exactly the blobs
+- [x] Tests: publishing a binding with vendor locators uploads exactly the blobs
       the registry lacks and **skips** the ones it has (assert the HEAD/PUT call
       pattern against a local `mfb-repo`); a publish whose blob upload fails does
       not publish the `.mfp`; a package with no vendor locators makes **zero**
@@ -419,25 +419,25 @@ Commit: —
 Acceptance: an end-to-end `pkg publish` of a vendoring binding against a local
 `mfb-repo` lands every blob and the `.mfp`, and re-publishing a new version with
 an unchanged library uploads **no** blob bytes.
-Commit: —
+Commit: 0cb8186a
 
 ### Phase 3 — install downloads and verifies
 
-- [ ] Implement §4.4 in `pkg add` (`pkg.rs:513-582`) and `pkg install`
+- [x] Implement §4.4 in `pkg add` (`pkg.rs:513-582`) and `pkg install`
       (`resolve.rs:89-145`), after `.mfp` verification, using stage-verify-rename
       (`mod.rs:21-49`).
-- [ ] Add `6-605-0010`/`0011` to `src/rules/table.rs`.
-- [ ] Amend plan-46-C §4.4 and plan-46-D §4.5 for the imported-package resolution
+- [x] Add `6-605-0010`/`0011` to `src/rules/table.rs`.
+- [x] Amend plan-46-C §4.4 and plan-46-D §4.5 for the imported-package resolution
       root (§4.3) — the prefix itself is already specified in plan-46-D §4.5 and
       needs nothing from this plan (§5).
-- [ ] Tests: `pkg add` of a vendoring binding leaves verified files in
+- [x] Tests: `pkg add` of a vendoring binding leaves verified files in
       `packages/<name>.vendor/`; a registry serving a **tampered** blob fails with
       `PACKAGE_VENDOR_BLOB_HASH_MISMATCH` and leaves **no** file (not even a
       `.part`); a missing blob fails with `PACKAGE_VENDOR_BLOB_MISSING`; an
       unsigned package's blobs are fetched but not reported as verified (§3.3); a
       `source` carrying a path separator or `..` is refused before any file
       operation.
-- [ ] Doc: update `src/docs/spec/tooling/` (the `packages/` layout gains
+- [x] Doc: update `src/docs/spec/tooling/` (the `packages/` layout gains
       `<name>.vendor/`), `src/docs/spec/package-manager/01_repository-protocol.md`
       (client flow), and `src/docs/spec/language/17_native-libraries.md` (vendor
       libraries now arrive with the package — remove plan-46-C's "distribution is
@@ -447,7 +447,7 @@ Acceptance: on a machine that has never seen the library, `mfb pkg add` followed
 by `mfb build` produces a running executable that `dlopen`s the vendored library
 — **with no file placed by hand.** That is the acceptance for the whole plan-46 +
 plan-48 arc, and it needs a real end-to-end run, not a unit test.
-Commit: —
+Commit: 0cb8186a
 
 ## Validation Plan
 

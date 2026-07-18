@@ -381,13 +381,13 @@ known limit rather than a surprise:
 
 Pure refactor; behavior-identical. Safe to land alone.
 
-- [ ] Add `BlobKind { Package, Native }`; change `blob_name(hash)` →
+- [x] Add `BlobKind { Package, Native }`; change `blob_name(hash)` →
       `blob_name(hash, kind)` (`blobstore.rs:136`) and thread `kind` through
       `blob_ref`, `exists`, `stage`, `get`, and S3 `key()` (`blobstore.rs:300`).
-- [ ] Add `kind TEXT NOT NULL DEFAULT 'package'` to `package_blobs`
+- [x] Add `kind TEXT NOT NULL DEFAULT 'package'` to `package_blobs`
       (`store.rs:235-239`); confirm existing rows read back as `Package`.
-- [ ] Add `package_version_blobs` per §4.5 (written in Phase 3).
-- [ ] Tests: `<hash>.mfp` naming for `Package` is **byte-for-byte unchanged**
+- [x] Add `package_version_blobs` per §4.5 (written in Phase 3).
+- [x] Tests: `<hash>.mfp` naming for `Package` is **byte-for-byte unchanged**
       (the existing `blob_ref_and_name_are_content_addressed` test at
       `blobstore.rs:462-466` must pass untouched); `Native` yields `<hash>.bin`;
       a pre-existing DB migrates and serves.
@@ -395,18 +395,18 @@ Pure refactor; behavior-identical. Safe to land alone.
 Acceptance: an existing registry's blobs and DB keep working with no migration
 step and no name change; `cargo test -p mfb_repository` green, including the s3
 feature build (`cargo build -p mfb_repository --features s3`).
-Commit: —
+Commit: 0cb8186a
 
 ### Phase 2 — `PUT` / `HEAD /blob/<hash>`
 
-- [ ] Add `HEAD /blob/:hash` per §4.2 (same hex validation as
+- [x] Add `HEAD /blob/:hash` per §4.2 (same hex validation as
       `server.rs:1318-1326`).
-- [ ] Add `PUT /blob/:hash` per §4.3: `Authorization: Bearer` session auth,
+- [x] Add `PUT /blob/:hash` per §4.3: `Authorization: Bearer` session auth,
       raw body, `sha256(body) == <hash>` or `400`, idempotent on `exists`, then
       stage → row → promote with `abort` on failure.
-- [ ] Add a per-owner blob-upload rate limit beside `PUBLISH_PER_OWNER_MAX`
+- [x] Add a per-owner blob-upload rate limit beside `PUBLISH_PER_OWNER_MAX`
       (`server.rs:606-607`) — §4.3, non-optional given there is no GC.
-- [ ] Tests: round-trip a native blob PUT → HEAD 200 → GET returns identical
+- [x] Tests: round-trip a native blob PUT → HEAD 200 → GET returns identical
       bytes; wrong-hash body → 400 and **nothing stored**; re-PUT is 200 and does
       not duplicate; missing/expired/revoked token → 401; oversized body → 413;
       non-hex path → 400. Cover the S3 backend too (the `abort`-leaves-no-orphan
@@ -415,22 +415,22 @@ Commit: —
 Acceptance: a native blob uploads, HEADs, and downloads byte-identically on both
 the local and S3 backends; a hash-mismatched upload stores nothing; an
 unauthenticated PUT is refused.
-Commit: —
+Commit: 0cb8186a
 
 ### Phase 3 — publish referential integrity
 
-- [ ] In `publish_package` (`server.rs:1762`), parse section 10 from the decoded
+- [x] In `publish_package` (`server.rs:1762`), parse section 10 from the decoded
       artifact and require `exists(hash, Native)` for every `vendor` locator;
       `400` naming the missing hashes otherwise (§4.4). Reuse plan-46-B's
       section-10 decoder — do not hand-roll a second parser.
-- [ ] Write `package_version_blobs` rows inside the publish transaction (§4.5).
-- [ ] Apply the same check in `POST /validate` (`server.rs:1753`) so a dry run
+- [x] Write `package_version_blobs` rows inside the publish transaction (§4.5).
+- [x] Apply the same check in `POST /validate` (`server.rs:1753`) so a dry run
       reports missing blobs before the publisher uploads anything.
-- [ ] Tests: publishing a `.mfp` with a section-10 vendor hash whose blob is
+- [x] Tests: publishing a `.mfp` with a section-10 vendor hash whose blob is
       absent → 400, and **nothing is published**; uploading the blob then
       publishing → success, with the `package_version_blobs` edges recorded; a
       package with no vendor locators publishes exactly as before (regression).
-- [ ] Doc: extend `src/docs/spec/package-manager/01_repository-protocol.md` —
+- [x] Doc: extend `src/docs/spec/package-manager/01_repository-protocol.md` —
       the endpoint table (`:59-91`) gains `PUT`/`HEAD /blob/<hash>`; document the
       `Authorization: Bearer` credential as the one header-borne exception to the
       body-field `sessionToken` convention (§4.3); document the publish rejection;
@@ -438,7 +438,7 @@ Commit: —
 
 Acceptance: a section-10 hash can never dangle after a successful publish,
 verified by the negative test; existing packages publish byte-identically.
-Commit: —
+Commit: 0cb8186a
 
 ## Validation Plan
 
