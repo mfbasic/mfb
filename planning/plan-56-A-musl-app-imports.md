@@ -302,7 +302,7 @@ Artifact-neutral by construction: `Glibc` yields the previous strings.
 
 Acceptance: the two unit cases above pass, and `scripts/artifact-gate.sh` is
 green — no emitted byte moves.
-Commit: —
+Commit: b12213d2
 
 ### Phase 2 — Collapse `lib_for` into the import map
 
@@ -322,7 +322,20 @@ The blast-radius phase: touches every app-mode external call's relocation label.
 Acceptance: `scripts/artifact-gate.sh` green (relocation labels are cosmetic, so
 this must move **zero** bytes), `cargo test` green, and a `linux-x86_64` `--app`
 `-ncode` dump shows every external call's `library` matching its import.
-Commit: —
+Commit: 2c8a803f
+
+⚠️ **Implementation note — the binding must run at ONE choke point, not per
+entry point.** Writing it per entry point (as §4.2 originally described) left
+five relocations (`malloc`, `memcpy`, `g_idle_add`, `write` ×2) with *no*
+library, because the app-mode io/term helpers come from half a dozen separate
+`CodegenPlatform` hooks the entry points never see. It now runs in
+`shared::code::bind_deferred_relocation_libraries`, over every assembled
+function, so a hook added later cannot reintroduce the gap.
+
+⚠️ **The artifact gate did not catch that.** There are no linux-app goldens
+(plan-51-D), so the empty labels were invisible to all 1157 goldens; it was
+caught by dumping `--app --ncode` and inspecting relocations directly. Do not
+treat a green gate as proof for Linux app-mode changes.
 
 ## Validation Plan
 
