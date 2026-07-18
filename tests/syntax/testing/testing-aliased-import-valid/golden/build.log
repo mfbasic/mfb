@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/testing/testing-aliased-import-valid
+Wrote AST to tests/syntax/testing/testing-aliased-import-valid/testing_aliased_import.ast
+Wrote IR to tests/syntax/testing/testing-aliased-import-valid/testing_aliased_import.ir
+[exit 0]

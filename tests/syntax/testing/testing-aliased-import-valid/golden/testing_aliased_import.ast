@@ -1,0 +1,79 @@
+{
+  "project": "testing_aliased_import",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "alias": "console", "line": 5 },
+    { "module": "collections", "alias": "coll", "line": 6 },
+    { "module": "fs", "alias": "files", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "label",
+      "line": 9,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 9 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 10,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "positive" }, "line": 11 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "nonpositive" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "console.print", "arguments": [{ "kind": "string", "value": "dropped under mfb test" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "testing",
+      "line": 21,
+      "groups": [
+      {
+        "description": "aliased imports",
+        "line": 22,
+        "members": [
+        {
+          "description": "the driver runs",
+          "line": 23,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "call", "callee": "label", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "positive" }] }, "line": 24 }
+          ]
+        },
+        {
+          "description": "a failing case still reports",
+          "line": 26,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "call", "callee": "label", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "negative" }] }, "line": 27 }
+          ]
+        }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

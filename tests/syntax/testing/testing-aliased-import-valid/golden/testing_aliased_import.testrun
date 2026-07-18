@@ -1,0 +1,8 @@
+$ mfb test tests/syntax/testing/testing-aliased-import-valid
+* aliased imports
+  * [P] the driver runs
+  * [F] a failing case still reports
+    X expected negative, got positive  (src/main.mfb:27)
+
+Tests: 2  Pass: 1  Fail: 1
+[exit 1]

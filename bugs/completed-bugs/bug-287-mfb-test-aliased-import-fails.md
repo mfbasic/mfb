@@ -1,11 +1,11 @@
 # bug-287: `mfb test` fails when the first file imports `io` (or `collections`/`fs`) only under an alias
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ (new) — a project whose file does `IMPORT io AS console` + a TESTING block runs its tests
 
 The synthesized test driver calls `io.print` (and the coverage helpers call
@@ -93,3 +93,33 @@ driver can't know the user's alias name generally.
 
 A one-condition scoping bug in the test-driver synthesis; requiring the import be
 unaliased fixes it. Same fix at the two coverage-helper sites.
+
+## Resolution
+
+`ensure_import` decided a module was already available by matching
+`import.module == module` alone. Per spec 13, `IMPORT io AS console` binds *only*
+`console`, so an aliased-only import suppressed the injected plain import and the
+synthesized driver's `io::print` — and the coverage helpers' `collections::` /
+`fs::` — failed to resolve. The check now also requires `import.alias.is_none()`.
+
+Safe because `SYMBOL_DUPLICATE_IMPORT` keys off the *binding* name
+(`src/resolver/resolution.rs`), so `io` and `console` coexist.
+
+Tests: `testing::tests::ensure_import_ignores_an_aliased_import` and the fixture
+`tests/syntax/testing/testing-aliased-import-valid`, which aliases all three
+packages and ships `testrun` plus coverage goldens so the driver and the
+coverage-helper paths are both guarded.
+
+### Three corrections to this report
+
+1. **Its reproduction does not compile.** `TESTING "t"` with a bare `TCASE` is a
+   parse error — `TESTING` takes no description and requires a `TGROUP`. The bug
+   is real, but as written the repro never reached the resolver.
+2. **"Two fix sites" is wrong.** `src/testing/desugar.rs:430-431` are *calls to*
+   `ensure_import`, not a duplicated predicate. One edit covers all three
+   modules; there is no second edit to make.
+3. The `SYMBOL_UNKNOWN_IMPORT` diagnostic anchors to the user's `IMPORT` line,
+   not to the synthesized driver.
+
+A grep for other AST-level import injectors confirms `ensure_import` is the only
+one, so the single edit is complete end to end.

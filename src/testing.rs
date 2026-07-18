@@ -153,8 +153,24 @@ fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> 
     }
 }
 
+/// Guarantee that `file` can name `module` by its plain (unaliased) name, which
+/// is what the generated driver and coverage helpers emit (`io::print`,
+/// `collections::…`, `fs::…`).
+///
+/// bug-287: the existence check must also require `alias.is_none()`. Per
+/// §13 of the language spec, `IMPORT io AS console` binds *only* `console` —
+/// it does not introduce `io`. Matching on the module name alone let an
+/// aliased-only import suppress the injected plain import, so every driver
+/// `io::print` failed resolution and `mfb test` errored on a project that
+/// `mfb build` compiled fine. Importing a module both plainly and under an
+/// alias is legal: `SYMBOL_DUPLICATE_IMPORT` keys off the *binding* name
+/// (`resolver::resolution::resolve_file`), and `io` vs `console` do not collide.
 fn ensure_import(file: &mut crate::ast::AstFile, module: &str) {
-    if !file.imports.iter().any(|import| import.module == module) {
+    if !file
+        .imports
+        .iter()
+        .any(|import| import.module == module && import.alias.is_none())
+    {
         file.imports.push(Import {
             module: module.to_string(),
             alias: None,
@@ -459,6 +475,30 @@ END TESTING
         assert_eq!(file.imports.len(), 1);
         assert_eq!(file.imports[0].module, "io");
         ensure_import(&mut file, "fs");
+        assert_eq!(file.imports.len(), 2);
+    }
+
+    /// bug-287: an aliased import binds only the alias, so it must NOT satisfy
+    /// the driver's need for the plain module name — the plain import is still
+    /// injected alongside it (both bindings coexist without colliding).
+    #[test]
+    fn ensure_import_ignores_an_aliased_import() {
+        let mut file = AstFile {
+            path: "main.mfb".to_string(),
+            imports: vec![Import {
+                module: "io".to_string(),
+                alias: Some("console".to_string()),
+                line: 1,
+            }],
+            items: Vec::new(),
+            internal: false,
+        };
+        ensure_import(&mut file, "io");
+        assert_eq!(file.imports.len(), 2);
+        assert_eq!(file.imports[1].module, "io");
+        assert_eq!(file.imports[1].alias, None);
+        // Still idempotent once the plain import exists.
+        ensure_import(&mut file, "io");
         assert_eq!(file.imports.len(), 2);
     }
 }

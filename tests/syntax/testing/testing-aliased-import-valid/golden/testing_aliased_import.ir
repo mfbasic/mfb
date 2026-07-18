@@ -1,0 +1,50 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "testing_aliased_import",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "label",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 9, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 10,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 11, "value": { "kind": "const", "type": "String", "value": "positive" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "nonpositive" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "dropped under mfb test" }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
