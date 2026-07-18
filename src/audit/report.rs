@@ -24,6 +24,11 @@ impl Severity {
 pub struct AuditReport {
     pub project: ProjectSummary,
     pub lockfile: LockfileSummary,
+    /// The manifest's `libraries` locators (plan-46) and `resources` entries
+    /// (plan-55). Both decide what a build pulls in from outside the source
+    /// tree, so both belong in the audit (bug-283 A3).
+    pub libraries: Vec<LibraryEntry>,
+    pub resource_files: Vec<ResourceFileEntry>,
     pub dependencies: Vec<DependencyEntry>,
     pub packages: Vec<PackageEntry>,
     pub source_flow: Vec<FlowFunction>,
@@ -57,6 +62,26 @@ pub struct LockfileSummary {
     pub parsed: bool,
     pub version: Option<i64>,
     pub project_hash_matches: Option<bool>,
+}
+
+/// One declared native-library locator: which logical `LINK` name it satisfies,
+/// on which target slot, and which file it binds to (bug-283 A3). A project
+/// pointing a benign-looking `LINK "sqlite3"` at a vendored file used to audit
+/// identically to one using the system library.
+pub struct LibraryEntry {
+    pub logical: String,
+    pub os: String,
+    pub arch: Option<String>,
+    pub libc: Option<String>,
+    /// `system` or `vendor`.
+    pub lib_type: String,
+    pub source: String,
+}
+
+/// One `resources` manifest entry: a file copied into the build output.
+pub struct ResourceFileEntry {
+    pub src: String,
+    pub dst: String,
 }
 
 pub struct DependencyEntry {
@@ -233,6 +258,28 @@ pub(super) mod testsupport {
                 version: Some(1),
                 project_hash_matches: Some(false),
             },
+            libraries: vec![
+                LibraryEntry {
+                    logical: "sqlite3".to_string(),
+                    os: "linux".to_string(),
+                    arch: Some("x86_64".to_string()),
+                    libc: Some("gnu".to_string()),
+                    lib_type: "system".to_string(),
+                    source: "libsqlite3.so.0".to_string(),
+                },
+                LibraryEntry {
+                    logical: "sqlite3".to_string(),
+                    os: "macos".to_string(),
+                    arch: None,
+                    libc: None,
+                    lib_type: "vendor".to_string(),
+                    source: "libsqlite3.dylib".to_string(),
+                },
+            ],
+            resource_files: vec![ResourceFileEntry {
+                src: "assets/logo.png".to_string(),
+                dst: "logo.png".to_string(),
+            }],
             dependencies: vec![
                 DependencyEntry {
                     name: "alpha".to_string(),
@@ -422,6 +469,8 @@ pub(super) mod testsupport {
                 version: None,
                 project_hash_matches: None,
             },
+            libraries: Vec::new(),
+            resource_files: Vec::new(),
             dependencies: Vec::new(),
             packages: Vec::new(),
             source_flow: Vec::new(),

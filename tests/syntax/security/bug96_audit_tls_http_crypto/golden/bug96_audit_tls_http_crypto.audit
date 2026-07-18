@@ -65,6 +65,8 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
     "lockfileVersion": null,
     "projectHashMatches": null
   },
+  "libraries": [],
+  "resourceFiles": [],
   "dependencies": [],
   "packages": [],
   "sourceFlow": [

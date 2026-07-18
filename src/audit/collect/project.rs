@@ -363,3 +363,59 @@ mod tests {
         assert!(summary.entry.is_none());
     }
 }
+
+/// The manifest's `libraries` locators (plan-46) and `resources` entries
+/// (plan-55) — bug-283 A3.
+///
+/// `mfb audit` reported `LINK` symbols but never which file each logical library
+/// actually binds to, so a project pointing a benign-looking `LINK "sqlite3"` at
+/// a vendored `./vendor/evil.dylib` audited identically to one using the system
+/// library. The auditability spec requires surfacing linked native libraries;
+/// these two sections are where a build reaches outside the source tree.
+pub(super) fn collect_libraries(
+    manifest: &HashMap<String, JsonValue>,
+) -> (Vec<LibraryEntry>, Vec<ResourceFileEntry>) {
+    let mut libraries = Vec::new();
+    // `project_libraries` returns a BTreeMap, so logical names are already
+    // ordered; locators keep their manifest order within a name.
+    for (logical, locators) in crate::manifest::libraries::project_libraries(manifest) {
+        for locator in locators {
+            libraries.push(LibraryEntry {
+                logical: logical.clone(),
+                os: locator.os.clone(),
+                arch: locator.arch.clone(),
+                libc: locator.libc.map(|libc| libc.as_str().to_string()),
+                lib_type: locator.lib_type.as_str().to_string(),
+                source: locator.source.clone(),
+            });
+        }
+    }
+
+    let mut resource_files = Vec::new();
+    if let Some(entries) = manifest
+        .get("resources")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+    {
+        for entry in entries {
+            let Some(object) = entry.get::<HashMap<String, JsonValue>>() else {
+                continue;
+            };
+            let field = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(|value| value.get::<String>())
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            let src = field("src");
+            if src.is_empty() {
+                continue;
+            }
+            let dst = field("dst");
+            resource_files.push(ResourceFileEntry { src, dst });
+        }
+    }
+    resource_files.sort_by(|a, b| a.src.cmp(&b.src).then(a.dst.cmp(&b.dst)));
+
+    (libraries, resource_files)
+}

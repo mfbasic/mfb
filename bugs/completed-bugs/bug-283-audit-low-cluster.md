@@ -1,11 +1,11 @@
 # bug-283: `mfb audit` LOW cluster (JSON C1/bidi passthrough, spec drift, libraries/resources ignored, inline-trap resource recursion)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: medium (1h–2h across items)
 Severity: LOW
 Class: Security / Correctness / Docs
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: per-item (tests/ audit fixtures + spec)
 
 LOW-severity residuals in `mfb audit`, found during goal-06. Distinct root causes,
@@ -103,3 +103,42 @@ Each item is a single site (cited). A2 pairs with bug-278; A4 pairs with bug-280
 
 Four localized audit residuals; each is a small collector/renderer/spec change.
 Value is completing the supply-chain-audit story before MVP.
+
+## Resolution
+
+All four items landed.
+
+- **A1** — `write_string` now escapes the full `terminal_safe` set (DEL, the C1
+  controls, the bidi/format overrides) in addition to C0, as `\uXXXX` so the
+  output stays valid JSON. `is_terminal_unsafe` became `pub(crate)` so the two
+  renderers share one definition of the set rather than drifting again. The
+  spec's parity claim is now true and says which set it means.
+  Test: `json::tests::write_string_escapes_the_terminal_unsafe_set`.
+- **A2** — spec corrected: the fixpoint is documented as seeded from the `LINK`
+  `SUCCESS_ON` set rather than "an empty set", the fallible-call table names the
+  per-builtin sets and why they exist, the inline-`TRAP` containment rule from
+  bug-280 is written down, and the resource-producer section records that
+  reassignment and inline-`TRAP` handler bodies are recognized too.
+- **A3** — new `Libraries` and `Resource files` sections (text) /
+  `libraries` and `resourceFiles` arrays (JSON), from `collect_libraries`. A
+  project pointing `LINK "sqlite3"` at a vendored file now shows
+  `sqlite3 macos vendor evil.dylib` instead of auditing identically to one using
+  the system library.
+- **A4** — `collect_resources` descends into inline-`TRAP` handler bodies via
+  `trapped_handlers`, so a fallback acquisition inside a handler gets its
+  Resources row and close-may-fail finding. Handled after the statement match so
+  every statement shape is covered, not only `Let`/`Assign`.
+
+Verified end-to-end for A3 (a manifest with a vendored macOS locator and a
+`resources` entry renders both new sections) and A4 (`LET h2 = fs::openFile(...)`
+inside a handler now appears as a `File` resource). Golden churn was purely
+additive: eight fixtures gained two empty JSON keys, and the two projects that
+declare `libraries` gained their real section. 994 acceptance tests green.
+
+### Unrelated flake observed
+
+`rt-behavior/resources/closed-default-tls-drop-rt` segfaulted (exit 139) once
+during this work and passed 3/3 on re-run. These changes are audit-only and
+cannot reach codegen; this matches the known pre-existing `variants_for_union`
+HashMap-iteration nondeterminism in resource-union drop. Not caused here, not
+fixed here, and worth its own bug.

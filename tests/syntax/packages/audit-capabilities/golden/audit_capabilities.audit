@@ -90,6 +90,8 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
     "lockfileVersion": null,
     "projectHashMatches": null
   },
+  "libraries": [],
+  "resourceFiles": [],
   "dependencies": [],
   "packages": [],
   "sourceFlow": [

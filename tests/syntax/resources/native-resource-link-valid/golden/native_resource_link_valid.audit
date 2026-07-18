@@ -9,6 +9,10 @@ Summary:
   warnings: 0
   infos: 0
 
+Libraries:
+  sqlite3 macos system libsqlite3.dylib
+  sqlite3 linux system libsqlite3.so.0
+
 Native links:
   native_resource_link_valid sqlite3_close close= may_fail=true
   native_resource_link_valid sqlite3_finalize close= may_fail=true
@@ -47,6 +51,25 @@ $ mfb audit --format json tests/syntax/resources/native-resource-link-valid
     "lockfileVersion": null,
     "projectHashMatches": null
   },
+  "libraries": [
+    {
+      "logical": "sqlite3",
+      "os": "macos",
+      "arch": null,
+      "libc": null,
+      "type": "system",
+      "source": "libsqlite3.dylib"
+    },
+    {
+      "logical": "sqlite3",
+      "os": "linux",
+      "arch": null,
+      "libc": null,
+      "type": "system",
+      "source": "libsqlite3.so.0"
+    }
+  ],
+  "resourceFiles": [],
   "dependencies": [],
   "packages": [],
   "sourceFlow": [],

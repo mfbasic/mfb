@@ -22,7 +22,7 @@ use findings::{
     resource_findings, sort_findings,
 };
 use lockfile::collect_lockfile;
-use project::{collect_native_links, collect_native_resources, project_summary};
+use project::{collect_libraries, collect_native_links, collect_native_resources, project_summary};
 use source::collect_source;
 
 /// Inputs handed to the collector after the front-end pipeline has run.
@@ -44,6 +44,7 @@ pub fn collect(inputs: &AuditInputs) -> AuditReport {
     let native_links = collect_native_links(&project.name, inputs.ast);
     let native_resources = collect_native_resources(&project.name, inputs.ast);
     let lockfile = collect_lockfile(inputs.project_dir, inputs.manifest, inputs.locked);
+    let (libraries, resource_files) = collect_libraries(inputs.manifest);
 
     let mut findings = Vec::new();
     lockfile_findings(&lockfile, &dependencies, inputs, &mut findings);
@@ -61,6 +62,8 @@ pub fn collect(inputs: &AuditInputs) -> AuditReport {
     AuditReport {
         project,
         lockfile,
+        libraries,
+        resource_files,
         dependencies,
         packages,
         source_flow,

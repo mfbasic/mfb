@@ -78,7 +78,20 @@ fn write_string(out: &mut String, value: &str) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            // Escape everything the text renderer escapes (bug-283 A1).
+            // Previously only C0 was covered here, so `--format json` piped to a
+            // terminal was still spoofable by a crafted package name via DEL, the
+            // C1 controls (U+009B is a one-byte CSI on some terminals) or a bidi
+            // override — the exact attack bug-210 closed for the text renderer,
+            // while the spec claimed the two escaped the same characters.
+            //
+            // `\uXXXX` rather than the text renderer's `\u{XXXX}` because this
+            // has to stay valid JSON; it is lossless either way. Astral-plane
+            // code points are not in the unsafe set, so no surrogate pair
+            // encoding is needed here.
+            c if (c as u32) < 0x20 || crate::terminal_safe::is_terminal_unsafe(c) => {
+                out.push_str(&format!("\\u{:04x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -155,6 +168,8 @@ pub fn render(report: &AuditReport) -> String {
                 ),
             ]),
         ),
+        ("libraries", libraries(report)),
+        ("resourceFiles", resource_files(report)),
         ("dependencies", dependencies(report)),
         ("packages", packages(report)),
         ("sourceFlow", source_flow(report)),
@@ -169,6 +184,42 @@ pub fn render(report: &AuditReport) -> String {
     root.write(&mut out, 0);
     out.push('\n');
     out
+}
+
+/// The manifest's declared native-library locators (bug-283 A3).
+fn libraries(report: &AuditReport) -> Json {
+    Json::Arr(
+        report
+            .libraries
+            .iter()
+            .map(|library| {
+                Json::Obj(vec![
+                    ("logical", Json::Str(library.logical.clone())),
+                    ("os", Json::Str(library.os.clone())),
+                    ("arch", opt_str(&library.arch)),
+                    ("libc", opt_str(&library.libc)),
+                    ("type", Json::Str(library.lib_type.clone())),
+                    ("source", Json::Str(library.source.clone())),
+                ])
+            })
+            .collect(),
+    )
+}
+
+/// The manifest's `resources` entries (bug-283 A3).
+fn resource_files(report: &AuditReport) -> Json {
+    Json::Arr(
+        report
+            .resource_files
+            .iter()
+            .map(|resource| {
+                Json::Obj(vec![
+                    ("src", Json::Str(resource.src.clone())),
+                    ("dst", Json::Str(resource.dst.clone())),
+                ])
+            })
+            .collect(),
+    )
 }
 
 fn dependencies(report: &AuditReport) -> Json {
@@ -548,5 +599,41 @@ mod tests {
         assert!(*parsed["c"].get::<bool>().unwrap());
         assert!(matches!(parsed["d"], JsonValue::Null));
         assert_eq!(parsed["e"].get::<String>().unwrap(), "hi");
+    }
+
+    /// The JSON renderer escapes the same characters the text renderer does
+    /// (bug-283 A1).
+    ///
+    /// bug-210 hardened the text output against a crafted package name spoofing
+    /// the terminal, but the JSON writer escaped only C0, so `--format json`
+    /// piped to a terminal stayed vulnerable to DEL, the C1 controls (U+009B is
+    /// a one-byte CSI on some terminals) and bidi overrides -- while the spec
+    /// claimed parity. Escaping is `\uXXXX` here rather than the text
+    /// renderer's `\u{XXXX}` so the output stays valid JSON.
+    #[test]
+    fn write_string_escapes_the_terminal_unsafe_set() {
+        for (raw, needle) in [
+            ("a\u{1b}[31mb", "\\u001b"),   // C0 ESC
+            ("a\u{7f}b", "\\u007f"),       // DEL
+            ("a\u{9b}b", "\\u009b"),       // C1 CSI
+            ("a\u{202e}b", "\\u202e"),     // RLO bidi override
+            ("a\u{feff}b", "\\ufeff"),     // BOM / zero-width no-break space
+        ] {
+            let mut out = String::new();
+            write_string(&mut out, raw);
+            assert!(
+                out.contains(needle),
+                "expected {needle} in {out} for input {raw:?}"
+            );
+            // Still valid JSON, and still parses back to the original text.
+            let parsed = parse(&format!("{{\"v\": {out}}}"));
+            assert_eq!(parsed["v"].get::<String>().unwrap(), raw);
+        }
+
+        // Ordinary text is untouched, including non-ASCII that is not a control
+        // or a bidi override.
+        let mut out = String::new();
+        write_string(&mut out, "caf\u{e9} \u{65e5}");
+        assert_eq!(out, "\"caf\u{e9} \u{65e5}\"");
     }
 }

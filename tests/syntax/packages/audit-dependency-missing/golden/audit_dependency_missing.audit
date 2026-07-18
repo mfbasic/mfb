@@ -44,6 +44,8 @@ $ mfb audit --format json tests/syntax/packages/audit-dependency-missing
     "lockfileVersion": null,
     "projectHashMatches": null
   },
+  "libraries": [],
+  "resourceFiles": [],
   "dependencies": [
     {
       "name": "widgets",

@@ -32,7 +32,9 @@ Both renderers escape untrusted strings. The text renderer replaces every contro
 character in a manifest- or `.mfp`-derived value (names, versions, paths,
 messages) with `\u{XXXX}`, so a crafted package name cannot emit ESC sequences or
 embedded newlines into the operator's terminal.[[src/audit/text.rs:safe]] The JSON
-renderer escapes the same characters as `\u00xx`.[[src/audit/json.rs:write_string]]
+renderer escapes the same set — C0, DEL, the C1 controls, and the bidi/format
+overrides — as `\uXXXX`, which keeps the output valid
+JSON.[[src/audit/json.rs:write_string]]
 
 | Exit | Meaning |
 |---|---|
@@ -93,6 +95,18 @@ stored `projectHash` vs. recomputed `project_hash`).[[src/audit/collect/lockfile
 integer within the exactly-representable `f64` range; a fractional, negative, or
 out-of-range value is malformed and reports `null` rather than a truncated or
 saturated number.[[src/audit/collect/lockfile.rs:lockfile_version]]
+
+**LibraryEntry** (`libraries`) — `logical` (the `LINK` name it satisfies), `os`,
+`arch` (nullable = any), `libc` (nullable = any, Linux only), `type`
+(`system` / `vendor`), `source` (a bare filename). One row per declared locator,
+ordered by logical name then manifest order. This is what a `LINK` actually binds
+to: without it a project pointing a benign-looking `LINK "sqlite3"` at a vendored
+file audits identically to one using the system
+library.[[src/audit/collect/project.rs:collect_libraries]]
+
+**ResourceFileEntry** (`resourceFiles`) — `src`, `dst`: one row per `resources`
+manifest entry, i.e. per file copied into the build output. Sorted by
+`(src, dst)`.[[src/audit/collect/project.rs:collect_libraries]]
 
 **DependencyEntry** — `name`, `ident`, `requestedVersion`, `resolvedVersion`
 (nullable), `pin` (bool), `source`, `signature` (nullable), `contentHash`
@@ -208,7 +222,10 @@ The `lint`/`policy` categories have ranks reserved but emit no codes.
 ### Fallibility fixpoint
 
 A user function is *fallible* if its errors can escape to its caller. The
-collector iterates to a fixpoint: starting from an empty set, it repeatedly marks
+collector iterates to a fixpoint: starting from the set of `LINK` functions that
+carry a `SUCCESS_ON` gate (a failed gate raises a trappable native error, so a
+user function whose only error source is such a call is fallible), it repeatedly
+marks
 any not-yet-fallible function name whose *relevant block* can let an error escape,
 stopping when a pass marks nothing new. The relevant block is the `TRAP` handler
 body when a trap exists (body errors route there first), otherwise the function
@@ -262,10 +279,28 @@ or if it names a user function already in the fallible set:[[src/audit/collect/s
 
 ```text
 fallible builtin packages: fs, io, json, net, thread, tls, http
+per-builtin fallible sets: the raising members of crypto, datetime, audio, os,
+                           regex, csv and encoding, plus the bare conversions
+                           toInt / toFloat / toFixed / toMoney / toScalar / toByte
 otherwise:                 callee ∈ fallible-user-function set
 ```
 
+The per-builtin sets exist because those packages mix total and raising
+operations, so a coarse package match would over-report — `audio::xruns` is a
+counter read, most of `crypto` is computation over caller-supplied bytes, and
+`datetime` arithmetic is total. The membership is derived from each builtin's
+documented `## Errors` contract.[[src/audit/collect/source.rs:is_fallible_builtin]]
+
+A call whose error is fully handled by an enclosing inline `TRAP … RECOVER` does
+not make its function fallible, and its `propagation` is reported as `trap`. A
+handler that itself `FAIL`s or `PROPAGATE`s handles nothing, so in that case the
+guarded call keeps the enclosing context.[[src/audit/collect/source.rs:block_escapes]]
+
 ### Resource producers
+
+Both `LET name = <call>` and a later reassignment `name = <call>` are recognized,
+as is a call wrapped in an inline `TRAP`, including acquisitions made *inside*
+that trap's handler body.[[src/audit/collect/source.rs:collect_resources]]
 
 `LET name = <call>` is recognized as a resource binding when the callee matches
 this table (scanned recursively through `IF`/`MATCH`/loop bodies). Recognized

@@ -10,6 +10,10 @@ Summary:
   warnings: 0
   infos: 2
 
+Libraries:
+  sqlite3 macos system libsqlite3.dylib
+  sqlite3 linux system libsqlite3.so.0
+
 Permissions:
   native
     sql.open at src/main.mfb:56
@@ -76,6 +80,25 @@ $ mfb audit --format json tests/rt-behavior/native/native-link-free-rt
     "lockfileVersion": null,
     "projectHashMatches": null
   },
+  "libraries": [
+    {
+      "logical": "sqlite3",
+      "os": "macos",
+      "arch": null,
+      "libc": null,
+      "type": "system",
+      "source": "libsqlite3.dylib"
+    },
+    {
+      "logical": "sqlite3",
+      "os": "linux",
+      "arch": null,
+      "libc": null,
+      "type": "system",
+      "source": "libsqlite3.so.0"
+    }
+  ],
+  "resourceFiles": [],
   "dependencies": [],
   "packages": [],
   "sourceFlow": [

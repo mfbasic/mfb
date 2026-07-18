@@ -65,6 +65,42 @@ pub fn render(report: &AuditReport) -> String {
         }
     }
 
+    // Where the build reaches outside the source tree (bug-283 A3): which file
+    // each logical LINK name binds to, and which files are copied into the output.
+    if !report.libraries.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "Libraries:");
+        for library in &report.libraries {
+            let slot = match (&library.arch, &library.libc) {
+                (Some(arch), Some(libc)) => format!("{}/{arch}/{libc}", library.os),
+                (Some(arch), None) => format!("{}/{arch}", library.os),
+                (None, Some(libc)) => format!("{}/*/{libc}", library.os),
+                (None, None) => library.os.clone(),
+            };
+            let _ = writeln!(
+                out,
+                "  {} {} {} {}",
+                safe(&library.logical),
+                safe(&slot),
+                safe(&library.lib_type),
+                safe(&library.source)
+            );
+        }
+    }
+
+    if !report.resource_files.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "Resource files:");
+        for resource in &report.resource_files {
+            let dst = if resource.dst.is_empty() {
+                String::new()
+            } else {
+                format!(" -> {}", safe(&resource.dst))
+            };
+            let _ = writeln!(out, "  {}{}", safe(&resource.src), dst);
+        }
+    }
+
     if !report.packages.is_empty() {
         let _ = writeln!(out);
         let _ = writeln!(out, "Packages:");

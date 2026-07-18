@@ -201,6 +201,67 @@ fn collect_resources(function: &str, path: &str, body: &[Statement], out: &mut V
             }
             _ => {}
         }
+
+        // An inline `TRAP` handler is a statement list too, and a fallback
+        // acquisition inside it is a real resource (bug-283 A4):
+        //
+        //     LET h = primary() TRAP(e) ... LET h2 = fs::open(alt) ... END TRAP
+        //
+        // bug-211 taught `acquisition_callee` to unwrap a `Trapped` *value* to
+        // its inner call, but nothing ever descended into the handler body, so
+        // `h2` was missing from Resources along with its close-may-fail finding.
+        // Handled after the match so every statement shape is covered, not just
+        // the `Let`/`Assign` arms above.
+        for handler in trapped_handlers(statement) {
+            collect_resources(function, path, handler, out);
+        }
+    }
+}
+
+/// The handler bodies of every inline `TRAP` appearing directly in a statement's
+/// own expressions (bug-283 A4).
+fn trapped_handlers(statement: &Statement) -> Vec<&[Statement]> {
+    let mut out = Vec::new();
+    match statement {
+        Statement::Let {
+            value: Some(value), ..
+        } => collect_trapped_handlers(value, &mut out),
+        Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
+            collect_trapped_handlers(value, &mut out)
+        }
+        Statement::Expression { expression, .. } => collect_trapped_handlers(expression, &mut out),
+        Statement::Return {
+            value: Some(value), ..
+        } => collect_trapped_handlers(value, &mut out),
+        _ => {}
+    }
+    out
+}
+
+fn collect_trapped_handlers<'a>(expression: &'a Expression, out: &mut Vec<&'a [Statement]>) {
+    match expression {
+        Expression::Trapped {
+            expression,
+            handler,
+            ..
+        } => {
+            out.push(handler.as_slice());
+            collect_trapped_handlers(expression, out);
+        }
+        Expression::Call { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    CallArg::Positional(value) => collect_trapped_handlers(value, out),
+                    CallArg::Named { value, .. } => collect_trapped_handlers(value, out),
+                }
+            }
+        }
+        Expression::Binary { left, right, .. } => {
+            collect_trapped_handlers(left, out);
+            collect_trapped_handlers(right, out);
+        }
+        Expression::Unary { operand, .. } => collect_trapped_handlers(operand, out),
+        _ => {}
     }
 }
 

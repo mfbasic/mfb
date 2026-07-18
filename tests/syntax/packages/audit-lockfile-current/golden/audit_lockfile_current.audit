@@ -38,6 +38,8 @@ $ mfb audit --format json tests/syntax/packages/audit-lockfile-current
     "lockfileVersion": 1,
     "projectHashMatches": true
   },
+  "libraries": [],
+  "resourceFiles": [],
   "dependencies": [],
   "packages": [],
   "sourceFlow": [

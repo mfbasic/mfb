@@ -23,7 +23,7 @@ use std::fmt::Write;
 
 /// Whether `ch` must not reach the terminal verbatim: a C0/C1 control, or a
 /// Unicode bidi/format code point that is invisible but semantically active.
-fn is_terminal_unsafe(ch: char) -> bool {
+pub(crate) fn is_terminal_unsafe(ch: char) -> bool {
     ch.is_control()
         || matches!(ch,
             // Arabic letter mark.
