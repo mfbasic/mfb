@@ -387,59 +387,59 @@ directory; LOC shown to help sequence the effort.
 
 **`src/cli/`**
 
-- [ ] `src/cli/build.rs` (2838 loc)
-- [ ] `src/cli/doc.rs` (237 loc)
-- [ ] `src/cli/fmt.rs` (286 loc)
-- [ ] `src/cli/init.rs` (328 loc)
-- [ ] `src/cli/man.rs` (447 loc)
-- [ ] `src/cli/mod.rs` (339 loc)
-- [ ] `src/cli/pkg.rs` (2093 loc)
-- [ ] `src/cli/repo.rs` (394 loc)
-- [ ] `src/cli/resolve.rs` (1063 loc)
-- [ ] `src/cli/spec.rs` (342 loc)
-- [ ] `src/cli/version.rs` (120 loc)
+- [x] `src/cli/build.rs` (2838 loc) — bug-298, bug-300 (E8)
+- [x] `src/cli/doc.rs` (237 loc) — clean
+- [x] `src/cli/fmt.rs` (286 loc) — clean
+- [x] `src/cli/init.rs` (328 loc) — clean
+- [x] `src/cli/man.rs` (447 loc) — clean
+- [x] `src/cli/mod.rs` (339 loc) — clean
+- [x] `src/cli/pkg.rs` (2093 loc) — clean
+- [x] `src/cli/repo.rs` (394 loc) — clean
+- [x] `src/cli/resolve.rs` (1063 loc) — clean
+- [x] `src/cli/spec.rs` (342 loc) — clean
+- [x] `src/cli/version.rs` (120 loc) — clean
 
 **`src/docs/`**
 
-- [ ] `src/docs/mod.rs` (8 loc)
-- [ ] `src/docs/render.rs` (957 loc)
+- [x] `src/docs/mod.rs` (8 loc) — clean
+- [x] `src/docs/render.rs` (957 loc) — clean
 
 **`src/docs/man/`**
 
-- [ ] `src/docs/man/mod.rs` (322 loc)
+- [x] `src/docs/man/mod.rs` (322 loc) — clean
 
 **`src/docs/spec/`**
 
-- [ ] `src/docs/spec/mod.rs` (139 loc)
+- [x] `src/docs/spec/mod.rs` (139 loc) — clean
 
 **`src/ir/`**
 
-- [ ] `src/ir/binary.rs` (1557 loc)
-- [ ] `src/ir/json.rs` (932 loc)
-- [ ] `src/ir/link.rs` (719 loc)
-- [ ] `src/ir/lower.rs` (4036 loc)
-- [ ] `src/ir/mod.rs` (177 loc)
-- [ ] `src/ir/op.rs` (129 loc)
-- [ ] `src/ir/package.rs` (365 loc)
-- [ ] `src/ir/types.rs` (85 loc)
-- [ ] `src/ir/value.rs` (164 loc)
+- [x] `src/ir/binary.rs` (1557 loc) — clean
+- [x] `src/ir/json.rs` (932 loc) — clean
+- [x] `src/ir/link.rs` (719 loc) — clean
+- [x] `src/ir/lower.rs` (4036 loc) — bug-286 (unary-minus fold gap)
+- [x] `src/ir/mod.rs` (177 loc) — clean
+- [x] `src/ir/op.rs` (129 loc) — clean
+- [x] `src/ir/package.rs` (365 loc) — clean
+- [x] `src/ir/types.rs` (85 loc) — clean
+- [x] `src/ir/value.rs` (164 loc) — clean
 
 **`src/ir/verify/`**
 
-- [ ] `src/ir/verify/mod.rs` (5268 loc)
+- [x] `src/ir/verify/mod.rs` (5268 loc) — bug-297, bug-301 (G2)
 
 **`src/manifest/`**
 
-- [ ] `src/manifest/entry.rs` (280 loc)
-- [ ] `src/manifest/libraries.rs` (893 loc)
-- [ ] `src/manifest/mod.rs` (1689 loc)
-- [ ] `src/manifest/package.rs` (1562 loc)
+- [x] `src/manifest/entry.rs` (280 loc) — clean
+- [x] `src/manifest/libraries.rs` (893 loc) — clean
+- [x] `src/manifest/mod.rs` (1689 loc) — bug-298 (dst guard Unix-only)
+- [x] `src/manifest/package.rs` (1562 loc) — clean
 
 **`src/monomorph/`**
 
-- [ ] `src/monomorph/helpers.rs` (964 loc)
-- [ ] `src/monomorph/lower.rs` (2826 loc)
-- [ ] `src/monomorph/mod.rs` (108 loc)
+- [x] `src/monomorph/helpers.rs` (964 loc) — clean
+- [x] `src/monomorph/lower.rs` (2826 loc) — clean
+- [x] `src/monomorph/mod.rs` (108 loc) — clean
 
 **`src/os/`**
 
@@ -471,24 +471,24 @@ directory; LOC shown to help sequence the effort.
 
 **`src/resolver/`**
 
-- [ ] `src/resolver/mod.rs` (1087 loc)
-- [ ] `src/resolver/packages.rs` (460 loc)
-- [ ] `src/resolver/resolution.rs` (2269 loc)
+- [x] `src/resolver/mod.rs` (1087 loc) — clean
+- [x] `src/resolver/packages.rs` (460 loc) — bug-301 (G1)
+- [x] `src/resolver/resolution.rs` (2269 loc) — clean
 
 **`src/rules/`**
 
-- [ ] `src/rules/mod.rs` (313 loc)
-- [ ] `src/rules/table.rs` (1419 loc)
+- [x] `src/rules/mod.rs` (313 loc) — clean
+- [x] `src/rules/table.rs` (1419 loc) — clean (all 233 rules match spec)
 
 **`src/syntaxcheck/`**
 
-- [ ] `src/syntaxcheck/builtins.rs` (3090 loc)
-- [ ] `src/syntaxcheck/checking.rs` (1405 loc)
-- [ ] `src/syntaxcheck/helpers.rs` (885 loc)
-- [ ] `src/syntaxcheck/inference.rs` (2641 loc)
-- [ ] `src/syntaxcheck/mod.rs` (3332 loc)
-- [ ] `src/syntaxcheck/resources.rs` (805 loc)
-- [ ] `src/syntaxcheck/types.rs` (1021 loc)
+- [x] `src/syntaxcheck/builtins.rs` (3090 loc) — clean
+- [x] `src/syntaxcheck/checking.rs` (1405 loc) — clean
+- [x] `src/syntaxcheck/helpers.rs` (885 loc) — clean
+- [x] `src/syntaxcheck/inference.rs` (2641 loc) — clean
+- [x] `src/syntaxcheck/mod.rs` (3332 loc) — bug-301 (G3/G4)
+- [x] `src/syntaxcheck/resources.rs` (805 loc) — bug-301 (G4)
+- [x] `src/syntaxcheck/types.rs` (1021 loc) — clean
 
 **`src/target/linux_aarch64/`**
 
