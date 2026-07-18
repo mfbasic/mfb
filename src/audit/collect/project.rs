@@ -24,6 +24,11 @@ pub(super) fn collect_native_resources(
     }
     let mut out = Vec::new();
     for file in &ast.files {
+        // Report only the project's own source (bug-279); the `close_may_fail`
+        // table above still scans every file because it is a lookup.
+        if file.internal {
+            continue;
+        }
         for item in &file.items {
             if let Item::Resource(resource) = item {
                 out.push(NativeResourceEntry {
@@ -58,6 +63,11 @@ pub(super) fn collect_native_resources(
 pub(super) fn collect_native_links(package: &str, ast: &ast::AstProject) -> Vec<NativeLinkEntry> {
     let mut out = Vec::new();
     for file in &ast.files {
+        // Compiler-injected package source is not the project's own LINK surface
+        // (bug-279).
+        if file.internal {
+            continue;
+        }
         for item in &file.items {
             let Item::Link(link) = item else {
                 continue;

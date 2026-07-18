@@ -11,6 +11,21 @@ pub(super) fn collect_source(
     let mut resources = Vec::new();
 
     for file in &ast.files {
+        // Skip compiler-injected package source (bug-279). `parse_project`
+        // appends the `.mfb` implementing an imported source package (json,
+        // regex, collections) to `ast.files` because compilation needs it, but
+        // reporting it attributes `#collections_*` functions to a sentinel path
+        // like `builtins/collections.mfb` that does not exist in the project —
+        // presenting compiler internals as the user's own attack surface.
+        //
+        // Only the *reporting* loops filter. `fallible_functions`,
+        // `link_aliases` and `link_fallible_calls` below deliberately still scan
+        // every file: they are lookup tables, and dropping internal entries would
+        // strip the fallibility and alias labels off the user's own calls into
+        // those packages.
+        if file.internal {
+            continue;
+        }
         for item in &file.items {
             let Item::Function(function) = item else {
                 continue;

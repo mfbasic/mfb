@@ -1,12 +1,31 @@
 # bug-279: `mfb audit` reports compiler-injected internal package source as user source flow
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/ audit fixture (new) — a project importing `collections` shows no `#collections_*` / `builtins/*.mfb` entries in its audit
+Status: Fixed 2026-07-18
+Regression Test: verified end-to-end — a project importing `collections` now
+reports zero `builtins/` entries in `mfb audit` (was one per internal function)
+
+## Resolution
+
+The three *reporting* loops skip `file.internal`: `collect_source`
+(`src/audit/collect/source.rs`), and `collect_native_resources` /
+`collect_native_links` (`src/audit/collect/project.rs`).
+
+The four *lookup* loops deliberately still scan every file —
+`fallible_functions`, `link_aliases`, `link_fallible_calls`, and the
+`close_may_fail` table in `collect_native_resources`. They build name tables, and
+filtering them would strip the fallibility and alias labels off the *user's own*
+calls into those packages, turning a reporting bug into a correctness bug. This
+split is the whole subtlety of the fix.
+
+Verified: a project with `IMPORT collections` previously emitted
+`#collections_*` functions attributed to `builtins/collections.mfb`; it now emits
+none, while permissions and control flow for the project's own source are
+unchanged.
 
 When a project imports a source-implemented package (e.g. `collections`),
 `parse_project` appends the compiler-owned package `.mfb` file to `ast.files`,
