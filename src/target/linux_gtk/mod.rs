@@ -254,41 +254,19 @@ pub(crate) struct AppLibcNames {
     pub libpthread: &'static str,
 }
 
-/// Library that exports `symbol`, matching `app_mode_imports`. The relocation's
-/// library field is cosmetic (the linker binds by symbol name), but keeping it
-/// accurate aids artifact debugging.
-fn lib_for(symbol: &str) -> Result<&'static str, String> {
-    // These two are the *relocation label* only — cosmetic, since the linker
-    // binds by symbol name — and they are glibc-named. That is accurate while
-    // app mode is glibc-only; plan-56-A Phase 2 deletes this function in favor
-    // of a lookup in the flavor-correct `platform_imports` map, which is also
-    // what makes it safe for plan-56-B to start emitting musl app builds.
-    const LIBC: &str = "libc.so.6";
-    const LIBPTHREAD: &str = "libpthread.so.0";
-    Ok(match symbol {
-        "g_application_run" | "g_application_quit" => GIO,
-        "g_signal_connect_data" => GOBJECT,
-        "g_idle_add" => GLIB,
-        "pthread_create" | "pthread_detach" => LIBPTHREAD,
-        "pipe" | "dup2" | "close" | "setenv" | "write" | "fcntl" | "_exit"
-        | "__libc_start_main" | "malloc" | "free" | "memcpy" | "memset" | "memmove" | "pause" => {
-            LIBC
-        }
-        // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
-        "gdk_keyval_to_unicode" => GTK,
-        "g_object_ref_sink" => GOBJECT,
-        sym if sym.starts_with("cairo_") => CAIRO,
-        sym if sym.starts_with("gtk_") => GTK,
-        sym if sym.starts_with("g_") => GLIB,
-        // bug-176 D: an unmapped symbol is a codegen bug, but surface it as a
-        // plan-level error rather than a `panic!` that aborts the process.
-        other => {
-            return Err(format!(
-                "linux app-mode codegen referenced unmapped symbol '{other}'"
-            ))
-        }
-    })
-}
+/// Placeholder written into a relocation's `library` at emit time, resolved by
+/// `shared::code::bind_deferred_relocation_libraries` (plan-56-A §4.2).
+///
+/// This replaced a `lib_for` symbol→library table that was a **second** copy of
+/// `app_mode_imports`, obliged by its own doc comment to stay in sync with it —
+/// the same two-derivations-of-one-value shape as the plan-46-D §1 `.dynstr`
+/// bug. Binding from the import map instead makes disagreement unrepresentable
+/// rather than merely discouraged, and makes the label flavor-correct for free.
+///
+/// The alternative — resolving here — would mean threading the libc flavor
+/// through ~30 emitter signatures and 33 `Asm::new` sites, to duplicate a
+/// mapping the native plan already owns.
+const UNBOUND_LIBRARY: &str = "";
 
 // --- Tiny assembler over CodeInstruction/CodeRelocation --------------------
 
@@ -317,19 +295,15 @@ impl Asm {
     }
 
     /// `bl <symbol>` to an imported C function.
+    ///
+    /// The relocation's `library` is deferred ([`UNBOUND_LIBRARY`]) and filled
+    /// in by `shared::code::bind_deferred_relocation_libraries` from the
+    /// flavor-correct import map, so no emitter needs to know the libc flavor or
+    /// the arch. bug-176 D's "unmapped symbol is an error, never a panic" rule
+    /// is preserved there: an undeclared symbol fails the build with a message
+    /// naming it.
     fn call_external(&mut self, symbol: &str) {
-        // bug-176 D: an unmapped symbol is a codegen bug; record it (first wins) and
-        // fall back to libc so codegen can continue, then `finish` returns the error
-        // rather than aborting the process with a `panic!`.
-        let library = match lib_for(symbol) {
-            Ok(library) => library,
-            Err(message) => {
-                if self.err.is_none() {
-                    self.err = Some(message);
-                }
-                "libc.so.6"
-            }
-        };
+        let library = UNBOUND_LIBRARY;
         self.ins.push(abi::branch_link(symbol));
         self.rel.push(CodeRelocation {
             from: self.from.clone(),
@@ -1111,12 +1085,47 @@ mod import_tests {
         );
     }
 
-    /// `lib_for` maps every symbol the backend references; `close` must resolve to
-    /// libc, and an unmapped symbol now returns a plan-level `Err` (surfacing any
-    /// accidental reintroduction) instead of panicking.
+    /// plan-56-A §4.2: `lib_for`'s job — every symbol the emitters reference is
+    /// declared in `app_mode_imports` — is now enforced by
+    /// `shared::code::bind_deferred_relocation_libraries`, which errors on an
+    /// undeclared symbol. Pin the half that lives here: the symbols the emitters
+    /// actually call must all be in the import list, so the binding cannot fail
+    /// at build time.
     #[test]
-    fn lib_for_maps_close_to_libc() {
-        assert_eq!(lib_for("close").unwrap(), "libc.so.6");
-        assert!(lib_for("getenv").is_err());
+    fn every_emitted_external_call_is_a_declared_import() {
+        let declared: std::collections::HashSet<String> = app_mode_imports(GLIBC_NAMES)
+            .into_iter()
+            .map(|import| import.symbol)
+            .collect();
+        // The symbols the old `lib_for` table enumerated by hand, plus the two
+        // whose absence bug-59 pins.
+        for symbol in [
+            "close",
+            "pipe",
+            "dup2",
+            "setenv",
+            "write",
+            "fcntl",
+            "malloc",
+            "free",
+            "memcpy",
+            "memset",
+            "memmove",
+            "pause",
+            "_exit",
+            "__libc_start_main",
+            "pthread_create",
+            "pthread_detach",
+            "g_idle_add",
+            "g_application_run",
+            "gtk_window_present",
+        ] {
+            assert!(
+                declared.contains(symbol),
+                "{symbol} is emitted but not declared in app_mode_imports, so \
+                 relocation binding would fail the build"
+            );
+        }
+        assert!(!declared.contains("getenv"), "getenv is dead (bug-59)");
     }
 }

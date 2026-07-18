@@ -1293,6 +1293,17 @@ pub(crate) fn lower_module_for_platform(
         mir::route_function_through_mir(function);
     }
 
+    // plan-56-A §4.2: bind any relocation whose `library` was deferred at emit
+    // time (the empty-string placeholder) to the library the platform import
+    // list declares for that symbol.
+    //
+    // Done here, over EVERY assembled function, rather than at each emitter:
+    // the Linux/GTK app-mode helpers are produced by half a dozen separate
+    // `CodegenPlatform` hooks, and binding per-hook means a hook added later
+    // silently ships relocations labelled with no library at all — which is
+    // exactly what happened when this was first written per-entry-point.
+    bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)?;
+
     // rv64 `v128` scalarization (plan-99 §6) stages SIMD lanes in a slot region.
     // That region now lives in the **per-thread** arena state (bug-122), addressed
     // off the pinned arena base — no process-global data object is emitted (a
@@ -3197,6 +3208,46 @@ fn resolve_link_libraries(
         }
     }
     link_locator::LinkLibraries::resolve_all(&tables, &linked, &target)
+}
+
+/// Fill in every relocation whose `library` is the deferred placeholder (an
+/// empty string) from `platform_imports`, and reject a symbol the platform never
+/// declared.
+///
+/// A backend may leave `library` empty when the correct value depends on
+/// something the emitter does not know. The Linux/GTK app-mode emitters do this
+/// because the C-library soname depends on the libc flavor, and threading that
+/// through ~30 emitter signatures and 33 builder construction sites would
+/// duplicate a mapping the native plan already owns (plan-56-A §4.2).
+/// Relocations that already carry a library, or carry `None`, are left exactly
+/// as they are, so no other backend is affected.
+///
+/// The `library` field is cosmetic — the linker binds by symbol name — but a
+/// wrong or absent one makes artifact debugging lie, and on musl it is the
+/// *only* place the libc flavor is observable at all: musl's loader absorbs the
+/// glibc compat sonames, so the program runs either way.
+fn bind_deferred_relocation_libraries(
+    functions: &mut [CodeFunction],
+    platform_imports: &HashMap<String, String>,
+) -> Result<(), String> {
+    for function in functions.iter_mut() {
+        for relocation in function.relocations.iter_mut() {
+            if relocation.library.as_deref() != Some("") {
+                continue;
+            }
+            match platform_imports.get(&relocation.to) {
+                Some(library) => relocation.library = Some(library.clone()),
+                None => {
+                    return Err(format!(
+                        "codegen calls '{}' from '{}', which the platform import list \
+                         does not declare",
+                        relocation.to, relocation.from
+                    ))
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {

@@ -129,3 +129,73 @@ fn arena_checks_arithmetic_overflow() {
         Err(77010001)
     );
 }
+
+/// One relocation carrying the deferred-library placeholder, for the binding
+/// tests below.
+fn deferred_reloc_function(symbol: &str) -> CodeFunction {
+    CodeFunction {
+        name: "probe".to_string(),
+        symbol: "probe".to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        instructions: Vec::new(),
+        relocations: vec![CodeRelocation {
+            from: "probe".to_string(),
+            to: symbol.to_string(),
+            kind: RelocIntent::Call,
+            binding: "external".to_string(),
+            library: Some(String::new()),
+        }],
+        stack_slots: Vec::new(),
+    }
+}
+
+/// plan-56-A §4.2: a deferred relocation binds to whatever the platform import
+/// map says — which is what makes a musl app build label its relocations with
+/// the musl libc instead of `libc.so.6`.
+#[test]
+fn deferred_relocation_binds_from_the_platform_import_map() {
+    let mut functions = vec![deferred_reloc_function("close")];
+    let map: HashMap<String, String> = [("close".to_string(), "libc.musl-x86_64.so.1".to_string())]
+        .into_iter()
+        .collect();
+    bind_deferred_relocation_libraries(&mut functions, &map).expect("binds");
+    assert_eq!(
+        functions[0].relocations[0].library.as_deref(),
+        Some("libc.musl-x86_64.so.1")
+    );
+}
+
+/// An undeclared symbol is a codegen bug and must surface as a plan-level error
+/// rather than shipping a relocation labelled with no library at all. This is
+/// the invariant the deleted `lib_for` asserted informally by existing.
+#[test]
+fn deferred_relocation_rejects_an_undeclared_symbol() {
+    let mut functions = vec![deferred_reloc_function("getenv")];
+    let err = bind_deferred_relocation_libraries(&mut functions, &HashMap::new())
+        .expect_err("an undeclared symbol must be rejected");
+    assert!(err.contains("getenv"), "{err}");
+    assert!(err.contains("does not declare"), "{err}");
+}
+
+/// A relocation that already names a library, or names none at all, is left
+/// untouched — so every non-Linux backend is unaffected by the placeholder pass.
+#[test]
+fn binding_leaves_already_resolved_and_none_relocations_alone() {
+    let mut functions = vec![deferred_reloc_function("close")];
+    functions[0].relocations[0].library = Some("libSystem.B.dylib".to_string());
+    functions.push(deferred_reloc_function("close"));
+    functions[1].relocations[0].library = None;
+
+    bind_deferred_relocation_libraries(&mut functions, &HashMap::new())
+        .expect("neither relocation is deferred, so no lookup happens");
+    assert_eq!(
+        functions[0].relocations[0].library.as_deref(),
+        Some("libSystem.B.dylib")
+    );
+    assert_eq!(functions[1].relocations[0].library, None);
+}
