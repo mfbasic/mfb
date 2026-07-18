@@ -129,10 +129,11 @@ alias). One per capability-bearing call site, deduplicated by `(capability, path
 line, function)`, sorted by `(capability, path, line,
 function)`.[[src/audit/collect/source.rs:collect_source]]
 
-A call discloses a capability by package — `fs` → `filesystem`, `io` →
+A call discloses a capability by package — `fs` → `filesystem`, `io`/`term` →
 `terminal`, `thread` → `threads`, `net`/`tls`/`http` → `network`, any `LINK`
-alias → `native` — except for the four packages that mix pure and host-touching
-builtins (`crypto`, `os`, `math`, `datetime`), which map per builtin:[[src/audit/collect/source.rs:builtin_capability]]
+alias → `native` — except for the packages that mix pure and host-touching
+builtins (`crypto`, `os`, `math`, `datetime`) or that split one surface into two
+disclosures (`audio`), which map per builtin:[[src/audit/collect/source.rs:builtin_capability]]
 
 | Capability | Builtins |
 |---|---|
@@ -140,6 +141,8 @@ builtins (`crypto`, `os`, `math`, `datetime`), which map per builtin:[[src/audit
 | `process` | `os::args`, `os::pid`, `os::name`, `os::arch`, `os::hostName`, `os::userName`, `os::cpuCount`, `os::executablePath` |
 | `randomness` | `math::rand`, `math::seed`, and the entropy-drawing crypto builtins `crypto::randomBytes`, `crypto::randomInt`, `crypto::uuid4`, `crypto::generateEd25519`, `crypto::generateP256`, `crypto::generateP384`, `crypto::generateP521` |
 | `clock` | `datetime::now`, `datetime::nowNanos`, `datetime::monotonic`, `datetime::monotonicNanos`, `datetime::localOffset`, `datetime::local`, `datetime::toLocal` |
+| `microphone` | `audio::openInput`, `audio::openInputDevice`, `audio::read`, `audio::readTimeout` |
+| `audio` | every other `audio` builtin (playback and device enumeration) |
 
 The rest of `math` and `datetime` is arithmetic over caller-supplied values and
 discloses nothing.
@@ -189,6 +192,8 @@ Category rank (lower sorts first):[[src/audit/report.rs:category_rank]]
 | `AUDIT-PERM-ENVIRONMENT` | permission | info | environment capability |
 | `AUDIT-PERM-CLOCK` | permission | info | clock capability |
 | `AUDIT-PERM-RANDOMNESS` | permission | info | randomness capability |
+| `AUDIT-PERM-AUDIO` | permission | info | audio playback capability |
+| `AUDIT-PERM-MICROPHONE` | permission | info | microphone capture capability |
 | `AUDIT-PERM-NATIVE` | permission | info | native capability |
 | `AUDIT-PERM-OTHER` | permission | info | any other capability string |
 

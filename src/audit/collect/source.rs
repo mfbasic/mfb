@@ -558,8 +558,19 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
     }
     match package {
         "fs" => Some("filesystem"),
-        "io" => Some("terminal"),
+        // `term` drives the same host surface as `io` — it was simply never
+        // added, so a term-only TUI disclosed nothing at all (bug-278).
+        "io" | "term" => Some("terminal"),
         "thread" => Some("threads"),
+        // Capture is separated from playback deliberately (bug-278): reading the
+        // microphone is a materially different disclosure from making noise, and
+        // collapsing both into one capability would hide it.
+        "audio" => match callee {
+            "audio.openInput" | "audio.openInputDevice" | "audio.read" | "audio.readTimeout" => {
+                Some("microphone")
+            }
+            _ => Some("audio"),
+        },
         // Networking also flows through `tls::*` and `http::*` (audit runs on the
         // pre-monomorph AST, before the http→net source rewrite, so these must be
         // listed directly or a TLS/HTTP-only program discloses no network use —
@@ -580,8 +591,11 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         "os" => match callee {
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv"
             | "os.environ" => Some("environment"),
+            // `os.resourcePath` reads `/proc/self/exe` exactly as
+            // `os.executablePath` does; it was added later and never mapped
+            // (bug-278).
             "os.args" | "os.pid" | "os.name" | "os.arch" | "os.hostName" | "os.userName"
-            | "os.cpuCount" | "os.executablePath" => Some("process"),
+            | "os.cpuCount" | "os.executablePath" | "os.resourcePath" => Some("process"),
             _ => None,
         },
         "math" => match callee {
@@ -697,6 +711,81 @@ fn is_fallible_builtin(callee: &str) -> bool {
             | "datetime.format"
             | "datetime.parse"
             | "datetime.parseIso"
+            // bug-278. The sets below were derived, not guessed: each package's
+            // man-page `## Errors` table gives the user-facing contract, and for
+            // the source-implemented packages that agrees with a transitive walk
+            // of the `FAIL` sites in its `*_package.mfb`. Both methods were run
+            // and cross-checked.
+            //
+            // audio — 10 of its 11 documented builtins raise (device open,
+            // configuration, unavailable libasound, xrun-on-write). `audio.xruns`
+            // is a pure counter read, so this is an explicit list rather than a
+            // coarse package match, which would over-report it.
+            | "audio.available"
+            | "audio.close"
+            | "audio.closeInput"
+            | "audio.closeOutput"
+            | "audio.devices"
+            | "audio.openInput"
+            | "audio.openInputDevice"
+            | "audio.openOutput"
+            | "audio.openOutputDevice"
+            | "audio.play"
+            | "audio.poll"
+            | "audio.pollTimeout"
+            | "audio.read"
+            | "audio.readTimeout"
+            | "audio.render"
+            | "audio.write"
+            // os — the host-querying half; `resourcePath` raises ErrInvalidPath /
+            // ErrUnsupported like its `executablePath` sibling.
+            | "os.args"
+            | "os.environ"
+            | "os.executablePath"
+            | "os.getEnv"
+            | "os.getEnvOr"
+            | "os.hostName"
+            | "os.resourcePath"
+            | "os.setEnv"
+            | "os.userName"
+            // regex — compilation of a caller-supplied pattern can fail
+            // (ErrInvalidFormat); the rest of the package is total.
+            | "regex.find"
+            | "regex.findAll"
+            | "regex.match"
+            | "regex.replace"
+            // csv — only the parser rejects input.
+            | "csv.parse"
+            // encoding — every decoder rejects malformed input, plus
+            // `uleb128Encode` (negative input). The encoders are otherwise total.
+            | "encoding.base32Decode"
+            | "encoding.base64Decode"
+            | "encoding.base64UrlDecode"
+            | "encoding.formUrlDecode"
+            | "encoding.hexDecode"
+            | "encoding.htmlUnescape"
+            | "encoding.percentDecode"
+            | "encoding.percentDecodeBytes"
+            | "encoding.punycodeDecode"
+            | "encoding.sleb128Decode"
+            | "encoding.uleb128Decode"
+            | "encoding.uleb128Encode"
+            | "encoding.utf16Decode"
+            | "encoding.utf32Decode"
+            | "encoding.utf8Decode"
+            | "encoding.utf8DecodeBytes"
+            | "encoding.utf8DecodeInts"
+            | "encoding.varintDecode"
+            // The bare `general` conversions: a value that does not parse raises
+            // ErrInvalidFormat and one outside range raises ErrOverflow
+            // (`builder_conversions.rs`). These carry no package prefix, so
+            // `package_of` cannot reach them and they must be named directly.
+            | "toInt"
+            | "toFloat"
+            | "toFixed"
+            | "toMoney"
+            | "toScalar"
+            | "toByte"
     )
 }
 
@@ -714,6 +803,19 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
         "net.bindUdp" => Some(("UdpSocket", "net.close")),
         "tls.connect" | "tls.accept" => Some(("TlsSocket", "tls.close")),
         "tls.listen" | "http.serverSSL" => Some(("TlsListener", "tls.close")),
+        // bug-278: three more producers that were never added, so their handles
+        // got no Resources row and no AUDIT-RESOURCE-CLOSE-MAY-FAIL finding.
+        // `fs.openWithin` returns a `File` (added by bug-259); `http.server`
+        // returns a plain `net::Listener` — only its TLS sibling above was
+        // mapped; and the audio streams are closed by type-specific ops
+        // (`audio.closeInput` / `audio.closeOutput`, per `resource_close_function`),
+        // not the generic `audio.close`.
+        "fs.openWithin" => Some(("File", "fs.close")),
+        "http.server" => Some(("Listener", "net.close")),
+        "audio.openInput" | "audio.openInputDevice" => Some(("AudioInput", "audio.closeInput")),
+        "audio.openOutput" | "audio.openOutputDevice" => {
+            Some(("AudioOutput", "audio.closeOutput"))
+        }
         _ => None,
     }
 }

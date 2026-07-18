@@ -1,11 +1,11 @@
 # bug-278: `mfb audit` capability/fallibility/resource tables lag the current builtin surface (bug-96 recurrence)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (security-tooling under-reporting)
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ audit fixtures (new) — audio/term/resourcePath/openWithin/http.server/conversions/source-package projects surface capabilities, resources, and fallible flow
 
 `mfb audit`'s three hand-maintained builtin tables in
@@ -120,3 +120,59 @@ a follow-up.
 The audit tables are a manually-synchronized list that has drifted twice now;
 extending them restores correctness and the registry-derivation follow-up prevents
 the third recurrence. Value is high for the MVP's supply-chain story.
+
+## Resolution
+
+All three tables extended, and every entry **derived rather than guessed**. Two
+independent methods were run and cross-checked: each package's man-page
+`## Errors` table (the user-facing contract) and a transitive walk of the `FAIL`
+sites in its `*_package.mfb`, intersected with the names actually registered in
+`src/builtins/<pkg>.rs`. They agreed.
+
+- **Capability**: `term` → `terminal` (same surface as `io`); `os::resourcePath`
+  → `process` (reads `/proc/self/exe` like its `executablePath` sibling);
+  `audio` → `audio`, except `openInput`/`openInputDevice`/`read`/`readTimeout` →
+  a separate **`microphone`** capability. Capture is split from playback
+  deliberately: reading the mic is a materially different disclosure from making
+  noise, and one `audio` bucket would bury it. New codes `AUDIT-PERM-AUDIO` and
+  `AUDIT-PERM-MICROPHONE`.
+- **Fallibility**: audio (15 of 16 — `audio::xruns` is a pure counter read, so an
+  explicit list, not a coarse package match), the host-querying half of `os`
+  including `resourcePath`, `regex::find/findAll/match/replace`, `csv::parse`,
+  the 18 `encoding` decoders plus `uleb128Encode`, and the bare `general`
+  conversions (`toInt`/`toFloat`/`toFixed`/`toMoney`/`toScalar`/`toByte`, which
+  carry no package prefix so `package_of` could never reach them).
+- **Resource producers**: `fs::openWithin` → `File`, `http::server` → `Listener`
+  (only its TLS sibling was mapped), and the audio streams → `AudioInput` /
+  `AudioOutput`, closed by `audio::closeInput` / `audio::closeOutput` per
+  `resource_close_function` — *not* the generic `audio::close`.
+
+### Two of this report's claims were not supported by the evidence
+
+It lists "all source-package builtins" as fallible, naming `collections::get` OOB
+and money. Neither `collections` nor `money` documents a single error in its man
+pages, and neither has a reachable `FAIL` in its package source; the 20 native
+`collections` builtins are total. Marking them fallible would have been exactly
+the over-reporting this bug's own non-goals forbid, so they were left alone. If
+`collections::get` really can raise on an out-of-range index, that is a missing
+`## Errors` section in its man page and a separate bug.
+
+Doc sync done: capability mapping table, the new per-builtin rows, and the two
+new `AUDIT-PERM-*` codes in `src/docs/spec/tooling/04_audit-format.md`.
+
+Verified end-to-end. The repro project (`RES out = audio::openOutput(...)`)
+previously audited as completely empty — 0 permissions, 0 resources, 0 findings,
+no fallible flow. It now discloses the `audio` capability, emits the `AudioOutput`
+Resources row with its close op, raises AUDIT-RESOURCE-CLOSE-MAY-FAIL, and marks
+the caller fallible. A second project confirmed `microphone` (distinct from
+`audio`), `term` → terminal, `os::resourcePath` → process, and `toInt` fallible.
+
+The only golden churn across all 994 acceptance tests was one row — `os.getEnv`
+becoming a fallible call in `audit-capabilities` — which is the fix working; it
+was under-reported as pure. No over-reporting appeared anywhere.
+
+### Follow-up not done here
+
+bug-96's recommendation to derive these tables from the builtin registry remains
+open. This change re-synchronises them by hand a second time; the derivation is
+what stops a third recurrence.

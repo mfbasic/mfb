@@ -43,6 +43,7 @@ Native resources:
 Control flow:
   main at src/main.mfb:27
     trap err -> returns value
+    fallible call os.getEnv at src/main.mfb:28 -> trap
     fallible call net.connectTcp at src/main.mfb:32 -> trap
     fallible call net.close at src/main.mfb:33 -> trap
     fallible call sql.open at src/main.mfb:34 -> trap
@@ -103,6 +104,12 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
         "classification": "returns value"
       },
       "calls": [
+        {
+          "callee": "os.getEnv",
+          "line": 28,
+          "propagation": "trap",
+          "capability": "environment"
+        },
         {
           "callee": "net.connectTcp",
           "line": 32,

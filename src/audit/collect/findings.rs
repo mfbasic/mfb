@@ -225,6 +225,11 @@ pub(super) fn permission_findings(permissions: &[PermissionEntry], findings: &mu
             "environment" => "AUDIT-PERM-ENVIRONMENT",
             "clock" => "AUDIT-PERM-CLOCK",
             "randomness" => "AUDIT-PERM-RANDOMNESS",
+            // Capture is its own code, not folded into `audio` (bug-278): a
+            // reviewer scanning for microphone access should not have to read
+            // the per-site table to find it.
+            "audio" => "AUDIT-PERM-AUDIO",
+            "microphone" => "AUDIT-PERM-MICROPHONE",
             "native" => "AUDIT-PERM-NATIVE",
             _ => "AUDIT-PERM-OTHER",
         };
