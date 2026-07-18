@@ -127,6 +127,28 @@ pub fn register(
     owner: &str,
 ) -> Result<RegisterResponse, String> {
     validate_owner_name(owner)?;
+    // Refuse before touching anything if this machine already holds keys for the
+    // owner (bug-272). The keypair writes below truncate unconditionally and the
+    // error path calls `remove_owner_keys`, so without this guard a `register`
+    // against an owner that already exists — the *guaranteed* server error — first
+    // overwrote the existing ident private key and then deleted the replacement.
+    // Per plan-23 the ident key is the account authority, so on a machine that is
+    // the sole holder that sequence permanently locks the account out.
+    //
+    // Cleaning up after a failed registration for a genuinely *new* owner is still
+    // correct and is left alone; the rule is only that `register` must never delete
+    // keys it did not create in this call.
+    for path in [
+        paths.auth_private_key_path(owner),
+        paths.ident_private_key_path(owner),
+    ] {
+        if path.exists() {
+            return Err(format!(
+                "keys for '{owner}' already exist locally; \
+                 use `mfb repo auth` or `mfb repo link`, or remove them first"
+            ));
+        }
+    }
     ensure_server_key(repo_url, paths)?;
     // Both keypairs are generated locally; only the public halves and their
     // role-separated proofs-of-possession go to the server (plan-23 §3.1).
@@ -1202,6 +1224,96 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    /// `register` for an owner whose keys are already on this machine must refuse
+    /// without touching them (bug-272).
+    ///
+    /// The old order was: generate → write (truncating) → POST → on any error,
+    /// `remove_owner_keys`. Registering an owner that already exists on the server
+    /// is *guaranteed* to hit that error path, so the original ident private key
+    /// was overwritten and then the replacement deleted. plan-23 makes the ident
+    /// key the account authority, so on a sole-holder machine that is a permanent
+    /// account lockout.
+    ///
+    /// The stub has to let `GET /ident` succeed and fail only `/accounts/register`:
+    /// if the server-key fetch failed instead, `ensure_server_key`'s `?` would
+    /// return before the writes and the keys would survive by accident, testing
+    /// nothing. Serving `Connection: close` keeps the two requests on separate
+    /// accepts.
+    #[test]
+    fn register_refuses_and_preserves_keys_when_owner_keys_already_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+
+        // Pre-existing keys, as a prior `register` or `mfb repo link` would leave.
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        local::write_auth_keypair(&paths, "alice", &auth_public, &auth_private).unwrap();
+        local::write_ident_keypair(&paths, "alice", &ident_public, &ident_private).unwrap();
+
+        let key_paths = [
+            paths.auth_public_key_path("alice"),
+            paths.auth_private_key_path("alice"),
+            paths.ident_public_key_path("alice"),
+            paths.ident_private_key_path("alice"),
+        ];
+        let before: Vec<Vec<u8>> = key_paths
+            .iter()
+            .map(|p| std::fs::read(p).expect("key file exists up front"))
+            .collect();
+
+        let (server_public, _) = crypto::generate_keypair();
+        let ident_body = format!(
+            "{{\"serverKey\":\"{}\",\"serverFingerprint\":\"{}\"}}",
+            crypto::encode_bytes(&server_public),
+            crypto::fingerprint(&server_public)
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            // Request 1: GET /ident succeeds. Request 2: /accounts/register fails
+            // exactly as a real registry does for an owner that already exists.
+            let replies = [
+                (200, "OK", ident_body),
+                (
+                    409,
+                    "Conflict",
+                    "{\"error\":\"owner already exists\"}".to_string(),
+                ),
+            ];
+            for (code, reason, body) in replies {
+                let Ok((mut sock, _)) = listener.accept() else {
+                    return;
+                };
+                let mut scratch = [0u8; 4096];
+                let _ = sock.read(&mut scratch);
+                let _ = write!(
+                    sock,
+                    "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.flush();
+            }
+        });
+
+        let result = register(&format!("http://127.0.0.1:{port}"), &paths, "alice");
+
+        let err = result.expect_err("register must refuse when keys already exist");
+        assert!(
+            err.contains("already exist"),
+            "error should point at the existing keys, got: {err}"
+        );
+
+        for (path, original) in key_paths.iter().zip(&before) {
+            let now = std::fs::read(path)
+                .unwrap_or_else(|e| panic!("key file {} was deleted: {e}", path.display()));
+            assert_eq!(&now, original, "key file {} was modified", path.display());
+        }
+
+        drop(server);
+    }
 
     /// The one client is shared, so blob fetches reuse connections instead of
     /// standing up a fresh tokio runtime and TLS handshake per request.
