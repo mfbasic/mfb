@@ -3628,6 +3628,26 @@ fn lower_expression_with_expected(
                             value: format!("-{value}"),
                         };
                     }
+                    // bug-286: the same fold for the most-negative `Integer`
+                    // (`-9223372036854775808`). Syntaxcheck and `ir::verify`
+                    // deliberately accept `-N` where `N == i64::MAX + 1`
+                    // (spec §4.12), but without this arm the `Unary` shape
+                    // survives to codegen, which materializes the u64 bit
+                    // pattern and then negates it at runtime — an overflow that
+                    // traps on every run. The guard is exact for the same
+                    // reason the `Fixed`/`Money` guards are: it fires only when
+                    // the positive magnitude does not fit an i64 *and* the
+                    // negated form does, which is true solely at `i64::MIN`, so
+                    // every in-range negated literal keeps its `Unary` shape.
+                    if type_ == "Integer"
+                        && value.parse::<i64>().is_err()
+                        && format!("-{value}").parse::<i64>().is_ok()
+                    {
+                        return IrValue::Const {
+                            type_: "Integer".to_string(),
+                            value: format!("-{value}"),
+                        };
+                    }
                     // The same fold for the most-negative Money
                     // (`-92233720368547.75808`), whose positive magnitude
                     // overflows the i64 raw (plan-29-B §4.2).

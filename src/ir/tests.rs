@@ -1543,6 +1543,37 @@ mod lower_tests {
         assert_eq!(const_type(body, "nul"), "Nothing");
     }
 
+    /// bug-286: `-9223372036854775808` is a spec-blessed `Integer` literal
+    /// (§4.12), but the positive magnitude `9223372036854775808` overflows
+    /// `i64`, so the constant can never materialize on its own. Lowering must
+    /// fold the negation into the literal — mirroring the `Fixed`/`Money`
+    /// folds — or codegen emits a runtime negate of `i64::MIN` that always
+    /// traps with an arithmetic overflow. The neighbouring `-9223372036854775807`
+    /// pins the guard's exactness: it fits `i64` on its own, so it must keep
+    /// its `Unary` shape and leave existing codegen untouched.
+    #[test]
+    fn most_negative_integer_literal_folds_into_the_const() {
+        let ir = lower_src(
+            "SUB main\n\
+               LET min AS Integer = -9223372036854775808\n\
+               LET near AS Integer = -9223372036854775807\n\
+             END SUB\n",
+        );
+        let body = main_body(&ir);
+        assert!(
+            matches!(
+                bind_value(body, "min"),
+                Some(IrValue::Const { type_, value })
+                    if type_ == "Integer" && value == "-9223372036854775808"
+            ),
+            "the most-negative Integer literal must fold to a signed Const",
+        );
+        assert!(
+            matches!(bind_value(body, "near"), Some(IrValue::Unary { .. })),
+            "an in-range negated literal must keep its Unary shape",
+        );
+    }
+
     // ---- expressions: operators -----------------------------------------
 
     #[test]

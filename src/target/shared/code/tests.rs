@@ -129,3 +129,28 @@ fn arena_checks_arithmetic_overflow() {
         Err(77010001)
     );
 }
+
+/// bug-286: both backends' immediate encoders parse `u64`, so a const printed
+/// with a leading `-` is rejected outright ("invalid immediate"). Once
+/// `ir::lower` folds the most-negative `Integer` literal into a signed
+/// `Const{Integer, "-9223372036854775808"}`, that const has to reach the
+/// encoder as its u64 bit pattern — the same treatment `Fixed` and `Money`
+/// already give their `i64::MIN` raws. Non-negative Integers must stay
+/// byte-identical so no existing codegen shifts.
+#[test]
+fn negative_integer_const_materializes_as_its_u64_bit_pattern() {
+    assert_eq!(
+        native_immediate_value("Integer", "-9223372036854775808"),
+        Ok((i64::MIN as u64).to_string())
+    );
+    assert_eq!(
+        native_immediate_value("Integer", "-1"),
+        Ok(u64::MAX.to_string())
+    );
+    // Non-negative Integers are passed through unchanged.
+    assert_eq!(native_immediate_value("Integer", "0"), Ok("0".to_string()));
+    assert_eq!(
+        native_immediate_value("Integer", "9223372036854775807"),
+        Ok(i64::MAX.to_string())
+    );
+}

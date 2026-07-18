@@ -1,11 +1,11 @@
 # bug-286: the most-negative Integer literal `-9223372036854775808` compiles but always traps at runtime
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/ (new) — `LET c AS Integer = -9223372036854775808` builds and evaluates to i64::MIN
 
 Syntaxcheck and `ir::verify` deliberately accept the negated literal `-N` where
@@ -91,3 +91,46 @@ rejecting the literal at syntaxcheck — contradicts the spec, which blesses it.
 A three-arm fold that covers Fixed and Money but not Integer; adding the Integer
 arm closes a spec-blessed literal that currently traps. Low risk, mirrors an
 existing fix.
+
+## Resolution
+
+Two fixes were required, not one.
+
+1. `src/ir/lower.rs` — the unary-minus literal fold had arms for `Fixed` and
+   `Money` but not `Integer`, so `-9223372036854775808` survived as
+   `Unary{-, Const{Integer, "9223372036854775808"}}` and codegen emitted a runtime
+   negate of `i64::MIN`, which always traps.
+2. `src/target/shared/code/type_utils.rs` (`native_immediate_value`) — **this
+   report said no second site existed.** Both backends' immediate encoders parse
+   `u64` and reject a leading `-`, so the fold alone turns the runtime trap into a
+   hard build error (`invalid immediate '-9223372036854775808'`). `Fixed` and
+   `Money` already reinterpret their `i64::MIN` raws as u64 bit patterns for
+   exactly this reason; `Integer` fell through the catch-all arm unchanged.
+
+Evidence for `LET c AS Integer = -9223372036854775808`:
+
+| state | result |
+|---|---|
+| before | `Error: 7-705-0010` arithmetic overflow, exit 255 |
+| fold only | build fails: `error: invalid immediate '-9223372036854775808'` |
+| both fixes | prints `-9223372036854775808`, exit 0 |
+
+Non-goals preserved: positive `9223372036854775808` still rejects with
+`TYPE_INTEGER_LITERAL_OVERFLOW`, `-9223372036854775807` is unchanged, and the
+`Fixed`/`Money` folds are untouched. The hex spelling
+`-0x8000000000000000` canonicalizes to the same decimal string and folds
+identically.
+
+### Inaccurate claim in this report
+
+Blast Radius asserted "No other consumer materializes this literal shape
+(verified)". That is false — `native_immediate_value` is a second, mandatory fix
+site. Applying only the change this report specified produces a compiler that
+cannot build the very program it was meant to fix.
+
+Tests: `ir::tests::most_negative_integer_literal_folds_into_the_const` (which also
+pins that in-range `-9223372036854775807` keeps its `Unary` shape, so the guard
+stays exact), `target::shared::code::tests::negative_integer_const_materializes_as_its_u64_bit_pattern`,
+and a new `TGROUP "integer range boundaries"` in the
+`rt-behavior/lexical/lexical-literals` behavioral fixture. Proven both ways: with
+the fold disabled that fixture reports `Fail: 3` naming the most-negative case.

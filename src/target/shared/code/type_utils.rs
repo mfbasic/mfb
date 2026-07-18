@@ -364,6 +364,19 @@ pub(super) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
         // same negative-safe treatment as Fixed (the min Money raw is i64::MIN,
         // which the plan-29-B fold produces directly). (plan-29-C §4.2)
         "Money" => Ok((numeric::money_raw_from_decimal(value)? as u64).to_string()),
+        // bug-286: a *negative* `Integer` const needs the same u64 bit-pattern
+        // treatment as `Fixed`/`Money`, because the immediate encoders on both
+        // backends parse `u64` and reject a leading `-`. Before bug-286's fold
+        // in `ir::lower` no negative `Integer` const could reach here (every
+        // negation kept its `Unary` shape), so this arm is reachable only for
+        // the folded `i64::MIN` literal today. It is written for any negative
+        // i64 so a future fold cannot reintroduce the same encoder failure.
+        // A value that does not parse as i64 is passed through untouched, which
+        // keeps every existing const byte-identical.
+        "Integer" => Ok(match value.parse::<i64>() {
+            Ok(number) if number < 0 => (number as u64).to_string(),
+            _ => value.to_string(),
+        }),
         _ => Ok(value.to_string()),
     }
 }
