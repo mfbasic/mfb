@@ -122,6 +122,45 @@ References:
 - Fix: emit `xor eax,eax` before the variadic `call` on x86_64, or document that only
   non-float variadics are supported.
 
+### E12 — `validate_capabilities` under-approximates runtime calls folded inside loop bodies
+- `src/target/shared/validate.rs:344-373`
+  (`collect_runtime_calls_from_ops_with_constants`, loop arms).
+- For `While`/`For`/`ForEach`/`DoUntil` bodies this clones the constants map but never
+  invalidates locals reassigned inside the body, so a loop-entry constant still folds a
+  call (e.g. `strings.upper(s)`/`toString(s)`) used before an in-loop reassignment —
+  eliding it from `runtime_calls`. Codegen does the opposite (`builder_control.rs`
+  calls `clear_local_constants()` before every loop body), so codegen emits the real
+  call validate believes folded. Worst case: a bypassed capability gate surfaces as a
+  codegen-time error rather than a validate-time rejection — no broken binary today
+  (the foldable targets are supported on all backends); latent for a future
+  backend-restricted foldable call.
+- Fix: mirror codegen — remove from `constants` every local assigned anywhere in the
+  loop body (reuse `scan_loop_locals`) before recursing.
+
+### E13 — `NirOp::Match` leading union-extract binds added to scope but their values never validated
+- `src/target/shared/validate.rs:1008-1026` (`validate_ops`, `Match` arm).
+- The loop consuming leading `Bind { value: Some(UnionExtract) }` ops inserts each
+  name/type into `guard_locals` and advances `body_start` but never calls
+  `validate_value` on the extract value, so those expressions escape the backstop
+  (only `case.body[body_start..]` is validated). Latent — front-end match desugar
+  generates these with a resolved subject local; only hand-crafted/corrupted NIR (what
+  the backstop exists to catch) would slip through.
+- Fix: call `validate_value` on each consumed bind's `UnionExtract` value against the
+  accumulating `guard_locals` before inserting the name.
+
+### E14 — `FunctionPlanBuilder::lower_ops` never traverses match-case guards (bug-118 residual)
+- `src/target/shared/plan/function_builder.rs:136` (`NirOp::Match` arm).
+- The `Match` handler lowers `value` and each `case.body` but not `case.guard`, while
+  every sibling pass does (`plan/symbols.rs:569`/`:340`, `code/data_objects.rs:837`).
+  A `WHEN v WHERE <expr>` guard with a call or string literal is omitted from
+  `PlannedFunction.calls`/`string_literals`, under-populating the descriptive
+  `.nplan`/`.nobj` model. Not a real-binary defect (the authoritative code layer walks
+  guards and lays out the string pool/relocations independently); impact limited to
+  descriptive-golden fidelity. bug-118 fixed this exact omission in `plan/symbols.rs`
+  but overlooked `function_builder.rs`.
+- Fix: add `if let Some(guard) = &case.guard { self.lower_value(guard)?; }` in the
+  `Match` arm, mirroring `plan/symbols.rs:569`.
+
 ### E8 — dead final `else` arm in `build_project`
 - `src/cli/build.rs:633-638`.
 - The `outputs.is_empty()` block's `else` ("Validated MFBASIC project…") is

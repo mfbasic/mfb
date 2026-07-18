@@ -1,28 +1,12 @@
 # goal-06: Full platform source review (fresh pass) — file-by-file bug hunt
 
-Last updated: 2026-07-17
-Status: IN PROGRESS (~217 / 307 files reviewed; bug-272..316 filed)
+Last updated: 2026-07-18
+Status: COMPLETE (307 / 307 files reviewed; bug-272..319 filed)
 
-RESUME NOTE (2026-07-18): review interrupted by a session usage limit. Everything
-outside `src/target/shared/code/**` non-collection/string/math/fs areas is done and
-checked off below. **Remaining unreviewed files** (re-dispatch reviewers for these):
-- `src/target/shared/code/`: builder_arena_transfer, builder_bits, builder_control,
-  builder_emit_helpers, builder_fs_paths, builder_inplace_assign, builder_search,
-  code_impl, data_objects, datetime, entry_and_arena, error_constants,
-  function_lowering, link_locator, link_thunk, mir, mod, module_analysis, peephole,
-  runtime_helpers, runtime_helpers_thread, serialization_utils, type_utils, types,
-  validation  (codegen_utils.rs already confirmed clean)
-- crypto/tls/audio: crypto.rs, crypto_ec.rs, crypto_ec/{macos,openssl}.rs,
-  tls/{mod,macos,openssl}.rs, audio/{alsa,macos,mod}.rs
-- regalloc/{analysis,linear_scan,mod}.rs
-- `src/target/shared/` non-code: abi.rs, validate.rs, regmodel.rs, lower.rs, mod.rs,
-  nir/{json,lower,mod,symbols}.rs, plan/{function_builder,json,lower,mod,symbols}.rs,
-  runtime/*.rs (13 files)
-- platform: linux_aarch64/{code,mod,plan}, linux_riscv64/{code,mod,plan},
-  linux_x86_64/{code,mod,plan}, macos_aarch64/{code,mod,plan,tls} + app/*,
-  linux_gtk/*, package_mfp/mod
-- `src/testing/desugar.rs` (bug-287 already covers the ensure_import alias class;
-  check for other instances)
+All 307 production files reviewed and checked off below. 48 bug documents filed
+(bug-272 through bug-319). No CRITICAL findings; 8 HIGH-severity documents; the rest
+MEDIUM individual findings and LOW clusters. Per the write-bug convention, no fixes
+were landed as part of this goal — each finding carries its own test-first fix plan.
 
 ## Objective
 
@@ -272,9 +256,15 @@ call.)
 | bug-314 | src/target/shared/code/{io_helpers,net/io,term_grid,stdin_broadcast}.rs | Correctness cluster | LOW | Open |
 | bug-315 | src/builtins/regex_package.mfb | Robustness (DoS crash+ReDoS) | HIGH | Open |
 | bug-316 | src/builtins/regex_package.mfb | Correctness | MEDIUM | Open |
+| bug-317 | src/target/shared/code/tls/**, crypto_ec/macos.rs | Memory-safety/Security (leak/DoS) | MEDIUM | Open |
+| bug-318 | src/target/shared/code/builder_fs_paths.rs | Correctness (path/security) | MEDIUM | Open |
+| bug-319 | src/target/shared/code/audio/alsa.rs | Memory-safety (leak) | MEDIUM | Open |
 
-Tallies (bug-272..316 filed): CRITICAL 0 · HIGH 7 (272, 289, 290, 291, 302, 303, 309, 315 — 8 docs) · MEDIUM 19 · LOW 10 clusters (~50 sub-items). Some HIGH/MEDIUM counts include multi-item clusters; see each doc.
-Note: HIGH docs = bug-272, 289, 290, 291, 302, 303, 309, 315 (8).
+Tallies (bug-272..319 filed, 48 docs): CRITICAL 0 · HIGH 8 docs (272, 289, 290, 291,
+302, 303, 309, 315) · MEDIUM 22 docs · LOW 10 clusters (~60 sub-items; bug-276, 282,
+283, 284, 299, 300, 301, 306, 312, 314). Some docs bundle multiple sub-items; see each.
+Additional latent/robustness items were appended to existing clusters (bug-284 C8;
+bug-300 E9–E14) rather than filed separately.
 
 ## File census & progress
 
@@ -412,11 +402,11 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/builtins/audio_package.mfb` (582 loc) — clean
 - [x] `src/builtins/bits.rs` (237 loc) — clean
 - [x] `src/builtins/collections.rs` (533 loc) — clean
-- [ ] `src/builtins/collections_package.mfb` (353 loc) — .mfb group B (pending)
+- [x] `src/builtins/collections_package.mfb` (353 loc) — clean (bug-306 S4 stale comment)
 - [x] `src/builtins/crypto.rs` (814 loc) — clean
 - [x] `src/builtins/crypto_package.mfb` (2262 loc) — bug-305
 - [x] `src/builtins/csv.rs` (190 loc) — clean
-- [ ] `src/builtins/csv_package.mfb` (192 loc) — .mfb group B (pending)
+- [x] `src/builtins/csv_package.mfb` (192 loc) — clean
 - [x] `src/builtins/datetime.rs` (793 loc) — clean
 - [x] `src/builtins/datetime_package.mfb` (991 loc) — bug-306 (F5)
 - [x] `src/builtins/encoding.rs` (582 loc) — clean
@@ -432,15 +422,15 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/builtins/math.rs` (600 loc) — bug-300 (E6/E7)
 - [x] `src/builtins/mod.rs` (1000 loc) — clean
 - [x] `src/builtins/money.rs` (166 loc) — clean
-- [ ] `src/builtins/money_package.mfb` (19 loc) — .mfb group B (pending)
+- [x] `src/builtins/money_package.mfb` (19 loc) — clean
 - [x] `src/builtins/net.rs` (746 loc) — clean
-- [ ] `src/builtins/net_package.mfb` (283 loc) — .mfb group B (pending)
+- [x] `src/builtins/net_package.mfb` (283 loc) — bug-306 (S3)
 - [x] `src/builtins/os.rs` (280 loc) — clean
 - [x] `src/builtins/regex.rs` (304 loc) — clean
-- [ ] `src/builtins/regex_package.mfb` (1811 loc) — .mfb group B (pending)
+- [x] `src/builtins/regex_package.mfb` (1811 loc) — bug-315, bug-316
 - [x] `src/builtins/resource.rs` (361 loc) — clean
 - [x] `src/builtins/strings.rs` (760 loc) — clean
-- [ ] `src/builtins/strings_package.mfb` (77 loc) — .mfb group B (pending)
+- [x] `src/builtins/strings_package.mfb` (77 loc) — clean
 - [x] `src/builtins/term.rs` (331 loc) — clean
 - [x] `src/builtins/testing.rs` (175 loc) — clean
 - [x] `src/builtins/thread.rs` (862 loc) — clean
@@ -505,31 +495,31 @@ directory; LOC shown to help sequence the effort.
 
 **`src/os/`**
 
-- [ ] `src/os/mod.rs` (40 loc)
-- [ ] `src/os/note.rs` (121 loc)
+- [x] `src/os/mod.rs` (40 loc) — clean
+- [x] `src/os/note.rs` (121 loc) — clean
 
 **`src/os/linux/`**
 
-- [ ] `src/os/linux/flavor.rs` (16 loc)
-- [ ] `src/os/linux/mod.rs` (135 loc)
-- [ ] `src/os/linux/object.rs` (1051 loc)
+- [x] `src/os/linux/flavor.rs` (16 loc) — clean
+- [x] `src/os/linux/mod.rs` (135 loc) — clean
+- [x] `src/os/linux/object.rs` (1051 loc) — clean
 
 **`src/os/linux/link/`**
 
-- [ ] `src/os/linux/link/elf.rs` (945 loc)
-- [ ] `src/os/linux/link/mod.rs` (610 loc)
+- [x] `src/os/linux/link/elf.rs` (945 loc) — clean
+- [x] `src/os/linux/link/mod.rs` (610 loc) — clean
 
 **`src/os/macos/`**
 
-- [ ] `src/os/macos/icon.rs` (200 loc)
-- [ ] `src/os/macos/mod.rs` (154 loc)
-- [ ] `src/os/macos/object.rs` (1410 loc)
+- [x] `src/os/macos/icon.rs` (200 loc) — clean
+- [x] `src/os/macos/mod.rs` (154 loc) — clean
+- [x] `src/os/macos/object.rs` (1410 loc) — clean
 
 **`src/os/macos/link/`**
 
-- [ ] `src/os/macos/link/commands.rs` (650 loc)
-- [ ] `src/os/macos/link/macho.rs` (395 loc)
-- [ ] `src/os/macos/link/mod.rs` (655 loc)
+- [x] `src/os/macos/link/commands.rs` (650 loc) — clean
+- [x] `src/os/macos/link/macho.rs` (395 loc) — clean
+- [x] `src/os/macos/link/mod.rs` (655 loc) — clean
 
 **`src/resolver/`**
 
@@ -598,11 +588,11 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/`**
 
-- [ ] `src/target/shared/abi.rs` (1384 loc)
-- [ ] `src/target/shared/lower.rs` (22 loc)
-- [ ] `src/target/shared/mod.rs` (14 loc)
-- [ ] `src/target/shared/regmodel.rs` (110 loc)
-- [ ] `src/target/shared/validate.rs` (1720 loc)
+- [x] `src/target/shared/abi.rs` (1384 loc) — clean
+- [x] `src/target/shared/lower.rs` (22 loc) — clean
+- [x] `src/target/shared/mod.rs` (14 loc) — clean
+- [x] `src/target/shared/regmodel.rs` (110 loc) — clean
+- [x] `src/target/shared/validate.rs` (1720 loc) — bug-300 (E12/E13)
 
 **`src/target/shared/code/`**
 
@@ -671,9 +661,9 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/code/audio/`**
 
-- [ ] `src/target/shared/code/audio/alsa.rs` (2253 loc)
-- [ ] `src/target/shared/code/audio/macos.rs` (2884 loc)
-- [ ] `src/target/shared/code/audio/mod.rs` (123 loc)
+- [x] `src/target/shared/code/audio/alsa.rs` (2253 loc) — bug-319
+- [x] `src/target/shared/code/audio/macos.rs` (2884 loc) — clean
+- [x] `src/target/shared/code/audio/mod.rs` (123 loc) — clean
 
 **`src/target/shared/code/crypto_ec/`**
 
@@ -705,18 +695,18 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/nir/`**
 
-- [ ] `src/target/shared/nir/json.rs` (1076 loc)
-- [ ] `src/target/shared/nir/lower.rs` (554 loc)
-- [ ] `src/target/shared/nir/mod.rs` (388 loc)
-- [ ] `src/target/shared/nir/symbols.rs` (78 loc)
+- [x] `src/target/shared/nir/json.rs` (1076 loc) — clean
+- [x] `src/target/shared/nir/lower.rs` (554 loc) — clean
+- [x] `src/target/shared/nir/mod.rs` (388 loc) — clean
+- [x] `src/target/shared/nir/symbols.rs` (78 loc) — clean
 
 **`src/target/shared/plan/`**
 
-- [ ] `src/target/shared/plan/function_builder.rs` (656 loc)
-- [ ] `src/target/shared/plan/json.rs` (182 loc)
-- [ ] `src/target/shared/plan/lower.rs` (213 loc)
-- [ ] `src/target/shared/plan/mod.rs` (522 loc)
-- [ ] `src/target/shared/plan/symbols.rs` (841 loc)
+- [x] `src/target/shared/plan/function_builder.rs` (656 loc) — bug-300 (E14)
+- [x] `src/target/shared/plan/json.rs` (182 loc) — clean
+- [x] `src/target/shared/plan/lower.rs` (213 loc) — clean
+- [x] `src/target/shared/plan/mod.rs` (522 loc) — clean
+- [x] `src/target/shared/plan/symbols.rs` (841 loc) — clean
 
 **`src/target/shared/runtime/`**
 
