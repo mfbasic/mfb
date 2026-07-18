@@ -554,9 +554,9 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/linux_aarch64/`**
 
-- [ ] `src/target/linux_aarch64/code.rs` (774 loc)
-- [ ] `src/target/linux_aarch64/mod.rs` (429 loc)
-- [ ] `src/target/linux_aarch64/plan.rs` (458 loc)
+- [x] `src/target/linux_aarch64/code.rs` (774 loc) — clean
+- [x] `src/target/linux_aarch64/mod.rs` (429 loc) — clean
+- [x] `src/target/linux_aarch64/plan.rs` (458 loc) — clean
 
 **`src/target/linux_gtk/`**
 
@@ -606,26 +606,26 @@ directory; LOC shown to help sequence the effort.
 
 **`src/target/shared/code/`**
 
-- [ ] `src/target/shared/code/builder_arena_transfer.rs` (1035 loc)
-- [ ] `src/target/shared/code/builder_bits.rs` (311 loc)
+- [x] `src/target/shared/code/builder_arena_transfer.rs` (1035 loc) — clean
+- [x] `src/target/shared/code/builder_bits.rs` (311 loc) — clean
 - [x] `src/target/shared/code/builder_codegen_primitives.rs` (2437 loc) — clean
 - [x] `src/target/shared/code/builder_collection_compare.rs` (497 loc) — clean
 - [x] `src/target/shared/code/builder_collection_layout.rs` (1960 loc) — clean
 - [x] `src/target/shared/code/builder_collection_mutate.rs` (4471 loc) — clean
 - [x] `src/target/shared/code/builder_collection_queries.rs` (2073 loc) — bug-307
 - [x] `src/target/shared/code/builder_collection_query.rs` (674 loc) — clean
-- [ ] `src/target/shared/code/builder_control.rs` (1572 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/builder_control.rs` (1572 loc) — clean
 - [x] `src/target/shared/code/builder_conversions.rs` (1499 loc) — bug-312 (K2)
 - [ ] `src/target/shared/code/builder_emit_helpers.rs` (525 loc) — PENDING (agent failed)
 - [x] `src/target/shared/code/builder_fixed_math.rs` (1034 loc) — clean
 - [ ] `src/target/shared/code/builder_fs_paths.rs` (676 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/builder_inplace_assign.rs` (624 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/builder_inplace_assign.rs` (624 loc) — clean
 - [x] `src/target/shared/code/builder_math.rs` (1430 loc) — clean
 - [x] `src/target/shared/code/builder_money.rs` (148 loc) — clean
 - [x] `src/target/shared/code/builder_money_math.rs` (389 loc) — clean
 - [x] `src/target/shared/code/builder_numeric.rs` (2025 loc) — bug-312 (K3)
 - [x] `src/target/shared/code/builder_pow.rs` (927 loc) — clean
-- [ ] `src/target/shared/code/builder_search.rs` (1152 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/builder_search.rs` (1152 loc) — clean
 - [x] `src/target/shared/code/builder_simd_fixed_math.rs` (387 loc) — clean
 - [x] `src/target/shared/code/builder_simd_float_math.rs` (2372 loc) — clean
 - [x] `src/target/shared/code/builder_simd_math.rs` (1002 loc) — bug-308
@@ -640,9 +640,9 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/target/shared/code/crypto.rs` (276 loc) — clean (self-reviewed)
 - [ ] `src/target/shared/code/crypto_ec.rs` (278 loc) — PENDING (agent failed)
 - [ ] `src/target/shared/code/data_objects.rs` (1334 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/datetime.rs` (167 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/entry_and_arena.rs` (2379 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/error_constants.rs` (841 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/datetime.rs` (167 loc) — clean
+- [ ] `src/target/shared/code/entry_and_arena.rs` (2379 loc) — PENDING (agent running)
+- [x] `src/target/shared/code/error_constants.rs` (841 loc) — clean
 - [x] `src/target/shared/code/float_format.rs` (602 loc) — clean
 - [x] `src/target/shared/code/fma_fusion.rs` (308 loc) — clean
 - [x] `src/target/shared/code/fs_helpers.rs` (153 loc) — clean
@@ -651,15 +651,15 @@ directory; LOC shown to help sequence the effort.
 - [x] `src/target/shared/code/fs_helpers_paths.rs` (1961 loc) — clean
 - [ ] `src/target/shared/code/function_lowering.rs` (944 loc) — PENDING (agent failed)
 - [x] `src/target/shared/code/io_helpers.rs` (2290 loc) — bug-314 (H1)
-- [ ] `src/target/shared/code/link_locator.rs` (666 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/link_thunk.rs` (2006 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/link_locator.rs` (666 loc) — clean
+- [x] `src/target/shared/code/link_thunk.rs` (2006 loc) — clean (x86 7-8 arg = bug-296)
 - [ ] `src/target/shared/code/mir.rs` (1797 loc) — PENDING (agent failed)
 - [ ] `src/target/shared/code/mod.rs` (3548 loc) — PENDING (agent failed)
 - [ ] `src/target/shared/code/module_analysis.rs` (1090 loc) — PENDING (agent failed)
 - [x] `src/target/shared/code/os.rs` (2116 loc) — clean
 - [x] `src/target/shared/code/peephole.rs` (449 loc) — bug-284 (C8)
-- [ ] `src/target/shared/code/runtime_helpers.rs` (1054 loc) — PENDING (agent failed)
-- [ ] `src/target/shared/code/runtime_helpers_thread.rs` (1457 loc) — PENDING (agent failed)
+- [x] `src/target/shared/code/runtime_helpers.rs` (1054 loc) — clean
+- [x] `src/target/shared/code/runtime_helpers_thread.rs` (1457 loc) — clean
 - [ ] `src/target/shared/code/serialization_utils.rs` (17 loc) — PENDING (agent failed)
 - [x] `src/target/shared/code/simd_kernel_coeffs.rs` (101 loc) — clean
 - [x] `src/target/shared/code/stdin_broadcast.rs` (1126 loc) — bug-314 (H4)
