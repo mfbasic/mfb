@@ -71,7 +71,7 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     asm.call_external("setenv");
 
     // app = gtk_application_new("dev.mfbasic.app", G_APPLICATION_DEFAULT_FLAGS)
-    asm.local_address("x0", STR_APP_ID.0);
+    asm.local_address("x0", SYM_APP_ID);
     asm.push(abi::move_immediate(
         "x1",
         "Integer",
@@ -136,7 +136,7 @@ pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
     asm.store_state("x0", ST_WINDOW);
     // gtk_window_set_title(window, "MFBASIC App")
     asm.load_state("x0", ST_WINDOW);
-    asm.local_address("x1", STR_TITLE.0);
+    asm.local_address("x1", SYM_TITLE);
     asm.call_external("gtk_window_set_title");
     // gtk_window_set_default_size(window, 900, 640)
     asm.load_state("x0", ST_WINDOW);

@@ -167,6 +167,27 @@ pub(crate) trait NativeBackend: Sync {
     fn supports_app_mode(&self) -> bool {
         false
     }
+
+    /// Finalize an app-mode build after vendored libraries and resources are in
+    /// place (plan-51-C §3.2).
+    ///
+    /// Runs after `copy_vendor_libraries`/`copy_resources`, which is the only
+    /// correct point: a sealed artifact cannot gain files afterwards. Returns the
+    /// path that replaces what [`NativeBackend::write_executable`] reported, or
+    /// `None` to keep it.
+    ///
+    /// macOS returns `None` — a `.app` is a directory and is already complete.
+    /// The Linux backends seal the AppDir into a single `.AppImage` and, unless
+    /// `keep_intermediate` (`--app-debug`), delete the AppDir.
+    fn finalize_app_bundle(
+        &self,
+        project_dir: &Path,
+        project_name: &str,
+        keep_intermediate: bool,
+    ) -> Result<Option<PathBuf>, String> {
+        let _ = (project_dir, project_name, keep_intermediate);
+        Ok(None)
+    }
 }
 
 static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[
@@ -267,6 +288,29 @@ pub fn write_executable(
         vendors_native_libraries,
         stdin_log_cap,
     )
+}
+
+/// Finalize an app-mode build once every file that belongs inside the artifact
+/// is in place (plan-51-C §3.2/§4.5).
+///
+/// Called from the CLI *after* `copy_vendor_libraries` and `copy_resources`,
+/// because an AppImage is a sealed file: the libraries have to be inside the
+/// image before it closes. `Some(path)` replaces the paths `write_executable`
+/// reported; `None` keeps them.
+///
+/// A no-op for console builds and for macOS, whose `.app` is a directory and is
+/// already complete when `write_executable` returns.
+pub fn finalize_app_bundle(
+    project_dir: &Path,
+    project_name: &str,
+    target: &BuildTarget,
+    build_mode: NativeBuildMode,
+    keep_intermediate: bool,
+) -> Result<Option<PathBuf>, String> {
+    if !build_mode.is_app() {
+        return Ok(None);
+    }
+    backend_for(target)?.finalize_app_bundle(project_dir, project_name, keep_intermediate)
 }
 
 pub fn write_nir(

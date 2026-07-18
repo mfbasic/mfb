@@ -1,3 +1,6 @@
+/// Platform-neutral app-icon decode/validate/render, shared by the macOS `.icns`
+/// pipeline and the Linux AppDir PNG set (plan-51-A §4.2).
+pub(crate) mod icon;
 pub(crate) mod linux;
 pub(crate) mod macos;
 pub(crate) mod note;
@@ -18,6 +21,12 @@ pub(crate) const VENDOR_DIR: &str = "vendor";
 /// ELF `DT_RUNPATH` for a vendored build (plan-46-D §4.2). `$ORIGIN` is expanded
 /// by the loader, not the build — take care that no format string interpolates it.
 pub(crate) const ELF_VENDOR_RPATH: &str = "$ORIGIN/vendor";
+
+/// ELF `DT_RUNPATH` for a vendored **AppDir** build (plan-51-A §4.4): the
+/// executable sits at `usr/bin/<name>` and its libraries at `usr/lib/`, the
+/// layout every AppDir-consuming tool expects. `$ORIGIN` is expanded by the
+/// loader, not the build — take care that no format string interpolates it.
+pub(crate) const ELF_APPDIR_VENDOR_RPATH: &str = "$ORIGIN/../lib";
 
 /// Mach-O `LC_RPATH` for a vendored **console** build (plan-46-D §4.4): the
 /// executable sits at `build/<name>.out` and its libraries at `build/vendor/`.

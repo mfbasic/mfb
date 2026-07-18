@@ -85,6 +85,16 @@ pub(crate) struct BuildOptions {
     pub(crate) target: target::BuildTarget,
     pub(crate) sign_owner: Option<String>,
     pub(crate) app_mode: bool,
+    /// `--app-debug` (plan-51-C §4.7): app mode, but keep the intermediate
+    /// `build/<name>.AppDir` beside the sealed `build/<name>.AppImage` so the
+    /// payload the seal consumed can be inspected. Implies `app_mode`.
+    ///
+    /// Linux-only in effect but not in acceptance: on macOS `finalize_app_bundle`
+    /// returns `None` and the flag does nothing, because there is no intermediate
+    /// to keep. Erroring on `--app-debug -target macos-aarch64` would mean a flag
+    /// that changes a build's *validity* by target, which is worse than one that
+    /// changes nothing.
+    pub(crate) app_debug: bool,
     /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
     /// §4.2). Defaults to the backend default.
     pub(crate) regalloc: target::shared::code::regalloc::RegallocKind,
@@ -140,6 +150,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut target = None;
     let mut sign_owner = None;
     let mut app_mode = false;
+    let mut app_debug = false;
     let mut allow_unsigned = false;
     let mut regalloc = target::shared::code::regalloc::active_kind();
     let mut verbosity: Option<Verbosity> = None;
@@ -177,6 +188,11 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
                 return Err("mfb build accepts at most one -app option".to_string());
             }
             app_mode = true;
+        } else if arg == "--app-debug" {
+            if app_debug {
+                return Err("mfb build accepts at most one --app-debug option".to_string());
+            }
+            app_debug = true;
         } else if arg == "--unsigned" {
             allow_unsigned = true;
         } else if arg == "--regalloc" || arg == "-regalloc" {
@@ -209,7 +225,11 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         outputs,
         target: target.unwrap_or_else(target::BuildTarget::host),
         sign_owner,
-        app_mode,
+        // plan-51-C §4.7: `--app-debug` implies `--app`. `--app --app-debug` is
+        // the same thing said twice and is accepted; requiring both would be a
+        // papercut with no upside.
+        app_mode: app_mode || app_debug,
+        app_debug,
         regalloc,
         allow_unsigned,
         mode: crate::testing::CompileMode::Build,
@@ -557,6 +577,25 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 eprintln!("error: {err}");
                 return Err(());
             }
+            // plan-51-C §3.2: seal the Linux AppDir into `build/<name>.AppImage`.
+            // Must run *after* vendoring and the resource copy — an AppImage is a
+            // sealed file, and everything that belongs inside it has to be there
+            // before it closes. macOS returns `None` (its `.app` is a directory
+            // and is already complete), as does every console build.
+            let executable_paths = match target::finalize_app_bundle(
+                output_dir,
+                &ir.name,
+                &target,
+                build_mode,
+                options.app_debug,
+            ) {
+                Ok(Some(path)) => vec![path],
+                Ok(None) => executable_paths,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
+            };
             reporter.phase("codegen+link", codegen_start.elapsed());
             // `mfb test` compiles the driver, then runs it and adopts its exit
             // status (non-zero iff any case failed).
@@ -860,6 +899,10 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         target: target.unwrap_or_else(target::BuildTarget::host),
         sign_owner: None,
         app_mode: false,
+        // `mfb test` never runs a test binary out of a sealed AppImage, so it
+        // takes neither `--app` nor `--app-debug`; both land in the
+        // `unknown test option` arm above (plan-51-C §4.7).
+        app_debug: false,
         regalloc,
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Test { coverage },
@@ -1533,9 +1576,10 @@ fn hex(bytes: &[u8]) -> String {
 ///
 /// | build | rpath | vendor files |
 /// | --- | --- | --- |
-/// | linux console / `-app` | `$ORIGIN/vendor` | `build/vendor/` |
+/// | linux console | `$ORIGIN/vendor` | `build/vendor/` |
+/// | linux `--app` | `$ORIGIN/../lib` | `build/<name>.AppDir/usr/lib/` |
 /// | macos console | `@loader_path/vendor` | `build/vendor/` |
-/// | macos `-app` | `@executable_path/../Frameworks` | `build/<name>.app/Contents/Frameworks/` |
+/// | macos `--app` | `@executable_path/../Frameworks` | `build/<name>.app/Contents/Frameworks/` |
 fn vendor_output_dirs(
     output_dir: &Path,
     project_name: &str,
@@ -1552,11 +1596,20 @@ fn vendor_output_dirs(
             .join(format!("{project_name}.app"))
             .join("Contents")
             .join(crate::os::MACOS_APP_FRAMEWORKS_DIR)],
+        // The AppDir puts its libraries at `usr/lib/`, one directory up from the
+        // executable at `usr/bin/<name>` — the layout every AppDir-consuming tool
+        // expects, and what `ELF_APPDIR_VENDOR_RPATH` (`$ORIGIN/../lib`) resolves
+        // to. Created only when the build vendors something, so a non-vendoring
+        // AppDir carries no empty `usr/lib/` (plan-51-A §4.4).
+        target::NativeBuildMode::LinuxApp => vec![build_dir
+            .join(format!("{project_name}.AppDir"))
+            .join("usr")
+            .join("lib")],
         // Both Linux libc flavors live in the one `build/` directory and share the
         // one `vendor/`. That is sound only because vendor `source` filenames are
         // unique project-wide (plan-46-A §4.3), so a glibc blob and a musl blob
         // never collide.
-        _ => vec![build_dir.join(crate::os::VENDOR_DIR)],
+        target::NativeBuildMode::Console => vec![build_dir.join(crate::os::VENDOR_DIR)],
     }
 }
 
@@ -1973,6 +2026,40 @@ mod tests {
         );
         // The duplicate guard spans both spellings — they are one flag.
         assert!(parse_build_options(s(&["--app", "-app"])).is_err());
+    }
+
+    /// plan-51-C §4.7: `--app-debug` is app mode with the intermediate AppDir
+    /// kept, so it implies `--app` rather than requiring it alongside.
+    #[test]
+    fn parse_build_options_app_debug_implies_app_mode() {
+        let options = parse_build_options(s(&["--app-debug"])).expect("--app-debug");
+        assert!(options.app_debug);
+        assert!(options.app_mode, "--app-debug implies --app");
+
+        // Saying it twice over is the same thing said twice, and is accepted.
+        let both = parse_build_options(s(&["--app", "--app-debug"])).expect("--app --app-debug");
+        assert!(both.app_mode && both.app_debug);
+
+        // A plain `--app` keeps the AppDir-deleting default.
+        let plain = parse_build_options(s(&["--app"])).expect("--app");
+        assert!(plain.app_mode && !plain.app_debug);
+
+        // Duplicates are rejected, matching `--app`.
+        assert!(parse_build_options(s(&["--app-debug", "--app-debug"])).is_err());
+
+        // There is no single-dash alias: `--app-debug` postdates plan-42.
+        assert!(parse_build_options(s(&["-app-debug"])).is_err());
+    }
+
+    /// `mfb test` never runs a test binary out of a sealed AppImage, so it takes
+    /// `--app-debug` no more than it takes `--app`.
+    #[test]
+    fn parse_test_options_rejects_app_debug() {
+        let err = match parse_test_options(s(&["--app-debug"])) {
+            Err(err) => err,
+            Ok(_) => panic!("mfb test must reject --app-debug"),
+        };
+        assert!(err.contains("unknown test option"), "{err}");
     }
 
     /// plan-42: `mfb test` accepts both spellings of its two behavioral flags —
@@ -2717,8 +2804,15 @@ mod tests {
         );
         assert_eq!(
             vendor_output_dirs(root, "app", target::NativeBuildMode::LinuxApp),
-            vec![PathBuf::from("/proj/build/vendor")],
-            "linux -app: $ORIGIN/vendor -> build/vendor"
+            vec![PathBuf::from("/proj/build/app.AppDir/usr/lib")],
+            "linux --app: $ORIGIN/../lib -> the AppDir's usr/lib (plan-51-A §4.4)"
+        );
+        // The two Linux shapes must differ: the console `.out` and the AppDir's
+        // `usr/bin/<name>` sit at different depths, so a shared directory would
+        // mean one of the two RUNPATHs points at nothing.
+        assert_ne!(
+            vendor_output_dirs(root, "app", target::NativeBuildMode::Console),
+            vendor_output_dirs(root, "app", target::NativeBuildMode::LinuxApp),
         );
         assert_eq!(
             vendor_output_dirs(root, "app", target::NativeBuildMode::MacApp),

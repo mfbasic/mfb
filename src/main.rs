@@ -163,6 +163,8 @@ Options:
   --target <os-arch>  Cross-compile to a specific target (e.g., linux-x86_64)
   --regalloc <name>   Select the register-allocation strategy
   --app               Build as a standalone application instead of a library
+  --app-debug         Like --app, but keep the intermediate build/<name>.AppDir
+                      beside the AppImage (Linux; inert on macOS)
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage

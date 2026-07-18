@@ -184,8 +184,13 @@ const IO_READ_LINE_SYMBOL: &str = "_mfb_rt_io_io_readLine";
 
 // --- Read-only string data symbols -----------------------------------------
 
-const STR_APP_ID: (&str, &str) = ("_mfb_gtkapp_str_app_id", "dev.mfbasic.app");
-const STR_TITLE: (&str, &str) = ("_mfb_gtkapp_str_title", "MFBASIC App");
+/// Symbol names for the two strings that carry the app's *identity* (plan-51-A
+/// §4.5). Both were compile-time constants until plan-51: every MFBASIC GTK app
+/// on a machine shared one D-Bus name and one window class, so no `.desktop`
+/// file could associate its launcher with a window. Their values are now derived
+/// from the project name by [`gtk_app_id`] and [`app_mode_data_objects`].
+const SYM_APP_ID: &str = "_mfb_gtkapp_str_app_id";
+const SYM_TITLE: &str = "_mfb_gtkapp_str_title";
 const STR_ACTIVATE: (&str, &str) = ("_mfb_gtkapp_str_activate", "activate");
 const STR_CLOSE_REQUEST: (&str, &str) = ("_mfb_gtkapp_str_close_request", "close-request");
 const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-pressed");
@@ -787,10 +792,13 @@ use bootstrap::*;
 use term_draw::*;
 
 /// Read-only C-string data symbols + the writable runtime-state global.
-pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
+pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
+    let app_id = gtk_app_id(project_name);
     let mut objects: Vec<CodeDataObject> = [
-        STR_APP_ID,
-        STR_TITLE,
+        (SYM_APP_ID, app_id.as_str()),
+        // The window title is the project name, matching the `.desktop` `Name=`
+        // (plan-51-A §4.3) and the macOS `CFBundleName`.
+        (SYM_TITLE, project_name),
         STR_ACTIVATE,
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
@@ -833,6 +841,120 @@ fn hex_cstring(text: &str) -> String {
     }
     hex.push_str("00");
     hex
+}
+
+/// The GTK/GApplication id for `project_name` (plan-51-A §4.5), matching the
+/// macOS `CFBundleIdentifier` (`src/os/macos/link/mod.rs:app_info_plist`).
+///
+/// The name is sanitized to `[A-Za-z0-9_]` with a `_` prefix ahead of a leading
+/// digit. `g_application_new` does not tolerate an invalid id: it emits a
+/// `g_critical` and the app dies before its first frame, with nothing at build
+/// time to catch it. The accepted set here is deliberately narrower than
+/// `g_application_id_is_valid` accepts — it is also valid under the stricter
+/// `g_dbus_is_name`, so the id works as a bus name too, and a project named
+/// `my-app` yields `dev.mfbasic.my_app` rather than a runtime abort.
+///
+/// The `.desktop` `StartupWMClass` (plan-51-A §4.3) must equal this exactly: GTK4
+/// sets the window's `WM_CLASS` from the application id, and a mismatch makes the
+/// desktop's launcher-to-window association silently fail.
+pub(crate) fn gtk_app_id(project_name: &str) -> String {
+    let mut sanitized = String::with_capacity(project_name.len() + 1);
+    for ch in project_name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            sanitized.push(ch);
+        } else {
+            // Every other byte — `-`, `.`, a space, or any non-ASCII scalar —
+            // becomes `_`. Collapsing rather than dropping keeps two distinct
+            // project names from colliding on one id.
+            sanitized.push('_');
+        }
+    }
+    // A GApplication id element may not start with a digit, and an empty element
+    // is invalid outright.
+    if sanitized.is_empty() {
+        sanitized.push('_');
+    } else if sanitized.starts_with(|ch: char| ch.is_ascii_digit()) {
+        sanitized.insert(0, '_');
+    }
+    format!("dev.mfbasic.{sanitized}")
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn gtk_app_id_passes_a_plain_name_through() {
+        assert_eq!(gtk_app_id("hello"), "dev.mfbasic.hello");
+        assert_eq!(gtk_app_id("my_app2"), "dev.mfbasic.my_app2");
+    }
+
+    #[test]
+    fn gtk_app_id_replaces_every_invalid_character() {
+        // A hyphen is legal in a project name and illegal in a bus-name element.
+        assert_eq!(gtk_app_id("my-app"), "dev.mfbasic.my_app");
+        // A dot would introduce a new element, changing the id's shape.
+        assert_eq!(gtk_app_id("my.app"), "dev.mfbasic.my_app");
+        assert_eq!(gtk_app_id("my app"), "dev.mfbasic.my_app");
+        assert_eq!(gtk_app_id("café"), "dev.mfbasic.caf_");
+    }
+
+    #[test]
+    fn gtk_app_id_prefixes_a_leading_digit() {
+        assert_eq!(gtk_app_id("3d"), "dev.mfbasic._3d");
+        assert_eq!(gtk_app_id("2048"), "dev.mfbasic._2048");
+    }
+
+    #[test]
+    fn gtk_app_id_never_produces_an_empty_element() {
+        assert_eq!(gtk_app_id(""), "dev.mfbasic._");
+    }
+
+    #[test]
+    fn gtk_app_id_output_is_valid_under_g_dbus_is_name() {
+        // The conservative set the doc comment promises: every element non-empty,
+        // `[A-Za-z_][A-Za-z0-9_]*`, at least two elements, no leading digit.
+        for name in ["hello", "my-app", "3d", "", "café", "a.b.c", "x  y"] {
+            let id = gtk_app_id(name);
+            let elements: Vec<&str> = id.split('.').collect();
+            assert!(elements.len() >= 2, "{id}: needs at least two elements");
+            for element in elements {
+                assert!(!element.is_empty(), "{id}: empty element");
+                assert!(
+                    !element.starts_with(|ch: char| ch.is_ascii_digit()),
+                    "{id}: element starts with a digit"
+                );
+                assert!(
+                    element
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
+                    "{id}: element has an invalid character"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn app_mode_data_objects_carry_the_derived_id_and_title() {
+        let objects = app_mode_data_objects("my-app");
+        let id = objects
+            .iter()
+            .find(|object| object.symbol == SYM_APP_ID)
+            .expect("app id object");
+        assert_eq!(id.value, hex_cstring("dev.mfbasic.my_app"));
+        assert_eq!(id.size, "dev.mfbasic.my_app".len() + 1);
+        let title = objects
+            .iter()
+            .find(|object| object.symbol == SYM_TITLE)
+            .expect("title object");
+        assert_eq!(title.value, hex_cstring("my-app"), "title is the raw name");
+        // The pre-plan-51 constants must not survive anywhere in the data.
+        let dead = hex_cstring("dev.mfbasic.app");
+        assert!(
+            objects.iter().all(|object| object.value != dead),
+            "the shared `dev.mfbasic.app` id must be gone"
+        );
+    }
 }
 
 #[cfg(test)]

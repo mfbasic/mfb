@@ -188,8 +188,8 @@ impl code::CodegenPlatform for Platform {
         code::lower_thread_trampoline(platform_imports, self, uses_stdin)
     }
 
-    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
-        gtk::app_mode_data_objects()
+    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
+        gtk::app_mode_data_objects(project_name)
     }
 
     fn emit_app_io_write_helper(

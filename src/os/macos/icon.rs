@@ -15,15 +15,12 @@ use std::path::Path;
 
 use icns::{IconFamily, IconType, Image as IcnsImage, PixelFormat};
 use image::imageops::FilterType;
-use image::{GenericImageView, RgbaImage};
+use image::RgbaImage;
 
-/// The compiler's embedded default app icon (1024×1024 PNG), used when a project
-/// sets no `icon`. Shares the single embedded asset committed with the macOS
-/// app-mode codegen.
-use crate::target::macos_aarch64::app::icon::APP_ICON_PNG;
-
-/// Side of the working canvas and the required source size (plan-22-B §4.3).
-const CANVAS: u32 = 1024;
+/// Decode + 1024×1024 validation + embedded-default fallback, hoisted to
+/// `crate::os::icon` (plan-51-A §4.2) so the Linux AppDir PNG renderer accepts
+/// and rejects exactly the icons this `.icns` path does.
+use crate::os::icon::{normalize_source, CANVAS};
 /// Big Sur icon body on a 1024 grid (plan-22-C §4.2): 100px margin each side.
 const CONTENT: u32 = 824;
 /// Transparent margin around the content box: `(CANVAS - CONTENT) / 2`.
@@ -71,32 +68,6 @@ pub(crate) fn build_icns(source: Option<&Path>) -> Result<Vec<u8>, String> {
         .write(&mut buf)
         .map_err(|err| format!("failed to encode .icns: {err}"))?;
     Ok(buf)
-}
-
-/// Decode `source` (or the embedded default) to a 1024×1024 RGBA canvas. A
-/// provided icon that does not decode, or is not exactly 1024×1024, is a hard
-/// error (plan-22-B §4.3 step 2, resolved Open Decision 4).
-fn normalize_source(source: Option<&Path>) -> Result<RgbaImage, String> {
-    match source {
-        Some(path) => {
-            let decoded = image::open(path).map_err(|err| {
-                format!("icon '{}' is not a decodable image: {err}", path.display())
-            })?;
-            let (width, height) = decoded.dimensions();
-            if (width, height) != (CANVAS, CANVAS) {
-                return Err(format!(
-                    "icon '{}' must be {CANVAS}×{CANVAS}, got {width}×{height}",
-                    path.display()
-                ));
-            }
-            Ok(decoded.to_rgba8())
-        }
-        None => {
-            let decoded = image::load_from_memory(APP_ICON_PNG)
-                .expect("embedded default app icon must be a valid PNG");
-            Ok(decoded.to_rgba8())
-        }
-    }
 }
 
 /// Shape the 1024 RGBA `canvas` like a native macOS icon (plan-22-C §4.3):

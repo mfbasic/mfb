@@ -536,7 +536,13 @@ pub(crate) trait CodegenPlatform {
 
     /// Read-only data objects (Obj-C class/selector C strings, window title,
     /// env-var names) referenced by the app-mode bootstrap. Empty otherwise.
-    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
+    ///
+    /// `project_name` is the module's project name. The Linux/GTK backend derives
+    /// the GApplication id and the window title from it (plan-51-A §4.5), so every
+    /// MFBASIC app no longer shares one D-Bus name and one window class; the macOS
+    /// backend has no per-project string here and ignores it.
+    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
+        let _ = project_name;
         Vec::new()
     }
 

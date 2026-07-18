@@ -183,7 +183,7 @@ impl code::CodegenPlatform for Platform {
         code::lower_thread_trampoline(platform_imports, self, uses_stdin)
     }
 
-    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
+    fn app_mode_data_objects(&self, _project_name: &str) -> Vec<CodeDataObject> {
         // bug-117.1: not ported to rv64; do not source app-mode rodata from the
         // aarch64 GTK backend.
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");

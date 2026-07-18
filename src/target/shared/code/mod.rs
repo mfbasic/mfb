@@ -831,7 +831,7 @@ pub(crate) fn lower_module_for_platform(
                 &platform_imports,
             )?);
             code_functions.extend(app_entry);
-            data_objects.extend(platform.app_mode_data_objects());
+            data_objects.extend(platform.app_mode_data_objects(&module.project));
         } else {
             code_functions.push(platform.emit_program_entry(
                 &ProgramEntrySpec {

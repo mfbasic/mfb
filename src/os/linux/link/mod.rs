@@ -51,14 +51,63 @@ mod tests;
 
 use elf::*;
 
+/// Link `image` and write a console executable: `build/<name>-{glibc,musl}.out`,
+/// one per libc world (plan-46-D §4.1).
 pub(crate) fn write_executable(
     project_dir: &Path,
     project_name: &str,
     arch: &str,
     flavor: LinuxFlavor,
-    app_mode: bool,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
+    let bytes = encode_executable_bytes(arch, flavor, image)?;
+    // Every build emits into the project's `build/` directory (plan-46-D §4.1) so
+    // the executable and the `vendor/` its RPATH points at move as one unit, and
+    // one `.gitignore` line covers every artifact.
+    let out_dir = project_dir.join(BUILD_DIR);
+    fs::create_dir_all(&out_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", out_dir.display()))?;
+    let path = out_dir.join(format!("{project_name}-{}.out", flavor.suffix()));
+    fs::write(&path, bytes)
+        .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+    let mut permissions = fs::metadata(&path)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&path, permissions)
+        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    Ok(path)
+}
+
+/// Link `image` and write it as an app-mode **AppDir** (plan-51-A §4.1),
+/// returning the path to `build/<name>.AppDir`.
+///
+/// App mode is glibc-only (GTK is a glibc-world dependency), so there is exactly
+/// one artifact here rather than the console path's flavored pair. The ELF is
+/// encoded through the same [`encode_executable_bytes`] the console path uses, so
+/// the two are byte-identical unless the build vendors native libraries — in
+/// which case they carry different `DT_RUNPATH` strings, because they load from
+/// different places (plan-51-A §4.4).
+pub(crate) fn write_appdir(
+    project_dir: &Path,
+    project_name: &str,
+    arch: &str,
+    flavor: LinuxFlavor,
+    image: &EncodedImage,
+    app_icon: Option<&Path>,
+    app_version: &str,
+) -> Result<PathBuf, String> {
+    let bytes = encode_executable_bytes(arch, flavor, image)?;
+    super::appdir::write_appdir(project_dir, project_name, &bytes, app_icon, app_version)
+}
+
+/// Encode the final ELF image to bytes, shared by the console `<name>-*.out` and
+/// the app-mode AppDir writers so both emit identical binaries from one image.
+fn encode_executable_bytes(
+    arch: &str,
+    flavor: LinuxFlavor,
+    image: &EncodedImage,
+) -> Result<Vec<u8>, String> {
     let mut text = image.text.clone();
     let text_vmaddr = IMAGE_BASE + TEXT_FILE_OFFSET as u64;
     let main_entry_offset = image
@@ -110,29 +159,7 @@ pub(crate) fn write_executable(
     } else {
         encode_dynamic_elf(arch, flavor, entry_offset, &text, &image.data, image)?
     };
-    // Every build emits into the project's `build/` directory (plan-46-D §4.1) so
-    // the executable and the `vendor/` its RPATH points at move as one unit, and
-    // one `.gitignore` line covers every artifact. App mode
-    // (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the console
-    // build emits one flavored `<name>-{glibc,musl}.out` per libc world — both
-    // flavors share the one directory.
-    let out_dir = project_dir.join(BUILD_DIR);
-    fs::create_dir_all(&out_dir)
-        .map_err(|err| format!("failed to create '{}': {err}", out_dir.display()))?;
-    let path = if app_mode {
-        out_dir.join(format!("{project_name}.out"))
-    } else {
-        out_dir.join(format!("{project_name}-{}.out", flavor.suffix()))
-    };
-    fs::write(&path, bytes)
-        .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
-    let mut permissions = fs::metadata(&path)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions)
-        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
-    Ok(path)
+    Ok(bytes)
 }
 
 fn patch_relocations(

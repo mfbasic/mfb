@@ -204,8 +204,8 @@ impl code::CodegenPlatform for Platform {
         Some(gtk::emit_app_program_entry_x86(spec, platform_imports))
     }
 
-    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
-        gtk::app_mode_data_objects()
+    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
+        gtk::app_mode_data_objects(project_name)
     }
 
     fn emit_app_io_write_helper(

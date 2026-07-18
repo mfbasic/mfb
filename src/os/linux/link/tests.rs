@@ -294,36 +294,54 @@ fn encode_static_elf_x86_appends_signing_section() {
 fn write_executable_x86_static_writes_flavored_output() {
     let image = x86_static_image();
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "x86s",
-        "x86_64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link x86 static elf");
+    let path = write_executable(dir.path(), "x86s", "x86_64", LinuxFlavor::Glibc, &image)
+        .expect("link x86 static elf");
     // Console (non-app) build gets the flavor suffix.
     assert!(path.ends_with("x86s-glibc.out"));
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62); // EM_X86_64
 }
 
+/// plan-51-A: app mode no longer produces a bare `<name>.out`; it produces an
+/// AppDir whose executable is at `usr/bin/<name>`, encoded from the same bytes
+/// the console path would write.
 #[test]
-fn write_executable_app_mode_drops_flavor_suffix() {
+fn write_appdir_puts_the_same_elf_under_usr_bin() {
     let image = x86_static_image();
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
+    let appdir = write_appdir(
         dir.path(),
         "myapp",
         "x86_64",
         LinuxFlavor::Glibc,
-        true,
+        &image,
+        None,
+        "0.1.0",
+    )
+    .expect("link app-mode AppDir");
+    assert!(appdir.ends_with("myapp.AppDir"));
+    assert!(
+        !appdir.join("..").join("myapp.out").exists(),
+        "app mode emits no bare <name>.out"
+    );
+
+    // The AppDir's ELF is byte-identical to the console `<name>-glibc.out` from
+    // the same image: this build vendors nothing, so neither carries a
+    // DT_RUNPATH and the only difference would be one (plan-51-A §4.4).
+    let console = tempfile::tempdir().unwrap();
+    let out = write_executable(
+        console.path(),
+        "myapp",
+        "x86_64",
+        LinuxFlavor::Glibc,
         &image,
     )
-    .expect("link app-mode elf");
-    assert!(path.ends_with("myapp.out"));
-    assert!(!path.to_string_lossy().contains("glibc"));
+    .expect("link console elf");
+    assert_eq!(
+        std::fs::read(appdir.join("usr/bin/myapp")).unwrap(),
+        std::fs::read(&out).unwrap(),
+        "one image, one encoder, identical bytes"
+    );
 }
 
 #[test]
@@ -331,15 +349,8 @@ fn write_executable_rejects_entry_not_in_text() {
     let mut image = x86_static_image();
     image.entry = "_nowhere".to_string();
     let dir = tempfile::tempdir().unwrap();
-    let err = write_executable(
-        dir.path(),
-        "bad",
-        "x86_64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect_err("missing entry must be rejected");
+    let err = write_executable(dir.path(), "bad", "x86_64", LinuxFlavor::Glibc, &image)
+        .expect_err("missing entry must be rejected");
     assert!(err.contains("does not resolve to text"));
 }
 
@@ -437,15 +448,8 @@ fn x86_dynamic_image() -> EncodedImage {
 fn write_executable_x86_dynamic_covers_all_reloc_kinds() {
     let image = x86_dynamic_image();
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "x86d",
-        "x86_64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link x86 dynamic elf");
+    let path = write_executable(dir.path(), "x86d", "x86_64", LinuxFlavor::Glibc, &image)
+        .expect("link x86 dynamic elf");
     let bytes = std::fs::read(&path).unwrap();
     // EM_X86_64 PIE (ET_DYN) dynamic ELF: 8 program headers (incl. PT_GNU_STACK,
     // the plan-43 PT_NOTE, and the bug-263 PT_GNU_RELRO), interpreter present
@@ -465,15 +469,8 @@ fn write_executable_x86_dynamic_covers_all_reloc_kinds() {
 fn write_executable_x86_dynamic_musl_uses_musl_interpreter() {
     let image = x86_dynamic_image();
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "x86dm",
-        "x86_64",
-        LinuxFlavor::Musl,
-        false,
-        &image,
-    )
-    .expect("link x86 dynamic musl elf");
+    let path = write_executable(dir.path(), "x86dm", "x86_64", LinuxFlavor::Musl, &image)
+        .expect("link x86 dynamic musl elf");
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes
         .windows(b"ld-musl-x86_64.so.1".len())
@@ -484,15 +481,8 @@ fn write_executable_x86_dynamic_musl_uses_musl_interpreter() {
 fn write_executable_aarch64_dynamic_musl_uses_musl_interpreter() {
     let image = glob_dat_image("libc.musl-aarch64.so.1");
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "aad",
-        "aarch64",
-        LinuxFlavor::Musl,
-        false,
-        &image,
-    )
-    .expect("link aarch64 musl elf");
+    let path = write_executable(dir.path(), "aad", "aarch64", LinuxFlavor::Musl, &image)
+        .expect("link aarch64 musl elf");
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes
         .windows(b"ld-musl-aarch64.so.1".len())
@@ -534,15 +524,8 @@ fn write_executable_rejects_unbound_external_symbol() {
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
-    let err = write_executable(
-        dir.path(),
-        "unbound",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect_err("unbound external symbol must be rejected");
+    let err = write_executable(dir.path(), "unbound", "aarch64", LinuxFlavor::Glibc, &image)
+        .expect_err("unbound external symbol must be rejected");
     assert!(err.contains("cannot bind external symbol '_missing'"));
 }
 
@@ -573,15 +556,8 @@ fn write_executable_rejects_unsupported_relocation() {
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
-    let err = write_executable(
-        dir.path(),
-        "unsup",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect_err("unsupported relocation must be rejected");
+    let err = write_executable(dir.path(), "unsup", "aarch64", LinuxFlavor::Glibc, &image)
+        .expect_err("unsupported relocation must be rejected");
     assert!(err.contains("does not support relocation"));
 }
 
@@ -704,15 +680,8 @@ fn write_executable_aarch64_static_internal_relocs() {
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
-    write_executable(
-        dir.path(),
-        "aast",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link aarch64 static internal-reloc elf");
+    write_executable(dir.path(), "aast", "aarch64", LinuxFlavor::Glibc, &image)
+        .expect("link aarch64 static internal-reloc elf");
 }
 
 // A `data data_pc32` (x86 RIP-relative to an internal data symbol) on the
@@ -751,15 +720,8 @@ fn write_executable_x86_static_data_pc32() {
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
-    write_executable(
-        dir.path(),
-        "x86dp",
-        "x86_64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link x86 static data_pc32 elf");
+    write_executable(dir.path(), "x86dp", "x86_64", LinuxFlavor::Glibc, &image)
+        .expect("link x86 static data_pc32 elf");
 }
 
 // Drives each "cannot bind external ... symbol" error arm: a relocation of the
@@ -804,7 +766,7 @@ fn expect_unbound(kind: &str, expect_fragment: &str) {
     } else {
         "aarch64"
     };
-    let err = write_executable(dir.path(), "ub", arch, LinuxFlavor::Glibc, false, &image)
+    let err = write_executable(dir.path(), "ub", arch, LinuxFlavor::Glibc, &image)
         .expect_err("unbound external must be rejected");
     assert!(
         err.contains(expect_fragment) && err.contains("<unknown library>"),
@@ -875,15 +837,8 @@ fn write_executable_riscv64_internal_call_patches_auipc_jalr_pair() {
     let image = crate::arch::riscv64::encode::encode(&plan).expect("riscv encode");
     // No imports → a static ELF; the internal call relocation is still patched.
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "rvi",
-        "riscv64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link riscv static elf with internal call");
+    let path = write_executable(dir.path(), "rvi", "riscv64", LinuxFlavor::Glibc, &image)
+        .expect("link riscv static elf with internal call");
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243); // EM_RISCV
@@ -917,15 +872,8 @@ fn write_executable_rejects_undefined_internal_symbol() {
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
-    let err = write_executable(
-        dir.path(),
-        "undef",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect_err("undefined internal symbol must be rejected");
+    let err = write_executable(dir.path(), "undef", "aarch64", LinuxFlavor::Glibc, &image)
+        .expect_err("undefined internal symbol must be rejected");
     assert!(err.contains("symbol '_ghost' does not resolve"));
 }
 
@@ -934,7 +882,7 @@ fn writes_glob_dat_glibc_elf() {
     let image = glob_dat_image("libc.so.6");
     let dir = std::path::PathBuf::from("tmp/globlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    write_executable(&dir, "glob", "aarch64", LinuxFlavor::Glibc, false, &image)
+    write_executable(&dir, "glob", "aarch64", LinuxFlavor::Glibc, &image)
         .expect("link glob_dat elf");
 }
 
@@ -943,15 +891,8 @@ fn writes_glob_dat_musl_elf() {
     let image = glob_dat_image("libc.musl-aarch64.so.1");
     let dir = std::path::PathBuf::from("tmp/globlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    write_executable(
-        &dir,
-        "globmusl",
-        "aarch64",
-        LinuxFlavor::Musl,
-        false,
-        &image,
-    )
-    .expect("link musl glob_dat");
+    write_executable(&dir, "globmusl", "aarch64", LinuxFlavor::Musl, &image)
+        .expect("link musl glob_dat");
 }
 
 #[test]
@@ -973,15 +914,8 @@ fn writes_mfb_sign_section_to_static_elf() {
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "signed",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link signed elf");
+    let path = write_executable(dir.path(), "signed", "aarch64", LinuxFlavor::Glibc, &image)
+        .expect("link signed elf");
     let bytes = std::fs::read(path).unwrap();
     assert!(bytes
         .windows(b".mfb_sign".len())
@@ -1007,7 +941,7 @@ fn writes_init_array_glibc_elf() {
     let image = init_array_image();
     let dir = std::path::PathBuf::from("tmp/initlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    write_executable(&dir, "init", "aarch64", LinuxFlavor::Glibc, false, &image)
+    write_executable(&dir, "init", "aarch64", LinuxFlavor::Glibc, &image)
         .expect("link init-array elf");
 }
 
@@ -1021,7 +955,7 @@ fn writes_versioned_glibc_elf() {
     let image = versioned_exit_image();
     let dir = std::path::PathBuf::from("tmp/verlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = write_executable(&dir, "ver", "aarch64", LinuxFlavor::Glibc, false, &image)
+    let path = write_executable(&dir, "ver", "aarch64", LinuxFlavor::Glibc, &image)
         .expect("link versioned elf");
     let bytes = std::fs::read(&path).expect("read elf");
     assert!(
@@ -1226,15 +1160,8 @@ fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
     };
     let image = crate::arch::riscv64::encode::encode(&plan).expect("riscv encode");
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "rvd",
-        "riscv64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link riscv dynamic elf");
+    let path = write_executable(dir.path(), "rvd", "riscv64", LinuxFlavor::Glibc, &image)
+        .expect("link riscv dynamic elf");
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
     // PIE (ET_DYN); EM_RISCV (243) with EF_RISCV_FLOAT_ABI_DOUBLE in e_flags
@@ -1534,7 +1461,6 @@ fn a_non_vendor_elf_emits_no_runpath() {
         "norunpath",
         "aarch64",
         LinuxFlavor::Glibc,
-        false,
         &image,
     )
     .expect("link");
@@ -1552,15 +1478,8 @@ fn a_vendoring_elf_emits_one_origin_relative_runpath() {
     let mut image = versioned_exit_image();
     image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "runpath",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link");
+    let path = write_executable(dir.path(), "runpath", "aarch64", LinuxFlavor::Glibc, &image)
+        .expect("link");
     let bytes = std::fs::read(&path).unwrap();
     // `$ORIGIN` is expanded by the loader, not the build: it must survive verbatim.
     assert_eq!(elf_runpaths(&bytes), vec!["$ORIGIN/vendor".to_string()]);
@@ -1575,15 +1494,8 @@ fn the_runpath_string_does_not_disturb_the_symbol_table() {
     let mut image = versioned_exit_image();
     image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "strsz",
-        "aarch64",
-        LinuxFlavor::Glibc,
-        false,
-        &image,
-    )
-    .expect("link");
+    let path =
+        write_executable(dir.path(), "strsz", "aarch64", LinuxFlavor::Glibc, &image).expect("link");
     let bytes = std::fs::read(&path).unwrap();
     // The imported symbol name must still be intact and findable.
     assert!(
@@ -1639,7 +1551,6 @@ fn the_emitted_dynstr_matches_the_prefix_computation_with_a_runpath() {
         "strszrpath",
         "aarch64",
         LinuxFlavor::Glibc,
-        false,
         &image,
     )
     .expect("link");
@@ -1653,5 +1564,114 @@ fn the_emitted_dynstr_matches_the_prefix_computation_with_a_runpath() {
     assert!(
         bytes.windows(b"_exit\0".len()).any(|w| w == b"_exit\0"),
         "the import symbol must still be intact"
+    );
+}
+
+// --- plan-51-A §4.4: the app-mode RUNPATH ----------------------------------
+//
+// ⚠️ The `.dynstr` hazard, on the exact axis that failed once before. plan-46-D
+// §1 records that a runpath edit silently corrupted every import stub's GOT
+// offset: `.dynstr`'s contents and `dynamic_prefix_size` are two independent
+// computations of one layout, one was updated and the other was not, and the
+// program segfaulted on its first imported call while unit tests passed and
+// `readelf -d` printed the runpath correctly.
+//
+// `$ORIGIN/../lib` (14 chars) and `$ORIGIN/vendor` (14 chars) happen to be the
+// same length, which is precisely why this needs a test rather than an
+// eyeball: the two strings agreeing in length today is a coincidence, not a
+// property, and the next runpath added will not.
+#[test]
+fn an_appdir_vendoring_elf_emits_the_usr_lib_relative_runpath() {
+    let mut image = versioned_exit_image();
+    image.rpaths = vec![crate::os::ELF_APPDIR_VENDOR_RPATH.to_string()];
+    let dir = tempfile::tempdir().unwrap();
+    let appdir = write_appdir(
+        dir.path(),
+        "vendored",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        &image,
+        None,
+        "0.1.0",
+    )
+    .expect("link AppDir");
+    let bytes = std::fs::read(appdir.join("usr/bin/vendored")).unwrap();
+    // The executable is at `usr/bin/<name>` and its libraries at `usr/lib/`, so
+    // `$ORIGIN/../lib` is what the loader must see — verbatim, since `$ORIGIN`
+    // is expanded by the loader and not by the build.
+    assert_eq!(elf_runpaths(&bytes), vec!["$ORIGIN/../lib".to_string()]);
+    // And the import's symbol name survives the dynstr growth, which is the
+    // symptom the GOT-offset bug hid behind.
+    assert!(
+        bytes.windows(b"_exit\0".len()).any(|w| w == b"_exit\0"),
+        "the import symbol must still be intact"
+    );
+}
+
+// Both runpath strings must move the dynamic prefix by their own length. A
+// prefix computation that hardcoded one string's length would pass for that
+// string and silently mis-place every GOT slot for the other.
+#[test]
+fn each_runpath_grows_the_dynamic_prefix_by_its_own_length() {
+    let plain_size = super::elf::dynamic_prefix_size(&versioned_exit_image());
+    for rpath in [
+        crate::os::ELF_VENDOR_RPATH,
+        crate::os::ELF_APPDIR_VENDOR_RPATH,
+        // A deliberately longer string: the two real ones are the same length
+        // today, so a third proves the computation is driven by the value.
+        "$ORIGIN/../lib:$ORIGIN/../../lib64",
+    ] {
+        let mut image = versioned_exit_image();
+        image.rpaths = vec![rpath.to_string()];
+        let added = super::elf::dynamic_prefix_size(&image) - plain_size;
+        let string_len = rpath.len() + 1;
+        // The prefix's derived offsets are 8-byte aligned, so the growth lands
+        // within one alignment step of the string's own length in either
+        // direction — a long string can absorb slack the plain layout already
+        // had. What must NOT happen is the growth ignoring the string's length,
+        // which is the plan-46-D §1 failure.
+        assert!(
+            added.abs_diff(string_len) < 8,
+            "{rpath}: prefix grew by {added}, expected within 8 of {string_len}"
+        );
+    }
+}
+
+// A NON-vendoring app build must be byte-identical to its console counterpart:
+// with no runpath on either side, the AppDir's ELF and the `-glibc.out` come out
+// of one encoder with one input. Identical bytes for a *vendoring* build, by
+// contrast, would mean one of the two runpaths is wrong.
+#[test]
+fn a_non_vendoring_appdir_elf_is_byte_identical_to_the_console_build() {
+    let image = versioned_exit_image();
+    assert!(image.rpaths.is_empty(), "this fixture vendors nothing");
+
+    let app_dir = tempfile::tempdir().unwrap();
+    let appdir = write_appdir(
+        app_dir.path(),
+        "twin",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        &image,
+        None,
+        "0.1.0",
+    )
+    .expect("link AppDir");
+    let console_dir = tempfile::tempdir().unwrap();
+    let console = write_executable(
+        console_dir.path(),
+        "twin",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        &image,
+    )
+    .expect("link console");
+
+    let app_bytes = std::fs::read(appdir.join("usr/bin/twin")).unwrap();
+    let console_bytes = std::fs::read(&console).unwrap();
+    assert_eq!(app_bytes, console_bytes);
+    assert!(
+        elf_runpaths(&app_bytes).is_empty(),
+        "no runpath either side"
     );
 }

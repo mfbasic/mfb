@@ -301,15 +301,17 @@ fn write_executable(
     // `Platform::libc()` names the library each import binds to); on riscv64 the
     // two worlds share every kernel struct layout the codegen bakes in
     // (stat/dirent/termios, pthread object sizes), so only the import library
-    // names and the interpreter differ. App mode (plan-05-linux-app.md §5.2) is
-    // glibc-only (GTK is a glibc-world dependency) and emits a single
-    // `<name>.out`, exactly like linux-aarch64.
-    let app_mode = build_mode.is_app();
-    let flavors: &[LinuxFlavor] = if app_mode {
-        &[LinuxFlavor::Glibc]
-    } else {
-        &LinuxFlavor::ALL
-    };
+    // names and the interpreter differ.
+    //
+    // App mode never reaches here: `supports_app_mode()` is false (bug-117.1 —
+    // the GTK entry was never ported), and plan-51-A §3.3 records why that is now
+    // permanent rather than pending, since AppImage/type2-runtime publishes no
+    // riscv64 runtime to seal an AppDir with. Reject rather than quietly emitting
+    // a console-shaped binary for an app build.
+    if build_mode.is_app() {
+        return Err("linux-riscv64 does not support app mode".to_string());
+    }
+    let flavors: &[LinuxFlavor] = &LinuxFlavor::ALL;
     let mut paths = Vec::new();
     for &flavor in flavors {
         let native_plan = plan_lower(&module, flavor)?;
@@ -332,7 +334,6 @@ fn write_executable(
             &ir.name,
             "riscv64",
             flavor,
-            app_mode,
             &image,
         )?);
     }

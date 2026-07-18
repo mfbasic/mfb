@@ -214,10 +214,6 @@ impl NativeBackend for Backend {
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
-        // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
-        let _ = app_icon;
-        // Bundle version keys are macOS-only (bug-248); Linux has no bundle.
-        let _ = app_version;
         write_executable(
             project_dir,
             ir,
@@ -225,9 +221,27 @@ impl NativeBackend for Backend {
             packages,
             signing_metadata,
             build_mode,
+            app_icon,
+            app_version,
             vendors_native_libraries,
             stdin_log_cap,
         )
+    }
+
+    /// plan-51-C §4.5: seal the AppDir plan-51-A wrote — now complete with its
+    /// vendored libraries and resources — into a single `build/<name>.AppImage`,
+    /// then drop the intermediate unless `--app-debug` asked to keep it.
+    fn finalize_app_bundle(
+        &self,
+        project_dir: &Path,
+        project_name: &str,
+        keep_intermediate: bool,
+    ) -> Result<Option<PathBuf>, String> {
+        let path = os::linux::seal_appimage(project_dir, project_name, "x86_64")?;
+        if !keep_intermediate {
+            os::linux::remove_appdir(project_dir, project_name)?;
+        }
+        Ok(Some(path))
     }
 
     fn write_nir(
@@ -289,6 +303,8 @@ fn write_executable(
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
     build_mode: NativeBuildMode,
+    app_icon: Option<&Path>,
+    app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
 ) -> Result<Vec<PathBuf>, String> {
@@ -324,16 +340,37 @@ fn write_executable(
         // only when the build vendors something, so every other binary stays
         // byte-identical.
         if vendors_native_libraries {
-            image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
+            // plan-51-A §4.4: the two output shapes load from different places —
+            // `build/vendor/` beside a console `.out`, `usr/lib/` inside an
+            // AppDir whose executable sits at `usr/bin/<name>` — so each carries
+            // its own RUNPATH. Must stay in lockstep with `vendor_output_dirs`
+            // (`src/cli/build.rs`): the loader looks exactly there and nowhere
+            // else.
+            image.rpaths = vec![if app_mode {
+                crate::os::ELF_APPDIR_VENDOR_RPATH.to_string()
+            } else {
+                crate::os::ELF_VENDOR_RPATH.to_string()
+            }];
         }
-        paths.push(os::linux::write_linked_executable(
-            project_dir,
-            &ir.name,
-            "x86_64",
-            flavor,
-            app_mode,
-            &image,
-        )?);
+        paths.push(if app_mode {
+            // bug-248's `app_version` gains its second consumer here (the
+            // `.desktop` `X-AppImage-Version`), so a missing one is an internal
+            // error rather than a silently empty key — mirroring
+            // `macos_aarch64/mod.rs`.
+            let version =
+                app_version.ok_or("internal error: app mode requires the manifest version")?;
+            os::linux::write_linked_appdir(
+                project_dir,
+                &ir.name,
+                "x86_64",
+                flavor,
+                &image,
+                app_icon,
+                version,
+            )?
+        } else {
+            os::linux::write_linked_executable(project_dir, &ir.name, "x86_64", flavor, &image)?
+        });
     }
     Ok(paths)
 }
