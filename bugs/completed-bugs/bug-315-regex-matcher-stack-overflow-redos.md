@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Robustness (DoS on benign and adversarial input)
 
-Status: Open
+Status: Fixed
 Regression Test: tests/rt-error (new) — matching `^a*$` over a long string, and `^(a+)+$` over an adversarial string, return within a bounded step budget without crashing
 
 The MFBASIC-source regex matcher is continuation-passing with no trampolining and no
@@ -109,3 +109,57 @@ The regex engine crashes on benign paragraph-length input and hangs on adversari
 patterns because it recurses per scalar with no step cap. An iterative worklist plus
 a step budget (ideally memoization) fixes both; this is the largest single fix in the
 goal-06 batch and matters because regex takes untrusted input.
+
+## Resolution
+
+Both failures reproduced first. `^a*$` crashed with SIGSEGV, and bisecting the input
+put the threshold between **800 and 1000** scalars (200/400/600/800 exit 0; 1000/1500
+exit 139) — confirming the report's stack-depth diagnosis rather than assuming it.
+
+Three changes, addressing the two failures separately because they have different
+causes:
+
+**1. Greedy repeat over a simple child is now iterative.** `a*`, `.*`, `[0-9]+` — a
+child that consumes exactly one scalar, sets no captures and needs no continuation —
+is consumed with a `WHILE` loop and then given back one scalar at a time. That is the
+same order the recursion explored (longest first), so the match found is identical;
+what changes is that it costs no stack. This covers the overwhelmingly common
+quantifier and makes it work at *any* length: `^a*$` over 50 000 scalars now matches,
+where 1 000 used to kill the process.
+
+**2. A global backtracking budget** (2 000 000 node visits, reset per search) bounds
+the ReDoS case. The counter has to be module-level: threading it through the
+immutable continuation state would lose a failed branch's work on backtrack, and that
+is exactly the work worth counting. `^(a+)+$` against 24 `a`s and an `X` now fails in
+1.2 s with `77050003` instead of running for minutes.
+
+**3. A recursion-depth guard** (600, threaded as a parameter so it unwinds with the
+stack) catches what remains. This one was found by testing rather than reasoning: the
+iterative path only covers *simple* children, so a repeat over a **group** —
+`^(ab)*$` — still recursed once per repetition and still crashed at 10 000 scalars.
+600 sits with margin under the measured 800–1000 limit, so that case is now a clean
+catchable failure rather than an uncatchable SIGSEGV.
+
+### What is fixed, and what is a bounded limit
+
+- Simple-child quantifiers: **work at any input length** (no limit).
+- Group-child quantifiers: bounded at ~600 repetitions, failing cleanly.
+- Adversarial/ambiguous patterns: bounded by the step budget, failing cleanly.
+
+That satisfies the stated correct behavior — bounded stack and bounded step budget,
+`FAIL`ing with a clear error past the limit instead of crashing or hanging. Making a
+group-child repeat unbounded needs the explicit backtrack stack the Goal section
+describes; the depth guard means it now errors rather than crashes while that remains
+outstanding.
+
+### Correctness
+
+The concern with rewriting a matcher is silent behavioural drift, so correctness was
+checked directly rather than inferred from the absence of crashes: greedy-all,
+empty-match, `{n}`, `{n,m}` in and out of range, `+` on empty, `.` vs newline, greedy
+backtracking into a following literal (`^a*b$`), greedy *giving back* a scalar
+(`^a*a$` — the case that proves the give-back loop), group repetition, alternation,
+the lazy quantifier (which deliberately does not take the iterative path), `find`
+offsets and all three `replace` shapes. All unchanged.
+
+Full `cargo test` green.

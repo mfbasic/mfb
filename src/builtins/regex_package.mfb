@@ -682,14 +682,30 @@ FUNC __regex_charEq(a AS String, b AS String, fold AS Boolean) AS Boolean
   RETURN a = b
 END FUNC
 
-FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx) AS __regex_Result
+FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
+  REM bug-315: every node visit is one step. This is the single dispatch every
+  REM alternative, repetition and continuation passes through, so counting here
+  REM bounds the whole search regardless of which construct is blowing up.
+  __regex_steps = __regex_steps + 1
+  IF __regex_steps > __REGEX_STEP_BUDGET THEN
+    FAIL error(77050003, "regex: pattern too complex for this input (backtracking limit exceeded)")
+  END IF
+  REM bug-315: and a recursion-depth guard. A greedy repeat over a SIMPLE child is
+  REM consumed iteratively below and never reaches this, but a repeat over a GROUP
+  REM -- `(ab)*` -- still recurses once per repetition, and the native stack was
+  REM exhausted somewhere between 800 and 1000 frames, killing the process with an
+  REM uncatchable SIGSEGV. This turns that into an ordinary catchable failure well
+  REM before the stack runs out.
+  IF depth > __REGEX_DEPTH_LIMIT THEN
+    FAIL error(77050003, "regex: pattern too complex for this input (nesting limit exceeded)")
+  END IF
   MATCH node
     CASE __regex_Lit(litNode)
       IF pos >= ctx.n THEN
         RETURN __regex_fail()
       END IF
       IF __regex_charEq(litNode.ch, collections::get(ctx.text, pos), litNode.fold) THEN
-        RETURN __regex_matchCont(c, pos + 1, caps, ctx)
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx, depth + 1)
       END IF
       RETURN __regex_fail()
     CASE __regex_Any(anyNode)
@@ -697,7 +713,7 @@ FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Int
         RETURN __regex_fail()
       END IF
       IF anyNode.dotall OR collections::get(ctx.text, pos) <> "\n" THEN
-        RETURN __regex_matchCont(c, pos + 1, caps, ctx)
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx, depth + 1)
       END IF
       RETURN __regex_fail()
     CASE __regex_Class(clsNode)
@@ -705,43 +721,149 @@ FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Int
         RETURN __regex_fail()
       END IF
       IF __regex_classMatch(clsNode, pos, ctx) THEN
-        RETURN __regex_matchCont(c, pos + 1, caps, ctx)
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx, depth + 1)
       END IF
       RETURN __regex_fail()
     CASE __regex_Anchor(anchorNode)
       IF __regex_anchorMatch(anchorNode, pos, ctx) THEN
-        RETURN __regex_matchCont(c, pos, caps, ctx)
+        RETURN __regex_matchCont(c, pos, caps, ctx, depth + 1)
       END IF
       RETURN __regex_fail()
     CASE __regex_Concat(seqNode)
-      RETURN __regex_matchCont(__regex_ContSeq[seqNode.parts, 0, c], pos, caps, ctx)
+      RETURN __regex_matchCont(__regex_ContSeq[seqNode.parts, 0, c], pos, caps, ctx, depth + 1)
     CASE __regex_Alt(altNode)
-      RETURN __regex_matchAlt(altNode.opts, 0, pos, caps, c, ctx)
+      RETURN __regex_matchAlt(altNode.opts, 0, pos, caps, c, ctx, depth + 1)
     CASE __regex_Repeat(repNode)
-      RETURN __regex_matchRep(repNode, 0, pos, caps, c, ctx)
+      RETURN __regex_matchRep(repNode, 0, pos, caps, c, ctx, depth + 1)
     CASE __regex_Group(grpNode)
       LET caps2 AS List OF Integer = __regex_setCap(caps, 2 * grpNode.slot, pos)
-      RETURN __regex_matchNode(grpNode.child, pos, caps2, __regex_ContCap[grpNode.slot, c], ctx)
+      RETURN __regex_matchNode(grpNode.child, pos, caps2, __regex_ContCap[grpNode.slot, c], ctx, depth + 1)
   END MATCH
 END FUNC
 
-FUNC __regex_matchAlt(opts AS List OF __regex_Node, i AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx) AS __regex_Result
+FUNC __regex_matchAlt(opts AS List OF __regex_Node, i AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
   IF i >= len(opts) THEN
     RETURN __regex_fail()
   END IF
-  LET r AS __regex_Result = __regex_matchNode(collections::get(opts, i), pos, caps, c, ctx)
+  LET r AS __regex_Result = __regex_matchNode(collections::get(opts, i), pos, caps, c, ctx, depth + 1)
   IF r.ok THEN
     RETURN r
   END IF
-  RETURN __regex_matchAlt(opts, i + 1, pos, caps, c, ctx)
+  RETURN __regex_matchAlt(opts, i + 1, pos, caps, c, ctx, depth + 1)
 END FUNC
 
-FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx) AS __regex_Result
+REM bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? Such
+REM a child consumes exactly one scalar, sets no captures and needs no continuation,
+REM so a greedy repeat over it can be consumed with a LOOP instead of one native
+REM stack frame per iteration. That recursion is what made `^a*$` SIGSEGV somewhere
+REM between 800 and 1000 scalars.
+REM bug-315: a global backtracking budget. The matcher is a pure backtracker with
+REM no memoization, so a nested/ambiguous quantifier such as `^(a+)+$` explores
+REM exponentially many input partitions -- `aaaa...X` at 24 scalars already ran for
+REM minutes. The engine accepts untrusted patterns AND untrusted text, so that is a
+REM denial-of-service vector, not just a slow case.
+REM
+REM A budget cannot be threaded through the immutable continuation state: a failed
+REM branch's work would be forgotten on backtrack, which is precisely the work that
+REM needs counting. It has to be module-level and monotonic, reset once per search.
+MUT __regex_steps AS Integer = 0
+
+REM Ceiling on backtracking steps for one search. Generous enough that no realistic
+REM pattern reaches it -- a linear scan over a 50 000-scalar subject costs about
+REM that many steps -- while still bounding the exponential cases to well under a
+REM second.
+LET __REGEX_STEP_BUDGET AS Integer = 2000000
+
+REM Ceiling on matcher recursion depth. Measured: the native stack is exhausted
+REM between 800 and 1000 nested frames, so 600 fails cleanly with margin. Only
+REM constructs that genuinely recurse per repetition reach it -- a greedy repeat
+REM over a single-scalar child is iterative and unaffected at any input length.
+LET __REGEX_DEPTH_LIMIT AS Integer = 600
+
+FUNC __regex_isSimpleNode(node AS __regex_Node) AS Boolean
+  MATCH node
+    CASE __regex_Lit(litNode)
+      RETURN TRUE
+    CASE __regex_Any(anyNode)
+      RETURN TRUE
+    CASE __regex_Class(clsNode)
+      RETURN TRUE
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+REM Does a simple node match the single scalar at `pos`? Mirrors the Lit/Any/Class
+REM arms of __regex_matchNode exactly, so the iterative path below accepts precisely
+REM what the recursive one did.
+FUNC __regex_simpleMatchAt(node AS __regex_Node, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
+  IF pos >= ctx.n THEN
+    RETURN FALSE
+  END IF
+  MATCH node
+    CASE __regex_Lit(litNode)
+      RETURN __regex_charEq(litNode.ch, collections::get(ctx.text, pos), litNode.fold)
+    CASE __regex_Any(anyNode)
+      IF anyNode.dotall THEN
+        RETURN TRUE
+      END IF
+      RETURN collections::get(ctx.text, pos) <> "\n"
+    CASE __regex_Class(clsNode)
+      RETURN __regex_classMatch(clsNode, pos, ctx)
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
   LET canMore AS Boolean = (rep.hi < 0) OR (count < rep.hi)
   LET mustMore AS Boolean = count < rep.lo
+  REM bug-315: a greedy repeat over a SIMPLE one-scalar child is consumed with a
+  REM loop rather than one native frame per iteration. The recursive form grew stack
+  REM depth proportional to the number of repetitions, so `^a*$` crashed with
+  REM SIGSEGV between 800 and 1000 scalars -- an uncatchable process death on
+  REM ordinary paragraph-length input.
+  REM
+  REM Semantics are unchanged: consume as far as the bound allows, then give back
+  REM one scalar at a time, trying the continuation at each length from longest to
+  REM shortest. That is exactly the order the recursion explored, so the FIRST match
+  REM found is the same one -- greedy leftmost, longest-first.
+  IF rep.greedy AND __regex_isSimpleNode(rep.child) THEN
+    MUT p AS Integer = pos
+    MUT k AS Integer = count
+    REM Consume greedily up to `hi` (or unbounded when hi < 0).
+    MUT more AS Boolean = (rep.hi < 0) OR (k < rep.hi)
+    WHILE more
+      IF __regex_simpleMatchAt(rep.child, p, ctx) = FALSE THEN
+        more = FALSE
+      ELSE
+        p = p + 1
+        k = k + 1
+        more = (rep.hi < 0) OR (k < rep.hi)
+      END IF
+    WEND
+    REM Give back one at a time until the continuation matches or we fall below the
+    REM minimum. `k = count` is the floor: nothing was consumed by this call.
+    MUT backtracking AS Boolean = TRUE
+    WHILE backtracking
+      IF k >= rep.lo THEN
+        LET rr AS __regex_Result = __regex_matchCont(c, p, caps, ctx, depth + 1)
+        IF rr.ok THEN
+          RETURN rr
+        END IF
+      END IF
+      IF k <= count THEN
+        backtracking = FALSE
+      ELSE
+        p = p - 1
+        k = k - 1
+      END IF
+    WEND
+    RETURN __regex_fail()
+  END IF
   IF rep.greedy THEN
     IF canMore THEN
-      LET r AS __regex_Result = __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx)
+      LET r AS __regex_Result = __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx, depth + 1)
       IF r.ok THEN
         RETURN r
       END IF
@@ -749,38 +871,38 @@ FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, c
     IF mustMore THEN
       RETURN __regex_fail()
     END IF
-    RETURN __regex_matchCont(c, pos, caps, ctx)
+    RETURN __regex_matchCont(c, pos, caps, ctx, depth + 1)
   END IF
   IF mustMore = FALSE THEN
-    LET r2 AS __regex_Result = __regex_matchCont(c, pos, caps, ctx)
+    LET r2 AS __regex_Result = __regex_matchCont(c, pos, caps, ctx, depth + 1)
     IF r2.ok THEN
       RETURN r2
     END IF
   END IF
   IF canMore THEN
-    RETURN __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx)
+    RETURN __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx, depth + 1)
   END IF
   RETURN __regex_fail()
 END FUNC
 
-FUNC __regex_matchCont(c AS __regex_Cont, pos AS Integer, caps AS List OF Integer, ctx AS __regex_Ctx) AS __regex_Result
+FUNC __regex_matchCont(c AS __regex_Cont, pos AS Integer, caps AS List OF Integer, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
   MATCH c
     CASE __regex_ContDone(doneCont)
       RETURN __regex_Result[TRUE, pos, caps]
     CASE __regex_ContSeq(seqCont)
       IF seqCont.idx >= len(seqCont.parts) THEN
-        RETURN __regex_matchCont(seqCont.nxt, pos, caps, ctx)
+        RETURN __regex_matchCont(seqCont.nxt, pos, caps, ctx, depth + 1)
       END IF
       LET part AS __regex_Node = collections::get(seqCont.parts, seqCont.idx)
-      RETURN __regex_matchNode(part, pos, caps, __regex_ContSeq[seqCont.parts, seqCont.idx + 1, seqCont.nxt], ctx)
+      RETURN __regex_matchNode(part, pos, caps, __regex_ContSeq[seqCont.parts, seqCont.idx + 1, seqCont.nxt], ctx, depth + 1)
     CASE __regex_ContCap(capCont)
       LET caps2 AS List OF Integer = __regex_setCap(caps, 2 * capCont.slot + 1, pos)
-      RETURN __regex_matchCont(capCont.nxt, pos, caps2, ctx)
+      RETURN __regex_matchCont(capCont.nxt, pos, caps2, ctx, depth + 1)
     CASE __regex_ContRep(repCont)
       IF pos = repCont.startPos THEN
-        RETURN __regex_matchCont(repCont.nxt, pos, caps, ctx)
+        RETURN __regex_matchCont(repCont.nxt, pos, caps, ctx, depth + 1)
       END IF
-      RETURN __regex_matchRep(repCont.rep, repCont.count, pos, caps, repCont.nxt, ctx)
+      RETURN __regex_matchRep(repCont.rep, repCont.count, pos, caps, repCont.nxt, ctx, depth + 1)
   END MATCH
 END FUNC
 
@@ -798,10 +920,14 @@ END FUNC
 FUNC __regex_tryAt(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS __regex_Result
   MUT caps AS List OF Integer = __regex_initCaps(prog.groups)
   caps = __regex_setCap(caps, 0, start)
-  RETURN __regex_matchNode(prog.root, start, caps, __regex_ContCap[0, __regex_ContDone[TRUE]], ctx)
+  REM bug-315: depth 0 seeds the recursion-depth guard threaded through the matcher.
+  RETURN __regex_matchNode(prog.root, start, caps, __regex_ContCap[0, __regex_ContDone[TRUE]], ctx, 0)
 END FUNC
 
 FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Integer) AS __regex_Result
+  REM bug-315: one budget per search, not per start offset -- the scan over start
+  REM positions is itself part of the work an adversarial pattern multiplies.
+  __regex_steps = 0
   MUT s AS Integer = from
   WHILE s <= ctx.n
     LET r AS __regex_Result = __regex_tryAt(prog, ctx, s)
