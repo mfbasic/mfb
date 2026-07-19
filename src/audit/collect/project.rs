@@ -145,7 +145,6 @@ mod tests {
                     consts: Vec::new(),
                     bind_in: Vec::new(),
                     bind_state: None,
-                    bind_state_resource: None,
                     success_on,
                     result: None,
                     free: None,
