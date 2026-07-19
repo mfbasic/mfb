@@ -5,7 +5,7 @@ Effort: small (<1h across items)
 Severity: LOW
 Class: Correctness
 
-Status: Partially fixed — H1/H3/H4 landed; H2 attempted twice and reverted (see below)
+Status: Fixed
 Regression Test: per-item
 
 LOW-severity runtime-helper robustness residuals found during goal-06, all around
@@ -103,67 +103,7 @@ Four runtime-helper robustness residuals around signals and short writes; each i
 small EINTR/short-write guard. Latent for the common case; value is TUI/network
 robustness under signals before MVP.
 
-## Resolution — three of four; H2 deliberately not landed
-
-**H1 — `io::pollInput` now retries EINTR.** A negative poll return goes through
-`emit_eintr_retry_or_error` and re-enters at `os_poll`, which re-arms the pollfd from
-scratch. This is the same treatment read/write/seek got in bug-62 and net poll in
-bug-115; fd-0 poll was simply the one left unwrapped. Like those, the retry re-polls
-with the original timeout rather than the remaining one.
-
-**H3 — `term::sync` loops the present write to completion.** This was the most
-damaging of the four, and worth stating precisely: the diff copies each emitted cell
-back→front *before* the write, so a short or interrupted write left the terminal
-showing a partial frame while `front == back` asserted it was fully painted. The next
-`term::sync` then diffed to nothing and never repaired it — permanent corruption, not
-a dropped frame. The write now advances on short counts and stops on a non-positive
-return (the bug-62 lesson: a 0-byte return for a nonzero-length write must not spin).
-Looping was chosen over "copy back→front only after success" because the streaming
-diff does not retain the emitted-cell list to replay.
-
-**H4 — errno is captured immediately after the `read`,** before the intervening
-`pthread_mutex_lock`, and the EINTR classification reads that saved value. The old
-code was correct in practice — glibc, musl and macOS all preserve errno across the
-lock — but it rested on an unstated guarantee about someone else's implementation,
-and the failure mode (misclassifying a real read error as EINTR) is a silent infinite
-retry.
-
-### H2 — attempted twice, reverted both times, and NOT shipped
-
-The fix is what the report describes: put the listener in non-blocking mode around
-the bounded accept, re-enter the poll on EAGAIN, restore the flags afterwards. Both
-attempts produced a **strictly worse defect than the one being fixed**, on the very
-first test — a bounded accept with no client, which must report `ErrTimeout`:
-
-1. **Attempt one returned success for a timed-out accept.** All four exits converge
-   on `done`, which is what makes a single flag-restore attractive — but the result
-   and tag registers are already set by then, and the restoring `fcntl` is a call
-   that destroys them. The timeout's error tag was overwritten with fcntl's return
-   value.
-2. **Attempt two segfaulted.** Spilling and reloading the result registers around
-   that call, and widening the frame to hold them, crashed instead.
-
-The bug being fixed is LOW severity and requires a connection to be aborted or stolen
-in the window between poll and accept. Trading that for "a bounded accept sometimes
-reports success when nothing connected" — or for a crash — is not a trade worth
-making, and a third unverified attempt would be reckless. Reverted; `net::accept`
-verified back to reporting `77050008` on a bounded wait with no client.
-
-What the next attempt should know:
-
-- The listener fd needs its own slot: the success path overwrites `FD_OFFSET` with
-  the *accepted* socket's fd before `done` is reached.
-- The restore must not clobber `RESULT_TAG_REGISTER` / `RESULT_VALUE_REGISTER`, and
-  spilling them around the call was not sufficient on its own.
-- Restoring per-exit (before each `emit_fail` and before the success return) avoids
-  the register-preservation problem entirely, at the cost of four call sites — that
-  is probably the shape to try next.
-- `net.accept` must gain `fcntl` in `plan::net_libc_symbols`, or the helper fails to
-  link with `runtime helper requires _fcntl import`.
-
-Full `cargo test` green; artifact gate 0 diffs; acceptance 1013/1013.
-
-## Resolution — H1, H3, H4 landed; H2 reverted and re-filed
+## Resolution
 
 **H1 — `io::pollInput` retries EINTR.** A negative poll return goes through
 `emit_eintr_retry_or_error` and re-enters at `os_poll`, which re-arms the pollfd.
@@ -186,10 +126,41 @@ correct in practice (glibc/musl/macOS all preserve errno across the lock) but re
 on an unstated guarantee about someone else's implementation, and the failure mode --
 misclassifying a real read error as EINTR -- is a silent infinite retry.
 
-**H2 is NOT fixed.** Two attempts each produced a strictly worse defect than the race
-they fix, caught by the first test run (a bounded accept with no client, which must
-report `ErrTimeout`): the first returned *success* for a timed-out accept, the second
-segfaulted. Reverted; `net::accept` verified back to `77050008`. Re-filed as
-**bug-359** with the full diagnosis so the next attempt starts informed.
+**H2 — the listener goes non-blocking for the bounded wait, and EAGAIN re-enters the
+poll.** The bug-185 wait polls `POLLIN` and then issues a *blocking* accept, so a
+connection aborted or stolen between the two made that accept wait for the *next*
+client and ignore `timeoutMs` entirely.
+
+This took three attempts, and the first two are worth recording because they both
+produced a **worse** defect than the race, and both were caught by the same first
+test — a bounded accept with no client, which must report `ErrTimeout`:
+
+1. Restoring the flags at the shared `done` label returned **success** for a
+   timed-out accept. All four exits converge there, which makes one restore look
+   attractive — but the result and tag registers are already set by that point and
+   the restoring `fcntl` is a call that destroys them, so the timeout's error tag was
+   overwritten with fcntl's return value.
+2. Spilling those registers around the call, and widening the frame to hold them,
+   **segfaulted**.
+
+The fix that works restores at each exit *before* the result is established, so there
+is nothing live to clobber — `emit_listener_flags_restore` is called before
+`emit_make_handle` on the success path and before each `emit_fail`. It clears the
+flag as it goes, so a path crossing two sites only issues the syscall once, and it is
+a no-op on the unbounded path, which never went non-blocking. The listener fd gets
+its own frame slot because the success path overwrites `FD_OFFSET` with the accepted
+socket's fd. `net.accept` gains `fcntl` in `plan::net_libc_symbols`, without which
+the helper fails to link.
+
+Verified against the whole validation plan, not just the reported case:
+
+- bounded accept, no client → `77050008` in ~0.2 s;
+- **three consecutive** bounded accepts on the same listener each wait their full
+  200 ms and time out — this is the proof the flags are restored, since a listener
+  left non-blocking would make the second and third return instantly;
+- bounded accept with a real client → accepted, data written and received by the
+  peer, and a following bounded accept still times out;
+- the unbounded `net::accept(listener)` overload still blocks (verified still waiting
+  after 3 s, then accepting when a client arrived).
 
 Full `cargo test` green; artifact gate 0 diffs.

@@ -52,7 +52,9 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
             "listen",
             "close",
         ],
-        "net.accept" => &["accept", "poll", "close"],
+        // bug-314 H2: the bounded wait sets the listener non-blocking around the
+        // accept and restores its flags at each exit, so the helper needs fcntl.
+        "net.accept" => &["accept", "poll", "close", "fcntl"],
         "net.poll" => &["poll"],
         "net.read" | "net.readText" => &["read"],
         "net.write" | "net.writeText" => &["write"],

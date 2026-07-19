@@ -18,6 +18,51 @@ const EINTR_ERRNO: &str = "4";
 // net.accept
 // ---------------------------------------------------------------------------
 
+/// Restore a listener's pre-`accept` fcntl flags (bug-314 H2).
+///
+/// Emitted at each exit *before* the result/tag registers are set, never at the
+/// shared `done` label. Two earlier attempts restored at `done` and both broke a
+/// timed-out accept: the result is already established there, and this `fcntl` is a
+/// call that destroys it -- the first reported success for a timeout, the second
+/// segfaulted trying to spill around it. Restoring before the result exists removes
+/// the conflict instead of working around it.
+///
+/// A no-op when `RESTORE_FLAGS_OFFSET` is 0, i.e. on the unbounded path, which never
+/// went non-blocking. It also clears the flag, so a path crossing two restore sites
+/// only issues the syscall once.
+#[allow(clippy::too_many_arguments)]
+fn emit_listener_flags_restore(
+    symbol: &str,
+    tag: &str,
+    restore_flag_offset: usize,
+    listener_fd_offset: usize,
+    flags_offset: usize,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let skip = format!("{symbol}_restore_skip_{tag}");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), restore_flag_offset),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            listener_fd_offset,
+        ),
+        abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
+    ]);
+    platform.emit_variadic_call("fcntl", symbol, platform_imports, instructions, relocations)?;
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), restore_flag_offset),
+        abi::label(&skip),
+    ]);
+    Ok(())
+}
+
 pub(in crate::target::shared::code) fn lower_net_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -37,6 +82,12 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     // pollfd { int fd; short events; short revents } — 8 bytes for the bounded-wait
     // path (bug-185).
     const POLLFD_OFFSET: usize = 24;
+    // bug-314 H2: the listener needs its own slot -- the success path overwrites
+    // FD_OFFSET with the ACCEPTED socket's fd, so a restore keyed on FD_OFFSET
+    // would set flags on the wrong descriptor.
+    const LISTENER_FD_OFFSET: usize = 32;
+    const FLAGS_OFFSET: usize = 40;
+    const RESTORE_FLAGS_OFFSET: usize = 48;
 
     let closed = format!("{symbol}_closed");
     let accept_retry = format!("{symbol}_accept_retry");
@@ -59,9 +110,56 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         // listener before accepting so a caller-supplied deadline is honored instead
         // of blocking forever. `timeoutMs <= 0` (including the omitted-argument
         // overload, which passes 0) keeps the plain blocking accept below.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
         abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::compare_immediate("%v10", "0"),
         abi::branch_le(&accept_retry),
+    ]);
+    // bug-314 H2: on the BOUNDED path only, put the listener in non-blocking mode.
+    // The bug-185 wait polls POLLIN and then issues a *blocking* accept, so if the
+    // one pending connection is aborted (RST/ECONNABORTED) or taken by another
+    // thread between the poll and the accept, that accept waits for the NEXT client
+    // and ignores timeoutMs entirely. Non-blocking turns that into EAGAIN, which
+    // re-enters the poll against the deadline.
+    //
+    // `timeoutMs <= 0` is the deliberate block-forever overload and must not be
+    // touched -- it branches to accept_retry above, before any of this.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), LISTENER_FD_OFFSET),
+        abi::move_register(abi::return_register(), "%v9"),
+        abi::move_immediate(abi::ARG[1], "Integer", "3"), // F_GETFL
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+    ]);
+    platform.emit_variadic_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
+        abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            LISTENER_FD_OFFSET,
+        ),
+        abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
+        abi::move_immediate("%v9", "Integer", platform.o_nonblock()),
+        abi::or_registers(abi::ARG[2], abi::ARG[2], "%v9"),
+    ]);
+    platform.emit_variadic_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
         // poll(&pollfd { fd, POLLIN }, 1, timeoutMs); accept_poll_retry rebuilds the
         // pollfd and re-issues on EINTR (bug-115).
         abi::label(&accept_poll_retry),
@@ -127,6 +225,19 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
+    // bug-314 H2: the accepted fd is safely in FD_OFFSET and no result register
+    // is live yet -- restore before emit_make_handle establishes the result.
+    emit_listener_flags_restore(
+        symbol,
+        "ok",
+        RESTORE_FLAGS_OFFSET,
+        LISTENER_FD_OFFSET,
+        FLAGS_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_make_handle(
         symbol,
         FD_OFFSET,
@@ -152,7 +263,27 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     instructions.extend([
         abi::compare_immediate("%v9", EINTR_ERRNO),
         abi::branch_eq(&accept_retry),
+        // bug-314 H2: with the listener non-blocking, EAGAIN means the connection
+        // poll reported vanished before accept ran (aborted, or taken by another
+        // thread). Re-enter the poll -- this is precisely the case that used to
+        // block past the deadline. Like the EINTR edge above it re-polls with the
+        // original timeout rather than the remainder, so a stream of racing aborts
+        // can extend the wait; bounding the pathological case is what matters, and
+        // each extension costs the peer another abort.
+        abi::compare_immediate("%v9", platform.eagain()),
+        abi::branch_eq(&accept_poll_retry),
     ]);
+    emit_listener_flags_restore(
+        symbol,
+        "fail",
+        RESTORE_FLAGS_OFFSET,
+        LISTENER_FD_OFFSET,
+        FLAGS_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_NETWORK_FAILED_CODE,
@@ -164,6 +295,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     // No client arrived before the deadline (poll returned 0): report a timeout,
     // matching net::connectTcp's bounded-wait error (bug-185).
     instructions.push(abi::label(&accept_timeout));
+    emit_listener_flags_restore(
+        symbol,
+        "timeout",
+        RESTORE_FLAGS_OFFSET,
+        LISTENER_FD_OFFSET,
+        FLAGS_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_TIMEOUT_CODE,
@@ -182,6 +324,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
+    emit_listener_flags_restore(
+        symbol,
+        "alloc",
+        RESTORE_FLAGS_OFFSET,
+        LISTENER_FD_OFFSET,
+        FLAGS_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
