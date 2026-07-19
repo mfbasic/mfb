@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Fixed
 Regression Test: tests/ (new) — a chunked UTF-8 response and a >64 KiB UTF-8 response are received intact
 
 The HTTP client accumulates a decoded `String` via `net::readText(sock, 65536)` /
@@ -94,3 +94,48 @@ fix the chunk byte-vs-scalar desync and still risks splitting a code point.
 The client decodes text mid-stream and mixes byte and scalar indexing, breaking
 non-ASCII and chunked responses; moving to byte accumulation per the original design
 fixes it. Real risk is reworking the framing helpers to be byte-exact.
+
+## Resolution
+
+The client now accumulates bytes, frames on bytes, and decodes exactly once — the
+design plan-03-http specified and the implementation had drifted from. Notably, the
+byte primitives it needed (`__http_indexOfBytes`, `__http_byteSlice`,
+`__http_bytesToText`, `__http_dechunkBytes`) **already existed**: the *server* half
+of the same file was written byte-correctly. Only the client path was text-based, so
+this is mostly a matter of routing it through machinery already present and proven.
+
+- `__http_exchangeTcp` / `__http_exchangeTls` read via `net::read` / `tls::read` into
+  `List OF Byte`, matching the server's accept loop verbatim.
+- `__http_parseResponse` takes bytes, finds `CRLFCRLF` by byte offset, and decodes
+  **only the head** (ASCII per RFC 9110). The body stays bytes into
+  `Response.body` — which was already `List OF Byte`, so the old code was decoding
+  and then re-encoding, doing the work twice *and* losing data in between.
+- `__http_decodeBody` takes and returns bytes, dispatching to `__http_dechunkBytes`.
+
+### Both failure modes reproduced and proven fixed, byte-exactly
+
+Not "it compiles" — a real server on a real socket, with the payload hashed on both
+ends:
+
+1. **Chunked multibyte UTF-8.** A server emitting 1880 bytes of
+   `héllo wörld — ünïcode ✓ 日本語 🎉` in 97-byte chunks deliberately chosen to split
+   multibyte sequences. Before: `trapped: 77020004` (ErrEncoding). After:
+   `bytes=1880`, `sha=1d6ed2a5b3705cfa` — an exact match for the server's own SHA.
+2. **A multibyte character straddling the 64 KiB read boundary.** 65535 filler bytes,
+   then `é` spanning offsets 65535–65536, then more. After: `bytes=66537`,
+   `sha=b00f4e1137db52b3`, again matching the server exactly.
+
+Both were bisected: stashing `http_package.mfb` alone restores the failure.
+
+### The broken helper was deleted, not left unused
+
+The fix orphaned the String-based `__http_dechunk` — the one that read a hex chunk
+*byte* length and sliced with `strings::mid`, which indexes by Unicode scalar. It is
+deleted rather than left in place, with a note at the site, so a future caller cannot
+pick the broken version back up. `__http_dechunkBytes` is the only chunk decoder now.
+
+One `.ir` golden moved (it captures the lowered stdlib source). Runtime behaviour is
+unchanged and was verified rather than assumed: `func_http_response_valid`'s
+`build.log`, which embeds the program's complete output, is byte-identical.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1006/1006.

@@ -208,37 +208,11 @@ FUNC __http_decToInt(text AS String) AS Integer
 END FUNC
 
 ' De-chunk a Transfer-Encoding: chunked body (§B.4).
-FUNC __http_dechunk(raw AS String) AS String
-  MUT out AS String = ""
-  MUT cursor AS Integer = 0
-  LET total AS Integer = len(raw)
-  MUT done AS Boolean = FALSE
-  WHILE done = FALSE
-    LET lineEnd AS Integer = __http_indexOf(raw, __http_crlf(), cursor)
-    IF lineEnd < 0 THEN
-      FAIL error(77050003, "malformed chunk framing")
-    END IF
-    LET sizeLine AS String = __http_slice(raw, cursor, lineEnd)
-    MUT sizeText AS String = sizeLine
-    LET semicolon AS Integer = __http_indexOf(sizeLine, ";", 0)
-    IF semicolon >= 0 THEN
-      sizeText = __http_slice(sizeLine, 0, semicolon)
-    END IF
-    LET size AS Integer = __http_hexToInt(strings::trim(sizeText))
-    LET dataStart AS Integer = lineEnd + 2
-    IF size = 0 THEN
-      done = TRUE
-    ELSE
-      LET dataEnd AS Integer = dataStart + size
-      IF dataEnd > total THEN
-        FAIL error(77050003, "truncated chunk data")
-      END IF
-      out = out & __http_slice(raw, dataStart, dataEnd)
-      cursor = dataEnd + 2
-    END IF
-  WEND
-  RETURN out
-END FUNC
+' bug-303: the String-based `__http_dechunk` was deleted here. It read a hex chunk
+' *byte* length and sliced with `strings::mid`, which indexes by Unicode SCALAR, so
+' any non-ASCII byte desynchronized every subsequent offset. Its only caller now
+' uses `__http_dechunkBytes`, which frames on bytes. Deleted rather than left
+' unused so the broken version cannot be picked up again by a future caller.
 
 FUNC __http_parseStatusLine(line AS String) AS Response
   LET firstSpace AS Integer = __http_indexOf(line, " ", 0)
@@ -264,14 +238,23 @@ FUNC __http_parseStatusLine(line AS String) AS Response
   RETURN Response[status, reason, version, emptyHeaders, strings::toBytes(""), ok]
 END FUNC
 
-FUNC __http_parseResponse(raw AS String) AS Response
+' bug-303: `raw` is BYTES. The head/body split is a byte-offset operation
+' (CRLFCRLF is a byte sequence, and a header value may legally carry non-ASCII),
+' and the body stays bytes all the way into `Response.body`, which is already
+' `List OF Byte`. Only the head is decoded to text, and headers are ASCII by
+' RFC 9110. Previously the whole response was decoded per 64 KiB receive and then
+' re-encoded, which both corrupted multibyte bodies and did the work twice.
+FUNC __http_parseResponse(raw AS List OF Byte) AS Response
   LET crlf AS String = __http_crlf()
-  LET headerEnd AS Integer = __http_indexOf(raw, crlf & crlf, 0)
-  MUT headSection AS String = raw
-  MUT bodySection AS String = ""
+  LET separator AS List OF Byte = strings::toBytes(crlf & crlf)
+  LET headerEnd AS Integer = __http_indexOfBytes(raw, separator, 0)
+  MUT headSection AS String = ""
+  MUT bodySection AS List OF Byte = []
   IF headerEnd >= 0 THEN
-    headSection = __http_slice(raw, 0, headerEnd)
-    bodySection = __http_slice(raw, headerEnd + 4, len(raw))
+    headSection = __http_bytesToText(__http_byteSlice(raw, 0, headerEnd))
+    bodySection = __http_byteSlice(raw, headerEnd + 4, len(raw))
+  ELSE
+    headSection = __http_bytesToText(raw)
   END IF
 
   LET lines AS List OF String = strings::split(headSection, crlf)
@@ -297,43 +280,54 @@ FUNC __http_parseResponse(raw AS String) AS Response
     index = index + 1
   WEND
 
-  LET bodyText AS String = __http_decodeBody(base.status, headers, bodySection)
-  RETURN Response[base.status, base.reason, base.httpVersion, headers, strings::toBytes(bodyText), base.ok]
+  LET bodyBytes AS List OF Byte = __http_decodeBody(base.status, headers, bodySection)
+  RETURN Response[base.status, base.reason, base.httpVersion, headers, bodyBytes, base.ok]
 END FUNC
 
-FUNC __http_decodeBody(status AS Integer, headers AS Map OF String TO String, bodyRaw AS String) AS String
+' bug-303: chunk framing is byte-length framing. The text version read a hex
+' chunk *byte* length and then sliced with `strings::mid`, which indexes by Unicode
+' SCALAR -- so any non-ASCII byte desynchronized the offsets and corrupted the body
+' or raised "malformed chunk". `__http_dechunkBytes` (already used by the server)
+' does the same framing on bytes, where the lengths actually mean what they say.
+FUNC __http_decodeBody(status AS Integer, headers AS Map OF String TO String, bodyRaw AS List OF Byte) AS List OF Byte
   IF status = 204 OR status = 304 THEN
-    RETURN ""
+    RETURN []
   END IF
   LET transferEncoding AS String = collections::getOr(headers, "transfer-encoding", "")
   IF strings::contains(strings::lower(transferEncoding), "chunked") THEN
-    RETURN __http_dechunk(bodyRaw)
+    RETURN __http_dechunkBytes(bodyRaw)
   END IF
   RETURN bodyRaw
 END FUNC
 
 ' ---- Transport branches (§B.5) ----
 
-FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS String
+' bug-303: accumulate BYTES, not decoded text. `readText` decodes each 64 KiB
+' receive independently, so a multi-byte UTF-8 sequence straddling a read boundary
+' raised ErrEncoding and failed the whole request -- the inline TRAP only recovers
+' ErrConnectionClosed. Framing is a byte-level concern and decoding happens once,
+' at the end, which is what plan-03-http specified in the first place.
+FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS List OF Byte
   ' bug-268 / OS-11: bounded connect + per-read deadlines so a slow/stalled peer
   ' cannot wedge the calling thread indefinitely.
   RES sock = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
   net::setReadTimeout(sock, __HTTP_READ_TIMEOUT_MS)
   net::writeText(sock, requestText)
-  MUT raw AS String = ""
+  MUT raw AS List OF Byte = []
   MUT more AS Boolean = TRUE
   WHILE more
-    LET chunk AS String = net::readText(sock, 65536) TRAP(e)
+    MUT chunk AS List OF Byte = []
+    chunk = net::read(sock, 65536) TRAP(e)
       IF e.code = errorCode::ErrConnectionClosed THEN
-        RECOVER ""
+        RECOVER []
       END IF
       PROPAGATE
     END TRAP
-    IF chunk = "" THEN
+    IF len(chunk) = 0 THEN
       more = FALSE
     ELSE
-      raw = raw & chunk
-      IF strings::byteLen(raw) > __HTTP_MAX_RESPONSE THEN
+      raw = collections::append(raw, chunk)
+      IF len(raw) > __HTTP_MAX_RESPONSE THEN
         FAIL error(77050010, "response too large")
       END IF
     END IF
@@ -341,25 +335,27 @@ FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS String
   RETURN raw
 END FUNC
 
-FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS String
+' bug-303: byte accumulation, as for the plaintext branch above.
+FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS List OF Byte
   ' bug-268 / OS-11: bounded TLS connect deadline (the TLS surface has no
   ' per-read timeout; the 64 MiB response cap bounds a stalled read's memory).
   RES sock = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
   tls::writeText(sock, requestText)
-  MUT raw AS String = ""
+  MUT raw AS List OF Byte = []
   MUT more AS Boolean = TRUE
   WHILE more
-    LET chunk AS String = tls::readText(sock, 65536) TRAP(e)
+    MUT chunk AS List OF Byte = []
+    chunk = tls::read(sock, 65536) TRAP(e)
       IF e.code = errorCode::ErrConnectionClosed THEN
-        RECOVER ""
+        RECOVER []
       END IF
       PROPAGATE
     END TRAP
-    IF chunk = "" THEN
+    IF len(chunk) = 0 THEN
       more = FALSE
     ELSE
-      raw = raw & chunk
-      IF strings::byteLen(raw) > __HTTP_MAX_RESPONSE THEN
+      raw = collections::append(raw, chunk)
+      IF len(raw) > __HTTP_MAX_RESPONSE THEN
         FAIL error(77050010, "response too large")
       END IF
     END IF
@@ -367,7 +363,7 @@ FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS String
   RETURN raw
 END FUNC
 
-FUNC __http_exchange(url AS net::Url, requestText AS String) AS String
+FUNC __http_exchange(url AS net::Url, requestText AS String) AS List OF Byte
   IF url.scheme = "https" THEN
     RETURN __http_exchangeTls(url, requestText)
   END IF
@@ -379,14 +375,14 @@ END FUNC
 FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS Response
   LET verb AS String = __http_normalizeMethod(method)
   LET request AS String = __http_buildRequest(verb, url, "", FALSE, headers)
-  LET raw AS String = __http_exchange(url, request)
+  LET raw AS List OF Byte = __http_exchange(url, request)
   RETURN __http_parseResponse(raw)
 END FUNC
 
 FUNC __http_write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS Response
   LET verb AS String = __http_normalizeMethod(method)
   LET request AS String = __http_buildRequest(verb, url, body, TRUE, headers)
-  LET raw AS String = __http_exchange(url, request)
+  LET raw AS List OF Byte = __http_exchange(url, request)
   RETURN __http_parseResponse(raw)
 END FUNC
 
