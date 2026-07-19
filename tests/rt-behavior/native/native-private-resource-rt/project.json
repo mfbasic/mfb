@@ -1,0 +1,33 @@
+{
+  "name": "native_private_resource_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "libraries": {
+    "sqlite3": [
+      {
+        "os": "macos",
+        "type": "system",
+        "source": "libsqlite3.dylib"
+      },
+      {
+        "os": "linux",
+        "type": "system",
+        "source": "libsqlite3.so.0"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

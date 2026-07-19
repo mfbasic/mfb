@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness / Footgun
 
-Status: Open
-Regression Test: tests/ (new) — `PRIVATE RESOURCE` is rejected with a targeted diagnostic (or fully supported)
+Status: Fixed
+Regression Test: tests/rt-behavior/native/native-private-resource-rt — `PRIVATE RESOURCE` builds, links and runs
 
 The parser accepts `PRIVATE` on a `RESOURCE` declaration, but `scope_privates`
 handles it inconsistently: the resolver registers a RESOURCE name as a *type* (it
@@ -136,3 +136,57 @@ resource name cannot collide.
 What is definitely still true is the reported defect: today the declaration is
 renamed while every reference is not, which is a guaranteed build failure. Nothing
 about that has changed.
+
+## Resolution — the *alternative* was taken: private resources are fully supported
+
+The question the reverted attempt left open ("either the spec list is incomplete or
+the IR support is vestigial, and that has to be settled first") is settled in favour
+of **the feature being real**. The evidence is what the previous note already
+assembled and did not act on: `ir::lower` maps `Visibility::Private` for resources,
+two IR pipeline tests cover that arm on purpose, and `scope_privates`' own `BROAD`
+fixture declares `PRIVATE RESOURCE Handle`. Nothing in the tree treats the support
+as dead. So the spec's visibility list in `13_modules-and-packages.md` is what is
+incomplete, and rejecting the spelling would have deleted a working feature to
+satisfy a stale list.
+
+The report's root-cause analysis was correct as far as it went, but the rename had
+to reach **five** positions, not the two it named. Each was found by building the
+report's own reproduction and reading the next error:
+
+1. `item_name_vis` now reports `is_type: true` for `Item::Resource` — a RESOURCE
+   name is registered by the resolver as a type, so this is what made any
+   type-position reference get rewritten at all.
+2. `rewrite_item_refs` gained an `Item::Resource` arm rewriting `CLOSE BY`, which
+   names a *function* and so follows `rename`, not the type map.
+3. …and an `Item::Link` arm rewriting LINK signature types: parameter types, return
+   types, return STATE types, and each `CSTRUCT`'s `maps_to`. (The C-side `CSTRUCT`
+   name is local to the block and not nameable by ordinary code, so it is left
+   alone.)
+4. `Statement::Let`'s `state_type` — the STATE clause of a local `RES x AS T STATE S`
+   binding was the one type position the statement rewriter skipped. This one does
+   not surface as an unresolved name but as `TYPE_STATE_MISMATCH`, which is why the
+   original report did not attribute it here.
+5. `Param::state_type`, in both ordinary functions and LINK blocks, for the same
+   reason.
+
+A sixth layer sat outside `scope_privates` entirely: `plan::lower::is_user_type_name`
+tests that a type name is purely alphanumeric, which a mangled `#<hash>$Db` is not.
+A private *record* survives this because it is found in `type_storage` first, but a
+private *resource* has no storage entry and falls through to the predicate — so the
+build failed with `native plan has no storage class for type '#…$Db'` even after the
+AST was fully consistent. The predicate now strips the internal sigil and file-hash
+prefix before testing the remainder.
+
+### Verification
+
+The regression test is the report's exact reproduction — the sqlite fixture with
+`PRIVATE` on the RESOURCE — promoted to
+`tests/rt-behavior/native/native-private-resource-rt`. It is an rt-behavior test
+because compiling was never the whole claim: it links against real sqlite3, opens an
+in-memory database through the private resource, writes and reads both a numeric and
+a String STATE field, and prints. The golden IR records `visibility: "private"` and
+six mangled references, so the very arm the reverted fix would have made unreachable
+is now covered end to end by an executing test.
+
+Full `cargo test` green — including the two IR tests and the `scope_privates` test
+the previous attempt would have had to gut. Acceptance 1001/1001.

@@ -1,0 +1,45 @@
+' bug-288: PRIVATE on a RESOURCE was accepted by the parser but only half-applied
+' by scope_privates -- the declaration was renamed to `#<hash>$Db` while nothing
+' that referenced it was, producing a wall of SYMBOL_UNKNOWN_TYPE and
+' RESOURCE_CLOSE_SIGNATURE errors. The report's preferred fix (reject the
+' spelling) was implemented and reverted: `ir::lower` maps
+' `Visibility::Private` for resources and two IR tests cover that arm on purpose,
+' so private resources are a modelled feature and rejecting them would have
+' deleted it.
+'
+' This fixture is the report's own reproduction -- the sqlite resource fixture
+' with PRIVATE on the RESOURCE -- and exercises every position the rename has to
+' reach: the LINK block's parameter and return types, a `STATE` clause in both a
+' signature and a local `RES` binding, and the resource's own `CLOSE BY` target.
+IMPORT io
+
+PRIVATE RESOURCE Db CLOSE BY sql::rawClose
+
+PRIVATE TYPE DbInfo
+  opens AS Integer
+  label AS String
+END TYPE
+
+LINK "sqlite3" AS sql
+  FUNC rawOpen(path AS String) AS RES Db STATE DbInfo
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC rawClose(RES db AS Db STATE DbInfo) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  RES h AS Db STATE DbInfo = sql::rawOpen(":memory:")
+  h.state.opens = 1
+  h.state.label = "private"
+  io::print("opens=" & toString(h.state.opens))
+  io::print("label=" & h.state.label)
+  io::print("ok")
+  RETURN 0
+END FUNC

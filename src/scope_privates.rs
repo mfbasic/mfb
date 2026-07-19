@@ -116,7 +116,11 @@ fn item_name_vis(item: &Item) -> Option<(&str, Visibility, bool)> {
         Item::Binding(b) => Some((&b.name, b.visibility, false)),
         Item::Function(f) => Some((&f.name, f.visibility, false)),
         Item::Type(t) => Some((&t.name, t.visibility, true)),
-        Item::Resource(r) => Some((&r.name, r.visibility, false)),
+        // bug-288: a RESOURCE name is registered by the resolver as a *type* -- it
+        // appears in type positions (`RES db AS Db`, `AS RES Db`, LINK signatures).
+        // Reporting `is_type: false` renamed the declaration while leaving every
+        // reference to it untouched, which is a guaranteed build failure.
+        Item::Resource(r) => Some((&r.name, r.visibility, true)),
         Item::FuncAlias(a) => Some((&a.name, a.visibility, false)),
         Item::Link(_) | Item::Doc(_) | Item::Testing(_) => None,
     }
@@ -164,6 +168,11 @@ fn rewrite_item_refs(
             for param in function.params.iter_mut() {
                 if let Some(ty) = param.type_name.as_mut() {
                     *ty = rewrite_type_str(ty, types);
+                }
+                // bug-288: a `RES p AS T STATE S` parameter names a type in its
+                // STATE clause as well as its type_name.
+                if let Some(state) = param.state_type.as_mut() {
+                    *state = rewrite_type_str(state, types);
                 }
                 if let Some(default) = param.default.as_mut() {
                     rewrite_expr(default, rename, types, &locals);
@@ -219,7 +228,42 @@ fn rewrite_item_refs(
                 rewrite_test_group(group, rename, types);
             }
         }
-        Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) | Item::Doc(_) => {}
+        Item::Resource(resource) => {
+            // bug-288: `CLOSE BY <func>` names a function, so it follows `rename`
+            // rather than the type map. A private close op in the same file is
+            // mangled at its declaration, and this reference has to follow it.
+            if let Some(mangled) = rename.get(&resource.close_fn) {
+                resource.close_fn = mangled.clone();
+            }
+        }
+        Item::Link(link) => {
+            // bug-288: a LINK block's signatures are type positions like any other,
+            // and a native func may both take and produce a private resource type.
+            // These were skipped entirely, so `AS RES Db` kept naming the
+            // un-mangled `Db` after the declaration became `…$Db`.
+            for function in link.functions.iter_mut() {
+                for param in function.params.iter_mut() {
+                    if let Some(type_name) = param.type_name.as_mut() {
+                        *type_name = rewrite_type_str(type_name, types);
+                    }
+                    if let Some(state) = param.state_type.as_mut() {
+                        *state = rewrite_type_str(state, types);
+                    }
+                }
+                if let Some(return_type) = function.return_type.as_mut() {
+                    *return_type = rewrite_type_str(return_type, types);
+                }
+                if let Some(state_type) = function.return_state_type.as_mut() {
+                    *state_type = rewrite_type_str(state_type, types);
+                }
+            }
+            for cstruct in link.cstructs.iter_mut() {
+                // The C-side name is local to the LINK block and is not nameable by
+                // ordinary code, so only the MFBASIC record it maps to is rewritten.
+                cstruct.maps_to = rewrite_type_str(&cstruct.maps_to, types);
+            }
+        }
+        Item::FuncAlias(_) | Item::Doc(_) => {}
     }
 }
 
@@ -264,6 +308,7 @@ fn rewrite_stmt(
         Statement::Let {
             name,
             type_name,
+            state_type,
             value,
             ..
         } => {
@@ -272,6 +317,14 @@ fn rewrite_stmt(
             }
             if let Some(ty) = type_name.as_mut() {
                 *ty = rewrite_type_str(ty, types);
+            }
+            // bug-288: a `RES x AS T STATE S` binding names a type in its STATE
+            // clause too, and it was the one type position the rewrite skipped --
+            // leaving `STATE DbInfo` pointing at a name the declaration no longer
+            // has, which surfaces as TYPE_STATE_MISMATCH rather than as an
+            // unresolved name.
+            if let Some(state) = state_type.as_mut() {
+                *state = rewrite_type_str(state, types);
             }
             // The binding is in scope only after its initializer.
             scope.insert(name.clone());

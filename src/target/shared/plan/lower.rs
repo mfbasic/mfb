@@ -205,6 +205,16 @@ pub(super) fn is_reference_type(type_: &str) -> bool {
 }
 
 pub(super) fn is_user_type_name(type_: &str) -> bool {
+    // bug-288: a file-local PRIVATE declaration is renamed to `#<hash>$<name>`, so
+    // its type name legitimately carries the internal sigil and the `$` separator.
+    // A private *record* still reaches this predicate only after missing
+    // `type_storage`, but a private *resource* has no storage entry at all and
+    // lands here directly -- where the bare alphanumeric test rejected it and the
+    // build failed with "no storage class for type '#…$Db'".
+    let type_ = match crate::internal_name::strip_sigil(type_) {
+        Some(rest) => rest.split_once('$').map_or(rest, |(_, plain)| plain),
+        None => type_,
+    };
     !type_.is_empty()
         && type_ != "Unknown"
         && type_

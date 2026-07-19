@@ -1,0 +1,100 @@
+{
+  "project": "native_private_resource_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 14 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "private", "name": "#c2515768f1aa7dc6$Db", "closeFn": "sql.rawClose", "threadSendable": false, "line": 16 },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "#c2515768f1aa7dc6$DbInfo",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "name": "opens", "type": "Integer", "line": 19 },
+      { "visibility": null, "name": "label", "type": "String", "line": 20 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 23,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "rawOpen",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "#c2515768f1aa7dc6$Db",
+        "line": 24,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 24 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 26 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 26 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "rawClose",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 30,
+        "params": [
+        { "name": "db", "type": "#c2515768f1aa7dc6$Db", "resource": true, "state": "#c2515768f1aa7dc6$DbInfo", "default": null, "line": 30 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 32 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 37,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "#c2515768f1aa7dc6$DbInfo", "name": "h", "type": "#c2515768f1aa7dc6$Db", "value": { "kind": "call", "callee": "sql.rawOpen", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 38 },
+      { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "opens", "value": { "kind": "number", "value": "1" } }] }, "line": 39 },
+      { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "private" } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "opens=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "opens" }] } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "label=" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "label" } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 44 }
+      ]
+    }
+    ]
+  }
+  ]
+}

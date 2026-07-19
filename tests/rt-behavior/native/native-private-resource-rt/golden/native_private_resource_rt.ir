@@ -1,0 +1,42 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_private_resource_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 18,
+    "visibility": "private",
+    "name": "#c2515768f1aa7dc6$DbInfo",
+    "fields": [
+    { "visibility": null, "line": 19, "name": "opens", "type": "Integer" },
+    { "visibility": null, "line": 20, "name": "label", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 37,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 38, "mutable": false, "name": "h", "type": "#c2515768f1aa7dc6$Db STATE #c2515768f1aa7dc6$DbInfo", "value": { "kind": "call", "type": "#c2515768f1aa7dc6$Db STATE #c2515768f1aa7dc6$DbInfo", "target": "sql.rawOpen", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "stateAssign", "line": 39, "resource": "h", "value": { "kind": "with", "type": "#c2515768f1aa7dc6$DbInfo", "target": { "kind": "memberAccess", "type": "#c2515768f1aa7dc6$DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "opens", "value": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "stateAssign", "line": 40, "resource": "h", "value": { "kind": "with", "type": "#c2515768f1aa7dc6$DbInfo", "target": { "kind": "memberAccess", "type": "#c2515768f1aa7dc6$DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "private" } }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "opens=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "#c2515768f1aa7dc6$DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "opens" }] } }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "label=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "#c2515768f1aa7dc6$DbInfo", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "label" } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 44, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
