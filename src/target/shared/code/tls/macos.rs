@@ -208,23 +208,23 @@ pub(super) fn data_objects(server: bool) -> Vec<CodeDataObject> {
 /// Emit a `dlsym(handle, name)` into `fnptr_off` (delegates to the parent).
 #[allow(clippy::too_many_arguments)]
 fn dlsym(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     name: &str,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     emit_dlsym(
         &mut EmitCtx {
             symbol,
             platform_imports,
             platform,
-            instructions,
-            relocations,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
         },
         handle_off,
         name,
@@ -244,29 +244,31 @@ fn dlsym(
 /// connection, so no null guard is needed.
 #[allow(clippy::too_many_arguments)]
 fn emit_cancel_and_release_conn(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     conn_off: usize,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     for name in ["nw_connection_cancel", "nw_release"] {
         dlsym(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: ctx.instructions,
+                relocations: ctx.relocations,
+            },
             handle_off,
             name,
             fnptr_off,
             fail,
-            platform_imports,
-            platform,
-            ins,
-            rel,
         )?;
-        ins.extend([
+        ctx.instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), conn_off),
             abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
             abi::branch_link_register("%v9"),
@@ -282,28 +284,30 @@ fn emit_cancel_and_release_conn(
 /// call this or they would over-release a queue still in use.
 #[allow(clippy::too_many_arguments)]
 fn emit_release_queue(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     queue_off: usize,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         handle_off,
         "dispatch_release",
         fnptr_off,
         fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), queue_off),
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v9"),
@@ -316,47 +320,61 @@ fn emit_release_queue(
 /// `sp + ctx_off`.
 #[allow(clippy::too_many_arguments)]
 fn emit_build_block(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     invoke_symbol: &str,
     ctx_off: usize,
     block_off: usize,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         handle_off,
         "_NSConcreteStackBlock",
         fnptr_off,
         fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::store_u64("%v9", abi::stack_pointer(), block_off + BLK_ISA),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), block_off + BLK_FLAGS),
     ]);
-    emit_data_address(symbol, "%v9", invoke_symbol, ins, rel);
-    ins.push(abi::store_u64(
+    emit_data_address(
+        symbol,
+        "%v9",
+        invoke_symbol,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.push(abi::store_u64(
         "%v9",
         abi::stack_pointer(),
         block_off + BLK_INVOKE,
     ));
-    emit_data_address(symbol, "%v9", DESC_SYMBOL, ins, rel);
-    ins.push(abi::store_u64(
+    emit_data_address(
+        symbol,
+        "%v9",
+        DESC_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.push(abi::store_u64(
         "%v9",
         abi::stack_pointer(),
         block_off + BLK_DESC,
     ));
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
         abi::store_u64("%v9", abi::stack_pointer(), block_off + BLK_CAP),
     ]);
@@ -381,30 +399,32 @@ fn emit_build_block(
 /// (`dispatch_release(NULL)` would crash).
 #[allow(clippy::too_many_arguments)]
 fn emit_fresh_sem(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     ctx_off: usize,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // Release the semaphore left in ctx->sem by the previous operation.
     let skip_release = format!("{symbol}_sem_skip_release");
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         handle_off,
         "dispatch_release",
         fnptr_off,
         fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
         abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -414,17 +434,19 @@ fn emit_fresh_sem(
         abi::label(&skip_release),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         handle_off,
         "dispatch_semaphore_create",
         fnptr_off,
         fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v9"),
@@ -439,28 +461,30 @@ fn emit_fresh_sem(
 /// Emit `dispatch_semaphore_wait(ctx->sem, FOREVER)`.
 #[allow(clippy::too_many_arguments)]
 fn emit_wait(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     ctx_off: usize,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         handle_off,
         "dispatch_semaphore_wait",
         fnptr_off,
         fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
         abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
@@ -572,15 +596,17 @@ pub(super) fn lower_tls_connect_macos(
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), CTX));
     // endpoint = nw_endpoint_create_host(host, port)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_endpoint_create_host",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
@@ -593,15 +619,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "_nw_parameters_configure_protocol_default_configuration",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -630,15 +658,17 @@ pub(super) fn lower_tls_connect_macos(
         &mut rel,
     );
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "_NSConcreteStackBlock",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -662,30 +692,34 @@ pub(super) fn lower_tls_connect_macos(
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SNAME),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_tls_copy_sec_protocol_options",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_COPYFN),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "sec_protocol_options_set_tls_server_name",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -694,15 +728,17 @@ pub(super) fn lower_tls_connect_macos(
     // nw_release: the invoke releases the +1 sec_protocol_options the copy fn
     // returns, so each configured connection stops leaking one (bug-116).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -714,15 +750,17 @@ pub(super) fn lower_tls_connect_macos(
     ins.push(abi::label(&sni_default));
     // params = nw_parameters_create_secure_tcp(tlscfg, cfg)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_parameters_create_secure_tcp",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), TLSCFG),
@@ -735,15 +773,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // conn = nw_connection_create(endpoint, params)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
@@ -759,15 +799,17 @@ pub(super) fn lower_tls_connect_macos(
     // one nw_endpoint and one nw_parameters (bug-55). The connection (CONN),
     // queue, and ctx are handed to the TlsSocket record and released on close.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
@@ -779,15 +821,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // queue = dispatch_queue_create("mfb.tls", NULL)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_queue_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_data_address(
         symbol,
@@ -804,15 +848,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // ctx->sem = dispatch_semaphore_create(0)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_semaphore_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -823,15 +869,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // ctx->signal = &dispatch_semaphore_signal
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_semaphore_signal",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
@@ -840,15 +888,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // nw_connection_set_queue(conn, queue)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_set_queue",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -858,15 +908,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // Build the state-changed block literal on the stack.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "_NSConcreteStackBlock",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -891,15 +943,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // nw_connection_set_state_changed_handler(conn, &block)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_set_state_changed_handler",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -909,15 +963,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // nw_connection_start(conn)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_start",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -933,15 +989,17 @@ pub(super) fn lower_tls_connect_macos(
         abi::branch_le(&wait_forever),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_time",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
@@ -960,15 +1018,17 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     // Wait for a terminal state, bounded by the deadline.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_semaphore_wait",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -1020,26 +1080,30 @@ pub(super) fn lower_tls_connect_macos(
     // untrusted host leaked one connection and one queue per attempt.
     ins.push(abi::label(&conn_fail));
     emit_cancel_and_release_conn(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         CONN,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_release_queue(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         QUEUE,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_fail(
         symbol,
@@ -1053,26 +1117,30 @@ pub(super) fn lower_tls_connect_macos(
     // timeout.
     ins.push(abi::label(&conn_timeout));
     emit_cancel_and_release_conn(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         CONN,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_release_queue(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         QUEUE,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_fail(
         symbol,
@@ -1165,36 +1233,42 @@ pub(super) fn lower_tls_read_macos(
         abi::branch_le(&invalid),
     ]);
     emit_dlopen_libssl_macos(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_fresh_sem(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         CTX,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // ctx->retain = &dispatch_retain (used inside the receive block).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_retain",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
@@ -1202,29 +1276,33 @@ pub(super) fn lower_tls_read_macos(
         abi::store_u64("%v10", "%v9", CTX_RETAIN),
     ]);
     emit_build_block(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         RECV_INVOKE,
         CTX,
         BLOCK,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // nw_connection_receive(conn, min=1, max=maxBytes, &block)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_receive",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -1235,15 +1313,17 @@ pub(super) fn lower_tls_read_macos(
         abi::branch_link_register("%v9"),
     ]);
     emit_wait(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         CTX,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // A null content is end-of-stream.
     ins.extend([
@@ -1254,15 +1334,17 @@ pub(super) fn lower_tls_read_macos(
     ]);
     // dispatch_data_create_map(content, &ptr, &size) -> mapped (contiguous)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_data_create_map",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CTX),
@@ -1358,15 +1440,17 @@ pub(super) fn lower_tls_read_macos(
     }
     // Release the mapped data and the retained content, then return.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
@@ -1390,15 +1474,17 @@ pub(super) fn lower_tls_read_macos(
         // a caller-saved register across either dispatch_release `bl`.
         ins.push(abi::label(&encoding_error));
         dlsym(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
             HANDLE,
             "dispatch_release",
             FNPTR,
             &load_fail,
-            platform_imports,
-            platform,
-            &mut ins,
-            &mut rel,
         )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
@@ -1536,36 +1622,42 @@ pub(super) fn lower_tls_write_macos(
         abi::branch_eq(&empty),
     ]);
     emit_dlopen_libssl_macos(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_fresh_sem(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         CTX,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // content = dispatch_data_create(data, len, NULL, NULL)  (NULL = copy)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_data_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), DATA),
@@ -1578,15 +1670,17 @@ pub(super) fn lower_tls_write_macos(
     ]);
     // ctxdef = *_nw_content_context_default_message
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "_nw_content_context_default_message",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -1594,29 +1688,33 @@ pub(super) fn lower_tls_write_macos(
         abi::store_u64("%v9", abi::stack_pointer(), CTXDEF),
     ]);
     emit_build_block(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         SEND_INVOKE,
         CTX,
         BLOCK,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // nw_connection_send(conn, content, context, is_complete=true, &block)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_send",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -1628,27 +1726,31 @@ pub(super) fn lower_tls_write_macos(
         abi::branch_link_register("%v9"),
     ]);
     emit_wait(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         CTX,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // Release the content we created.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONTENT),
@@ -1719,25 +1821,29 @@ pub(super) fn lower_tls_close_macos(
         abi::branch_ne(&already),
     ]);
     emit_dlopen_libssl_macos(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // nw_connection_cancel(conn)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_connection_cancel",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), REC),
@@ -1750,15 +1856,17 @@ pub(super) fn lower_tls_close_macos(
     // connect+close (bug-55). The arena-allocated ctx block is reclaimed with
     // the arena. Slots are never NULL for an open (non-closed) socket.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), REC),
@@ -1768,15 +1876,17 @@ pub(super) fn lower_tls_close_macos(
     ]);
     let skip_queue = format!("{symbol}_skip_queue_release");
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         // Release the queue only if this socket owns it. A client socket stores
@@ -1826,23 +1936,25 @@ pub(super) fn lower_tls_close_macos(
 }
 
 fn emit_dlopen_libssl_macos(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     emit_dlopen_at(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         MACLIB_SYMBOL,
         handle_off,
         fail,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
     )
 }
 
@@ -1850,31 +1962,32 @@ fn emit_dlopen_libssl_macos(
 /// `sp + handle_off`; branch to `fail` when it does not load.
 #[allow(clippy::too_many_arguments)]
 fn emit_dlopen_at(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     lib_symbol: &str,
     handle_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     emit_data_address(
         symbol,
         abi::return_register(),
         lib_symbol,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+    ctx.instructions
+        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(fail),
@@ -1894,7 +2007,7 @@ fn emit_dlopen_at(
 /// fd is at `sp + fd_off` for the caller to close).
 #[allow(clippy::too_many_arguments)]
 fn emit_read_whole_file(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     prefix: &str,
     path_off: usize,
     cstr_off: usize,
@@ -1905,22 +2018,30 @@ fn emit_read_whole_file(
     open_fail: &str,
     read_fail_fd: &str,
     alloc_fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let read_loop = format!("{symbol}_{prefix}_read");
     let read_done = format!("{symbol}_{prefix}_read_done");
-    emit_cstring(symbol, prefix, path_off, cstr_off, alloc_fail, ins, rel);
+    emit_cstring(
+        symbol,
+        prefix,
+        path_off,
+        cstr_off,
+        alloc_fail,
+        ctx.instructions,
+        ctx.relocations,
+    );
     // fd = open(path, O_RDONLY)
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), cstr_off),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
-    platform.emit_open_file(symbol, platform_imports, ins, rel)?;
-    ins.extend([
+    platform.emit_open_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.extend([
         // bug-102.3: narrow the C int `open` return before the signed compare
         // (lseek/read below return 64-bit off_t/ssize_t and must NOT be narrowed).
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
@@ -1931,8 +2052,8 @@ fn emit_read_whole_file(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::move_immediate(abi::ARG[2], "Integer", "2"),
     ]);
-    platform.emit_seek_file(symbol, platform_imports, ins, rel)?;
-    ins.extend([
+    platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(read_fail_fd),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), len_off),
@@ -1941,14 +2062,14 @@ fn emit_read_whole_file(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
-    platform.emit_seek_file(symbol, platform_imports, ins, rel)?;
+    platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     // buf = arena_alloc(len, 1)
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), len_off),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    emit_alloc(symbol, ins, rel, alloc_fail);
-    ins.extend([
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), buf_off),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), readoff_off),
         abi::label(&read_loop),
@@ -1962,8 +2083,8 @@ fn emit_read_whole_file(
         abi::add_registers(abi::ARG[1], abi::ARG[1], "%v9"),
         abi::subtract_registers(abi::ARG[2], "%v10", "%v9"),
     ]);
-    platform.emit_read_file(symbol, platform_imports, ins, rel)?;
-    ins.extend([
+    platform.emit_read_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(read_fail_fd),
         abi::load_u64("%v9", abi::stack_pointer(), readoff_off),
@@ -1973,7 +2094,7 @@ fn emit_read_whole_file(
         abi::label(&read_done),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
     ]);
-    platform.emit_close_file(symbol, platform_imports, ins, rel)?;
+    platform.emit_close_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     Ok(())
 }
 
@@ -1982,7 +2103,7 @@ fn emit_read_whole_file(
 /// first imported item (`SecCertificateRef`/`SecKeyRef`) at `sp + ref_off`.
 #[allow(clippy::too_many_arguments)]
 fn emit_import_pem_item(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     buf_off: usize,
     len_off: usize,
     data_off: usize,
@@ -1993,24 +2114,26 @@ fn emit_import_pem_item(
     fnptr_off: usize,
     fail: &str,
     load_fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // data = CFDataCreate(NULL, buf, len)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         "CFDataCreate",
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), buf_off),
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), len_off),
@@ -2022,17 +2145,19 @@ fn emit_import_pem_item(
     ]);
     // SecItemImport(data, NULL, NULL, NULL, 0, NULL, NULL, &items) == errSecSuccess
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         sec_handle_off,
         "SecItemImport",
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), items_off),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), data_off),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
@@ -2052,17 +2177,19 @@ fn emit_import_pem_item(
     ]);
     // CFArrayGetCount(items) >= 1
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         "CFArrayGetCount",
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), items_off),
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v9"),
@@ -2071,17 +2198,19 @@ fn emit_import_pem_item(
     ]);
     // ref = CFArrayGetValueAtIndex(items, 0)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         "CFArrayGetValueAtIndex",
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), items_off),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
@@ -2107,42 +2236,48 @@ fn emit_import_pem_item(
     // `SecItemImport` does not retain DATA beyond the call, so it is released
     // here too.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         "CFRetain",
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ref_off),
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v9"),
     ]);
     emit_cf_release_slot(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         items_off,
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
     emit_cf_release_slot(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         data_off,
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
     Ok(())
 }
@@ -2156,37 +2291,39 @@ fn emit_import_pem_item(
 /// already released, does nothing rather than over-releasing.
 #[allow(clippy::too_many_arguments)]
 fn emit_cf_release_slot(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     cf_handle_off: usize,
     slot_off: usize,
     fnptr_off: usize,
     load_fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // Unique per emission point, not per slot: a slot is released from several
     // sites in one function (once per PEM import, again on the error exit), so a
     // slot-keyed label would collide.
-    let skip = format!("{symbol}_cf_rel_skip_{slot_off}_{}", ins.len());
-    ins.extend([
+    let skip = format!("{symbol}_cf_rel_skip_{slot_off}_{}", ctx.instructions.len());
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), slot_off),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&skip),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         cf_handle_off,
         "CFRelease",
         fnptr_off,
         load_fail,
-        platform_imports,
-        platform,
-        ins,
-        rel,
     )?;
-    ins.extend([
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), slot_off),
         abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v9"),
@@ -2263,7 +2400,13 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // Read the PEM pair into arena buffers before touching any framework.
     emit_read_whole_file(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         "cert",
         CERT,
         PATHCSTR,
@@ -2274,13 +2417,15 @@ pub(super) fn lower_tls_listen_macos(
         &cert_fail,
         &read_fail_fd,
         &alloc_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_read_whole_file(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         "key",
         KEY,
         PATHCSTR,
@@ -2291,45 +2436,53 @@ pub(super) fn lower_tls_listen_macos(
         &cert_fail,
         &read_fail_fd,
         &alloc_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // dlopen Network.framework, Security.framework, CoreFoundation.
     emit_dlopen_at(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         MACLIB_SYMBOL,
         NWH,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_dlopen_at(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         MACSEC_SYMBOL,
         SECH,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_dlopen_at(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         MACCF_SYMBOL,
         CFH,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // certRef / keyRef from the PEM bytes.
     emit_import_pem_item(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         CERTBUF,
         CERTLEN,
         DATA,
@@ -2340,13 +2493,15 @@ pub(super) fn lower_tls_listen_macos(
         FNPTR,
         &cert_fail,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_import_pem_item(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         KEYBUF,
         KEYLEN,
         DATA,
@@ -2357,24 +2512,22 @@ pub(super) fn lower_tls_listen_macos(
         FNPTR,
         &cert_fail,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // identity = SecIdentityCreate(NULL, certRef, keyRef) — the keychain-free
     // cert+key pairing entry point in Security.framework (resolved via dlsym;
     // absent => ErrTlsFailed, never a stub).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         SECH,
         "SecIdentityCreate",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -2392,28 +2545,32 @@ pub(super) fn lower_tls_listen_macos(
     // the error exits below have nothing left to unwind for them.
     for slot in [CERTREF, KEYREF] {
         emit_cf_release_slot(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
             CFH,
             slot,
             FNPTR,
             &load_fail,
-            platform_imports,
-            platform,
-            &mut ins,
-            &mut rel,
         )?;
     }
     // secIdentity = sec_identity_create(identity)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         SECH,
         "sec_identity_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), IDENT),
@@ -2428,15 +2585,17 @@ pub(super) fn lower_tls_listen_macos(
     // setter with the captured payload — here
     // sec_protocol_options_set_local_identity(options, secIdentity).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "_NSConcreteStackBlock",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -2460,30 +2619,34 @@ pub(super) fn lower_tls_listen_macos(
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SNAME),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_tls_copy_sec_protocol_options",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_COPYFN),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         SECH,
         "sec_protocol_options_set_local_identity",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -2492,15 +2655,17 @@ pub(super) fn lower_tls_listen_macos(
     // nw_release: the invoke releases the +1 sec_protocol_options the copy fn
     // returns, so each listener stops leaking one (bug-116).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -2508,15 +2673,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "_nw_parameters_configure_protocol_default_configuration",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -2525,15 +2692,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // params = nw_parameters_create_secure_tcp(&cfgBlock, cfg)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_parameters_create_secure_tcp",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), CFGBLOCK),
@@ -2546,15 +2715,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // nw_parameters_set_reuse_local_address(params, true)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_parameters_set_reuse_local_address",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
@@ -2606,15 +2777,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // endpoint = nw_endpoint_create_host(host, port)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_endpoint_create_host",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
@@ -2627,15 +2800,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // nw_parameters_set_local_endpoint(params, endpoint)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_parameters_set_local_endpoint",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
@@ -2645,15 +2820,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // listener = nw_listener_create(params)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_listener_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
@@ -2668,15 +2845,17 @@ pub(super) fn lower_tls_listen_macos(
     // our own references now; otherwise every successful listen leaks one
     // nw_endpoint and one nw_parameters (bug-55).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
@@ -2688,15 +2867,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // queue = dispatch_queue_create("mfb.tls", NULL)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_queue_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_data_address(
         symbol,
@@ -2719,15 +2900,17 @@ pub(super) fn lower_tls_listen_macos(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), LCTX));
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_semaphore_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -2742,15 +2925,17 @@ pub(super) fn lower_tls_listen_macos(
         abi::store_u64(abi::ZERO, "%v9", LCTX_TAIL),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_semaphore_signal",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
@@ -2759,15 +2944,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // ctx->retain = &nw_retain (the conn handler retains queued connections).
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_retain",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
@@ -2776,15 +2963,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // nw_listener_set_queue(listener, queue)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_listener_set_queue",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
@@ -2794,28 +2983,32 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // State-changed handler (the shared STATE_INVOKE trampoline over lctx).
     emit_build_block(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         STATE_INVOKE,
         LCTX,
         SBLOCK,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_listener_set_state_changed_handler",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
@@ -2825,28 +3018,32 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // New-connection handler (retain + enqueue + signal).
     emit_build_block(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         LCONN_INVOKE,
         LCTX,
         CBLOCK,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_listener_set_new_connection_handler",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
@@ -2856,15 +3053,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // nw_listener_start(listener)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_listener_start",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
@@ -2873,15 +3072,17 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     // Wait until the listener is ready (bind complete) or failed.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_semaphore_wait",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -2924,15 +3125,17 @@ pub(super) fn lower_tls_listen_macos(
     // failure (mirrors net::listenTcp's bind error).
     ins.push(abi::label(&listen_fail));
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_listener_cancel",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
@@ -2968,15 +3171,17 @@ pub(super) fn lower_tls_listen_macos(
     // there would let that branch loop back into itself.
     for slot in [CERTREF, KEYREF, ITEMS, DATA] {
         emit_cf_release_slot(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
             CFH,
             slot,
             FNPTR,
             &load_fail,
-            platform_imports,
-            platform,
-            &mut ins,
-            &mut rel,
         )?;
     }
     emit_fail(
@@ -3061,13 +3266,15 @@ pub(super) fn lower_tls_accept_macos(
         abi::store_u64("%v9", abi::stack_pointer(), QUEUE),
     ]);
     emit_dlopen_libssl_macos(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     // Deadline: timeoutMs > 0 => dispatch_time(NOW, ms*1e6); else FOREVER.
     // The one absolute deadline bounds both the wait for a connection and the
@@ -3078,15 +3285,17 @@ pub(super) fn lower_tls_accept_macos(
         abi::branch_le(&wait_forever),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_time",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
@@ -3104,15 +3313,17 @@ pub(super) fn lower_tls_accept_macos(
         abi::label(&deadline_ready),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_semaphore_wait",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -3159,15 +3370,17 @@ pub(super) fn lower_tls_accept_macos(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), CCTX));
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_semaphore_create",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -3180,15 +3393,17 @@ pub(super) fn lower_tls_accept_macos(
         abi::store_u64(abi::ZERO, "%v9", CTX_ERROR),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "dispatch_semaphore_signal",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
@@ -3197,15 +3412,17 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     // nw_connection_set_queue(conn, queue) — the listener's serial queue.
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_connection_set_queue",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -3215,28 +3432,32 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     // Per-connection state handler, then start (runs the server handshake).
     emit_build_block(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         STATE_INVOKE,
         CCTX,
         SBLOCK,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_connection_set_state_changed_handler",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -3245,15 +3466,17 @@ pub(super) fn lower_tls_accept_macos(
         abi::branch_link_register("%v9"),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         "nw_connection_start",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
@@ -3308,15 +3531,17 @@ pub(super) fn lower_tls_accept_macos(
     // triggerable, unbounded server-side leak for a server looping on accept.
     ins.push(abi::label(&conn_fail));
     emit_cancel_and_release_conn(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         CONN,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_fail(
         symbol,
@@ -3328,15 +3553,17 @@ pub(super) fn lower_tls_accept_macos(
     );
     ins.push(abi::label(&hs_timeout));
     emit_cancel_and_release_conn(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         NWH,
         CONN,
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     emit_fail(
         symbol,
@@ -3431,13 +3658,15 @@ pub(super) fn lower_tls_close_listener_macos(
         abi::store_u64("%v9", abi::stack_pointer(), LCTX),
     ]);
     emit_dlopen_libssl_macos(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     for (name, off) in [
         ("nw_connection_set_queue", SETQFN),
@@ -3445,15 +3674,17 @@ pub(super) fn lower_tls_close_listener_macos(
         ("nw_release", RELEASEFN),
     ] {
         dlsym(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
             HANDLE,
             name,
             FNPTR,
             &load_fail,
-            platform_imports,
-            platform,
-            &mut ins,
-            &mut rel,
         )?;
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
@@ -3494,15 +3725,17 @@ pub(super) fn lower_tls_close_listener_macos(
     ]);
     // nw_listener_cancel(listener)
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "nw_listener_cancel",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), REC),
@@ -3519,15 +3752,17 @@ pub(super) fn lower_tls_close_listener_macos(
         abi::branch_link_register("%v10"),
     ]);
     dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
         HANDLE,
         "dispatch_release",
         FNPTR,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut ins,
-        &mut rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), REC),
