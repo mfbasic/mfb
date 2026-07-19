@@ -457,7 +457,12 @@ pub(super) fn lower_fs_temp_directory_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    // `platform.emit_temp_directory` above may park values in `sp + 0 ..
+    // TEMP_DIRECTORY_SCRATCH_BYTES` across its environment lookup, so that window
+    // has to be reserved here rather than left to overlap the spill area — or, as
+    // in bug-360, the caller's frame.
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &[], TEMP_DIRECTORY_SCRATCH_BYTES);
     Ok((frame, instructions, relocations, stack_slots))
 }
 

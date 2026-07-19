@@ -423,6 +423,8 @@ pub(super) fn finalize_frame(
         slot.offset += body_shift as i32;
     }
     adjust_stack_instruction_offsets(instructions, body_shift);
+    #[cfg(debug_assertions)]
+    assert_stack_accesses_fit_frame(instructions, total_stack_size);
 
     // Resolve the incoming/outgoing stack-argument sentinels now that the final
     // frame size is known (bug-08). Incoming arguments sit above the whole frame,
@@ -685,6 +687,78 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
                     *value = (offset + offset_delta).to_string();
                 }
             }
+        }
+    }
+}
+
+/// Drift guard (bug-360): every `sp`-relative body access must land inside the
+/// frame this function just sized.
+///
+/// A hand-written helper body addresses `sp + k` for scratch it believes the
+/// frame reserves, but the reservation (`finalize_vreg_body_with_locals`'s
+/// `local_size`) and the offsets live in different files — and, for a platform
+/// hook like `emit_temp_directory`, in different *modules*. When they drift the
+/// access silently lands above the frame, in the caller's, and the first thing up
+/// there is the caller's saved link register. bug-360 was exactly that: a
+/// `sp + 32` scratch store against a 48-byte aarch64 frame overwrote the caller's
+/// `x30` with the capacity constant 4096, so every program that touched
+/// `fs::tempDirectory` ran to completion, printed correct output, and then
+/// branched to `0x1000` and took a SIGSEGV. Nothing failed near the cause.
+///
+/// Run after the body shift and *before* `resolve_stack_arg_sentinels`, so the
+/// incoming-argument sentinels — which do legitimately address above the frame —
+/// are still unresolved and fail the numeric parse, exactly as they do in the
+/// shift itself. Depth tracking mirrors the shift for the same reason: a platform
+/// hook's own `sub_sp`-bracketed region is not frame-relative.
+///
+/// A hit is a compiler-source regression, never input-dependent, so it is an
+/// assertion rather than a threaded build error. Debug-only, matching the
+/// `RULES` drift guard (bug-40).
+#[cfg(debug_assertions)]
+fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack_size: usize) {
+    let mut depth = 0usize;
+    for instruction in instructions {
+        match instruction.op {
+            CodeOp::SubSp => {
+                depth += 1;
+                continue;
+            }
+            CodeOp::AddSp => {
+                depth = depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            continue;
+        }
+        let stack_relative = instruction.fields.iter().any(|(name, value)| {
+            matches!(*name, "base" | "src")
+                && (abi::is_stack_pointer(value)
+                    || value == crate::arch::x86_64::regmodel::STACK_POINTER)
+        });
+        if !stack_relative {
+            continue;
+        }
+        for (name, value) in &instruction.fields {
+            if !matches!(*name, "offset" | "imm") {
+                continue;
+            }
+            let Ok(offset) = value.parse::<usize>() else {
+                continue;
+            };
+            // A load/store consumes 8 bytes at `offset`; an address computation
+            // (`add_immediate`) may legally name the frame's end as a limit.
+            let needed = match instruction.op {
+                CodeOp::AddImm => offset,
+                _ => offset + 8,
+            };
+            assert!(
+                needed <= total_stack_size,
+                "sp-relative access at sp+{offset} escapes the {total_stack_size}-byte \
+                 frame (bug-360): the helper body's scratch offsets and the frame's \
+                 reserved local_size have drifted apart"
+            );
         }
     }
 }

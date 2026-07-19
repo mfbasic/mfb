@@ -5,9 +5,133 @@ Effort: medium
 Severity: HIGH (every affected program exits 139 instead of 0, after doing its work correctly)
 Class: Runtime / platform
 
-Status: Open — found and characterized, not diagnosed
-Regression Test: none yet; the eleven fixtures below already reproduce it — they
-were simply never executed on this platform until now
+Status: Fixed (2026-07-19)
+Regression Test:
+- `target::linux_common::code::tests::temp_directory_scratch_stays_inside_the_reserved_window`
+  — pins the platform hook's scratch offsets to the window the shared helper reserves.
+- `codegen_utils::assert_stack_accesses_fit_frame` — a debug-only guard in
+  `finalize_frame` that fails *any* `sp`-relative body access escaping the frame
+  it just sized, for every helper on every target. This is the class-level fix;
+  the unit test is the bug-specific pin.
+- The eleven fixtures below are the behavioral proof, run on real hardware by
+  `scripts/linux-runtime-proof.sh`. They already reproduced it — they were simply
+  never executed on this platform until now.
+
+## Diagnosis (proven)
+
+**It is not resource teardown, and it is not the ISA.** It is
+`fs::tempDirectory` scribbling on its caller's saved link register, and aarch64
+is merely the frame layout on which the scribble lands somewhere fatal.
+
+`CodegenPlatform::emit_temp_directory` (Linux) parks the caller's buffer pointer
+and capacity on the stack across its `getenv` call, at hard-coded offsets
+`sp + 24` and `sp + 32`. Those constants date to `55066dd1c` ("Add Linux glibc
+and musl native linking"), when the helper still built its own frame and they
+were real. plan-00-G later moved the helper to vreg allocation, so
+`finalize_vreg_body` builds the frame now — and `lower_fs_temp_directory_helper`
+asked it for **zero** bytes of locals. Nothing reserved the window, and nothing
+checked.
+
+On `linux-aarch64` the resulting frame is 48 bytes; frame finalization shifts
+body accesses past the 16-byte callee-saved area, so the two stores emit as:
+
+```
+4210: sub  sp, sp, #0x30        ; 48-byte frame
+4214: str  x30, [sp]            ; this function's saved LR
+...
+4240: str  x0, [sp, #0x28]      ; buffer   — 40, inside the frame, harmless
+4244: str  x1, [sp, #0x30]      ; capacity — 48 == frame top: OUT OF FRAME
+```
+
+`sp + 48` is the *caller's* `sp + 0`, and every function in this backend saves
+its link register at `sp + 0`. So the store lands on the caller's saved `x30`
+and the value written is `TEMP_CAPACITY` — 4096. **That is the `0x1000` in the
+crash signature.** It was never a code address at all; the "wild branch to page
+1" is a `ret` to the literal capacity constant.
+
+Everything else in the report follows from that:
+
+- *Correct output, then a crash.* The corruption is to the caller's **return
+  address**, so the program keeps running correctly to the end of that caller's
+  body and only dies when it returns. All output is already flushed.
+- *macOS aarch64 unaffected.* Its `emit_temp_directory` calls `confstr` and
+  touches no stack at all — which is why the same ISA passes there, and why the
+  "look at the aarch64 encoder" hint in the original next-steps was a dead end.
+
+### The ISA conclusion was wrong — this corrupted riscv64 too
+
+This document's central claim was "the variable is the **ISA**," and the
+three-aarch64-boxes-agree evidence behind it is real. The conclusion drawn from
+it is not. Comparing the pre-fix helper across targets:
+
+| target | helper frame | scratch store | in frame? | what sits at the caller's `sp + 0` |
+| --- | --- | --- | --- | --- |
+| linux-aarch64 | 48 | `sp + 48` | **no** | saved `lr` → `ret` to 4096, SIGSEGV |
+| linux-riscv64 | 48 | `sp + 48` | **no** | saved `s1` (its `ra` is at `sp + 8`) |
+| linux-x86_64 | 72 | `sp + 64` | yes (72 exactly) | — |
+
+riscv64 wrote out of frame *identically* to aarch64. It survived only because
+its register allocator happened to need one extra callee-saved register (`s1`)
+in the calling function, which pushed the saved return address to `sp + 8` and
+put `s1` in the line of fire instead. That is a per-function allocation
+coincidence, not a property of the ISA — the same source on the same target
+would crash if the allocator's pressure changed.
+
+So the real severity is higher than reported: **`fs::tempDirectory` silently
+corrupted a callee-saved register in its caller on riscv64 on every call**, and
+that never surfaced as a test failure. Only x86-64 was genuinely clean, and only
+by the accident of a 72-byte frame ending exactly at the store. Three aarch64
+boxes agreeing was sound evidence of *something*; it was not evidence that the
+ISA was the cause, and it steered the investigation at the aarch64 encoder,
+which was never involved.
+- *Every confirmed fixture.* All eleven reach `fs::tempDirectory`, nine of them
+  through `fs::createTempFile`. The `RESOURCE` correlation was an artifact of
+  how those fixtures obtain a `File`, not a property of resource lowering.
+
+### Fix
+
+- `emit_temp_directory` (Linux) uses `sp + 0` / `sp + 8`.
+- `lower_fs_temp_directory_helper` reserves `TEMP_DIRECTORY_SCRATCH_BYTES` (16)
+  via `finalize_vreg_body_with_locals`, and the trait method documents that
+  window as the only stack the hook may address.
+- `finalize_frame` now asserts (debug builds) that no `sp`-relative body access
+  escapes the frame, so the next such drift fails at the compiler rather than
+  1,500 lines of output later on one ISA.
+
+### Result
+
+`scripts/linux-runtime-proof.sh` on all three aarch64 boxes: **463 passed / 4
+failed**, up from 446 / 21, with the three failing-fixture lists diffing empty
+against each other. All 17 aarch64-specific failures are gone. The 4 that remain
+are the harness artifacts this document already identified as such
+(`csv/csv-behavior`, `project/project-entry-args-runtime`,
+`fs/file-buffered-drain-integrity-rt`, `fs/bug159_listdir_notdir_error`) and
+fail on non-aarch64 boxes too.
+
+### Verification
+
+| check | result |
+| --- | --- |
+| 2222 Arch aarch64/glibc 2.35 | 463 pass / 4 fail (was 446 / 21) |
+| 2223 Kali aarch64/glibc 2.42 | 463 pass / 4 fail (was 446 / 21) |
+| 2224 Alpine aarch64/musl | 463 pass / 4 fail (was 446 / 21) |
+| 2227 Alpine x86_64/musl | 453 pass / 14 fail — the documented pre-existing set |
+| macOS `scripts/test-accept.sh` | 1014 / 1014 |
+| `cargo test` | 3096 passed, 0 failed |
+
+**Blast radius, all three Linux targets.** `scripts/linux-artifact-baseline.sh`
+captured 11,154 artifact hashes before and after. Exactly **19 of 1014 fixtures**
+changed a single byte, and every one of them reaches `fs::tempDirectory`: the
+eleven confirmed fixtures above, the three `createTempFile` fixtures, the three
+`func_fs_{flush,isBuffered,setBuffered}_valid` fixtures (which obtain their
+`File` from `createTempFile` — which is why they were in the failing set and why
+the report could not place them), `http/func_http_respondPath_valid`, and
+`syntax/fs/func_fs_tempDirectory_valid`.
+
+The other 995 fixtures are byte-identical on `linux-aarch64`, `linux-x86_64`,
+and `linux-riscv64`, so no fixture outside that list can have changed verdict on
+any box — which is what closes out riscv64 and x86-64 without a second run on
+emulated hardware.
 
 Found while validating bug-321 (which is a pure reorganization and is **not** the
 cause — see Not Caused By below). All ten `rt-behavior/resources/*` fixtures that

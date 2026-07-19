@@ -27,7 +27,7 @@ use crate::target::linux_gtk as gtk;
 use crate::target::shared::code::AppHookBody;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
-    NativeCodePlan, ProgramEntrySpec, RelocIntent,
+    NativeCodePlan, ProgramEntrySpec, RelocIntent, TEMP_DIRECTORY_SCRATCH_BYTES,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -807,8 +807,15 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         // `$TMPDIR` if it is set and fits the caller's buffer, else `/tmp`. Was an
         // 81-line verbatim triple before bug-321, differing across the three
         // copies in exactly one line — the libc-call idiom now unified above.
-        const BUFFER_SLOT: usize = 24;
-        const CAPACITY_SLOT: usize = 32;
+        //
+        // The two slots park the buffer pointer and capacity across `getenv`. They
+        // must live inside the scratch window the helper reserves for us
+        // (`TEMP_DIRECTORY_SCRATCH_BYTES`, at `sp + 0`); they used to be hard-coded
+        // at 24/32, which predates the vreg frame builder and pointed *past* the
+        // frame on aarch64 — straight at the caller's saved link register (bug-360).
+        const BUFFER_SLOT: usize = 0;
+        const CAPACITY_SLOT: usize = 8;
+        const _: () = assert!(CAPACITY_SLOT + 8 <= TEMP_DIRECTORY_SCRATCH_BYTES);
 
         let env_ok = format!("{from}_tmpdir_env_ok");
         let env_len_loop = format!("{from}_tmpdir_env_len_loop");
@@ -1040,6 +1047,66 @@ mod tests {
         assert_eq!(aarch64().stat_mode_offset(), 16);
         assert_eq!(riscv64().stat_mode_offset(), 16);
         assert_eq!(x86_64().stat_mode_offset(), 24, "x86-64 st_mode is at 24");
+    }
+
+    /// bug-360: `emit_temp_directory` parks the buffer pointer and capacity on
+    /// the stack across `getenv`, and the only stack it may use is the scratch
+    /// window `lower_fs_temp_directory_helper` reserves for it. The offsets it
+    /// names (here) and the reservation (in shared code) are in different modules,
+    /// so nothing but this test ties them together.
+    ///
+    /// They drifted for the whole life of the Linux backends: the offsets were
+    /// hard-coded at 24/32 when the helper still built its own frame, the vreg
+    /// frame builder later took frame construction over, and `sp + 32` ended up 8
+    /// bytes past the top of the 48-byte aarch64 frame — on the caller's saved
+    /// link register. Every program that reached `fs::tempDirectory` (which is
+    /// every `fs::createTempFile`, so every `RESOURCE`-over-`File` fixture)
+    /// printed byte-correct output on aarch64 and then returned to `0x1000`, the
+    /// capacity constant, and died with SIGSEGV. riscv64 and x86-64 were spared
+    /// only by their frame layouts, which is why it read as an ISA bug.
+    #[test]
+    fn temp_directory_scratch_stays_inside_the_reserved_window() {
+        for platform in [
+            &aarch64() as &dyn CodegenPlatform,
+            &riscv64() as &dyn CodegenPlatform,
+            &x86_64() as &dyn CodegenPlatform,
+        ] {
+            let imports = HashMap::from([("getenv".to_string(), "libc.so.6".to_string())]);
+            let mut instructions = Vec::new();
+            let mut relocations = Vec::new();
+            platform
+                .emit_temp_directory("probe", &imports, &mut instructions, &mut relocations)
+                .expect("emit temp directory");
+
+            let mut saw_stack_access = false;
+            for instruction in &instructions {
+                let stack_relative = instruction
+                    .fields
+                    .iter()
+                    .any(|(name, value)| matches!(*name, "base" | "src") && abi::is_stack_pointer(value));
+                if !stack_relative {
+                    continue;
+                }
+                for (name, value) in &instruction.fields {
+                    if !matches!(*name, "offset" | "imm") {
+                        continue;
+                    }
+                    let offset: usize = value.parse().expect("numeric sp offset");
+                    saw_stack_access = true;
+                    assert!(
+                        offset + 8 <= TEMP_DIRECTORY_SCRATCH_BYTES,
+                        "sp+{offset} escapes the {TEMP_DIRECTORY_SCRATCH_BYTES}-byte \
+                         scratch window the helper reserves (bug-360)"
+                    );
+                }
+            }
+            assert!(
+                saw_stack_access,
+                "the Linux temp-directory sequence is expected to park values on \
+                 the stack across getenv; if that stopped being true, this test no \
+                 longer guards anything"
+            );
+        }
     }
 
     /// The constants that genuinely are Linux-invariant agree across all three,

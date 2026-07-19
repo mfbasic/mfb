@@ -114,6 +114,12 @@ pub(crate) struct CodeDataObject {
 /// the linker's `PAGE_SIZE` so the two partitions land on independent pages.
 const DATA_PAGE_SIZE: usize = 0x1000;
 
+/// Size of the `sp`-relative scratch window [`CodegenPlatform::emit_temp_directory`]
+/// may use, reserved for it by `lower_fs_temp_directory_helper` (bug-360). Two
+/// 8-byte slots — buffer pointer and capacity — parked across the platform's
+/// environment lookup; 16 keeps the spill area that follows 16-aligned.
+pub(crate) const TEMP_DIRECTORY_SCRATCH_BYTES: usize = 16;
+
 /// Lay out a plan's data objects into the final data blob, partitioned so the
 /// read-only constants come first, then a page pad, then every writable object
 /// (bug-187). `kind == "constant"` (string literals, error messages) is provably
@@ -397,6 +403,19 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+    /// Fill the caller-supplied buffer (`x0` = buffer, `x1` = capacity) with the
+    /// temp-directory path and return its byte length in `x0`.
+    ///
+    /// An implementation may use `sp + 0 .. sp + TEMP_DIRECTORY_SCRATCH_BYTES` as
+    /// scratch that survives a `bl` (Linux parks the buffer/capacity pair there
+    /// across `getenv`). That window is reserved for it by
+    /// [`lower_fs_temp_directory_helper`]'s `finalize_vreg_body_with_locals` call —
+    /// an implementation must not address `sp` beyond it. Writing past the reserved
+    /// window lands in the *caller's* frame, on top of its saved link register
+    /// (bug-360: the aarch64 frame put the caller's `x30` exactly at the old
+    /// hard-coded `sp + 32`, so every program that touched `fs::tempDirectory`
+    /// returned to `0x1000` — the capacity constant — and took a SIGSEGV after
+    /// running correctly to completion).
     fn emit_temp_directory(
         &self,
         from: &str,
