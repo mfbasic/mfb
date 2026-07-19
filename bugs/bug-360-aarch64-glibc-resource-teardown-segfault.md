@@ -1,4 +1,4 @@
-# bug-360: on aarch64 + glibc 2.42, resource-using programs print correct output and then SIGSEGV at teardown
+# bug-360: on aarch64 + glibc, resource-using programs print correct output and then SIGSEGV at teardown
 
 Last updated: 2026-07-19
 Effort: medium
@@ -11,18 +11,42 @@ were simply never executed on this platform until now
 
 Found while validating bug-321 (which is a pure reorganization and is **not** the
 cause — see Not Caused By below). All ten `rt-behavior/resources/*` fixtures that
-this box runs, plus `rt-behavior/trap/trap-function-inline-errors-rt`, run to
-completion on `linux-aarch64` against **glibc 2.42**, print byte-correct output,
-and then die with `SIGSEGV` (exit 139) during teardown. All eleven **pass** on
-`linux-riscv64`/musl, from the same sources.
+these boxes run, plus `rt-behavior/trap/trap-function-inline-errors-rt`, run to
+completion on `linux-aarch64`+glibc, print byte-correct output, and then die with
+`SIGSEGV` (exit 139) during teardown. All eleven **pass** on `linux-riscv64`/musl
+and `linux-x86_64`/musl, from the same sources.
+
+**Not a glibc-version regression.** The first draft of this document guessed it
+was 2.42-specific because 2223 (Kali, glibc 2.42) was the only box up. When 2222
+(Arch Linux ARM, **glibc 2.35**) came back, the *same binary* — sha256
+`ed640ac9…3ea8c2` — segfaulted there identically. Seven years of glibc apart, same
+crash; the version hypothesis is dead and should not be re-derived.
 
 Because the program's own output is correct and complete, nothing upstream of
 process exit is wrong; the fault is in the shutdown path (scope-drop / resource
 reclamation / arena unmap / `_mfb_shutdown`).
 
+## Crash signature
+
+From `coredumpctl` on 2222 (which, unlike 2223, has cores enabled):
+
+```
+Signal: 11 (SEGV)
+Stack trace of thread 401:
+#0  0x0000000000001000 n/a (n/a + 0x0)
+#1  0x0000000000001000 n/a (n/a + 0x0)
+```
+
+The PC is **`0x1000`** — page 1, never a mapped code address here — and there are
+no recoverable frames. This is a *wild branch*, not a bad dereference: control
+transferred through a garbage/uninitialized function pointer or a clobbered link
+register. That it happens only after all program output is flushed puts it in the
+teardown path.
+
 ## Reproduction
 
-Box 2223 (Kali GNU/Linux Rolling, `ldd (Debian GLIBC 2.42-16) 2.42`, aarch64):
+Box 2222 (Arch Linux ARM, `ldd (GNU libc) 2.35`) and box 2223 (Kali,
+`ldd (Debian GLIBC 2.42-16) 2.42`), both aarch64 — identical behavior:
 
 ```
 $ cp -R tests/rt-behavior/resources/resource-state-valid /tmp/rsv && rm -rf /tmp/rsv/build
@@ -40,9 +64,9 @@ status does not.
 
 ## Affected fixtures
 
-Confirmed failing on aarch64/glibc-2.42, all of which **pass** on
-riscv64/musl — which is what localizes this to the aarch64+glibc pairing rather
-than to the resource feature itself:
+Confirmed failing on both aarch64/glibc boxes, all of which **pass** on
+riscv64/musl and x86_64/musl — which is what rules out the resource feature
+itself being broken:
 
 ```
 rt-behavior/resources/bug141_resource_union_return
@@ -106,18 +130,37 @@ and the repo commits zero Linux artifact goldens. Nothing in the tree executed a
 Linux binary on a Linux box until `scripts/linux-runtime-proof.sh` (added by
 bug-321). This is exactly the coverage hole that bug's Validation Plan describes.
 
-Note the CI/dev aarch64 Linux box has historically been 2222 (ArchLinux); 2223 is
-Kali with glibc **2.42**, which is newer. Worth checking whether an older glibc
-also reproduces — if not, this is a glibc-version regression and the version
-boundary is the first thing to find.
+## Open question: is it the ISA or the libc?
 
-## Suggested first steps
+The evidence is **confounded** and this must not be glossed:
 
-1. Re-run on an older-glibc aarch64 box (2222/2226) to establish whether this is
-   glibc-version-dependent.
-2. Get a backtrace. 2223 has no `gdb` and `ulimit -c` is 0; install one or enable
-   cores.
-3. The suspects, in order: the resource scope-drop / reclamation path (every
-   confirmed fixture uses `RESOURCE`), then `_mfb_shutdown`, then arena unmap.
-   Memory notes `scope-drop-frees` and `trap-cleanup-double-free` cover prior
-   defects in exactly this area.
+| box | arch | libc | result |
+| --- | --- | --- | --- |
+| 2222 Arch | aarch64 | glibc 2.35 | **SEGV** |
+| 2223 Kali | aarch64 | glibc 2.42 | **SEGV** |
+| 2229 Alpine | riscv64 | musl | pass |
+| 2227 Alpine | x86_64 | musl | pass |
+
+Every failing box is aarch64 *and* glibc; every passing box is neither. The
+decisive experiment is **aarch64 + musl** (box 2224, Alpine aarch64), which was
+down. One run there splits the hypothesis cleanly:
+
+- fails on 2224 → an aarch64 codegen bug (teardown path), libc-independent;
+- passes on 2224 → a glibc-linkage bug, and the aarch64 glibc teardown/atexit
+  path is where to look.
+
+Do that before reading any code.
+
+## Suggested next steps
+
+1. Run one resource fixture on 2224 (aarch64/musl) — see above.
+2. Get a symbolized backtrace. 2222 has cores enabled and `coredumpctl`, but no
+   `gdb`; installing gdb there is the cheapest path to a real frame list. The
+   binaries carry no build-id, so symbolization needs the local `.ncode`/`.mir`
+   dump to map the faulting return address.
+3. Suspects, in order: the resource scope-drop / reclamation path (every confirmed
+   fixture uses `RESOURCE`), then `_mfb_shutdown`, then arena unmap. A wild branch
+   to `0x1000` is consistent with a resource drop-function pointer read from a
+   record slot that was freed, never initialized, or offset wrongly. Memory notes
+   `scope-drop-frees`, `trap-cleanup-double-free`, and `union-drop-codegen-nondeterminism`
+   cover prior defects in exactly this area.
