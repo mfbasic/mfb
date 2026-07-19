@@ -131,30 +131,31 @@ fn emit_hints(
 /// callee-saved registers are clobbered.
 #[allow(clippy::too_many_arguments)]
 fn emit_address_from_sockaddr(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     prefix: &str,
     sockaddr_off: usize,
     len_off: usize,
     dst_off: usize,
     host_off: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
     alloc_fail: &str,
     addr_fail: &str,
 ) -> Result<(), String> {
+    // The three shared refs are `&'a` fields, so reading them out is
+    // independent of the `&mut ctx` borrow — only the two streams need `ctx.`.
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
     let count_loop = format!("{symbol}_{prefix}_addr_count");
     let count_done = format!("{symbol}_{prefix}_addr_count_done");
     let copy_loop = format!("{symbol}_{prefix}_addr_copy");
     let copy_done = format!("{symbol}_{prefix}_addr_copy_done");
     // Temp dst buffer for the numeric host string.
-    instructions.extend([
+    ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", &ADDR_STR_CAP.to_string()),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    emit_alloc(symbol, instructions, relocations, alloc_fail);
-    instructions.extend([
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), dst_off),
         // inet_ntop(AF_INET, sockaddr + 4, dst, ADDR_STR_CAP)
         abi::move_immediate(abi::return_register(), "Integer", AF_INET),
@@ -167,10 +168,10 @@ fn emit_address_from_sockaddr(
         "inet_ntop",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(addr_fail),
         // Count the NUL-terminated host string length.
@@ -189,8 +190,8 @@ fn emit_address_from_sockaddr(
         abi::add_immediate(abi::return_register(), "%v10", 9),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
-    emit_alloc(symbol, instructions, relocations, alloc_fail);
-    instructions.extend([
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
         abi::move_register("%v15", abi::RET[1]), // alloc result → vreg (plan-34-B Phase 3)
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
         abi::store_u64("%v10", "%v15", 0),
@@ -213,8 +214,8 @@ fn emit_address_from_sockaddr(
         abi::move_immediate(abi::return_register(), "Integer", "16"),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
-    emit_alloc(symbol, instructions, relocations, alloc_fail);
-    instructions.extend([
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
         abi::move_register("%v16", abi::RET[1]), // alloc result → vreg (plan-34-B Phase 3)
         abi::load_u64("%v9", abi::stack_pointer(), host_off),
         abi::store_u64("%v9", "%v16", 0),

@@ -14,6 +14,26 @@ use super::nir::{
 use super::plan::NativePlan;
 use super::runtime;
 
+/// The parameters every emitter helper in `shared/code` threads through: who is
+/// emitting (`symbol`), what the target can import (`platform_imports`,
+/// `platform`), and the two streams being appended to.
+///
+/// 55 emitter helpers across 14 files spelled these five out longhand, which is
+/// most of the 31 `too_many_arguments` warnings and the 54 hand-written
+/// suppressions (bug-323 Phase 3). Unlike the `HelperBody` alias, this is NOT
+/// neutral by construction — it bundles two `&mut Vec` borrows — so every
+/// conversion is gated on `scripts/artifact-gate.sh` showing zero diffs.
+///
+/// Rust permits disjoint borrows of `instructions` and `relocations` through a
+/// single `&mut EmitCtx`, so a callee needing both still compiles.
+pub(super) struct EmitCtx<'a> {
+    pub(super) symbol: &'a str,
+    pub(super) platform_imports: &'a HashMap<String, String>,
+    pub(super) platform: &'a dyn CodegenPlatform,
+    pub(super) instructions: &'a mut Vec<CodeInstruction>,
+    pub(super) relocations: &'a mut Vec<CodeRelocation>,
+}
+
 /// The body of a lowered runtime helper: its frame, instruction stream,
 /// relocations, and stack slots.
 ///

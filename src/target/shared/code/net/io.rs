@@ -400,16 +400,18 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
         abi::store_u64("%v9", abi::stack_pointer(), SADDR_PTR_OFFSET),
     ]);
     emit_address_from_sockaddr(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "addr",
         SADDR_PTR_OFFSET,
         HOSTLEN_OFFSET,
         DST_OFFSET,
         HOST_OFFSET,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         &alloc_fail,
         &addr_fail,
     )?;
@@ -1042,16 +1044,18 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::store_u8("%v10", "%v12", 3),
     ]);
     emit_address_from_sockaddr(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "node",
         SADDR_PTR_OFFSET,
         HOSTLEN_OFFSET,
         DST_OFFSET,
         ADDRHOST_OFFSET,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         &alloc_fail,
         &addr_fail,
     )?;
@@ -1472,16 +1476,18 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         abi::store_u64("%v9", abi::stack_pointer(), SADDR_PTR_OFFSET),
     ]);
     emit_address_from_sockaddr(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "recv",
         SADDR_PTR_OFFSET,
         HOSTLEN_OFFSET,
         DST_OFFSET,
         AHOST_OFFSET,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         &alloc_fail,
         &addr_fail,
     )?;
