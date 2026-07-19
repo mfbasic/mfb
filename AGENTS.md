@@ -2,6 +2,64 @@
 
 Universal rules below. Before a given kind of work, also read the matching `.ai/` file.
 
+---
+
+## 🛑🛑🛑 STOP — READ BEFORE YOU TOUCH A FAILING TEST 🛑🛑🛑
+
+> ### **<ins>A FAILING TEST IS A CLAIM THAT YOUR CHANGE IS WRONG.</ins>**
+> ### **<ins>THE BURDEN IS ON YOU TO DISPROVE IT — NEVER ON THE TEST TO JUSTIFY ITSELF.</ins>**
+
+**DO NOT edit, delete, weaken, re-baseline, or "update" a test — or a golden — to make
+your change pass.** Not until you have *proven* the test is wrong. "This test encoded
+the old/broken behavior" is a story that always fits and is never evidence. If you
+find yourself writing that sentence, **stop: you are about to destroy the only signal
+that your change is broken.**
+
+Before touching any test or golden you must be able to answer all four, from evidence,
+not from reasoning about what "should" be true:
+
+1. **When and why was this assertion written?** (`git log -S`, `git blame`, the
+   originating bug/plan doc.) Deliberate assertions look exactly like stale ones.
+2. **What was it protecting?** State the behavior in one sentence. If you cannot, you
+   do not understand it yet.
+3. **Who else depends on that behavior?** Grep the whole tree — other layers, other
+   crates, downstream consumers, the spec. A feature you think is dead is usually
+   modelled somewhere you have not looked.
+4. **What independent evidence says the assertion is wrong?** A reproduction, a spec
+   citation, a sibling function's contract. Your own change is not evidence.
+
+**If you cannot answer all four: the test wins and your change is suspect.** Editing a
+test is the *conclusion of an investigation*, never the first move toward green.
+
+**This is not hypothetical — it nearly shipped a wrong fix (bug-288, 2026-07-18).** A
+change to reject `PRIVATE RESOURCE` broke `scope_privates::tests::renames_private_decls_and_rewrites_references`.
+The test was edited to fit, with a confident comment claiming it "asserted the
+half-applied behavior." That claim was never checked. It was false: `ir::lower` maps
+`Visibility::Private` for resources and two IR tests cover that arm *on purpose* —
+`PRIVATE RESOURCE` is a modelled feature and the fix was wrong. It was caught only
+because a *second* test failed somewhere harder to explain away. Had that second test
+not existed, a wrong fix would have landed behind a gutted test and a confident commit
+message. **The first test was saying exactly this. It was silenced.**
+
+Two aggravating factors to watch for in yourself:
+
+- **You will be most confident precisely when you are wrong.** By the time a test
+  fails you have already concluded your change is correct, so the failure gets filed
+  as "stale test" instead of "evidence against me." Skepticism aimed at bug reports
+  and other people's code is worthless if none is aimed at your own diff.
+- **Narrow test filters compound this.** Running `cargo test <one_module>` instead of
+  `cargo test` hides the evidence; editing the test then destroys it. bug-288 was
+  landed after running only `cargo test ast::`, so the failure was not even seen until
+  a later merge forced a full run.
+
+Tests *do* sometimes enshrine bugs — bug-309 found eleven goldens with a live failure
+recorded as expected output, and the suite defended it. That is real, and it is why
+"the test is wrong" is such an easy story to reach for. **The difference is proof.**
+bug-309 was proven: reproduce the failure, fix the cause, show before/after. bug-288
+was merely asserted. Same sentence, opposite epistemic status.
+
+---
+
 ## Always
 
 - **Done means verified.** Asked if work is done/complete/verified: answer **yes**
@@ -20,6 +78,11 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   proceed with the best default where one exists; never declare done while work
   remains. By acting under these instructions you confirm you have read and
   understood this rule and the "Done means verified" rule above.
+- **Never edit a test to fit your change.** See the STOP section at the top of this
+  file. A failing test is evidence your change is wrong; disprove it with git history,
+  a tree-wide search for other consumers, and independent evidence before you touch
+  it. Same rule for goldens: regenerating one while a bug is live enshrines the bug
+  and the suite then defends it (bug-309).
 - **Production-ready only.** Implement the complete behavior with real error
   handling and integration. No stubs, placeholders, mocks, default-result
   fallbacks, simulations, or "unsupported" stand-ins unless explicitly asked. If
