@@ -146,14 +146,17 @@ bug-321). This is exactly the coverage hole that bug's Validation Plan describes
 | --- | --- | --- | --- |
 | 2222 Arch | aarch64 | glibc 2.35 | **SEGV** — 446 pass / 21 fail |
 | 2223 Kali | aarch64 | glibc 2.42 | **SEGV** — 446 pass / 21 fail |
-| 2224 Alpine | aarch64 | **musl** | **SEGV** |
+| 2224 Alpine | aarch64 | **musl** | **SEGV** — 446 pass / 21 fail |
 | 2229 Alpine | riscv64 | musl | pass |
 | 2227 Alpine | x86_64 | musl | pass |
 
 The two aarch64/glibc boxes fail the **identical set of 21 fixtures** (`diff` of
 the two failing-fixture lists is empty) despite seven years of glibc between
-them. 2224 then reproduced it on aarch64/**musl**, which removes libc from the
-picture entirely: aarch64 fails on both libcs, riscv64 and x86_64 pass on musl.
+them. 2224 then reproduced it on aarch64/**musl** — and not just the one fixture: a
+full runtime-proof pass there returns **446 pass / 21 fail with a failing set
+that diffs empty against both glibc boxes**. Three aarch64 boxes, two different
+libcs, byte-for-byte the same 21 failures; riscv64 and x86_64 pass on musl. That
+removes libc from the picture entirely.
 
 So the fault is in something aarch64-specific. All three Linux backends share the
 same resource-drop lowering (`src/target/shared/`), so look at the aarch64
