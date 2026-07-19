@@ -6,6 +6,9 @@ $ mfb build tests/rt-behavior/resources/resource-state-mutation-valid
 Wrote executable to tests/rt-behavior/resources/resource-state-mutation-valid/build/resource_state_mutation_valid.out
 [exit 0]
 $ tests/rt-behavior/resources/resource-state-mutation-valid/build/resource_state_mutation_valid.out
-Error: 7-705-0004
-Requested item, key, file, or resource was not found.
-[exit 255]
+0
+10
+15
+15
+99
+[exit 0]

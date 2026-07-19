@@ -6,6 +6,5 @@ $ mfb build tests/rt-behavior/resources/resource-state-valid
 Wrote executable to tests/rt-behavior/resources/resource-state-valid/build/resource_state_valid.out
 [exit 0]
 $ tests/rt-behavior/resources/resource-state-valid/build/resource_state_valid.out
-Error: 7-705-0004
-Requested item, key, file, or resource was not found.
-[exit 255]
+stated
+[exit 0]
