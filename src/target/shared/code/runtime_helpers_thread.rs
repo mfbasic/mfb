@@ -9,17 +9,17 @@ pub(super) enum ThreadSimpleOp {
 }
 
 pub(super) fn emit_thread_deadline(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
+    ctx: &mut EmitCtx,
     timeout_stack_offset: usize,
     timespec_stack_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let done = format!("{symbol}_deadline_done_{timespec_stack_offset}");
     let nsec_ok = format!("{symbol}_deadline_nsec_ok_{timespec_stack_offset}");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), timeout_stack_offset),
         abi::compare_immediate("%v9", "0"),
         abi::branch_le(&done),
@@ -31,12 +31,12 @@ pub(super) fn emit_thread_deadline(
             symbol,
             platform_imports,
             platform,
-            instructions: instructions,
-            relocations: relocations,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
         },
         "clock_gettime",
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), timeout_stack_offset),
         abi::move_immediate("%v10", "Integer", "1000"),
         abi::signed_divide_registers("%v11", "%v9", "%v10"),
@@ -437,12 +437,14 @@ pub(super) fn simple_thread_handle_helper(
             )?;
             // Wake anyone parked on the resource plane too (bug-205).
             emit_close_resource_queues(
-                symbol,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 HANDLE_OFFSET,
-                platform_imports,
-                platform,
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -637,12 +639,14 @@ pub(super) fn simple_thread_handle_helper(
             // blocked in acceptResource never observes CANCELLED and the detached
             // thread leaks forever (bug-205).
             emit_close_resource_queues(
-                symbol,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 HANDLE_OFFSET,
-                platform_imports,
-                platform,
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -678,13 +682,15 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64(abi::ARG[1], abi::stack_pointer(), VALUE_OFFSET),
             ]);
             emit_thread_deadline(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 VALUE_OFFSET,
                 ERROR_OFFSET,
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -855,13 +861,15 @@ pub(super) fn thread_queue_write_helper(
         instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]));
     }
     emit_thread_deadline(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         TIMEOUT_OFFSET,
         TIMESPEC_OFFSET,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -1155,13 +1163,15 @@ pub(super) fn thread_queue_read_helper(
         abi::label(&timeout_ok),
     ]);
     emit_thread_deadline(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         TIMEOUT_OFFSET,
         TIMESPEC_OFFSET,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -1434,19 +1444,16 @@ pub(super) fn thread_is_cancelled_helper() -> HelperBody {
 /// The data-plane `receive` was woken correctly, and the trampoline exit already
 /// closes both resource queues "to wake any parent/worker blocked", which is the
 /// contract cancel/drop violated (bug-205).
-fn emit_close_resource_queues(
-    symbol: &str,
-    handle_offset: usize,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_close_resource_queues(ctx: &mut EmitCtx, handle_offset: usize) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     for resource_queue_offset in [
         THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
         THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
     ] {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64("%v10", "%v8", resource_queue_offset),
             abi::move_register(abi::ARG[0], "%v10"),
@@ -1456,12 +1463,12 @@ fn emit_close_resource_queues(
                 symbol,
                 platform_imports,
                 platform,
-                instructions: instructions,
-                relocations: relocations,
+                instructions: ctx.instructions,
+                relocations: ctx.relocations,
             },
             "pthread_mutex_lock",
         )?;
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64("%v10", "%v8", resource_queue_offset),
             abi::move_immediate("%v9", "Integer", "1"),
@@ -1473,12 +1480,12 @@ fn emit_close_resource_queues(
                 symbol,
                 platform_imports,
                 platform,
-                instructions: instructions,
-                relocations: relocations,
+                instructions: ctx.instructions,
+                relocations: ctx.relocations,
             },
             "pthread_cond_broadcast",
         )?;
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64("%v10", "%v8", resource_queue_offset),
             abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
@@ -1488,12 +1495,12 @@ fn emit_close_resource_queues(
                 symbol,
                 platform_imports,
                 platform,
-                instructions: instructions,
-                relocations: relocations,
+                instructions: ctx.instructions,
+                relocations: ctx.relocations,
             },
             "pthread_cond_broadcast",
         )?;
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64(abi::ARG[0], "%v8", resource_queue_offset),
         ]);
@@ -1502,8 +1509,8 @@ fn emit_close_resource_queues(
                 symbol,
                 platform_imports,
                 platform,
-                instructions: instructions,
-                relocations: relocations,
+                instructions: ctx.instructions,
+                relocations: ctx.relocations,
             },
             "pthread_mutex_unlock",
         )?;
