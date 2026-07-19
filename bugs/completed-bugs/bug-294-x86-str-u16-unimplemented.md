@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: src/arch/x86_64/encode/tests.rs (new) — `str_u16` encodes a 16-bit store byte-exactly
+Status: Fixed
+Regression Test: src/arch/x86_64/encode/tests.rs::str_u16_encodes_the_operand_size_prefixed_store
 
 Commit 628faca7 (plan-50-D) added `"str_u16" => mem_store(instruction,
 MemWidth::U16)` to the x86 emitter, claiming "the 0x66 operand-size prefix path
@@ -89,3 +89,39 @@ alternative: routing through `ldr_u16`'s movzx — that's a load, not a store.
 A plan-50-D dispatch entry points at an unimplemented arm; implementing the two
 0x66-prefixed store forms completes the x86 leg before plan-50-E makes it reachable.
 Low risk, well-scoped.
+
+## Resolution
+
+Both `MemWidth::U16` arms of `mem_store` now encode instead of returning an error:
+
+- register source: `0x66` operand-size prefix, then the same `0x89 /r` form the
+  32-bit store uses, with REX only when `src`/`base` >= 8 (the prefix precedes REX);
+- zero-token source: `0x66` + `0xC7 /0` with a 16-bit immediate zero, matching how
+  the other widths handle `abi::ZERO`.
+
+### The stale comments were disproved, not assumed
+
+Three places asserted that `str_u16` "has no CodeOp mnemonic" and that the arm was
+unreachable — one `coverage:off` block in the emitter and two test comments, one of
+which had a whole test built around the claim. That claim is what let plan-50-D ship
+an x86 leg that could only ever fail.
+
+It was checked rather than argued: `ops.rs` maps `CodeOp::StrU16 <-> "str_u16"` in
+both directions, and the emitter has dispatched `"str_u16" => mem_store(…, U16)`
+since 628faca7. A probe encoding a `str_u16` instruction returned
+`"x86 encode: str_u16 unsupported"` — the *arm's own* error, not the dispatcher's
+`"unsupported op"` — which is direct evidence that dispatch reached it. Only then
+were the comments replaced.
+
+`str_u8_extended_and_u16_unsupported` was renamed to `..._encode` and now asserts
+the encoding rather than the error.
+
+The byte-exact test covers the plain form, REX.R (high source), REX.B (high base),
+the rsp SIB escape, and the zero-token immediate form. Sizing needed no change:
+x86's `instruction_size` is `encode_instruction(...).bytes_len()`, so it agrees with
+the encoder by construction.
+
+Nothing reachable changed — `abi::store_u16` is still dead-code-gated until
+plan-50-E — which the artifact gate confirms: 1169 goldens across 989 tests, 0
+diffs. The x86 leg is now ready for plan-50-E instead of breaking linux-x86_64 the
+day it lands.

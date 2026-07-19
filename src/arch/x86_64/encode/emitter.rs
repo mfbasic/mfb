@@ -1784,7 +1784,15 @@ fn mem_store(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, 
                 bytes.extend_from_slice(&0i32.to_le_bytes());
             }
             MemWidth::U16 => {
-                return Err("x86 encode: str_u16 unsupported".to_string());
+                // bug-294: `mov r/m16, imm16` -- 0x66 selects the 16-bit operand
+                // size, and the immediate narrows to 16 bits with it.
+                bytes.push(0x66);
+                if base >= 8 {
+                    bytes.push(rex(false, false, false, true));
+                }
+                bytes.push(0xC7);
+                bytes.extend_from_slice(&mem_disp32(0, base, disp));
+                bytes.extend_from_slice(&0i16.to_le_bytes());
             }
             MemWidth::U8 => {
                 if base >= 8 {
@@ -1814,10 +1822,17 @@ fn mem_store(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, 
             bytes.extend_from_slice(&mem_disp32(src, base, disp));
         }
         MemWidth::U16 => {
-            // coverage:off — `str_u16` has no CodeOp mnemonic, so this arm is
-            // unreachable via the public `CodeInstruction` path.
-            return Err("x86 encode: str_u16 unsupported".to_string());
-            // coverage:on
+            // bug-294: `mov r/m16, r16` -- 0x66 operand-size prefix + the same
+            // 0x89 /r form the 32-bit store uses. plan-50-D wired the dispatch
+            // here but left both U16 arms erroring, on the mistaken premise that
+            // no mnemonic reached them; `ops.rs` maps `CodeOp::StrU16` to
+            // `"str_u16"`, so it always did. The prefix precedes any REX.
+            bytes.push(0x66);
+            if src >= 8 || base >= 8 {
+                bytes.push(rex(false, src >= 8, false, base >= 8));
+            }
+            bytes.push(0x89);
+            bytes.extend_from_slice(&mem_disp32(src, base, disp));
         }
         MemWidth::U8 => {
             // mov [base+disp32], r8 : 0x88 /r. A REX prefix (even empty 0x40) is

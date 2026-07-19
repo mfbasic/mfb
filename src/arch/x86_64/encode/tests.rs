@@ -811,9 +811,58 @@ fn u32_load_store_extended() {
     );
 }
 
-// NOTE: `str_u16` has no `CodeOp` mnemonic, so its `MemWidth::U16` store error
-// arm is unreachable through the public `CodeInstruction` path (annotated
-// coverage:off in emitter.rs).
+/// bug-294: `str_u16` DOES have a `CodeOp` mnemonic (`ops.rs` maps
+/// `CodeOp::StrU16 <-> "str_u16"`) and the emitter dispatches it at
+/// `"str_u16" => mem_store(instruction, MemWidth::U16)`, so the arm was always
+/// reachable -- the previous note here claiming otherwise was simply wrong, and it
+/// is what let plan-50-D ship an x86 leg that only ever returned an error.
+/// aarch64 (STRH) and riscv64 (sh) both encode it.
+///
+/// Byte-exact against the 0x66 operand-size-prefixed forms.
+#[test]
+fn str_u16_encodes_the_operand_size_prefixed_store() {
+    // mov [rbx+0], ax : 66 89 83 00 00 00 00
+    assert_eq!(
+        bytes(
+            "str_u16",
+            &[("src", "rax"), ("base", "rbx"), ("offset", "0")]
+        ),
+        [0x66, 0x89, 0x83, 0x00, 0x00, 0x00, 0x00]
+    );
+    // A high source register adds REX.R: mov [rbx+4], r8w : 66 44 89 83 04 …
+    assert_eq!(
+        bytes(
+            "str_u16",
+            &[("src", "r8"), ("base", "rbx"), ("offset", "4")]
+        ),
+        [0x66, 0x44, 0x89, 0x83, 0x04, 0x00, 0x00, 0x00]
+    );
+    // A high base adds REX.B: mov [r9+2], ax : 66 41 89 81 02 …
+    assert_eq!(
+        bytes(
+            "str_u16",
+            &[("src", "rax"), ("base", "r9"), ("offset", "2")]
+        ),
+        [0x66, 0x41, 0x89, 0x81, 0x02, 0x00, 0x00, 0x00]
+    );
+    // An rsp base needs the SIB escape: mov [rsp+8], ax : 66 89 84 24 08 …
+    assert_eq!(
+        bytes(
+            "str_u16",
+            &[("src", "rax"), ("base", "rsp"), ("offset", "8")]
+        ),
+        [0x66, 0x89, 0x84, 0x24, 0x08, 0x00, 0x00, 0x00]
+    );
+    // The zero token stores an immediate 16-bit zero, matching how the other
+    // widths handle `abi::ZERO`: mov word [rbx+0], 0 : 66 C7 83 00 00 00 00 00 00
+    assert_eq!(
+        bytes(
+            "str_u16",
+            &[("src", "xzr"), ("base", "rbx"), ("offset", "0")]
+        ),
+        [0x66, 0xC7, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
+}
 
 #[test]
 fn str_u8_extended_register() {
@@ -1813,13 +1862,13 @@ fn add_imm_move_first_and_str_u32_extended() {
 }
 
 #[test]
-fn str_u8_extended_and_u16_unsupported() {
+fn str_u8_extended_and_u16_encode() {
     // str_u8 with an r8b destination sets REX.B.
     assert!(!enc("str_u8", &[("src", "r8"), ("base", "rbx"), ("offset", "0")]).is_empty());
-    // str_u16 has no x86 CodeOp mnemonic that reaches the MemWidth::U16 store arm
-    // through the emitter dispatch, but the width enum's arm is reachable via the
-    // str_u32/str_u64 dispatch only — the U16 store error line is dead through
-    // normal dispatch; asserted here by the load path instead.
+    // bug-294: `str_u16` reaches the MemWidth::U16 store arm through ordinary
+    // dispatch and now encodes rather than erroring; see
+    // `str_u16_encodes_the_operand_size_prefixed_store` for the byte-exact forms.
+    assert!(!enc("str_u16", &[("src", "r8"), ("base", "r9"), ("offset", "2")]).is_empty());
     assert!(!enc("ldr_u16", &[("dst", "r8"), ("base", "r9"), ("offset", "2")]).is_empty());
 }
 
