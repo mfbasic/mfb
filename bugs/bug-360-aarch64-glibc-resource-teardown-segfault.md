@@ -136,10 +136,15 @@ The evidence is **confounded** and this must not be glossed:
 
 | box | arch | libc | result |
 | --- | --- | --- | --- |
-| 2222 Arch | aarch64 | glibc 2.35 | **SEGV** |
-| 2223 Kali | aarch64 | glibc 2.42 | **SEGV** |
+| 2222 Arch | aarch64 | glibc 2.35 | **SEGV** — 446 pass / 21 fail |
+| 2223 Kali | aarch64 | glibc 2.42 | **SEGV** — 446 pass / 21 fail |
 | 2229 Alpine | riscv64 | musl | pass |
 | 2227 Alpine | x86_64 | musl | pass |
+
+The two aarch64/glibc boxes fail the **identical set of 21 fixtures** (`diff` of
+the two failing-fixture lists is empty) despite seven years of glibc between
+them, which is the strongest single piece of evidence that the libc *version* is
+irrelevant here.
 
 Every failing box is aarch64 *and* glibc; every passing box is neither. The
 decisive experiment is **aarch64 + musl** (box 2224, Alpine aarch64), which was
