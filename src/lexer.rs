@@ -889,7 +889,18 @@ impl Lexer<'_> {
         // body is captured verbatim (see [`TokenKind::Doc`]). The keyword line may
         // only carry attribute words (e.g. `INTERNAL`); anything else (`DOC = 1`,
         // `DOC(x)`) is an ordinary identifier and falls through below.
-        if value.eq_ignore_ascii_case("DOC") && self.is_statement_start() {
+        // bug-299 D2: line-leading, not merely statement-leading.
+        // `is_statement_start` also accepts a `:` separator, so `LET x = 1 : DOC`
+        // began a verbatim capture -- but the PARSER rejects a `DOC` there
+        // (`MFB_PARSE_UNEXPECTED_STATEMENT`), so the capture could never produce a
+        // compilable program. What it did produce was a lexer/formatter
+        // disagreement: `fmt::is_doc_start` only recognizes a line whose first word
+        // is `DOC`, so fmt scanned the block's prose as code -- uppercasing English
+        // words that spell keywords (`if`, `and`, `to`, `not`) in text the spec
+        // says is preserved -- and its `END DOC` popped the enclosing block,
+        // mis-indenting the rest of the file. Restricting the capture to the
+        // position the parser actually accepts makes the two agree.
+        if value.eq_ignore_ascii_case("DOC") && self.is_line_start() {
             if let Some(doc) = self.try_capture_doc_block(line) {
                 self.tokens.push(Token {
                     kind: TokenKind::Doc(doc),
@@ -1048,6 +1059,19 @@ impl Lexer<'_> {
         self.tokens
             .last()
             .is_none_or(|token| matches!(token.kind, TokenKind::Newline | TokenKind::Colon))
+    }
+
+    /// At the start of a physical line — a stricter form of
+    /// [`Self::is_statement_start`] that does NOT accept a `:` separator.
+    ///
+    /// `DOC` uses this (bug-299 D2): a documentation block is a declaration-level
+    /// construct (§21: it "may sit immediately before its declaration or stand
+    /// alone"), and the parser rejects one after a `:` regardless, so capturing
+    /// there only created a disagreement with the formatter.
+    fn is_line_start(&self) -> bool {
+        self.tokens
+            .last()
+            .is_none_or(|token| matches!(token.kind, TokenKind::Newline))
     }
 
     fn push_and_advance(&mut self, kind: TokenKind) {
@@ -1280,6 +1304,52 @@ fn is_identifier_continue(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// bug-299 D2: `DOC` began a verbatim capture anywhere `is_statement_start`
+    /// held, which includes just after a `:` separator. The parser rejects a `DOC`
+    /// there regardless, so the capture could never yield a compilable program --
+    /// what it did yield was a disagreement with `fmt::is_doc_start`, which only
+    /// recognizes a line whose FIRST word is `DOC`. fmt therefore scanned the
+    /// captured prose as code, uppercasing English words that spell keywords, and
+    /// its `END DOC` popped the enclosing block. Capture is now line-leading, which
+    /// is the position the parser actually accepts.
+    #[test]
+    fn doc_captures_only_at_the_start_of_a_line() {
+        // Line-leading: still a single verbatim Doc token.
+        let tokens = lex(
+            Path::new("main.mfb"),
+            "DOC
+  FUNC f
+  DESC if and to
+END DOC
+",
+        )
+        .expect("lex source");
+        assert!(
+            tokens
+                .iter()
+                .any(|token| matches!(token.kind, TokenKind::Doc(_))),
+            "a line-leading DOC must still capture: {:?}",
+            tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
+        );
+
+        // After a `:` separator: an ordinary identifier, no capture.
+        let tokens = lex(
+            Path::new("main.mfb"),
+            "LET x = 1 : DOC
+  prose if and to
+END DOC
+",
+        )
+        .expect("lex source");
+        assert!(
+            !tokens
+                .iter()
+                .any(|token| matches!(token.kind, TokenKind::Doc(_))),
+            "a DOC after `:` must not start a capture: {:?}",
+            tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn trailing_underscore_continues_line_without_newline_token() {

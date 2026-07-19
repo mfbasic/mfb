@@ -5,7 +5,7 @@ Effort: small (<1h across items)
 Severity: LOW
 Class: Correctness (cosmetic)
 
-Status: Open
+Status: Fixed
 Regression Test: per-item (fmt/doc goldens)
 
 Three LOW-severity, cosmetic formatter/doc-generator gaps found during goal-06.
@@ -87,3 +87,50 @@ consistently.
 
 Three cosmetic formatter/doc gaps; each is a small classify/anchor change. No
 semantic impact (the semantics-changing fmt bug is bug-293).
+
+## Resolution
+
+### D1 — superseded by bug-348
+
+The `TESTING`/`TGROUP`/`TCASE` flattening was re-filed independently as
+[[bug-348]] with a fuller treatment (MEDIUM rather than LOW, and with the
+36-committed-sources evidence), and was fixed there: `Block` gained `Testing`,
+`Tgroup` and `Tcase`, `classify` gained the `K::Testing` arm, and a new
+`contextual_block_opener` recognizes the two contextual words that never scan as
+keywords. The sibling `CSTRUCT`/`BIND IN` gap in `format_link_block` is
+[[bug-356]]. All three share one root cause — the formatter's block model missing
+constructs the language has — so they were fixed in one pass and committed
+separately. Nothing was left for this item.
+
+### D2 — the lexer was tightened, not the formatter
+
+The report offered either restricting the lexer's DOC capture to line-leading, or
+teaching fmt to track an "after `:`" opener. The deciding evidence is that the
+**parser rejects a mid-line `DOC` outright** (`MFB_PARSE_UNEXPECTED_STATEMENT`),
+which was confirmed by building one. So the lexer was capturing a verbatim block for
+a construct that can never compile, and teaching fmt to format it would have been
+teaching fmt about a shape no valid program contains.
+
+`is_statement_start` also accepts a `:` separator; `DOC` now uses a stricter
+`is_line_start`, which is the position the parser actually accepts and matches §21's
+declaration-level placement. With that, the lexer and fmt agree — both treat a
+`DOC` after `:` as an ordinary identifier — and the disagreement that caused the
+prose recasing and the stray `END DOC` pop is gone at its root.
+
+Verified that a line-leading `DOC` block's prose is still preserved verbatim
+(`if`/`and`/`to` untouched), which is the behaviour that had to survive.
+
+### D3 — seed the used-set
+
+`PAGE_INTRO_ANCHOR` names the renderer-owned `intro` id, `reserved_anchors()`
+returns a used-set with it already inserted, and **both** anchor-assignment sites
+(the `.mfp` path and the AST path) use it — the fix is worthless if only one does.
+The renderer's three literal `intro` occurrences now interpolate the constant, so
+the id and its reservation cannot drift apart.
+
+This is the bug-93.1 collision class and the same fix; the test pins that a
+declaration named `intro` gets `intro-2`, that `Intro` collides too (case
+slugifies onto the same base), and that an unrelated name is unaffected by the
+seeding.
+
+Full `cargo test` green; artifact gate 0 diffs.

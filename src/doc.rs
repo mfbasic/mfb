@@ -123,6 +123,21 @@ fn assemble_groups(items: Vec<(DocDecl, String, bool)>) -> (Vec<DocGroup>, Vec<D
 }
 
 /// Slugify a declaration name into a unique anchor id.
+/// The page-level introduction section's HTML id. It is emitted directly by the
+/// renderer rather than assigned by [`anchor`], so it must be reserved before any
+/// declaration anchor is handed out (bug-299 D3) -- otherwise a declaration
+/// literally named `intro` slugifies to the same id, and its sidebar link scrolls
+/// to the page introduction instead of the declaration. Same collision class as
+/// bug-93.1, and the same fix: seed the used-set.
+const PAGE_INTRO_ANCHOR: &str = "intro";
+
+/// A fresh anchor set with every renderer-owned id already reserved.
+fn reserved_anchors() -> HashSet<String> {
+    let mut used = HashSet::new();
+    used.insert(PAGE_INTRO_ANCHOR.to_string());
+    used
+}
+
 fn anchor(name: &str, used: &mut HashSet<String>) -> String {
     let base: String = name
         .chars()
@@ -157,7 +172,7 @@ pub fn from_package(docs: PackageDocs, fallback_name: &str) -> DocPage {
     };
     let (subtitle, intro) = split_subtitle(&mut pkg_prose);
 
-    let mut used = HashSet::new();
+    let mut used = reserved_anchors();
     let items = docs
         .decls
         .into_iter()
@@ -231,7 +246,7 @@ pub fn from_source(ast: &AstProject) -> DocPage {
     let mut pkg_prose: Vec<Prose> = Vec::new();
     let mut package_deprecated = None;
     let mut items: Vec<(DocDecl, String, bool)> = Vec::new();
-    let mut used = HashSet::new();
+    let mut used = reserved_anchors();
 
     for file in &ast.files {
         if file.internal {
@@ -570,7 +585,7 @@ pub fn render_html(page: &DocPage) -> String {
     if !page.subtitle.is_empty() || !page.intro.is_empty() {
         out.push_str("      <div class=\"nav-section\">\n        <div class=\"nav-section-title\">Overview</div>\n");
         out.push_str(
-            "        <a href=\"#intro\" class=\"nav-item\">Introduction</a>\n      </div>\n",
+            &format!("        <a href=\"#{PAGE_INTRO_ANCHOR}\" class=\"nav-item\">Introduction</a>\n      </div>\n"),
         );
     }
     render_sidebar_groups(&mut out, &page.public);
@@ -598,11 +613,13 @@ pub fn render_html(page: &DocPage) -> String {
         callout(&mut out, "warning", "⚠️", &text);
     }
     if !page.intro.is_empty() {
-        out.push_str("      <section id=\"intro\">\n");
+        out.push_str(&format!("      <section id=\"{PAGE_INTRO_ANCHOR}\">\n"));
         render_prose(&mut out, &page.intro);
         out.push_str("      </section>\n");
     } else if !page.subtitle.is_empty() {
-        out.push_str("      <section id=\"intro\"></section>\n");
+        out.push_str(&format!(
+            "      <section id=\"{PAGE_INTRO_ANCHOR}\"></section>\n"
+        ));
     }
 
     if page.public.is_empty() && page.internal.is_empty() {
@@ -690,6 +707,25 @@ mod tests {
         assert_eq!(anchor("Foo Bar!", &mut used), "foo-bar-");
         assert_eq!(anchor("Foo Bar!", &mut used), "foo-bar--2");
         assert_eq!(anchor("Foo Bar!", &mut used), "foo-bar--3");
+    }
+
+    /// bug-299 D3: the page's `<section id="intro">` is emitted directly by the
+    /// renderer, not assigned by `anchor`, so it was never in the used-set. A
+    /// declaration named `intro` therefore slugified to the same id and produced a
+    /// duplicate HTML id -- its sidebar link scrolled to the page introduction
+    /// instead of the declaration.
+    #[test]
+    fn a_declaration_named_intro_does_not_collide_with_the_page_intro() {
+        let mut used = reserved_anchors();
+        assert_eq!(
+            anchor("intro", &mut used),
+            "intro-2",
+            "the page-level intro id must already be reserved"
+        );
+        // Case and punctuation slugify onto the same base, so they collide too.
+        assert_eq!(anchor("Intro", &mut used), "intro-3");
+        // An unrelated name is unaffected by the seeding.
+        assert_eq!(anchor("open", &mut used), "open");
     }
 
     #[test]
