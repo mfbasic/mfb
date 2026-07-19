@@ -1411,7 +1411,8 @@ mod tests {
 
         // Entry E — the one real publish the registry will keep pointing at.
         let (e_ident, e_version, e_hash) = ("alice#real", "2.0.0", "b".repeat(64));
-        let e_leaf = crate::log::leaf_hash(publish_leaf_payload(e_ident, e_version, &e_hash).as_bytes());
+        let e_leaf =
+            crate::log::leaf_hash(publish_leaf_payload(e_ident, e_version, &e_hash).as_bytes());
         // A second leaf so the tree has a non-trivial inclusion path.
         let other_leaf = crate::log::leaf_hash(b"{\"kind\":\"register\"}");
         let leaves = [e_leaf, other_leaf];
@@ -2201,9 +2202,11 @@ mod tests {
         assert!(verify_log_consistency(DEAD_URL, &paths)
             .unwrap_err()
             .contains("failed to connect"));
-        assert!(verify_publish_inclusion(DEAD_URL, &paths, "a#p", "1.0.0", "deadbeef")
-            .unwrap_err()
-            .contains("failed to connect"));
+        assert!(
+            verify_publish_inclusion(DEAD_URL, &paths, "a#p", "1.0.0", "deadbeef")
+                .unwrap_err()
+                .contains("failed to connect")
+        );
         // register with a valid name reaches the network step and fails there;
         // the failure path must clean up the locally written keypair.
         assert!(register(DEAD_URL, &paths, "alice")
