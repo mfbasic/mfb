@@ -101,12 +101,21 @@ pub(super) fn encode_add_sub_imm(value: u64) -> Option<(u32, bool)> {
     }
 }
 
-fn sized_add_sub_imm(value: u64) -> usize {
-    if value == 0 {
-        return 4;
-    }
+/// Cap on how many add/sub immediate chunks a decomposition may take.
+///
+/// bug-284 C2: each iteration removes at most `4095 << 12` (~16.7M), so an
+/// immediate near `u64::MAX` -- the shape a lowering arithmetic-wrap bug produces
+/// -- needs on the order of 10^12 iterations. `instruction_size` runs before any
+/// encoding, so the compiler would spin here forever rather than report anything.
+/// Legitimate frame and field offsets take a single-digit number of chunks, and
+/// `mov_imm` covers any u64 in at most four words, so nothing real is near this.
+pub(super) const MAX_ADD_SUB_CHUNKS: usize = 8;
+
+/// Number of chunks `value` decomposes into, saturating at `MAX_ADD_SUB_CHUNKS + 1`
+/// so an absurd immediate is reported rather than counted out (bug-284 C2).
+pub(super) fn add_sub_chunk_count(value: u64) -> usize {
     let mut remaining = value;
-    let mut words = 0;
+    let mut chunks = 0;
     while remaining > 0 {
         let (chunk, shift12) = next_add_sub_chunk(remaining);
         remaining -= if shift12 {
@@ -114,9 +123,19 @@ fn sized_add_sub_imm(value: u64) -> usize {
         } else {
             u64::from(chunk)
         };
-        words += 1;
+        chunks += 1;
+        if chunks > MAX_ADD_SUB_CHUNKS {
+            break;
+        }
     }
-    words * 4
+    chunks
+}
+
+fn sized_add_sub_imm(value: u64) -> usize {
+    if value == 0 {
+        return 4;
+    }
+    add_sub_chunk_count(value) * 4
 }
 
 fn sized_memory_imm(offset: u64, scale: u64) -> usize {

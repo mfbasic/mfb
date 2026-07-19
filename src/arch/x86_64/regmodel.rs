@@ -48,6 +48,13 @@ const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "r12", "r14"];
 /// the residual-`x31` selection path (no shared producer emits `x31`).
 pub(crate) const ZERO_REGISTER: &str = "r14";
 
+/// The register the arena-state pointer is pinned in, program-wide and reserved
+/// from allocation. Named (rather than spelled inline) so shared code can identify
+/// the active ISA without naming a physical register itself -- the plan-34-D
+/// invariant `shared_lowering_names_no_physical_register` enforces. Mirrors
+/// `riscv64::regmodel::ARENA_BASE_REGISTER`.
+pub(crate) const ARENA_BASE_REGISTER: &str = "r15";
+
 /// The x86-64 stack-pointer spelling selection rewrites the neutral `sp` to.
 /// Shared frame finalization recognizes it through this const so the shared
 /// source never spells a physical register (plan-34-D).
@@ -138,7 +145,7 @@ impl RegisterModel for X86_64RegisterModel {
     }
 
     fn arena_base(&self) -> &'static str {
-        "r15"
+        ARENA_BASE_REGISTER
     }
 
     fn closure_env(&self) -> &'static str {
@@ -166,6 +173,25 @@ impl RegisterModel for X86_64RegisterModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn implicit_clobber_registers_are_never_allocatable() {
+        // bug-284 C6: several x86-64 expansions use rax, rcx and rdx as fixed
+        // scratch beyond their named operands -- `div_seq` (quotient/remainder),
+        // `var_shift` (CL is the architectural shift count), `msub` (stages the
+        // product in rax) and `rbit` (mask in rax, accumulator in rdx). Each is
+        // correct only because the allocator never colours a value onto those
+        // registers, an invariant those sites previously only asserted in prose
+        // (and which bug-125 had already refuted once). Pin it here, so widening
+        // the allocatable set fails this test instead of silently miscompiling.
+        for reserved in ["rax", "rcx", "rdx"] {
+            assert!(
+                !INT_ALLOCATABLE.contains(&reserved),
+                "{reserved} must stay out of the allocatable set: fixed-register \
+                 expansions (div_seq, var_shift, msub, rbit) clobber it"
+            );
+        }
+    }
 
     #[test]
     fn every_model_method() {

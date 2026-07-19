@@ -392,6 +392,17 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "rbit" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
+            // bug-284 C6: the bit-swap sequence uses rax as the mask register and
+            // rdx as the scratch accumulator, both pushed and popped around it. A
+            // `dst` coloured onto either is corrupted by that use and then restored
+            // to its pre-expansion value by the pop, discarding the result.
+            if dst == 0 || dst == 2 {
+                return Err(
+                    "x86-64 rbit cannot target rax or rdx: both are used as the \
+                     mask and accumulator of the bit-swap sequence"
+                        .to_string(),
+                );
+            }
             let mut b = Vec::new();
             b.push(0x50); // push rax
             b.push(0x52); // push rdx
@@ -537,6 +548,20 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
             let minuend = reg(field(instruction, "minuend")?)?;
+            // bug-284 C6: this expansion stages the product in rax. A `dst` on rax
+            // is overwritten by `mov dst, minuend` and then subtracted from itself,
+            // yielding 0; an `rhs` on rax is destroyed by `mov rax, lhs` before the
+            // multiply, yielding lhs*lhs. Neither has a correct encoding here.
+            if dst == 0 {
+                return Err("x86-64 msub cannot target rax: rax stages the product".to_string());
+            }
+            if rhs == 0 {
+                return Err(
+                    "x86-64 msub cannot take rhs in rax: rax is overwritten by the \
+                     multiplicand before the multiply"
+                        .to_string(),
+                );
+            }
             let mut bytes = Vec::new();
             if minuend == 0 {
                 bytes.extend_from_slice(&enc_mov(dst, minuend)); // dst = minuend (rax)
@@ -1880,6 +1905,16 @@ fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String
     let dst = reg(field(instruction, "dst")?)?;
     let value = reg(field(instruction, "lhs")?)?;
     let amount = reg(field(instruction, "rhs")?)?;
+    // bug-284 C6: rcx is the architectural shift count, so a `dst` coloured onto
+    // it cannot also carry the result: the count is staged into rcx first, then
+    // `mov dst, value` overwrites it and the shift runs on whatever `value`'s low
+    // byte happened to be. There is no correct expansion for this combination --
+    // reject it rather than emit bytes that shift by the wrong amount.
+    if dst == 1 {
+        return Err(
+            "x86-64 variable shift cannot target rcx: rcx carries the shift count".to_string(),
+        );
+    }
     let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
     let mut bytes = Vec::new();
     if save_rcx {
@@ -1919,6 +1954,16 @@ fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, Stri
     let dst = reg(field(instruction, "dst")?)?;
     let value = reg(field(instruction, "lhs")?)?;
     let amount = reg(field(instruction, "rhs")?)?;
+    // bug-284 C6: rcx is the architectural shift count, so a `dst` coloured onto
+    // it cannot also carry the result: the count is staged into rcx first, then
+    // `mov dst, value` overwrites it and the shift runs on whatever `value`'s low
+    // byte happened to be. There is no correct expansion for this combination --
+    // reject it rather than emit bytes that shift by the wrong amount.
+    if dst == 1 {
+        return Err(
+            "x86-64 variable shift cannot target rcx: rcx carries the shift count".to_string(),
+        );
+    }
     // mov r32, r32 : 89 /r (rm = dst, reg = src), REX only for r8–r15.
     let mov32 = |d: u8, s: u8| -> Vec<u8> {
         let mut b = Vec::new();

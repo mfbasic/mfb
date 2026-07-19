@@ -320,12 +320,27 @@ pub(crate) fn scalarize_v128(
         ));
     };
 
+    // bug-284 C5: the high lane sits 8 bytes past the low lane, so its offset has
+    // to be derived from the same value the low-lane op uses. `unwrap_or(0) + 8`
+    // instead produced the literal offset 8 for any non-u64 spelling (negative,
+    // symbolic, empty) while the low-lane op forwarded the raw string -- the two
+    // lanes then addressed inconsistent locations. That only ever failed loudly
+    // because the sibling op happened to hand the same string to
+    // `operand::immediate()`, which rejects it; correctness must not rest on that
+    // coincidence, so this arm fails on its own terms.
+    fn high_lane_offset(offset: &str, op: &str) -> String {
+        match offset.parse::<u64>() {
+            Ok(value) => (value + 8).to_string(),
+            Err(_) => panic!("rv64 v128: {op} needs a numeric offset, got {offset:?}"),
+        }
+    }
+
     use CodeOp::*;
     match op {
         // --- 128-bit memory load/store (16 bytes, no lane interpretation) ------
         LdrQ => {
             let (dst, base, o) = (f(fields, "dst"), f(fields, "base"), f(fields, "offset"));
-            let o8 = (o.parse::<u64>().unwrap_or(0) + 8).to_string();
+            let o8 = high_lane_offset(&o, "ldr_q");
             // Value in T1: a large `base` offset makes the encoder use T0 as the
             // address scratch, which would clobber the value if it were in T0.
             out.push(ci(
@@ -341,7 +356,7 @@ pub(crate) fn scalarize_v128(
         }
         StrQ => {
             let (src, base, o) = (f(fields, "src"), f(fields, "base"), f(fields, "offset"));
-            let o8 = (o.parse::<u64>().unwrap_or(0) + 8).to_string();
+            let o8 = high_lane_offset(&o, "str_q");
             ild(&mut out, T1, &src, 0);
             out.push(ci(
                 "str_u64",
@@ -714,7 +729,15 @@ pub(crate) fn scalarize_v128(
         }
         UmovXFromV => {
             let (dst, src, idx) = (f(fields, "dst"), f(fields, "src"), f(fields, "index"));
-            let half = idx.parse::<u8>().unwrap_or(0);
+            // bug-284 C4: `unwrap_or(0)` mapped a malformed index to lane 0, and
+            // nothing bounded it -- `index = 2` computes `slot * 16 + 16`, reading
+            // the low lane of the *adjacent slot*, i.e. an unrelated value's data.
+            // AArch64 rejects this loudly ("umov .d lane index out of range"), so a
+            // builder bug caught there miscompiled silently here.
+            let half = match idx.parse::<u8>() {
+                Ok(half) if half <= 1 => half,
+                _ => panic!("rv64 v128: umov .d lane index out of range: {idx:?}"),
+            };
             out.push(ci(
                 "ldr_u64",
                 &[("dst", &dst), ("base", T2), ("offset", &off(&src, half))],
@@ -765,6 +788,89 @@ mod tests {
         );
         // %f7 (slot 1) low lane reads offset 16.
         assert!(out.iter().any(|i| i.get("offset") == Some("16")));
+    }
+
+    /// bug-284 C4: the lane index was parsed with `unwrap_or(0)`, which mapped a
+    /// malformed index to lane 0, and nothing bounded it. `index = 2` computes
+    /// `slot * 16 + 16`, i.e. the low lane of the *adjacent slot* -- an unrelated
+    /// value's data. AArch64 rejects the same input loudly, so a builder bug that
+    /// failed the build there miscompiled silently here.
+    #[test]
+    #[should_panic(expected = "umov .d lane index out of range")]
+    fn umov_rejects_an_out_of_range_lane_index() {
+        let fields = vec![
+            ("dst", "a0".to_string()),
+            ("src", "v1".to_string()),
+            ("index", "2".to_string()),
+        ];
+        scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
+    }
+
+    #[test]
+    #[should_panic(expected = "umov .d lane index out of range")]
+    fn umov_rejects_a_malformed_lane_index() {
+        let fields = vec![
+            ("dst", "a0".to_string()),
+            ("src", "v1".to_string()),
+            ("index", "high".to_string()),
+        ];
+        scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
+    }
+
+    #[test]
+    fn umov_still_accepts_both_real_lanes() {
+        for (index, offset) in [("0", "0"), ("1", "8")] {
+            let fields = vec![
+                ("dst", "a0".to_string()),
+                ("src", "v1".to_string()),
+                ("index", index.to_string()),
+            ];
+            let out = scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
+            assert!(
+                out.iter().any(|i| i.get("offset") == Some(offset)),
+                "lane {index} should read offset {offset}"
+            );
+        }
+    }
+
+    /// bug-284 C5: the high lane sits 8 bytes past the low lane, so both offsets
+    /// must derive from the same value. `unwrap_or(0) + 8` instead produced the
+    /// literal 8 for any non-u64 spelling while the low-lane op forwarded the raw
+    /// string, leaving the two lanes addressing inconsistent locations. It failed
+    /// loudly only because the sibling op happened to hand the same string to
+    /// `operand::immediate()`, which rejects it -- a coincidence, not a guarantee.
+    #[test]
+    #[should_panic(expected = "needs a numeric offset")]
+    fn ldr_q_rejects_a_non_numeric_offset_on_its_own_terms() {
+        let fields = vec![
+            ("dst", "v0".to_string()),
+            ("base", "a0".to_string()),
+            ("offset", "-8".to_string()),
+        ];
+        scalarize_v128(CodeOp::LdrQ, &fields, &map(&[("v0", 0)]));
+    }
+
+    #[test]
+    #[should_panic(expected = "needs a numeric offset")]
+    fn str_q_rejects_a_non_numeric_offset_on_its_own_terms() {
+        let fields = vec![
+            ("src", "v0".to_string()),
+            ("base", "a0".to_string()),
+            ("offset", "some_symbol".to_string()),
+        ];
+        scalarize_v128(CodeOp::StrQ, &fields, &map(&[("v0", 0)]));
+    }
+
+    #[test]
+    fn ldr_q_lanes_stay_eight_bytes_apart_for_a_real_offset() {
+        let fields = vec![
+            ("dst", "v0".to_string()),
+            ("base", "a0".to_string()),
+            ("offset", "32".to_string()),
+        ];
+        let out = scalarize_v128(CodeOp::LdrQ, &fields, &map(&[("v0", 0)]));
+        assert!(out.iter().any(|i| i.get("offset") == Some("32")));
+        assert!(out.iter().any(|i| i.get("offset") == Some("40")));
     }
 
     #[test]

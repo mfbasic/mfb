@@ -14,6 +14,31 @@ pub(super) fn field(instruction: &CodeInstruction, name: &str) -> Result<String,
         })
 }
 
+/// Is this operand spelled as the stack pointer (rather than the zero register)?
+///
+/// `reg()` folds `sp`, `raw_sp`, `x31` and `xzr` onto the same number, 31, because
+/// the *number* is shared -- but its meaning is not. In the shifted-register form
+/// of cmp/add/sub/and/orr/eor/mul/div, register 31 is XZR, so an `sp`-spelled
+/// operand there silently reads zero. Encoders that use those forms must therefore
+/// consult the spelling, not just the number (bug-284 C1; bug-178 B fixed the same
+/// conflation for `mov` alone).
+pub(super) fn is_stack_pointer(name: &str) -> bool {
+    matches!(name, "sp" | "raw_sp")
+}
+
+/// `reg()` for an operand slot that will be encoded in a shifted-register form,
+/// where register 31 means XZR. Rejects an `sp`-spelled operand rather than
+/// silently encoding a read of zero (bug-284 C1).
+pub(super) fn shifted_reg(name: String) -> Result<u8, String> {
+    if is_stack_pointer(&name) {
+        return Err(format!(
+            "'{name}' cannot be used as a shifted-register operand: register 31 \
+             encodes XZR there, so the stack pointer would silently read as zero"
+        ));
+    }
+    reg(name)
+}
+
 pub(super) fn reg(name: String) -> Result<u8, String> {
     match name.as_str() {
         "sp" | "raw_sp" | "x31" | "xzr" => Ok(31),

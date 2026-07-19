@@ -5,7 +5,7 @@ Effort: medium (1h–2h across items)
 Severity: LOW
 Class: Footgun / Correctness (all latent — no current lowering triggers them)
 
-Status: Open
+Status: Fixed
 Regression Test: per-item (arch encode tests)
 
 A cluster of LOW-severity, latent register-lifetime / encoding-robustness hazards
@@ -162,3 +162,76 @@ Each item is a single encoder/select site (cited). No shared code; land per item
 Seven latent codegen-robustness corners; each is a localized guard turning silent
 wrong-code (or a hang) into a loud failure. No active miscompile today; value is
 hardening the backends before new lowerings land.
+
+## Resolution
+
+All eight items landed. Every one is a guard, not a behavior change: the artifact
+gate reports **1163 goldens across 985 tests, 0 diffs**, which is the direct
+evidence for the stated non-goal that no currently-emitted instruction bytes move.
+
+**C1** (aarch64 sp/xzr conflation) — added `operand::is_stack_pointer` and
+`operand::shifted_reg`, and routed the twelve shifted-register-form arms
+(add/adds/sub/subs/and/orr/eor/mul/smulh/umulh/sdiv/udiv, plus mvn and cmp)
+through the latter, which rejects an `sp`-spelled operand where register 31 means
+XZR. `xzr` in those slots stays legal, since reading zero is what it means.
+`cmp_imm` needed more than an operand swap: it selects its form from the
+immediate's *magnitude*, and only the immediate form reads 31 as SP. The spelling
+is now threaded into `emit_cmp_imm`, which accepts `sp` with a 12-bit immediate
+and rejects it precisely when the wide fallback would silently compare against
+zero. Tests: `sp_is_rejected_in_shifted_register_operand_slots`,
+`cmp_imm_against_sp_is_rejected_only_when_the_immediate_forces_register_form`.
+
+**C2** (unbounded chunk loop) — `MAX_ADD_SUB_CHUNKS` (8) and
+`add_sub_chunk_count`, which saturates rather than counting out. Both
+`sized_add_sub_imm` and the two emitters consult it, so `instruction_size` can no
+longer spin for ~10^12 iterations ahead of any error. A real multi-chunk offset
+still encodes. Test: `an_absurdly_wide_add_sub_immediate_is_rejected_rather_than_looped_over`.
+
+**C3** (riscv64 pending-compare) — the invalidation now also matches `carry_out`
+and `borrow_out` against the saved rhs, and clears `pending` outright on
+`Call`/`CallIndirect`, which clobber the caller-saved set while naming no
+destination at all. An invalidated pending followed by a branch reaches the
+existing "standalone flag branch without a preceding compare" panic — loud,
+versus the silently wrong branch it produced before. Four tests, including a
+control case proving an undisturbed compare still fuses to `rv.br`.
+
+**C4/C5** (riscv64 v128 silent defaults) — `unwrap_or(0)` replaced by
+parse-or-panic in both places: the umov lane index is bounded to `<= 1`, matching
+aarch64's loud rejection, and the high-lane offset is derived by a
+`high_lane_offset` helper that refuses a non-numeric spelling on its own terms
+rather than relying on the sibling op's `operand::immediate()` to catch it. Six
+tests including both positive controls.
+
+**C6** (x86_64 fixed-register aliasing) — `var_shift`/`var_shift_w` reject
+`dst == rcx` (rcx is the architectural shift count, so it cannot also carry the
+result); `msub` rejects `dst == rax` (subtracted from itself, yielding 0) and
+`rhs == rax` (destroyed before the multiply, yielding `lhs*lhs`); `rbit` rejects
+`dst ∈ {rax, rdx}` (its mask register and accumulator, both restored by the
+trailing pops). Test: `fixed_register_aliasing_is_rejected_rather_than_miscompiled`.
+
+`div_seq` was handled differently, deliberately. It already guards the two
+reachable cases (an aliasing divisor, and a live rax dividend), and the report's
+remaining ask — unconditional push/pop of rax/rdx — would cost every division in
+the program to cover a case the register model forbids. What was wrong there was
+the *reasoning*: a comment asserting "rax/rdx are non-allocatable, so clobbering
+them is safe", which is the exact argument bug-125 refuted. That prose reliance is
+now an enforced invariant,
+`implicit_clobber_registers_are_never_allocatable`, which fails if rax, rcx or rdx
+is ever added to `INT_ALLOCATABLE`. One test covers the reliance shared by
+`div_seq`, `var_shift`, `msub` and `rbit`.
+
+**C8** (peephole implicit clobbers) — `classify` takes an `is_x86` flag and gives
+`Mul`/`SMulH`/`UMulH`/`SDiv`/`UDiv`/`MSub` their own arm, returning `Barrier` on
+x86 and `DefDst` elsewhere. This removes the soundness reliance rather than
+documenting it, while leaving aarch64/riscv64 forwarding untouched — the test
+asserts both halves. `forward_stores_to_loads` learns the ISA the same way
+`remove_fp_shuttles` does, from the active backend's arena base.
+
+That last part is worth recording: the first attempt compared
+`arena_base() == "r15"` inline and was caught by
+`shared_lowering_names_no_physical_register`, the plan-34-D invariant that shared
+code must never name a physical register. The test was right and the change was
+wrong; the fix was to add `x86_64::regmodel::ARENA_BASE_REGISTER` and compare
+against it, mirroring how the riscv64 side already did it.
+
+Validation: full `cargo test` green, artifact gate 0 diffs, acceptance 1000/1000.

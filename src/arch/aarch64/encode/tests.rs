@@ -1268,3 +1268,106 @@ fn sizing_helpers_directly() {
     assert!(branch_imm19(0, 1 << 19).unwrap() != 0); // in range for imm19
     assert!(branch_imm26(0, 2).is_err()); // unaligned (not a multiple of 4)
 }
+
+/// bug-284 C1: register 31 is XZR in every shifted-register form and SP in the
+/// immediate forms, but `reg()` folds both spellings onto 31 and drops the
+/// difference. An `sp` operand reaching a register-form slot therefore encoded a
+/// silent read of zero. bug-178 B fixed this for `mov` alone; these are the
+/// remaining forms.
+#[test]
+fn sp_is_rejected_in_shifted_register_operand_slots() {
+    let mut encoder = fresh_encoder();
+    for (op, fields) in [
+        ("add", vec![("dst", "x1"), ("lhs", "sp"), ("rhs", "x2")]),
+        ("sub", vec![("dst", "x1"), ("lhs", "x2"), ("rhs", "sp")]),
+        ("and", vec![("dst", "sp"), ("lhs", "x1"), ("rhs", "x2")]),
+        ("orr", vec![("dst", "x1"), ("lhs", "raw_sp"), ("rhs", "x2")]),
+        ("mul", vec![("dst", "x1"), ("lhs", "x2"), ("rhs", "sp")]),
+        ("cmp", vec![("lhs", "sp"), ("rhs", "x2")]),
+    ] {
+        let mut ins = CodeInstruction::new(op);
+        for (k, v) in &fields {
+            ins = ins.field(k, v);
+        }
+        let err = encoder
+            .emit_instruction(&ins)
+            .expect_err("an sp operand in a shifted-register slot must be rejected");
+        assert!(
+            err.contains("XZR") || err.contains("stack pointer"),
+            "{op}: unexpected error: {err}"
+        );
+    }
+
+    // xzr in the same slots stays legal -- reading zero is what it means.
+    let ins = CodeInstruction::new("add")
+        .field("dst", "x1")
+        .field("lhs", "xzr")
+        .field("rhs", "x2");
+    encoder
+        .emit_instruction(&ins)
+        .expect("xzr is a legitimate shifted-register operand");
+}
+
+/// bug-284 C1: `cmp_imm` picks its form from the immediate's magnitude. The
+/// immediate form reads register 31 as SP (correct for `sp`), but the wide
+/// fallback is a register-form `cmp` where 31 is XZR -- so the same instruction
+/// changed meaning with the size of its immediate.
+#[test]
+fn cmp_imm_against_sp_is_rejected_only_when_the_immediate_forces_register_form() {
+    let mut encoder = fresh_encoder();
+    // Fits 12 bits: the immediate form is correct for sp, and stays allowed.
+    let narrow = CodeInstruction::new("cmp_imm")
+        .field("lhs", "sp")
+        .field("rhs", "4095");
+    encoder
+        .emit_instruction(&narrow)
+        .expect("a 12-bit immediate uses the sp-correct immediate form");
+
+    // One past the 12-bit limit forces the register-form fallback, where the
+    // operand would silently become XZR.
+    let wide = CodeInstruction::new("cmp_imm")
+        .field("lhs", "sp")
+        .field("rhs", "4096");
+    let err = encoder
+        .emit_instruction(&wide)
+        .expect_err("the register-form fallback must not silently compare against zero");
+    assert!(err.contains("XZR"), "unexpected error: {err}");
+
+    // A plain register is unaffected in both regimes.
+    for imm in ["4095", "4096"] {
+        let ins = CodeInstruction::new("cmp_imm")
+            .field("lhs", "x3")
+            .field("rhs", imm);
+        encoder
+            .emit_instruction(&ins)
+            .expect("a normal register encodes in either form");
+    }
+}
+
+/// bug-284 C2: the add/sub immediate decomposition removes at most `4095 << 12`
+/// per iteration with no cap, so an immediate near `u64::MAX` -- what a lowering
+/// arithmetic-wrap bug produces -- would spin for ~10^12 iterations inside
+/// `instruction_size`, hanging the compiler before any error could be reported.
+#[test]
+fn an_absurdly_wide_add_sub_immediate_is_rejected_rather_than_looped_over() {
+    let mut encoder = fresh_encoder();
+    for op in ["add_imm", "sub_imm"] {
+        let ins = CodeInstruction::new(op)
+            .field("dst", "x1")
+            .field("src", "x2")
+            .field("imm", &u64::MAX.to_string());
+        let err = encoder
+            .emit_instruction(&ins)
+            .expect_err("a u64::MAX immediate must be rejected, not decomposed");
+        assert!(err.contains("too wide"), "{op}: unexpected error: {err}");
+    }
+
+    // A legitimately large multi-chunk offset still encodes.
+    let ins = CodeInstruction::new("add_imm")
+        .field("dst", "x1")
+        .field("src", "x2")
+        .field("imm", "70000");
+    encoder
+        .emit_instruction(&ins)
+        .expect("a real multi-chunk offset still encodes");
+}

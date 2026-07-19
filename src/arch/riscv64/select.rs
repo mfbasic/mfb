@@ -447,11 +447,26 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         // offending instruction. (Latent: current streams place the consuming
         // branch immediately after the compare with no such interleaving, so
         // this never fires and the selected bytes are unchanged.)
+        //
+        // bug-284 C3: "any def of the saved rhs" was implemented as "an instruction
+        // whose `dst` field is the rhs", which misses every other way a register is
+        // written. `add_carry` defines `carry_out` and `sub_borrow` defines
+        // `borrow_out`, neither of which is a `dst`; and `bl`/`blr` clobber the
+        // whole caller-saved set while naming no destination at all. Any of those
+        // between the compare and its branch left the branch re-reading a register
+        // that no longer holds the compared value -- a silently wrong branch.
         if instruction.op.to_code() == Some(CodeOp::Label) {
+            pending = None;
+        } else if matches!(instruction.op, MirOp::Call | MirOp::CallIndirect) {
+            // A call clobbers the caller-saved registers, and the saved rhs is
+            // named by register, so nothing about it survives the call.
             pending = None;
         } else if matches!(
             &pending,
-            Some(FlagRhs::Reg(rhs)) if field_value(&instruction.fields, "dst") == *rhs
+            Some(FlagRhs::Reg(rhs))
+                if field_value(&instruction.fields, "dst") == *rhs
+                    || field_value(&instruction.fields, "carry_out") == *rhs
+                    || field_value(&instruction.fields, "borrow_out") == *rhs
         ) {
             pending = None;
         }
@@ -1018,6 +1033,79 @@ mod tests {
         assert!(out
             .iter()
             .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+    }
+
+    /// bug-284 C3: bug-126.2's record claims the pending compare is invalidated by
+    /// "any def of the saved rhs", but the check only compared the instruction's
+    /// `dst` field. `add_carry` defines `carry_out` and `sub_borrow` defines
+    /// `borrow_out` -- neither is a `dst` -- so a carry op writing the compare's
+    /// rhs left the branch re-reading a register that no longer held the compared
+    /// value, silently taking the wrong branch.
+    #[test]
+    #[should_panic(expected = "standalone flag branch without a preceding compare")]
+    fn pending_compare_invalidated_by_a_carry_out_def_of_its_rhs() {
+        sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build(
+                "add_carry",
+                &[
+                    ("dst", "x11"),
+                    ("carry_out", "x10"),
+                    ("lhs", "x12"),
+                    ("rhs", "x13"),
+                ],
+            ),
+            build("b.lt", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "standalone flag branch without a preceding compare")]
+    fn pending_compare_invalidated_by_a_borrow_out_def_of_its_rhs() {
+        sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build(
+                "sub_borrow",
+                &[
+                    ("dst", "x11"),
+                    ("borrow_out", "x10"),
+                    ("lhs", "x12"),
+                    ("rhs", "x13"),
+                ],
+            ),
+            build("b.lt", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+    }
+
+    /// bug-284 C3: a call clobbers every caller-saved register and names no
+    /// destination at all, so nothing about a rhs held by register name survives
+    /// it -- yet no field comparison could ever notice.
+    #[test]
+    #[should_panic(expected = "standalone flag branch without a preceding compare")]
+    fn pending_compare_invalidated_by_an_intervening_call() {
+        sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build("bl", &[("target", "some_function")]),
+            build("b.lt", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+    }
+
+    /// The control case: with nothing in between, the compare still reaches its
+    /// branch and fuses, so the invalidations above are not over-broad.
+    #[test]
+    fn an_undisturbed_pending_compare_still_reaches_its_branch() {
+        let out = sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build("b.lt", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+        assert!(
+            out.iter().any(|i| i.op.mnemonic() == "rv.br"),
+            "an undisturbed compare must still fuse into rv.br"
+        );
     }
 
     // ---------- v128 scalarization through selection ----------

@@ -1,6 +1,9 @@
-use super::operand::{field, immediate, reg, scratch_excluding, shift, vreg};
+use super::operand::{
+    field, immediate, is_stack_pointer, reg, scratch_excluding, shift, shifted_reg, vreg,
+};
 use super::sizing::{
-    branch_imm19, branch_imm26, checked_imm12, encode_add_sub_imm, next_add_sub_chunk,
+    add_sub_chunk_count, branch_imm19, branch_imm26, checked_imm12, encode_add_sub_imm,
+    next_add_sub_chunk, MAX_ADD_SUB_CHUNKS,
 };
 use super::*;
 use crate::target::shared::code::RelocIntent;
@@ -31,58 +34,58 @@ impl Encoder {
                 immediate(field(instruction, "value")?)?,
             ),
             "add" => self.emit_add(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "adds" => self.emit_adds(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "sub" => self.emit_sub(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "subs" => self.emit_subs(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "and" => self.emit_and(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "orr" => self.emit_orr(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "eor" => self.emit_eor(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "mvn" => self.emit_mvn(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "src")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "src")?)?,
             ),
             "mul" => self.emit_mul(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "smulh" => self.emit_smulh(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "umulh" => self.emit_umulh(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "add_carry" => self.emit_add_carry(
                 reg(field(instruction, "dst")?)?,
@@ -144,14 +147,14 @@ impl Encoder {
                 reg(field(instruction, "src")?)?,
             ),
             "sdiv" => self.emit_sdiv(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "udiv" => self.emit_udiv(
-                reg(field(instruction, "dst")?)?,
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "dst")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "msub" => self.emit_msub(
                 reg(field(instruction, "dst")?)?,
@@ -186,13 +189,17 @@ impl Encoder {
             ),
             "sub_sp" => self.emit_sub_sp(immediate(field(instruction, "imm")?)?),
             "add_sp" => self.emit_add_sp(immediate(field(instruction, "imm")?)?),
-            "cmp_imm" => self.emit_cmp_imm(
-                reg(field(instruction, "lhs")?)?,
-                immediate(field(instruction, "rhs")?)?,
-            ),
+            "cmp_imm" => {
+                // The spelling, not just the number, has to reach the encoder:
+                // `cmp_imm` picks its form from the immediate's magnitude, and only
+                // the immediate form reads register 31 as SP (bug-284 C1).
+                let lhs = field(instruction, "lhs")?;
+                let lhs_is_sp = is_stack_pointer(&lhs);
+                self.emit_cmp_imm(reg(lhs)?, immediate(field(instruction, "rhs")?)?, lhs_is_sp)
+            }
             "cmp" => self.emit_cmp(
-                reg(field(instruction, "lhs")?)?,
-                reg(field(instruction, "rhs")?)?,
+                shifted_reg(field(instruction, "lhs")?)?,
+                shifted_reg(field(instruction, "rhs")?)?,
             ),
             "b.eq" => self.emit_label_branch("b.eq", field(instruction, "target")?),
             "b.ne" => self.emit_label_branch("b.ne", field(instruction, "target")?),
@@ -803,6 +810,16 @@ impl Encoder {
         if let Some((imm12, shift12)) = encode_add_sub_imm(imm) {
             return self.emit_add_imm_chunk(rd, rn, imm12, shift12);
         }
+        // bug-284 C2: refuse an immediate that would decompose into an absurd
+        // number of chunks instead of grinding through ~10^12 iterations. Nothing
+        // legitimate comes close; an immediate this wide means a lowering produced
+        // a wrapped-negative offset, and a loud error beats a hung compiler.
+        if add_sub_chunk_count(imm) > MAX_ADD_SUB_CHUNKS {
+            return Err(format!(
+                "AArch64 add immediate {imm} is too wide to decompose (more than \
+                 {MAX_ADD_SUB_CHUNKS} chunks); this usually means a wrapped-negative offset"
+            ));
+        }
         let mut remaining = imm;
         let mut src = rn;
         while remaining > 0 {
@@ -837,6 +854,16 @@ impl Encoder {
     fn emit_sub_imm(&mut self, rd: u8, rn: u8, imm: u64) -> Result<(), String> {
         if let Some((imm12, shift12)) = encode_add_sub_imm(imm) {
             return self.emit_sub_imm_chunk(rd, rn, imm12, shift12);
+        }
+        // bug-284 C2: refuse an immediate that would decompose into an absurd
+        // number of chunks instead of grinding through ~10^12 iterations. Nothing
+        // legitimate comes close; an immediate this wide means a lowering produced
+        // a wrapped-negative offset, and a loud error beats a hung compiler.
+        if add_sub_chunk_count(imm) > MAX_ADD_SUB_CHUNKS {
+            return Err(format!(
+                "AArch64 sub immediate {imm} is too wide to decompose (more than \
+                 {MAX_ADD_SUB_CHUNKS} chunks); this usually means a wrapped-negative offset"
+            ));
         }
         let mut remaining = imm;
         let mut src = rn;
@@ -877,9 +904,22 @@ impl Encoder {
         self.emit_add_imm(31, 31, imm)
     }
 
-    fn emit_cmp_imm(&mut self, rn: u8, imm: u64) -> Result<(), String> {
+    /// `rn_is_sp` reports whether `rn` was spelled as the stack pointer, which
+    /// changes what register 31 means depending on which form is chosen.
+    ///
+    /// bug-284 C1: the immediate form below reads register 31 as SP and is correct
+    /// for an `sp` operand, but the register-form fallback taken for a wide
+    /// immediate reads 31 as XZR -- so this one instruction silently changed
+    /// meaning with the magnitude of its immediate. Rather than compare against
+    /// zero, refuse the combination.
+    fn emit_cmp_imm(&mut self, rn: u8, imm: u64, rn_is_sp: bool) -> Result<(), String> {
         if let Ok(imm) = checked_imm12(imm) {
             return self.emit_word(0xf100_001f | (imm << 10) | ((rn as u32) << 5));
+        }
+        if rn_is_sp {
+            return Err(format!(
+                "cmp_imm against the stack pointer needs an immediate that fits 12                  bits (got {imm}): the wider form encodes register 31 as XZR, which                  would compare against zero instead of sp"
+            ));
         }
         let scratch = scratch_excluding(rn, 31);
         self.emit_mov_imm(scratch, imm)?;

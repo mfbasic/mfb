@@ -780,7 +780,13 @@ pub(super) fn lower_function(
     }
     // Store-to-load forwarding over the lowered stream (offsets are still
     // pre-prologue here, before finalize_frame shifts them).
-    peephole::forward_stores_to_loads(&mut instructions);
+    // bug-284 C8: x86-64's mul/div/msub expansions clobber rdx:rax beyond their
+    // named dst, so the forwarder must flush across them. Read the ISA the same
+    // way `remove_fp_shuttles` does -- from the active backend's arena base --
+    // rather than sniffing operand spellings.
+    let is_x86 = mir::active_backend().register_model().arena_base()
+        == crate::arch::x86_64::regmodel::ARENA_BASE_REGISTER;
+    peephole::forward_stores_to_loads(&mut instructions, is_x86);
     // Drop the GP shuttle a checked float value round-trips through (plan-16). The
     // ISA (for the FP-shuttle liveness' per-ISA clobber masks) is read from the
     // active backend's arena base — `s11` on rv64 (plan-99) — not sniffed from
@@ -919,7 +925,13 @@ pub(super) fn lower_builtin_function_wrapper(
 
     builder.run_register_allocation()?;
     let mut instructions = builder.instructions;
-    peephole::forward_stores_to_loads(&mut instructions);
+    // bug-284 C8: x86-64's mul/div/msub expansions clobber rdx:rax beyond their
+    // named dst, so the forwarder must flush across them. Read the ISA the same
+    // way `remove_fp_shuttles` does -- from the active backend's arena base --
+    // rather than sniffing operand spellings.
+    let is_x86 = mir::active_backend().register_model().arena_base()
+        == crate::arch::x86_64::regmodel::ARENA_BASE_REGISTER;
+    peephole::forward_stores_to_loads(&mut instructions, is_x86);
     let is_riscv = mir::active_backend().register_model().arena_base()
         == crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER;
     peephole::remove_fp_shuttles(&mut instructions, is_riscv);

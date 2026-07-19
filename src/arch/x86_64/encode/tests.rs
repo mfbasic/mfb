@@ -2404,3 +2404,71 @@ fn encode_unresolved_call_and_label_error() {
     );
     assert!(super::encode(&plan).is_err());
 }
+
+/// bug-284 C6: several x86-64 expansions use fixed registers beyond their named
+/// operands, and an operand coloured onto one of those produces wrong bytes
+/// silently. Each combination below has no correct encoding in its expansion, so
+/// the encoder rejects it rather than emitting something plausible.
+#[test]
+fn fixed_register_aliasing_is_rejected_rather_than_miscompiled() {
+    let err = |op: &str, fields: &[(&'static str, &str)]| -> String {
+        let mut ins = CodeInstruction::new(op);
+        for (k, v) in fields {
+            ins = ins.field(k, v);
+        }
+        match encode_instruction(&ins) {
+            Ok(_) => panic!("{op} must reject this fixed-register aliasing"),
+            Err(err) => err,
+        }
+    };
+
+    // rcx is the architectural shift count: staging it destroys a dst on rcx.
+    for op in ["lslv", "lsrv", "asrv", "rorv"] {
+        let message = err(op, &[("dst", "rcx"), ("lhs", "r10"), ("rhs", "r11")]);
+        assert!(message.contains("rcx"), "{op}: unexpected error: {message}");
+    }
+
+    // msub stages the product in rax: a dst there is subtracted from itself (0),
+    // and an rhs there is destroyed before the multiply (yielding lhs*lhs).
+    let message = err(
+        "msub",
+        &[
+            ("dst", "rax"),
+            ("lhs", "r10"),
+            ("rhs", "r11"),
+            ("minuend", "r12"),
+        ],
+    );
+    assert!(message.contains("rax"), "unexpected error: {message}");
+    let message = err(
+        "msub",
+        &[
+            ("dst", "r10"),
+            ("lhs", "r11"),
+            ("rhs", "rax"),
+            ("minuend", "r12"),
+        ],
+    );
+    assert!(message.contains("rax"), "unexpected error: {message}");
+
+    // rbit uses rax as its mask register and rdx as its accumulator, both saved
+    // and restored around the sequence -- so a dst on either is discarded.
+    for reg in ["rax", "rdx"] {
+        let message = err("rbit", &[("dst", reg), ("src", "r10")]);
+        assert!(message.contains(reg), "unexpected error: {message}");
+    }
+
+    // The same ops on allocatable registers are unaffected.
+    assert!(!enc("lslv", &[("dst", "r10"), ("lhs", "r11"), ("rhs", "r12")]).is_empty());
+    assert!(!enc("rbit", &[("dst", "r10"), ("src", "r11")]).is_empty());
+    assert!(!enc(
+        "msub",
+        &[
+            ("dst", "r10"),
+            ("lhs", "r11"),
+            ("rhs", "r12"),
+            ("minuend", "r14"),
+        ]
+    )
+    .is_empty());
+}

@@ -57,7 +57,11 @@ enum Effect<'a> {
     Barrier,
 }
 
-fn classify(instruction: &CodeInstruction) -> Effect<'_> {
+/// `is_x86` selects the implicit-clobber model: on x86-64 `mul`/`umulh`/`smulh`/
+/// `sdiv`/`udiv`/`msub` expand to sequences that clobber rdx:rax beyond their
+/// named `dst`, which the arch-neutral `DefDst` classification cannot express
+/// (bug-284 C8). aarch64 and riscv64 have no such implicit clobbers.
+fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect<'_> {
     match instruction.op {
         CodeOp::StrU64 => match (
             instruction.get("base"),
@@ -78,6 +82,29 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
         },
         // Compares write only the flags.
         CodeOp::Cmp | CodeOp::CmpImm | CodeOp::FCmpD | CodeOp::FCmpZeroD => Effect::NoDef,
+        // bug-284 C8: on x86-64 these expand to sequences that clobber rdx:rax in
+        // addition to their named `dst` (see `div_seq`, `umulh`, `msub`), so
+        // `DefDst` -- "defines exactly dst" -- understates their effect. A slot
+        // whose forwarding source lived in rax/rdx across one of these would not be
+        // invalidated and the reload would be forwarded to a clobbered register.
+        // The x86 register model does not currently colour a value onto rax/rdx
+        // (INT_ALLOCATABLE is r10/r11/r12/r14), so this was a soundness reliance
+        // rather than a live bug; flushing removes the reliance instead of
+        // documenting it.
+        CodeOp::Mul
+        | CodeOp::SMulH
+        | CodeOp::UMulH
+        | CodeOp::SDiv
+        | CodeOp::UDiv
+        | CodeOp::MSub => {
+            if is_x86 {
+                Effect::Barrier
+            } else if instruction.get("dst").is_some() {
+                Effect::DefDst
+            } else {
+                Effect::Barrier
+            }
+        }
         // Scalar ops that define exactly their single `dst` operand.
         CodeOp::Mov
         | CodeOp::MovImm
@@ -89,9 +116,6 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
         | CodeOp::Orr
         | CodeOp::Eor
         | CodeOp::Mvn
-        | CodeOp::Mul
-        | CodeOp::SMulH
-        | CodeOp::UMulH
         | CodeOp::Rorv
         | CodeOp::RorvW
         | CodeOp::Lslv
@@ -101,9 +125,6 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
         | CodeOp::Rbit
         | CodeOp::RevW
         | CodeOp::RevX
-        | CodeOp::SDiv
-        | CodeOp::UDiv
-        | CodeOp::MSub
         | CodeOp::LslImm
         | CodeOp::LsrImm
         | CodeOp::AsrImm
@@ -150,7 +171,7 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
 /// Run store-to-load forwarding over one function's instruction stream, in
 /// place. Must run before `finalize_frame` (offsets are still pre-prologue and
 /// the callee-save area / `sp` adjustments are not yet present).
-pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction]) {
+pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x86: bool) {
     // slot offset -> register that last stored it (and still holds the value).
     let mut slots: Vec<(String, String)> = Vec::new();
     let invalidate_reg = |slots: &mut Vec<(String, String)>, reg: &str| {
@@ -193,7 +214,7 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction]) {
     };
 
     for index in 0..instructions.len() {
-        match classify(&instructions[index]) {
+        match classify(&instructions[index], is_x86) {
             Effect::StoreSp { src, offset } => {
                 let (src, offset) = (src.to_string(), offset.to_string());
                 set_slot(&mut slots, &offset, &src);
@@ -413,10 +434,54 @@ mod tests {
                 .field("base", "sp")
                 .field("offset", "8"),
         ];
-        forward_stores_to_loads(&mut instructions);
+        forward_stores_to_loads(&mut instructions, false);
         assert_eq!(instructions[2].op, CodeOp::Mov);
         assert_eq!(instructions[2].get("dst"), Some("x8"));
         assert_eq!(instructions[2].get("src"), Some("x10"));
+    }
+
+    /// bug-284 C8: on x86-64 `mul`/`umulh`/`smulh`/`sdiv`/`udiv`/`msub` expand to
+    /// sequences that clobber rdx:rax in addition to their named `dst`, which the
+    /// arch-neutral `DefDst` classification ("defines exactly dst") cannot express.
+    /// A slot whose forwarding source lived in rax/rdx across one of these was not
+    /// invalidated, so the reload was forwarded to a clobbered register.
+    #[test]
+    fn x86_implicit_clobber_ops_flush_forwarding_state() {
+        let stream = || {
+            vec![
+                op("str_u64")
+                    .field("src", "rax")
+                    .field("base", "sp")
+                    .field("offset", "8"),
+                // dst is neither rax nor rdx, so `DefDst` invalidates nothing --
+                // but the x86 expansion clobbers rax regardless.
+                op("udiv")
+                    .field("dst", "r10")
+                    .field("lhs", "r11")
+                    .field("rhs", "r12"),
+                op("ldr_u64")
+                    .field("dst", "r14")
+                    .field("base", "sp")
+                    .field("offset", "8"),
+            ]
+        };
+
+        // On x86 the reload must survive as a real memory load.
+        let mut instructions = stream();
+        forward_stores_to_loads(&mut instructions, true);
+        assert_eq!(
+            instructions[2].op,
+            CodeOp::LdrU64,
+            "x86 must not forward across an op that clobbers rax"
+        );
+
+        // On aarch64/riscv64 these ops really do define only `dst`, so the
+        // forwarding stays available -- the flush is x86-specific, not a blanket
+        // pessimization.
+        let mut instructions = stream();
+        forward_stores_to_loads(&mut instructions, false);
+        assert_eq!(instructions[2].op, CodeOp::Mov);
+        assert_eq!(instructions[2].get("src"), Some("rax"));
     }
 
     /// A later store that *partially overwrites* an 8-byte slot (offset `#12`
@@ -440,7 +505,7 @@ mod tests {
                 .field("base", "sp")
                 .field("offset", "8"),
         ];
-        forward_stores_to_loads(&mut instructions);
+        forward_stores_to_loads(&mut instructions, false);
         // The load survives as a real memory reload.
         assert_eq!(instructions[2].op, CodeOp::LdrU64);
         assert_eq!(instructions[2].get("dst"), Some("x8"));
