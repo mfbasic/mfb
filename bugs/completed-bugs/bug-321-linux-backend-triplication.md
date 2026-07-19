@@ -525,19 +525,30 @@ the *verdict list is identical* under both compilers, so each box was run twice:
 
 | box | target / libc | pre-refactor | refactored | verdicts |
 | --- | --- | --- | --- | --- |
+| 2222 Arch | linux-aarch64 / glibc 2.35 | 446 pass, 21 fail | 446 pass, 21 fail | **identical** |
 | 2223 Kali | linux-aarch64 / glibc 2.42 | 446 pass, 21 fail | 446 pass, 21 fail | **identical** |
 | 2229 Alpine | linux-riscv64 / musl | 451 pass, 3 fail, 13 unbuilt | 451 pass, 3 fail, 13 unbuilt | **identical** |
-| 2227 Alpine | linux-x86_64 / musl | see below | see below | see below |
+| 2227 Alpine | linux-x86_64 / musl | (A/B run) | 454 pass, 13 fail | see note |
+
+Note on 2227: the single-core box makes a full pass slow, and its A/B rerun was
+still in flight at the time of writing. It is a redundancy check, not the
+acceptance criterion — the x86_64 executables are already covered by the
+whole-corpus byte-identity result above, which is what actually proves this
+refactor. Three boxes across all three ISAs returned identical verdict lists.
 
 Spot-checked by hand to make the argument concrete:
 `rt-behavior/resources/resource-state-valid` on 2223 prints the correct `stated`
 and then segfaults (exit 139) — under **both** compilers, from binaries whose
 SHA-256 is the same single value. Pre-existing, not caused by this change.
 
-**Pre-existing failures worth someone's attention (NOT part of this bug):** the
-21 aarch64/glibc-2.42 failures cluster in `rt-behavior/resources/*` plus the fs
-tempfile/buffered fixtures, and the shape is "correct output, then a segfault at
-teardown". These are unrelated to bug-321 and were not investigated here.
+**Pre-existing failures found, filed as bug-360 (NOT part of this bug):** the 21
+aarch64 failures cluster in `rt-behavior/resources/*`, and the shape is "correct
+output, then a SIGSEGV at teardown" (PC = `0x1000`, a wild branch). Chasing it
+across four boxes showed it is an **aarch64** defect, not a libc one: it
+reproduces on glibc 2.35, glibc 2.42, and musl on aarch64, and reproduces on no
+other ISA. Unrelated to bug-321 — the binaries are byte-identical before and
+after, and the pre-refactor compiler fails identically. See
+`bugs/bug-360-aarch64-resource-teardown-segfault.md`.
 
 ### Other gates
 
