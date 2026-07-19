@@ -217,6 +217,15 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         &mut relocations,
     )?;
     instructions.extend([
+        // `setsockopt` returns a C `int`, and both AAPCS and SysV leave the upper
+        // 32 bits of the return register unspecified (bug-310, the bug-170 class).
+        // Without this, a `-1` whose upper bits happen to be clear reads as
+        // +4294967295, `branch_lt` is not taken, and the failure falls through to
+        // the success path — the caller believes the timeout is armed when it is
+        // not, and a later blocking read/write never times out. Every other
+        // int-returning libc call in the net layer sign-extends before its signed
+        // compare; this site was missed.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&set_fail),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

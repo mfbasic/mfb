@@ -1,11 +1,11 @@
 # bug-310: `net::setReadTimeout`/`setWriteTimeout` misreads a failed `setsockopt` as success (missing sign-extension)
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/rt-error (new) — a failing setsockopt in set-timeout returns an error
 
 After `emit_libc_call("setsockopt", …)`, `lower_net_set_timeout_helper` does
@@ -86,3 +86,28 @@ No alternative considered — this is the established pattern.
 
 A single missed sign-extension in the set-timeout helper lets a failed setsockopt
 read as success; adding it matches every sibling net int-return. Minimal, well-scoped.
+
+## Resolution
+
+`lower_net_set_timeout_helper` now emits `sign_extend_word` on the return register
+between the `setsockopt` call and the signed compare, matching every other
+int-returning libc call in the net layer.
+
+Verified at the instruction level, since the bug needs a *failing* `setsockopt`
+and cannot be driven from a test program. Dumping `-ncode` for
+`tests/rt-behavior/net/bug109_write_timeout` and reading the
+`_mfb_rt_net_net_setWriteTimeout` body:
+
+```
+before:  bl _setsockopt / cmp_imm x0, 0 / b.lt ..._set_fail
+after:   bl _setsockopt / sxtw x0, x0 / cmp_imm x0, 0 / b.lt ..._set_fail
+```
+
+That is exactly the missing step: without `sxtw`, a `-1` whose upper 32 bits
+happen to be clear compares as +4294967295, `b.lt` is not taken, and the failure
+falls through to the success path — so the caller believes the timeout is armed
+and a later blocking read/write never times out.
+
+No new fixture: no test can force `setsockopt` to fail on a valid socket, so a
+runtime fixture would assert nothing. The 47 net fixtures confirm the success path
+is unchanged.
