@@ -32,18 +32,18 @@ const EINTR_ERRNO: &str = "4";
 /// only issues the syscall once.
 #[allow(clippy::too_many_arguments)]
 fn emit_listener_flags_restore(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     tag: &str,
     restore_flag_offset: usize,
     listener_fd_offset: usize,
     flags_offset: usize,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let skip = format!("{symbol}_restore_skip_{tag}");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), restore_flag_offset),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&skip),
@@ -55,8 +55,14 @@ fn emit_listener_flags_restore(
         abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
     ]);
-    platform.emit_variadic_call("fcntl", symbol, platform_imports, instructions, relocations)?;
-    instructions.extend([
+    platform.emit_variadic_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), restore_flag_offset),
         abi::label(&skip),
     ]);
@@ -220,15 +226,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     // bug-314 H2: the accepted fd is safely in FD_OFFSET and no result register
     // is live yet -- restore before emit_make_handle establishes the result.
     emit_listener_flags_restore(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "ok",
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_make_handle(
         symbol,
@@ -266,15 +274,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::branch_eq(&accept_poll_retry),
     ]);
     emit_listener_flags_restore(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "fail",
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_fail(
         symbol,
@@ -288,15 +298,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     // matching net::connectTcp's bounded-wait error (bug-185).
     instructions.push(abi::label(&accept_timeout));
     emit_listener_flags_restore(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "timeout",
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_fail(
         symbol,
@@ -317,15 +329,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     );
     instructions.push(abi::label(&alloc_fail));
     emit_listener_flags_restore(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "alloc",
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_fail(
         symbol,
