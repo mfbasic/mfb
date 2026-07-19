@@ -438,32 +438,36 @@ pub(crate) fn lower_program_entry(
         abi::move_register(abi::SCRATCH[10], RESULT_ERROR_MESSAGE_REGISTER),
     ]);
     emit_write_string_object(
+        &mut EmitCtx {
+            symbol: entry_symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         ENTRY_ERROR_PREFIX_SYMBOL,
-        entry_symbol,
+    )?;
+    emit_write_integer_to_stderr(&mut EmitCtx {
+        symbol: entry_symbol,
         platform_imports,
         platform,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    emit_write_integer_to_stderr(
-        entry_symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
-    )?;
+        instructions: &mut instructions,
+        relocations: &mut relocations,
+    })?;
     // The untrapped-error banner is `Error:  <G-SSS-EEEE>\n<message>\n`, so the
     // code (printed above in canonical hyphenated form) is followed by a newline,
     // not the legacy ` Message: ` label. The cleanup-failure audit keeps its own
     // ` Message: ` separator (a distinct call below), so this only reformats the
     // program-ending untrapped-error output.
     emit_write_string_object(
+        &mut EmitCtx {
+            symbol: entry_symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         ENTRY_ERROR_NEWLINE_SYMBOL,
-        entry_symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::string_length_register(), abi::SCRATCH[10], 0),
@@ -477,21 +481,23 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     )?;
     emit_write_string_object(
-        ENTRY_ERROR_NEWLINE_SYMBOL,
-        entry_symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    if emit_cleanup_failure_audit {
-        emit_cleanup_failure_audit_report(
-            entry_symbol,
+        &mut EmitCtx {
+            symbol: entry_symbol,
             platform_imports,
             platform,
-            &mut instructions,
-            &mut relocations,
-        )?;
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        ENTRY_ERROR_NEWLINE_SYMBOL,
+    )?;
+    if emit_cleanup_failure_audit {
+        emit_cleanup_failure_audit_report(&mut EmitCtx {
+            symbol: entry_symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        })?;
     }
     instructions.push(abi::move_immediate(
         abi::return_register(),
@@ -710,15 +716,14 @@ fn emit_entry_args_list_materialization(
     ]);
 }
 
-fn emit_cleanup_failure_audit_report(
-    from: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_cleanup_failure_audit_report(ctx: &mut EmitCtx) -> Result<(), String> {
+    // `from` is gone: it named the emitting symbol, which is `ctx.symbol`.
+    let from = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let done = "entry_cleanup_failure_audit_done";
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64(
             abi::SCRATCH[0],
             ARENA_STATE_REGISTER,
@@ -728,25 +733,30 @@ fn emit_cleanup_failure_audit_report(
         abi::branch_eq(done),
     ]);
     emit_write_string_object(
+        &mut EmitCtx {
+            symbol: from,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         CLEANUP_FAILURE_PREFIX_SYMBOL,
-        from,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
     )?;
-    instructions.push(abi::load_u64(
+    ctx.instructions.push(abi::load_u64(
         abi::SCRATCH[0],
         ARENA_STATE_REGISTER,
         ARENA_CLEANUP_FAILURE_CODE_OFFSET,
     ));
-    instructions.push(abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, 32));
+    ctx.instructions
+        .push(abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, 32));
     emit_write_integer_to_stderr_with_labels(
-        from,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol: from,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "entry_cleanup_failure_code",
         true,
     )?;
@@ -754,14 +764,16 @@ fn emit_cleanup_failure_audit_report(
     // with the code in canonical hyphenated form, then the message on its own
     // line.
     emit_write_string_object(
+        &mut EmitCtx {
+            symbol: from,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         ENTRY_ERROR_NEWLINE_SYMBOL,
-        from,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64(
             abi::SCRATCH[10],
             ARENA_STATE_REGISTER,
@@ -771,16 +783,18 @@ fn emit_cleanup_failure_audit_report(
         abi::add_immediate(abi::string_data_register(), abi::SCRATCH[10], 8),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
-    platform.emit_write(from, platform_imports, instructions, relocations)?;
+    platform.emit_write(from, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_write_string_object(
+        &mut EmitCtx {
+            symbol: from,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         ENTRY_ERROR_NEWLINE_SYMBOL,
-        from,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
     )?;
-    instructions.push(abi::label(done));
+    ctx.instructions.push(abi::label(done));
     Ok(())
 }
 
@@ -2208,22 +2222,22 @@ pub(super) fn lower_arena_fill_random() -> CodeFunction {
     )
 }
 
-fn emit_write_string_object(
-    symbol: &str,
-    from: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    instructions.extend([
+fn emit_write_string_object(ctx: &mut EmitCtx, data_symbol: &str) -> Result<(), String> {
+    // `ctx.symbol` is the emitting symbol (each relocation's `from`);
+    // `data_symbol` is the string object being addressed (its `to`).
+    let from = ctx.symbol;
+    let symbol = data_symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    ctx.instructions.extend([
         abi::load_page_address(abi::SCRATCH[11], symbol),
         abi::add_page_offset(abi::SCRATCH[11], abi::SCRATCH[11], symbol),
         abi::load_u64(abi::string_length_register(), abi::SCRATCH[11], 0),
         abi::add_immediate(abi::string_data_register(), abi::SCRATCH[11], 8),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
-    relocations.extend([
+    ctx.relocations.extend([
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
@@ -2239,42 +2253,43 @@ fn emit_write_string_object(
             library: None,
         },
     ]);
-    platform.emit_write(from, platform_imports, instructions, relocations)
+    platform.emit_write(from, platform_imports, ctx.instructions, ctx.relocations)
 }
 
-fn emit_write_integer_to_stderr(
-    from: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_write_integer_to_stderr(ctx: &mut EmitCtx) -> Result<(), String> {
+    // `from` is gone: it named the emitting symbol, which is `ctx.symbol`.
+    let from = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     emit_write_integer_to_stderr_with_labels(
-        from,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol: from,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "entry_error_code",
         true,
     )
 }
 
 fn emit_write_integer_to_stderr_with_labels(
-    from: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     label_prefix: &str,
     hyphenate: bool,
 ) -> Result<(), String> {
+    let from = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let absolute_ready_label = format!("{label_prefix}_absolute_ready");
     let digit_loop_label = format!("{label_prefix}_digit_loop");
     let digits_done_label = format!("{label_prefix}_digits_done");
     let write_label = format!("{label_prefix}_write");
     let hyphen_label = format!("{label_prefix}_hyphen");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::subtract_stack(64),
         abi::load_u64(abi::SCRATCH[11], ARENA_STATE_REGISTER, 32),
         // Record the value's original sign in x28 *before* negating: x21 is
@@ -2305,9 +2320,10 @@ fn emit_write_integer_to_stderr_with_labels(
     // every iteration. The hyphen store below borrows SCRATCH[16] (the just-freed
     // digit register) for the `-` byte so it does not disturb the counter.
     if hyphenate {
-        instructions.push(abi::move_immediate(abi::SCRATCH[12], "Integer", "0"));
+        ctx.instructions
+            .push(abi::move_immediate(abi::SCRATCH[12], "Integer", "0"));
     }
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::SCRATCH[11], "0"),
         abi::branch_ne(&digit_loop_label),
         abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
@@ -2328,7 +2344,7 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::move_register(abi::SCRATCH[11], abi::SCRATCH[15]),
     ]);
     if hyphenate {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::add_immediate(abi::SCRATCH[12], abi::SCRATCH[12], 1),
             abi::compare_immediate(abi::SCRATCH[11], "0"),
             abi::branch_eq(&digits_done_label),
@@ -2345,13 +2361,13 @@ fn emit_write_integer_to_stderr_with_labels(
             abi::label(&digits_done_label),
         ]);
     } else {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::compare_immediate(abi::SCRATCH[11], "0"),
             abi::branch_ne(&digit_loop_label),
             abi::label(&digits_done_label),
         ]);
     }
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::SCRATCH[18], "0"),
         abi::branch_eq(&write_label),
         abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
@@ -2367,7 +2383,7 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::move_register(abi::string_data_register(), abi::SCRATCH[13]),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
-    platform.emit_write(from, platform_imports, instructions, relocations)?;
-    instructions.push(abi::add_stack(64));
+    platform.emit_write(from, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.push(abi::add_stack(64));
     Ok(())
 }
