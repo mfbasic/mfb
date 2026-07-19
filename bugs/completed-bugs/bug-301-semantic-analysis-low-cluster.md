@@ -5,7 +5,7 @@ Effort: small (<1h across items)
 Severity: LOW
 Class: Correctness / Dead-code
 
-Status: Open
+Status: Fixed
 Regression Test: per-item
 
 LOW-severity resolver / verify / syntaxcheck residuals found during goal-06.
@@ -112,3 +112,70 @@ resolve-time leniency.
 Four semantic-analysis residuals; three are small targeted checks (two latent) and
 one is a dead-method deletion. No active miscompile; value is closing leniency and
 latent-soundness corners.
+
+## Resolution
+
+Four items. Two were real and fixed, one was already gone, and **one is not a
+defect** — G1's proposed fix would have broken committed, passing tests.
+
+### G1 — rejected: bare imported type names are the convention, not a leniency
+
+The report marked this "POSSIBLE (no `.mfp` type-exporting fixture available to
+repro)". One is available now, so it was actually tested rather than reasoned about,
+and the finding reverses the conclusion.
+
+`tests/rt-behavior/native/native-resource-state-import-rt` writes
+`RES h AS Db STATE DbInfo` for types imported from a `.mfp`, and it builds, links and
+**runs** — it is part of the passing acceptance suite. Prefixing the installed names
+so "only qualified references resolve", as G1 proposed, would break it and every
+importer shaped like it.
+
+Reproduced directly against that package: in a type position, bare `DbInfo` resolves
+and so does `db::DbInfo`; only `db.DbInfo` fails, correctly, because dot is field
+access. The report's second claim — that the bare name "fails to resolve later" at
+IR merge — is also false; the build completes and links.
+
+G1's basis was `architecture/03_packages.md`'s `packageName.exportName`. That passage
+describes the *internal* signature names lowering creates for imported **functions**,
+not the source syntax for naming an imported type. No change; the reasoning is
+recorded at `install_package_type_names` so this is not re-filed.
+
+### G2 — fixed
+
+`check_value_depth` now clears `allow_sub_call` for any node that is not itself a
+`Call`/`CallResult`. The flag is a single shared `Cell` and only the `Call` arm
+consumed it, but the walker descends into operands *before* applying the wrapping
+node's rule — so in `Eval(Binary(a, Call(sub)))` the nested SUB call was reached with
+the flag still set, was treated as statement position, and escaped
+`TYPE_SUB_HAS_NO_VALUE`. Only a value whose **root** is the call may be value-less.
+
+Tested at IR level, since the report is right that most source shapes are masked by
+the adjacent operand-type rule. Both a binary operand and a unary operand are
+covered, and the test was confirmed to fail against the unfixed walker.
+
+### G3 — already fixed
+
+`check_link_function` no longer exists; `git log -S` shows it was deleted by
+d8aca43b ("clear all build warnings"). Only the live `check_link_function_in`
+remains. Nothing to do.
+
+### G4 — fixed, and it did reproduce
+
+Confirmed by building a program declaring
+`Thread OF Integer RES File STATE Holder TO Integer` where
+`TYPE Holder { files AS List OF RES File }`: it compiled and linked with no
+diagnostic. The STATE is copyable and defaultable, which is all `ir::verify`
+requires, but it carries resource borrows to sender-owned resources — exactly what
+§15.6 forbids from crossing a thread boundary.
+
+`require_thread_sendable_type` is now applied to `resource_state` in **both** places
+the report names: `check_type_reference`'s Thread/ThreadWorker arm, and
+`check_thread_boundary_sendability`'s transfer/accept arm. The plane's STATE is
+deep-copied into the receiver's arena by plan-54, so it crosses exactly as the
+message and resource types do.
+
+The test asserts both directions: the `List OF RES File` STATE is rejected, and a
+STATE of plain `Integer`/`String` fields is still accepted — so this rejects the
+unsendable payload, not stateful planes generally.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1005/1005.

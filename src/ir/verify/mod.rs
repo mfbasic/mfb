@@ -1484,6 +1484,17 @@ impl TypeEnv {
             );
             return;
         }
+        // bug-301 G2: `allow_sub_call` is a single shared `Cell` set for a
+        // statement-position value, and only the `Call` arm consumes it. But this
+        // walker recurses into operands and arguments BEFORE the wrapping node's
+        // own rule, so for a shape like `Eval(Binary(a, Call(sub)))` the DFS
+        // reached the nested SUB call with the flag still set -- marking it
+        // statement position and skipping `TYPE_SUB_HAS_NO_VALUE`. The intent is
+        // that only a value whose ROOT is the call may be value-less, so any other
+        // node clears the flag before descending.
+        if !matches!(value, IrValue::Call { .. } | IrValue::CallResult { .. }) {
+            self.allow_sub_call.set(false);
+        }
         match value {
             IrValue::MemberAccess { target, member, .. } => {
                 self.check_value_depth(target, locals, depth + 1);

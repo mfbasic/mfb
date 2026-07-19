@@ -1426,6 +1426,61 @@ fn rejects_sub_call_in_value_position() {
     );
 }
 
+/// bug-301 G2: `allow_sub_call` is a single shared `Cell`, set for a
+/// statement-position value and consumed by the first `Call` the walker reaches.
+/// Because the walker descends into operands before applying the wrapping node's
+/// own rule, a call nested under a non-call node was reached while the flag was
+/// still set -- so it was treated as statement position and
+/// `TYPE_SUB_HAS_NO_VALUE` never fired. Only a value whose ROOT is the call may be
+/// value-less.
+#[test]
+fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
+    let s = sub("doit", vec![], vec![]);
+    let sub_call = || IrValue::Call {
+        target: "doit".to_string(),
+        args: vec![],
+        type_: "Nothing".to_string(),
+        loc: IrSourceLoc::default(),
+    };
+    // `Eval(Binary(1, doit()))` -- statement position, but the SUB call is an
+    // OPERAND, which is value position.
+    let body = vec![IrOp::Eval {
+        value: IrValue::Binary {
+            op: "+".to_string(),
+            left: Box::new(int_const("1")),
+            right: Box::new(sub_call()),
+            type_: "Integer".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    expect_rule(
+        &project(
+            vec![s.clone(), func_returns("run", "Nothing", vec![], body)],
+            vec![],
+        ),
+        "TYPE_SUB_HAS_NO_VALUE",
+    );
+
+    // A unary operand is the same shape one level shallower.
+    let body = vec![IrOp::Eval {
+        value: IrValue::Unary {
+            op: "NOT".to_string(),
+            operand: Box::new(sub_call()),
+            type_: "Boolean".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    expect_rule(
+        &project(
+            vec![s, func_returns("run", "Nothing", vec![], body)],
+            vec![],
+        ),
+        "TYPE_SUB_HAS_NO_VALUE",
+    );
+}
+
 #[test]
 fn accepts_sub_call_in_statement_position() {
     let s = sub("doit", vec![], vec![]);

@@ -2292,11 +2292,26 @@ impl<'a> SyntaxChecker<'a> {
                     self.check_type_reference(file, resource, line);
                     self.require_thread_sendable_type(file, line, "Thread resource type", resource);
                 }
-                // The plane's `STATE T` payload type (plan-54) must resolve; its
-                // defaultability/copyability is enforced by ir::verify, as for a
+                // The plane's `STATE T` payload type (plan-54) must resolve, and
+                // its defaultability/copyability is enforced by ir::verify as for a
                 // stateful binding.
+                //
+                // bug-301 G4: it must ALSO be sendable, which nothing checked. The
+                // STATE rides the transfer plane into the receiving thread and is
+                // deep-copied into its arena, so it crosses the boundary exactly as
+                // the message and resource types do. `ir::verify`'s copyable +
+                // defaultable rule does not imply sendable: a record like
+                // `TYPE S { files AS List OF RES File }` satisfies both yet carries
+                // resource borrows to sender-owned resources, which §15.6 forbids
+                // from crossing.
                 if let Some(resource_state) = resource_state {
                     self.check_type_reference(file, resource_state, line);
+                    self.require_thread_sendable_type(
+                        file,
+                        line,
+                        "Thread resource STATE type",
+                        resource_state,
+                    );
                 }
             }
             Type::User(name) => {

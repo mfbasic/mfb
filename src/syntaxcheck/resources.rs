@@ -412,9 +412,21 @@ impl<'a> SyntaxChecker<'a> {
             }
             "thread.transfer" | "thread.accept" => {
                 if let Some(handle) = arg_types.first() {
-                    if let Type::Thread(_, resource, _, _) | Type::ThreadWorker(_, resource, _, _) =
-                        handle
+                    if let Type::Thread(_, resource, resource_state, _)
+                    | Type::ThreadWorker(_, resource, resource_state, _) = handle
                     {
+                        // bug-301 G4: the plane's `STATE T` payload crosses the
+                        // boundary with the resource -- plan-54 deep-copies it into
+                        // the receiver's arena -- so it must be sendable too. Only
+                        // the resource itself was checked here.
+                        if let Some(resource_state) = resource_state {
+                            self.require_thread_sendable_type(
+                                file,
+                                line,
+                                &format!("Call to `{display_callee}` resource STATE type"),
+                                resource_state,
+                            );
+                        }
                         match resource {
                             // The resource plane carries only thread-sendable
                             // resources, and only when the thread declares one.
@@ -494,6 +506,23 @@ mod resources_tests {
         // check, so the sendability `None` arm stays defensive.
         let src = "IMPORT thread\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  LET x AS String = thread::accept(t)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    /// bug-301 G4: the resource plane's `STATE T` payload crosses the thread
+    /// boundary with the resource -- plan-54 deep-copies it into the receiver's
+    /// arena -- but only the resource itself was sendability-checked. `ir::verify`
+    /// constrains a STATE type to be copyable and defaultable, which does NOT imply
+    /// sendable: a record holding `List OF RES File` satisfies both, yet carries
+    /// resource borrows to sender-owned resources that §15.6 forbids from crossing.
+    #[test]
+    fn resource_plane_state_payload_must_be_sendable() {
+        let unsendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  files AS List OF RES File\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(unsendable, "TYPE_THREAD_NOT_SENDABLE"));
+
+        // A STATE of plain sendable fields is still accepted -- the check rejects
+        // the unsendable payload, not stateful planes generally.
+        let sendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  count AS Integer\n  label AS String\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        assert!(!rejects_with(sendable, "TYPE_THREAD_NOT_SENDABLE"));
     }
 
     #[test]
