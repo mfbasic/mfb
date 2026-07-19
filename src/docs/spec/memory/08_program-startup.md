@@ -21,12 +21,17 @@ and the arena live as long as the process; they are never restored because the
 entry exits rather than returns. [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
 
 Because the arena-state lives on the stack (not zero-filled memory), the shim
-explicitly clears the header words it depends on before the first allocation:
-arena-state offsets `0`/`8`/`16`/`24`, the free-list head at offset `48`
-(`ARENA_FREE_LIST_HEAD_OFFSET`), the cleanup-failure audit triple at `64`/`72`/`80`
-(only when the program can record a cleanup failure), and every program global
-slot. The full arena-state byte layout is owned by `./mfb spec memory arenas`.
-[[src/target/shared/code/error_constants.rs:ARENA_FREE_LIST_HEAD_OFFSET]]
+clears it before the first allocation — **the whole range**, in a loop from the
+arena-state base to base + `ARENA_STATE_SIZE`, not a chosen list of header words.
+Every program global slot is zeroed after it.
+
+The totality is load-bearing, not defensive: this initializer must stay in
+lockstep with the thread-spawn child-state zeroing, and both zero exactly
+`ARENA_STATE_SIZE`. Growing the arena state — adding quick bins, say — can then
+never leave a new field as garbage in one path but initialized in the other. A
+spec that named individual offsets here would invite exactly that divergence.
+The full arena-state byte layout is owned by `./mfb spec memory arenas`.
+[[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]] [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
 
 Slot layout in the entry frame:
 
@@ -92,10 +97,10 @@ words and the stream algorithm are owned by `./mfb spec memory arenas` (the
 at `16`/`24`); this topic owns only the startup seeding.
 
 When the program uses `math::rand`/`math::seed` (`seed_rng`), the shim draws 8
-entropy bytes from the OS (`emit_random_bytes`) into the as-yet-unused `ENTRY_ARGC`
-scratch slot — pre-filled with the arena address so a `getentropy` failure still
+entropy bytes from the OS (`emit_random_bytes`) into the dedicated
+`ENTRY_SEED_SCRATCH_OFFSET` slot at the top of the entry frame — pre-filled with the arena address so a `getentropy` failure still
 yields a varying seed — then calls `_mfb_rng_seed_at` (`RNG_SEED_SYMBOL`) with
-`x0 = x19` and the seed in `x1`. [[src/target/shared/code/error_constants.rs:RNG_SEED_SYMBOL]]
+`x0 = x19` and the seed in `x1`. [[src/target/shared/code/error_constants.rs:RNG_SEED_SYMBOL]] [[src/target/shared/code/error_constants.rs:ENTRY_SEED_SCRATCH_OFFSET]]
 
 The memory-fill stream is seeded unconditionally (entropy fill is always on). The
 shim parks argc/argv in callee-saved `x27`/`x28`, captures the arena start time at
@@ -112,17 +117,23 @@ With the arena live, the shim runs the program body and routes the four-register
 fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned by
 `./mfb spec memory fallible-call-abi`):
 
-1. **Native `LINK` init.** If the program has `LINK` bindings, call the link-init
+1. **Closure-descriptor init.** Call `_mfb_closure_desc_init`, which writes each
+   no-capture function value's `code` word with `&func` in its static BSS
+   descriptor. It runs once, before everything below and before any thread is
+   spawned, and cannot fail — there is no tag to check. This is what lets a
+   `FunctionRef` be an address rather than an allocation (bug-78; see
+   `./mfb spec memory closures`). [[src/target/shared/code/error_constants.rs:CLOSURE_DESC_INIT_SYMBOL]]
+2. **Native `LINK` init.** If the program has `LINK` bindings, call the link-init
    symbol (dlopen/dlsym) first; a non-`RESULT_OK_TAG` result jumps to the error
    path, so a load failure aborts before `main`. [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
-2. **Global initializer.** If present, call it. A `RESULT_PROGRAM_EXIT_TAG`
+3. **Global initializer.** If present, call it. A `RESULT_PROGRAM_EXIT_TAG`
    (`2`) routes `x1` to the process exit register and jumps to the exit path; any
    non-`RESULT_OK_TAG` jumps to the error path. [[src/target/shared/code/error_constants.rs:RESULT_PROGRAM_EXIT_TAG]]
-3. **Argument list.** If the language entry accepts args, save argc/argv to their
+4. **Argument list.** If the language entry accepts args, save argc/argv to their
    slots and materialize the argv strings into an in-arena `List OF String`
    (`emit_entry_args_list_materialization`, via `arena_alloc`); the resulting list
    pointer is loaded into `x0` as the entry's argument. [[src/target/shared/code/entry_and_arena.rs:emit_entry_args_list_materialization]]
-4. **Language entry.** Call the language entry FUNC/SUB. The result is routed the
+5. **Language entry.** Call the language entry FUNC/SUB. The result is routed the
    same way: `RESULT_PROGRAM_EXIT_TAG` → exit with `x1`; non-OK → error path. On
    success, a `Nothing` return exits `0`; an `Integer` return becomes the exit
    code but is range-checked against `255` (`ERR_OVERFLOW` if higher).
@@ -130,9 +141,12 @@ fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned 
 
 ## Error Path
 
-The error path (`entry_error`) prints the failure to stderr in the form
-`Code: <code> Message: <message>\n` (`ENTRY_ERROR_PREFIX` / `ENTRY_ERROR_SEPARATOR`
-/ `ENTRY_ERROR_NEWLINE`), stashing the error code in the arena-state exit-status
+The error path (`entry_error`) prints the failure to stderr as
+`Error: <G-SSS-EEEE>\n<message>\n` — the label and the hyphenated code on one
+line, the message alone on the next. There is **no** inline separator string:
+the banner is built from `ENTRY_ERROR_PREFIX` and `ENTRY_ERROR_NEWLINE` only, and
+the same shape is shared with the cleanup-failure banner
+(`./mfb spec diagnostics error-codes`). It stashes the error code in the arena-state exit-status
 word at offset `32` and the message pointer in `x20`. When the program can record
 cleanup failures, the cleanup-failure audit (count/code/message at arena offsets
 `64`/`72`/`80`) is reported next. The process exit code is then forced to `255`.
@@ -201,7 +215,7 @@ Two guards enforce the invariant with **no allowlist**:
   shared lowering except the two that define the physical namespace
   (the realization tables and the occupancy
   parsers) may spell a physical register of any class or ISA, quoted or
-  dynamically constructed; [[src/target/shared/]] [[src/target/shared/code/abi.rs]] [[src/target/shared/code/regalloc/analysis.rs]]
+  dynamically constructed; [[src/target/shared/]] [[src/target/shared/abi.rs]] [[src/target/shared/code/regalloc/analysis.rs]]
 * an always-on stream assertion at every
   point a shared stream is finished — the pre-selection seam, the hand-built
   helper finalizer, the entry stub, and the thread

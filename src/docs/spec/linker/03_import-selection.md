@@ -66,16 +66,20 @@ uses):
 
 ### Linux flavor differences
 
-The Linux platform object selects sonames by flavor:
+The Linux platform object selects sonames by flavor. The glibc soname is
+arch-invariant; the musl soname is **not** — it carries the architecture, so it
+differs on all three Linux targets:
 
 ```text
-                glibc                       musl
-libc      libc.so.6                   libc.musl-aarch64.so.1
-libpthread libpthread.so.0            (folded into libc.musl-aarch64.so.1)
+                glibc              musl
+libc        libc.so.6          libc.musl-<arch>.so.1
+libpthread  libpthread.so.0    (folded into libc.musl-<arch>.so.1)
 ```
 
-So `thread::start` imports `pthread_create` from `libpthread.so.0` on glibc but
-from `libc.musl-aarch64.so.1` on musl. Because the two flavors choose different
+where `<arch>` is `aarch64`, `x86_64`, or `riscv64` — the one thing in this model
+that is per-arch, supplied by `LinuxArch::musl_libc`. So `thread::start` imports
+`pthread_create` from `libpthread.so.0` on glibc but from `libc.musl-x86_64.so.1`
+on a musl x86-64 build. [[src/target/linux_common/code.rs:musl_libc]] Because the two flavors choose different
 sonames, each flavor is planned and linked independently from the same NIR (see
 `linux-aarch64`). There is no `libm` row: the `math::` kernels are in-tree, so no
 flavor lists `libm.so` as a needed library.
@@ -99,7 +103,7 @@ These are not resolved as ordinary platform imports. Instead:
 
 [[src/target/shared/code/link_thunk.rs:emit_link_support]]
 
-A call to a `LINK` function is a `CallKind::Import` referencing the internal
+A call to a `LINK` function is a `CallKind::Local` referencing the internal
 thunk symbol — an internal `branch26`, not an external relocation. The dynamic
 dependency on the user library is expressed only through `dlopen` at run time, so
 the `LINK` library name does not appear in the executable's dynamic dependency

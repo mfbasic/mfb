@@ -86,9 +86,20 @@ offset            field
  16   cursorRow  u64
  24   cursorCol  u64
  32   dirty      u64   (1 forces a full repaint: first present after on/resize)
- 40   back cells   rows*cols cells   (the frame being drawn)
- ...  front cells  rows*cols cells   (the last presented frame)
+ 40   back cells   rows*cols * 16   (the frame being drawn)
+ ...  front cells  rows*cols * 16   (the last presented frame)
+ ...  out buffer   rows*cols * 72 + 64   (escape-stream scratch + trailer slack)
 ```
+
+A **cell is 16 bytes**, and the **out buffer dominates the block**: at 72 bytes
+per cell it is larger than back and front combined, so an allocation sized from
+back+front alone undershoots by more than half. The 72 is the worst-case escape
+byte count for one changed cell, counted from the sequences this backend actually
+emits (bug-313 raised it from 64, which was the exact worst case with zero margin
+and only for coordinates below 1000). The trailing 64 bytes are reserved past the
+exact `rows*cols*72` so the fixed trailing reset/CUP/cursor sequence still has
+headroom on a near-saturating repaint.
+[[src/target/shared/code/term_grid.rs:OUTBUF_PER_CELL]] [[src/target/shared/code/term_grid.rs:TRAILER_SLACK]]
 
 `term::off` runs the final present, frees the block, and zeroes slot 48;
 `_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames
@@ -105,7 +116,7 @@ The `_main` bootstrap synthesizes `TermView` at runtime via
 `objc_allocateClassPair(NSView, "TermView", 0)` (zero extra instance bytes — the
 grid state is a separate `calloc`'d buffer, attached as an associated object,
 because `object_getIndexedIvars` storage is not reliably backed for
-runtime-synthesized classes). Five methods are added, then
+runtime-synthesized classes). Seven methods are added, then
 `objc_registerClassPair`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 | Selector | Type encoding | IMP symbol |
@@ -115,6 +126,8 @@ runtime-synthesized classes). Five methods are added, then
 | `mfbWriteString:` | `v@:@` | `_mfb_macapp_term_writeString` |
 | `acceptsFirstResponder` | `c@:` | `_mfb_macapp_term_acceptsFR` |
 | `keyDown:` | `v@:@` | `_mfb_macapp_term_keyDown` |
+| `mfbClear:` | `v@:@` | `_mfb_macapp_term_clear` |
+| `setFrameSize:` | `v@:{CGSize=dd}` | `_mfb_macapp_term_setFrameSize` |
 
 `isFlipped` returns YES so row 0 is at the top and cell `(row, col)` maps to
 `(col*cellW, row*cellH)` in the flipped space. `acceptsFirstResponder` returns
@@ -337,15 +350,17 @@ with a fixed stride, so storage is static (no per-resize realloc). [[src/target/
 | `ST_TERM_CURSOR_VISIBLE` | cursor visibility |
 | `ST_TERM_COLS` / `ST_TERM_ROWS` | active extent (derived from window size) |
 | `ST_TERM_CELL_W` / `ST_TERM_CELL_H` | cell px metrics |
-| `ST_TERM_CHARS` | `u8[160*48]` glyph bytes (live/back) |
+| `ST_TERM_CHARS` | `u32[160*48]` glyph code points (live/back) |
 | `ST_TERM_FG` | `u32[160*48]` fg (live/back) |
 | `ST_TERM_BG` | `u32[160*48]` bg (live/back) |
 | `ST_TERM_SNAP_CHARS` / `ST_TERM_SNAP_FG` / `ST_TERM_SNAP_BG` | draw-owned snapshot (front) copy of the three arrays |
 
 Backing stride is `TERM_MAX_COLS=160 × TERM_MAX_ROWS=48`; only the top-left
 `cols × rows` (derived from the content area / monospace cell metrics — recomputed
-on window resize) are active. The char array is 1 byte/cell (not a unichar) —
-ASCII-oriented, unlike the macOS u32 glyph. The worker mutates the **live** arrays;
+on window resize) are active. The char array is `u32`, one code point per cell,
+matching the macOS glyph and the shared cell model above: a byte per cell split a
+multi-byte glyph across cells and drew each fragment as tofu (bug-203). The worker
+mutates the **live** arrays;
 a present copies them into the **snapshot** arrays on the GTK main loop before
 `queue_draw`, and the draw callback reads the snapshot (see Renderer + ops below).
 

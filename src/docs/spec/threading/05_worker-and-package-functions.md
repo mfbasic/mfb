@@ -19,7 +19,7 @@ executable's own functions — routes through the ordinary `_mfb_fn_` namespace.
 The symbol is `_mfb_fn_<fragment>`, where `<fragment>`
 is the function's merged IR name with every byte outside ASCII letters and
 digits — including `_` itself — escaped to an unambiguous `_XX` two-hex-digit
-form. [[src/target/shared/nir.rs:function_symbol]] [[src/target/shared/nir.rs:symbol_fragment]] Escaping the interior `_` keeps a mangled overload
+form. [[src/target/shared/nir/mod.rs:function_symbol]] [[src/target/shared/nir/mod.rs:symbol_fragment]] Escaping the interior `_` keeps a mangled overload
 name such as `f$List$OF$Integer` distinct from a user function literally named
 `f_List_OF_Integer`, which the earlier fold-everything-to-`_` mapping collided at
 link time. Because

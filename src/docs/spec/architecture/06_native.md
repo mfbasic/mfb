@@ -55,6 +55,7 @@ Runtime-helper detection is handled by the runtime-helper layer.[[src/target/sha
 The compiler scans IR values for calls into built-in packages. It records
 which helper families are needed (the `RuntimeHelper` enum):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
+- `audio`
 - `crypto`
 - `datetime`
 - `fs`
@@ -63,10 +64,12 @@ which helper families are needed (the `RuntimeHelper` enum):[[src/target/shared/
 - `math`
 - `net`
 - `os`
-- `strings`
 - `term`
 - `thread`
 - `tls`
+
+There is no `strings` family: every `strings::` op is lowered inline (native-direct),
+so no `_mfb_rt_strings_*` helper is ever emitted.
 
 `validate_capabilities` rejects native builds that require runtime calls not
 listed in the backend capability set.[[src/target/shared/validate.rs:validate_capabilities]]
@@ -130,11 +133,6 @@ not visible from plain runtime-call dispatch and are handled specially:[[src/tar
   in the close helper for *every* variant of the union. The variant-close map is
   built once over all `union` types whose variants all map to a
   `resource_close_function`.
-- **Thread `.result` member access.** A `MemberAccess` whose member is `result`
-  pulls in `RuntimeHelper::Thread`, because reading a thread handle's result is
-  serviced by the thread runtime even though no `thread.*` call appears in the
-  IR.
-
 Otherwise, helpers come from `Call`/`CallResult` targets via `helper_for_call`,
 skipping native-direct calls (`is_native_direct_call`).
 

@@ -3,7 +3,7 @@
 ## Symbol naming
 
 Internal symbols are generated during native lowering. The conventions:
-[[src/target/shared/nir.rs]]
+[[src/target/shared/nir/mod.rs]]
 
 ```text
 _mfb_fn_<name>               user (and merged package) functions

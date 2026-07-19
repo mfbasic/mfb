@@ -178,7 +178,7 @@ The current declaration kinds in `ABI_INDEX` are exactly the kinds `encode_expor
 5 = exported enum type
 ```
 
-The ABI index emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[repository/src/abi.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
+The ABI index emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[src/binary_repr/sections.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
 
 Because `ABI_INDEX` lives inside `packageBinaryRepr`, the `packageBinaryHash` and the package signature already cover it — no header change is needed to trust it. The registry parses this section from a published package (string pool + `ABI_INDEX` only) and serves the resulting `{ "<symbol>": "<hex abiHash>" }` map as the `abiIndex` field of `GET /index`. `mfb pkg check-abi` builds the working tree, reads its `ABI_INDEX`, and diffs it against the latest published version's served map, naming every changed or dropped symbol (both break the superset relation the resolver relies on).[[repository/src/abi.rs:parse_abi_index]][[src/cli/pkg.rs:check_abi]]
 

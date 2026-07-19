@@ -21,8 +21,9 @@ overloads of each function **share one kernel**, so `math::f(x)` and
 ## Determinism contract
 
 The kernels contain no platform `branch_link` to a math symbol — verified by the
-`no_libm_math_imports` regression test in both
-[[src/target/macos_aarch64/plan.rs]] and [[src/target/linux_aarch64/plan.rs]], and
+`no_libm_math_imports` regression test, which every shipping backend carries —
+[[src/target/macos_aarch64/plan.rs]], [[src/target/linux_aarch64/plan.rs]],
+[[src/target/linux_x86_64/plan.rs]], and [[src/target/linux_riscv64/plan.rs]] — and
 observable as the absence of `_pow`/`_sin`/`_fmod`/… in a built binary's import
 table. Because the same hand-written code runs on every target and uses only IEEE
 `f64` operations (with FMA where a kernel's reduction calls for it), **a math

@@ -3,19 +3,19 @@
 Native executable output flows through a fixed sequence of stages, each with a
 concrete in-compiler type. The target backend owns the pipeline; the linker is
 its final target-specific stage.
-[[src/target/macos_aarch64/]] [[src/target/linux_aarch64/]] [[src/os/macos/]] [[src/os/linux/]]
+[[src/target/macos_aarch64/]] [[src/target/linux_aarch64/]] [[src/target/linux_x86_64/]] [[src/target/linux_riscv64/]] [[src/os/macos/]] [[src/os/linux/]]
 
 ```text
 IrProject                                                language IR
   -> NirModule                                           native IR, packages merged in
   -> NativePlan                                          symbol/import/call plan
        -> object plan validation gate (see object-plan)
-  -> NativeCodePlan                                      concrete aarch64 instructions
+  -> NativeCodePlan                                      concrete native instructions
   -> EncodedImage                                        text/data/symbols/relocs/imports
   -> target linker                                       container encoding
   -> executable file(s)
 ```
-[[src/ir.rs]] [[src/target/shared/nir.rs]] [[src/target/shared/plan.rs]] [[src/target/shared/code/mod.rs]] [[src/arch/aarch64/encode.rs]] [[src/os/link.rs]]
+[[src/ir/mod.rs]] [[src/target/shared/nir/mod.rs]] [[src/target/shared/plan/mod.rs]] [[src/target/shared/code/mod.rs]] [[src/arch/aarch64/encode/mod.rs]] [[src/os/macos/link/mod.rs]] [[src/os/linux/link/mod.rs]]
 
 ## Stage producers
 
@@ -28,7 +28,7 @@ The backend's executable writer runs the stages in order:
    objects, calls, and platform imports with their final symbol names.
 4. The plan's own validation then the platform object-plan validation run the
    structural checks (the object-plan gate).
-5. The code-lowering stage produces the `NativeCodePlan`: concrete aarch64
+5. The code-lowering stage produces the `NativeCodePlan`: concrete native
    instructions per function plus relocation requests. A code-plan validation
    follows.
 6. The encoder assembles the `EncodedImage`: encoded `text` and `data` byte

@@ -109,10 +109,16 @@ via `INPUT_LINE_KEY` (RETAIN association). Committing reads its `UTF8String`,
 
 Linux keeps it in the state global:
 
-| Slot | Offset | Contents |
-|------|--------|----------|
-| `ST_LINE_LEN` | 64 | length of the pending line in `ST_LINE_BUF` |
-| `ST_LINE_BUF` | 72 | accumulated UTF-8 bytes (cap `LINE_BUF_CAP` = 1024) |
+| Slot | Contents |
+|------|----------|
+| `ST_LINE_LEN` | length of the pending line in `ST_LINE_BUF` |
+| `ST_LINE_BUF` | accumulated UTF-8 bytes (cap `LINE_BUF_CAP` = 1024) |
+
+The byte offsets are deliberately not repeated here: `./mfb spec app linux-runtime`
+owns the `_mfb_gtkapp_state` layout. This table restated them and went stale when
+`ST_ARGC`/`ST_ARGV` were inserted ahead of these slots (bug-240), so the offset it
+labelled `ST_INPUT_MODE` had become `ST_ARGC` — a reader following it read argc as
+the input mode.
 
 Committing `write()`s `ST_LINE_BUF[0..ST_LINE_LEN]` then a `'\n'` to
 `ST_PIPE_WRITE_FD`, then resets `ST_LINE_LEN` to 0. [[src/target/linux_gtk/mod.rs:ST_LINE_BUF]]
@@ -133,8 +139,8 @@ waiting.
 [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_LINE_ECHO]] [[src/target/linux_gtk/mod.rs:ST_INPUT_MODE]]
 
 macOS stores the mode as an objc associated object on `NSApplication` under
-`INPUT_MODE_KEY` (ASSIGN); Linux stores it at `ST_INPUT_MODE` (offset 56) in the
-state global. On macOS the default (no `io::input`) is never written, so the
+`INPUT_MODE_KEY` (ASSIGN); Linux stores it at `ST_INPUT_MODE` in the state global
+(see `./mfb spec app linux-runtime` for the offset). On macOS the default (no `io::input`) is never written, so the
 handler's line path runs whenever the mode is not `2` — only line-echo (`1`)
 triggers the transcript echo. [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_KEY]]
 

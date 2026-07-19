@@ -24,12 +24,16 @@ The build-time audit (and a future language server) surface the following:
 - All native binding packages, linked native libraries, declared symbols, ABI
   mappings, and native resource close functions used by a build.
 - Package permissions and host capabilities when a standard or native package
-  requires filesystem, network, process, environment, clock, randomness, or
-  native-library access.
-- Confusing identifier similarity in dense or security-sensitive code. In the
-  current ASCII-only identifier set this is case-only near-collisions; if non-ASCII
-  identifiers are ever enabled, it also covers Unicode normalization, case-fold,
-  script-mixing, and confusable-character collisions.
+  requires filesystem, network, terminal, threads, process, environment, clock,
+  randomness, or native-library access. (`./mfb spec tooling audit-format`
+  catalogues the finding for each.)
+
+**Not implemented**, and stated here as a design target rather than a shipped
+analysis: confusing identifier similarity in dense or security-sensitive code. In
+the current ASCII-only identifier set that would be case-only near-collisions; if
+non-ASCII identifiers are ever enabled it would also cover Unicode normalization,
+case-fold, script-mixing, and confusable-character collisions. `mfb audit` emits
+no such finding today.
 
 Fallible-call, propagation, `TRAP`, permission, native-link, and resource-cleanup
 metadata are carried in `.mfp` packages when exported APIs contain or expose those

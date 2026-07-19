@@ -150,6 +150,43 @@ all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.
 
+## Resource Record
+
+Every resource value is a pointer to an **80-byte arena record**. The size is
+uniform across resource kinds — `File`, `Socket`, `Listener`, `TlsSocket`,
+`AudioInput`, a native `LINK` resource — so the generic thread-transfer copy and
+the closed-default record stay one implementation. A kind that needs fewer words
+carries the rest inertly.
+
+```text
+ResourceRecord (80 bytes, alignment 8)
+  +0   U64  handle    ; the OS handle (fd, socket, or native pointer)
+  +8   U64  flags     ; flag SET, not a boolean — see below
+  +16  U64  state     ; pointer to the STATE payload, 0 until initialized
+  +24  U64  bufPtr    ; per-File output buffer (plan-14-B), 0 = unbuffered
+  +32  U64  bufFilled ; bytes currently held in bufPtr
+  +40  U64  bufEnabled; 0 on every freshly opened handle
+  +48  U64  readPtr   ; per-File read buffer (plan-14-C), 0 until first read
+  +56  U64  readPos   ; next unconsumed byte offset within readPtr
+  +64  U64  readFill  ; valid bytes in readPtr
+  +72  U64  readAtEof ; set once the underlying read() returned 0
+```
+
+`flags` at **offset 8 is a compiler-enforced invariant**, not a convention: bit 0
+is `closed`, bit 1 is `moved`, and 62 bits are spare. Every guard tests the word
+for *non-zero* rather than for `== 1`, so a moved record already refuses every
+operation with no extra code; only a path that must distinguish
+`ErrResourceMoved` from `ErrResourceClosed` reads the individual bits. A
+closed-default record is 80 zeroed bytes with this word set to 1. Compile-time
+asserts tie every per-backend resource layout to this offset, so a future
+resource whose closed flag drifts off offset 8 fails to build.
+[[src/target/shared/code/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
+
+A borrow of a resource shares the record, and therefore shares the `state`
+pointer. Scope-drop reclaims the two buffers and the `STATE` payload but leaves
+the 80-byte record itself as a tombstone carrying the flags — see
+`./mfb spec memory arenas`.
+
 ## See Also
 
 * ./mfb spec threading isolation — re-materializing a heap value across a thread boundary

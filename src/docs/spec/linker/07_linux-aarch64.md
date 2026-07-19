@@ -2,7 +2,7 @@
 
 The Linux backend is cross-compiled and writes ELF64 aarch64 executables
 directly. It does not invoke `ld`, `gold`, `lld`, `gcc`, `clang`, or any host
-linker. [[src/os/linux/link.rs]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+linker. [[src/os/linux/link/mod.rs]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 A console build emits two flavors, one per dynamic loader / library naming, both
 inside the project's `build/` directory:
@@ -19,23 +19,35 @@ independently from the same NIR, because the sonames it imports differ.
 
 ## Container layout
 
-Constants: image base `0x400000`, text file offset `0x1000`, page size `0x1000`
-(4 KiB). The ELF header is `ET_EXEC`, `EM_AARCH64`, entry =
-`text_vmaddr + entry_offset`.
+Constants: text file offset `0x1000`, page size `0x1000` (4 KiB). The ELF header
+is `EM_AARCH64`, entry = `text_vmaddr + entry_offset`.
 
-A dynamic image (imports present, `encode_dynamic_elf`) has seven program
-headers, or eight when the image has a read-only constant partition:
+Two container shapes ship, and they differ in exactly this. A **dynamic** image
+(any imports — every real program) is `ET_DYN`: a position-independent executable
+at link base `DYN_IMAGE_BASE = 0`, which the loader maps at a random slide, so
+ASLR applies (bug-186). Only the **static**, import-less path keeps `ET_EXEC` at
+image base `0x400000`. [[src/os/linux/link/mod.rs:DYN_IMAGE_BASE]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+
+A dynamic image (imports present, `encode_dynamic_elf`) has eight program
+headers, or nine when the image has a read-only constant partition:
 
 ```text
-PT_PHDR      the program header table
-PT_INTERP    the dynamic loader path
-PT_LOAD      RX text (image base)
-PT_LOAD      R  rodata (only if a constant partition is present)
-PT_LOAD      RW data
-PT_DYNAMIC   the .dynamic section
-PT_GNU_STACK the non-executable-stack marker (all sizes 0)
-PT_NOTE      the MFBasic provenance marker
+PT_PHDR       the program header table
+PT_INTERP     the dynamic loader path
+PT_LOAD       RX text
+PT_LOAD       R  rodata (only if a constant partition is present)
+PT_LOAD       RW data
+PT_DYNAMIC    the .dynamic section
+PT_GNU_RELRO  the range the loader re-protects to R after startup relocation
+PT_GNU_STACK  the non-executable-stack marker (all sizes 0)
+PT_NOTE       the MFBasic provenance marker
 ```
+
+`PT_GNU_RELRO` covers the page-aligned dynamic payload — the GOT and `.dynamic` —
+and is page-disjoint from the still-writable arena global below it. Paired with
+`DF_BIND_NOW`, which resolves every relocation before `main`, it means the GOT is
+read-only for the whole life of the program rather than a writable
+control-flow-hijack target. [[src/os/linux/link/elf.rs:PT_GNU_RELRO]]
 
 A static image (no imports, `encode_static_elf`) has four: two `PT_LOAD`s — text
 (R+X) and a writable data segment page-aligned to the `data_vmaddr` the
@@ -61,9 +73,17 @@ symbol, `chain[i]` linking to symbol `i+1`, and `0` (`STN_UNDEF`) terminating it
 DT_NEEDED (one per distinct imported library)
 DT_HASH DT_STRTAB DT_SYMTAB DT_STRSZ DT_SYMENT
 DT_PLTGOT DT_RELA DT_RELASZ DT_RELAENT DT_PLTREL DT_JMPREL DT_PLTRELSZ
-DT_FLAGS_1 = 8 (DF_1_NODELETE)
+DT_RUNPATH (only when the build vendors a native library)
+DT_FLAGS = 8 (DF_BIND_NOW)
 DT_NULL
 ```
+
+`DT_FLAGS` is tag **30** — not `DT_FLAGS_1` (`0x6ffffffb`) — and within it the
+value `8` is **`DF_BIND_NOW`**: every relocation is resolved eagerly at startup,
+which is what lets `PT_GNU_RELRO` then make the GOT read-only. `DT_RUNPATH` is
+tag **29**, not `DT_RPATH` (15); it is emitted only for a build that vendors a
+native library, and unlike `DT_RPATH` it *can* be overridden by
+`LD_LIBRARY_PATH`. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 Each imported function gets a 12-byte stub and an 8-byte GOT slot, with a
 relocation in `.rela`: `R_AARCH64_JUMP_SLOT` for `ImportKind::Function`,

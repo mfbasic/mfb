@@ -32,13 +32,14 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `sources` | array of objects | yes | source roots (see *Source Entries*); non-empty |
 | `kind` | string | yes¹ | `"executable"` or `"package"` |
 | `mode` | string | no | `"console"` (default) or `"app"`; `"app"` is equivalent to passing `--app` (see ²) |
-| `icon` | string | no | project-relative path to a 1024×1024 PNG source for the macOS app icon (see ³) |
+| `icon` | string | no | project-relative path to a 1024×1024 PNG source for the app icon, used on macOS and Linux (see ³) |
 | `entry` | string | no | entry-point function name; defaults to `"main"` |
 | `author` | string | no | package author metadata |
 | `url` | string | no | package homepage/source URL |
 | `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
+| `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
 | `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** (bug-326-A14) |
 | `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
@@ -65,12 +66,17 @@ that does not resolve to a readable file is a hard error
 (`PROJECT_JSON_ICON_MISSING`). The macOS backend renders it (or, when absent, the
 compiler's embedded default) into `Contents/Resources/AppIcon.icns`; a provided
 image that is not decodable or not exactly 1024×1024 fails the build. `icon` is
-macOS-only — a Linux/GTK app build ignores it.
+rendered on **both** platforms: a Linux app build does not ignore it, but writes
+the PNG at every hicolor size into `usr/share/icons/hicolor/<N>x<N>/apps/` in the
+AppDir plus a root copy. What is macOS-only is the `.icns` pipeline, not the key —
+a malformed `icon` now fails a Linux build that previously ignored it.
+[[src/os/linux/appdir.rs:HICOLOR_SIZES]]
 [[src/manifest/mod.rs:icon_path]] [[src/os/macos/icon.rs:build_icns]]
 
 Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url`/`icon`
-(optional strings), `kind`, `mode`, and `sources` are *validated* by the manifest
-validator. The
+(optional strings), `kind`, `mode`, `sources`, **`resources`**, and
+**`libraries`** are *validated* by the manifest validator — the last two through
+`validate_resources` and `validate_libraries`, which run on every load. The
 remaining fields (`ident`, `packages`, `config`) are read lazily by later stages —
 `package_metadata`, `package_dependencies`, and the codegen tunable readers — and
 are **not** schema-checked here; an absent or wrong-typed value simply defaults
@@ -221,6 +227,28 @@ normal case. [[src/manifest/mod.rs:validate_libraries]]
 The section is validated for *shape* only — it is not checked against the
 filesystem here. Whether a vendored file exists and what it hashes to is resolved
 when the package is built; see `./mfb spec language native-libraries`.
+
+## Resource Entries
+
+`resources` is an array of `{src, dst}` objects naming data files the build copies
+into the output tree beside the executable (plan-55-A). Both fields are required
+strings and both are shape-validated at manifest load, not deferred.
+
+| field | type | required | meaning |
+| --- | --- | --- | --- |
+| `src` | string | yes | project-relative glob of files to copy; non-empty |
+| `dst` | string | yes | destination path within the output tree; a trailing `/` names a directory |
+
+Both paths are checked to stay **inside** the project: `src` must not escape the
+project root and `dst` must not escape the output tree. `src` was once checked
+only for non-emptiness, which left the read side open to `../` escaping the
+project (bug-298); the containment check is the fix, and it is textual here —
+`copy_resources` additionally canonicalizes at copy time, so a symlink *inside*
+the project pointing outside it is caught there rather than passing both checks.
+[[src/manifest/mod.rs:validate_resources]] [[src/cli/build.rs:copy_resources]]
+
+At runtime a program locates a copied resource with `os::resourcePath` — see
+`./mfb spec stdlib os`.
 
 ## Entry Point Validation
 

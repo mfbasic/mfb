@@ -311,9 +311,18 @@ receiver arena and deactivates the sender's cleanup. Binding slots are
 zero-initialized before a (possibly trapping) initializer runs and the free is
 null-guarded, so an initializer that traps before storing frees nothing.
 
-Three classes of value are **excluded** from scope-drop frees because they are not
-plain arena blocks this scope owns: **resources** (a move-only handle to the single
-arena-global instance, reclaimed by its own close op); **runtime-managed thread
+A **resource** is scope-dropped, but on its own terms: drop and close do different
+jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
+memory — since plan-52-B the drop path `arena_free`s the resource's output buffer,
+read buffer, and `STATE` payload, nulling each pointer word as it goes. Only the
+80-byte record itself survives, deliberately, as the tombstone that carries the
+closed flag. Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
+copied the `STATE` pointer into the receiver's record, so freeing it here would hand
+another thread a dangling payload. (`./mfb spec language resource-management` specifies the
+close/drop split.) [[src/target/shared/code/builder_codegen_primitives.rs:emit_resource_block_reclaim]]
+
+Two classes of value are **excluded** from scope-drop frees because they are not
+plain arena blocks this scope owns: **runtime-managed thread
 results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing
 and the worker arena, bulk-freed at teardown); and **recursive / non-flat composites**
 (kept as pointer graphs, `type_is_flat` is false). Builtins that could otherwise return

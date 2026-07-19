@@ -67,7 +67,7 @@ Comparability/orderability constraints (enforced on the IR by the semantic verif
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
   `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
   record whose fields are all comparable. `List`, `Map`, function values,
-  `Result`, resources, threads, and `UNION` types are not comparable. [[src/ir/verify/mod.rs:is_comparable_with_seen]]
+  `Result`, resources, threads, and `UNION` types are not comparable. [[src/ir/verify/mod.rs:is_comparable_seen]]
 - `collections::sort`/`collections::sortBy` order their elements/keys with the
   `<` operator, so the element (or key) type must be orderable; `distinct`
   relies on `contains` and therefore requires a comparable element type.

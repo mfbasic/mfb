@@ -5,8 +5,11 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (documentation)
 
-Status: Open
-Regression Test: `src/docs/spec/mod.rs` — new `#[cfg(test)]` drift guard (`spec_links_resolve`, `spec_citations_resolve`)
+Status: Fixed (2026-07-19)
+Regression Test: `src/docs/spec/mod.rs` — `spec_links_resolve` and
+`spec_citations_resolve`, both landed and both green. They caught real breakage on
+their first run: every C9 file citation, which is how the ten stale paths below
+were found rather than hand-listed.
 
 `.ai/specifications.md` makes the embedded spec **the single source of truth for
 every externally observable compiler/language/format/ABI contract**, version-locked
@@ -864,6 +867,68 @@ deliberately does **not** cover — see Fix Design.)
   `read_section_table`, `read_string_pool`, `read_abi_exports`, and four `read_uN`
   helpers — all *readers*. The ABI-index *producer* the claim describes lives on the
   compiler side, in `src/binary_repr/`.
+
+## Outcome (2026-07-19)
+
+Every group is closed, and the two drift guards are in place and green. What
+changed relative to this document:
+
+### The guards found more than the sweep did, and less
+
+`spec_citations_resolve` failed on its first run with **ten** broken file
+citations — `src/ir.rs`, `src/target/shared/nir.rs` (×2 plus two symbol-level),
+`src/target/shared/plan.rs`, `src/arch/aarch64/encode.rs`, `src/os/link.rs`,
+`src/os/macos/link.rs`, `src/os/linux/link.rs`, and
+`src/target/shared/code/abi.rs`. All are modules that grew into directories
+(`x.rs` → `x/mod.rs`) or moved. That is C9, found mechanically rather than by
+hand — which is the point of the guard.
+
+`spec_links_resolve` needed two parser exclusions to be honest rather than
+noisy: a `See Also` line reads `./mfb spec linker — description`, so the em-dash
+terminates a target, and `./mfb spec language *` is prose meaning "the language
+topics", not a link. Both are recorded in the test.
+
+The symbol half of a citation is deliberately **not** guarded. H2 is exactly why:
+`verify_semantics` does exist — as a re-export one module up from the file cited —
+so a naive symbol grep would have called a real re-export a dangling citation
+while missing that the *file* was the wrong one to cite.
+
+### Claims that were already fixed
+
+Re-checking each item against the tree found five that had landed since the sweep:
+
+- **A3, A4, A5 (partially)** — `19_grammar.md` already carried
+  `abiSlot = ident [ "IN" | "OUT" | "INOUT" ] nativeType`, already recorded
+  plan-50-H's deletion of the `return` slot name, and already made the parameter
+  list optional. Only the **return type** was still written as mandatory, which
+  is the half that remained.
+- **E3 (JSON half)** — bug-283-A1 already routed `audit::json::write_string`
+  through `is_terminal_unsafe`, so the JSON renderer no longer under-escapes and
+  the U+202E hazard described here is closed. The spec's *text*-renderer
+  description was the stale half, understating it as controls-only.
+- **E5** — `04_audit-format.md` already documented all three arms of
+  `is_fallible_call`, including the per-builtin sets.
+- **F3's code half** — `no_libm_math_imports` now exists in **all four** backends,
+  `linux_x86_64` included. Only the spec's "in both" count was wrong; there was
+  no missing test to add.
+
+### Corrections to the document's own numbers
+
+- **D6** — `OUTBUF_PER_CELL` is **72**, not 64. bug-313 raised it, recording that
+  64 was the exact worst case with zero margin and only for coordinates below
+  1000. The conclusion holds and is stronger: the out buffer is still the
+  majority of the block.
+- **D1** — the recomputed offsets in the table are correct; verified by compiling
+  a probe against the real constants rather than by re-deriving them
+  (1216 / 31936 / 62656 / 93376 / 124096 / 154816, `STATE_SIZE` 185536).
+
+### The structural item
+
+F1 was fixed by **deletion**, not refresh: `architecture/01_commands.md` went from
+82 lines to 61, keeping only what it uniquely owns (the build modes and the
+`buildMode` → artifact mapping) and pointing at `tooling/07_cli-reference.md` for
+the command surface. Refreshing the lists would have recreated the duplication
+that produced the drift, and the topic now says so in its own text.
 
 ## Goal
 

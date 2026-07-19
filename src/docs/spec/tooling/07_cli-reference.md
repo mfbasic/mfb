@@ -20,11 +20,13 @@ flags `-q`/`-v` keep their single dash (with `--quiet`/`--verbose` long forms).
 The diagnostics quoted in this topic name the legacy single-dash spelling
 verbatim, whichever form was typed.
 
-The usage block is two-tier: the top-level screen advertises only the common
-`pkg` (`add`/`update`/`install`/`verify`) and `repo` (`register`/`auth`)
-commands; `mfb pkg --help` and `mfb repo --help` list each family in full, and
-`pkg`/`repo` usage errors print those sub-help screens rather than the top-level
-one.[[src/main.rs:PKG_HELP]][[src/main.rs:REPO_HELP]]
+Help is **per command**, not two-tier. The top-level screen groups the commands
+and advertises only the common `pkg` (`add`/`update`/`install`/`verify`) and
+`repo` (`register`/`auth`) members, and eleven commands then carry a `--help`
+screen of their own: `init`, `init-pkg`, `pkg`, `repo`, `build`, `test`, `fmt`,
+`audit`, `doc`, `man`, and `spec`. A usage error in one of those prints that
+command's screen rather than the top-level one.
+[[src/main.rs:PKG_HELP]] [[src/main.rs:BUILD_HELP]] [[src/main.rs:USAGE]]
 
 ## Commands and Exit Codes
 
@@ -62,7 +64,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
 | `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
-| `man` | `mfb man [package] [function]` | 0 ok; 2 unknown package/function or >2 args |
+| `man` | `mfb man [package] [function] [--all]` | 0 ok; 2 unknown package/function, `--all` with a function, or >2 positionals |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
 
 The usage block printed by `help` is the `USAGE` constant.[[src/main.rs:USAGE]]
@@ -129,6 +131,7 @@ package).
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `--app` | — | GUI app-mode runtime; at most one |
 | `--app-debug` | — | app mode, keeping the intermediate `build/<name>.AppDir` (Linux); implies `--app`; at most one |
+| `--unsigned` | — | permit unsigned dependencies whose source is **not** local (see below) |
 | `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
 | `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |
 
@@ -144,6 +147,16 @@ threads the bundle to the package writer; the one-off private key is discarded
 with the build. The signed ident is the manifest `ident` (which must belong to
 `owner`), else `<owner>#<name>`. See `./mfb spec package-manager signing`.
 [[src/cli/build.rs:load_build_signing_info]]
+
+`--unsigned` relaxes exactly one check, and only in one direction. An unsigned
+dependency whose source is local (`file:`/`local:`, or no source at all) is
+**always** permitted; without this flag an unsigned dependency pulled from a
+remote or registry source is refused — "package `<name>` is unsigned but its
+source is not local; pass --unsigned to allow it". The flag makes that case
+permitted too. It is the opt-out for the audit-1 PKG-01 supply-chain check, so it
+weakens a security control and nothing else: it does not disable signature
+*verification* of packages that do carry one.
+[[src/cli/build.rs:verify_and_report_packages]]
 
 `--app` is **executable-only** and requires a native target that supports app mode
 (`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`); otherwise it errors before any lowering
@@ -206,7 +219,7 @@ machines).
 ## `fmt`, `doc`, `audit` Flags
 
 `fmt` (`run_fmt_command`) takes `--check`, `--indent N` / `--indent=N` (default
-`2`, parsed by `parse_indent` — non-negative integer, else exit 2), and one
+`2`, parsed by `parse_indent` — an integer in `0..=256`, else exit 2), and one
 optional `[location]` (file or project dir, default `.`).[[src/cli/fmt.rs:run_fmt_command]]
 Without `--check` it rewrites files in place and prints `Formatted <path>` per
 change; with `--check` it writes nothing, prints `Not formatted: <path>`, and on
@@ -417,7 +430,11 @@ Index and subtopic listings are emitted as a two-column GFM table
 column reflows to the terminal width instead of running off it; literal `|` in a
 cell is escaped (`escape_spec_cell`).[[src/cli/spec.rs:print_spec_listing]]
 
-`show_man` mirrors `spec` but is not width-aware: zero args print the package
+`show_man` mirrors `spec` and **is** width-aware — it wraps to
+`detect_terminal_width()` exactly as `spec` does; what it lacks is the `--width`
+*flag* to override that. `--all` renders the whole manual with no positionals, or
+a whole package with one; combining `--all` with a function name is the one
+rejected form. Otherwise: zero args print the package
 index, one arg a package's function/topic listing, two args a single function
 page; an unknown package/function or more than two args exits `2`.[[src/cli/man.rs:show_man]]
 The `man` listing heading is `TOPICS`/`topic` for the `types` package,

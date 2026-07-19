@@ -10,7 +10,15 @@ qualifiedName  = ident "::" ident ;
 resourceDecl   = declVis "RESOURCE" ident "CLOSE" "BY" qualifiedName
                    [ "THREAD_SENDABLE" ] ;
 funcAlias      = declVis "FUNC" ident "AS" qualifiedName ;
-linkDecl       = "LINK" string "AS" ident { nativeFuncDecl } "END" "LINK" ;
+linkDecl       = "LINK" string "AS" ident { nativeFuncDecl | cstructDecl }
+                   "END" "LINK" ;
+cstructDecl    = "CSTRUCT" ident "AS" ident
+                   { ident nativeType }
+                   "END" "CSTRUCT" ;
+(* CSTRUCT declares a C struct layout and the MFBASIC record it maps to. It is
+   legal only inside a LINK block; naming it anywhere else is
+   NATIVE_CSTRUCT_ESCAPE. `CSTRUCT` and the closing `END CSTRUCT` name are
+   contextual identifiers, not keywords. *)
 (* The native FUNC name may be a keyword (e.g. `step`, colliding with `STEP`);
    the parser accepts a keyword token in this position. A `RES` native return may
    carry a `STATE T` clause (plan-53): the native producer hands back a resource
@@ -30,7 +38,10 @@ nativeFuncBody = { "SYMBOL" string
                  | bindIn
                  | bindState
                  | nativeFree } ;
-constPin       = "CONST" ident "=" expr ;
+constPin       = "CONST" ident "=" ( "SIZEOF" ident | expr ) ;
+(* The SIZEOF form pins a CSTRUCT's computed size; its operand is a CSTRUCT
+   *type name*, not a value, so `expr` does not cover it. `SIZEOF` is a
+   contextual identifier. *)
 nativeReturnRule = "SUCCESS_ON" expr | "ERROR_ON" expr ;
 (* BIND IN writes named struct fields into an IN/INOUT slot before the call;
    BIND STATE (plan-53) marshals a filled OUT struct slot into the returned
@@ -65,7 +76,22 @@ nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
 
 declaration    = topLetDecl | topMutDecl
                | funcDecl | subDecl | typeDecl | unionDecl | enumDecl
-               | resourceDecl | funcAlias | linkDecl ;
+               | resourceDecl | funcAlias | linkDecl
+               | docBlock | testingBlock ;
+
+(* A DOC block's body is captured verbatim by the LEXER as a single token rather
+   than tokenized as code (§2.4), so `docBody` is not decomposed here; the block's
+   internal structure and its rendering are specified in §21. The header line may
+   carry only whitespace-separated attribute words (`DOC INTERNAL`); anything else
+   makes the lexer roll back and treat `DOC` as an ordinary identifier. *)
+docBlock       = "DOC" { ident } docBody "END" "DOC" ;
+
+(* TESTING is a reserved keyword; TGROUP and TCASE are contextual identifiers, so
+   both remain usable as ordinary names everywhere else. TGROUPs nest, bounded by
+   the same statement-nesting cap control flow uses. *)
+testingBlock   = "TESTING" { testGroup } "END" "TESTING" ;
+testGroup      = "TGROUP" string { testGroup | testCase } "END" "TGROUP" ;
+testCase       = "TCASE" string block "END" "TCASE" ;
 
 declVis        = [ "EXPORT" | "PUBLIC" | "PRIVATE" ] ;
 funcIso        = [ "ISOLATED" ] ;
@@ -73,11 +99,11 @@ funcIso        = [ "ISOLATED" ] ;
 topLetDecl     = declVis "LET" ident [ "AS" type ] "=" expr ;
 topMutDecl     = declVis "MUT" ident [ "AS" type ] [ "=" expr ] ;
 
-(* bug-300 E4: the parameter list is OPTIONAL in the parser — `FUNC f AS Integer`
-   and `SUB main` (no parens) are both accepted — though the productions below
-   write it as required. *)
-funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] [ "(" [ params ] ")" ] returnType
-                   block [ trap ] "END" "FUNC" ;
+(* Both the parameter list and the return type are optional: `FUNC f AS Integer`
+   (no parens) and `FUNC f()` (no `AS`) each parse. A `FUNC` with no returnType
+   yields Nothing, exactly as a SUB does. *)
+funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] [ "(" [ params ] ")" ]
+                   [ returnType ] block [ trap ] "END" "FUNC" ;
 subDecl        = declVis "SUB" ident [ templateParams ] [ "(" [ params ] ")" ]
                    block [ trap ] "END" "SUB" ;
 trap           = "TRAP" [ "(" ident ")" ] block "END" "TRAP" ;

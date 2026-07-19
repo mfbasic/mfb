@@ -2,7 +2,7 @@
 
 The macOS backend writes a Mach-O executable directly, with no host linker.
 Console builds emit one file, inside the project's `build/` directory:
-[[src/os/macos/link.rs]]
+[[src/os/macos/link/mod.rs]]
 
 ```text
 build/<project>.out
@@ -19,7 +19,7 @@ Constants: VM base `0x1_0000_0000`, page size `0x4000` (16 KiB), import stub siz
 ```text
 __PAGEZERO     vm 0, size = VM base, no file backing, no access
 __TEXT         RX: Mach-O header + load commands, __text, __stubs
-__DATA_CONST   RW->RO: __got, __mod_init_func   (only if imports or initializers)
+__DATA_CONST   RW->RO: __got, __mod_init_func, __const (if imports, initializers, or rodata)
 __DATA         RW: __data (program constants + main-arena global) (only if data)
 __MFB          __sign: executable signing metadata (only if signing_metadata)
 __LINKEDIT     dyld info, symbol/string tables, code signature
@@ -30,8 +30,11 @@ payload — a small file region owned by no segment (see `provenance-marker`).
 
 `__DATA` is a writable (`initprot = RW`) segment, which is what gives the runtime
 a writable global plane (the main arena pointer and `LINK`/`term` global slots
-live here). `__DATA_CONST` holds the GOT and the `__mod_init_func` pointer array;
-it is present only when the image has imports or initializers. The `__MFB`
+live here). `__DATA_CONST` holds the GOT, the `__mod_init_func` pointer array,
+and the read-only `__const` block; it is present when the image has imports,
+initializers, **or read-only constants**. That third disjunct means any program
+with a string literal gets one (bug-187).
+[[src/os/macos/link/macho.rs:needs_data_const]] The `__MFB`
 segment is present only when the build carries executable signing metadata.
 
 ## Load commands
@@ -44,8 +47,13 @@ includes `LC_SEGMENT_64` for each emitted segment, `LC_LOAD_DYLINKER`
 `LC_CODE_SIGNATURE`. Additionally:
 
 - one `LC_LOAD_DYLIB` per imported library,
-- `LC_DYLD_INFO_ONLY` when a `__DATA_CONST` is present (carrying the
-  rebase/bind/export opcode streams).
+- one `LC_RPATH` per vendor search path, so a bare-filename `dlopen` of a
+  vendored library resolves from the output bundle. Absent — keeping those
+  binaries byte-identical — for a build that vendors nothing,
+- and **one of two mutually exclusive fixup encodings**: `LC_DYLD_INFO_ONLY`
+  (rebase/bind/export opcode streams) when a `__DATA_CONST` is present, or else
+  `LC_DYLD_CHAINED_FIXUPS` (`0x80000034`) plus `LC_DYLD_EXPORTS_TRIE`
+  (`0x80000033`) when it is not. [[src/os/macos/link/macho.rs:write_load_commands]]
 
 ## Relocations and imports
 
@@ -66,12 +74,15 @@ applied before `_main` runs.
 The linker resolves a fixed set of library names to install paths:
 
 ```text
-libSystem    /usr/lib/libSystem.B.dylib
-Network      /System/Library/Frameworks/Network.framework/Network
-AppKit       /System/Library/Frameworks/AppKit.framework/AppKit
-Foundation   /System/Library/Frameworks/Foundation.framework/Foundation
-libobjc      /usr/lib/libobjc.A.dylib
-libz         /usr/lib/libz.1.dylib
+libSystem       /usr/lib/libSystem.B.dylib
+Network         /System/Library/Frameworks/Network.framework/Network
+AudioToolbox    /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox
+CoreAudio       /System/Library/Frameworks/CoreAudio.framework/CoreAudio
+CoreFoundation  /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation
+AppKit          /System/Library/Frameworks/AppKit.framework/AppKit
+Foundation      /System/Library/Frameworks/Foundation.framework/Foundation
+libobjc         /usr/lib/libobjc.A.dylib
+libz            /usr/lib/libz.1.dylib
 ```
 [[src/os/macos/link/mod.rs:dylib_path]]
 

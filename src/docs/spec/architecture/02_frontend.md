@@ -229,9 +229,18 @@ It builds indices for local/package functions, user types and their kinds/fields
 union members, and enum members to evaluate those rules, and it models the
 language's type forms (`./mfb spec language types`) to do so — but nothing
 downstream consumes its inference; lowering re-infers independently. It does
-**not** check the relocated semantic rules (operator/argument/return typing,
-member access, constructor arity, match exhaustiveness, resource ownership,
-literal ranges, …); those live only in the IR semantic verifier.[[src/syntaxcheck/]]
+**not** emit any rule in `ir::RELOCATED_TO_IR_VERIFY` — the 65 rules plan-20 moved
+to the IR semantic verifier, which is their sole rejecter. That is enforced, not
+merely intended: `SyntaxChecker::report` carries a `debug_assert!` that the rule
+it is about to emit is not in that list, so a regression fails a debug build
+rather than double-reporting.
+
+It does still emit semantic rules of its own — the ones that were never
+relocated, including the whole `NATIVE_*` and `TESTING_*` families, the
+inline-`TRAP`/lambda/isolation rules, and a handful such as
+`TYPE_CALL_ARGUMENT_MISMATCH` and `TYPE_CALL_ARITY_MISMATCH`. The dividing line
+is membership in `RELOCATED_TO_IR_VERIFY`, not the distinction between "syntax"
+and "semantics". [[src/syntaxcheck/]] [[src/ir/mod.rs:RELOCATED_TO_IR_VERIFY]]
 
 The build runs both over the source program: the source-syntax checker
 gathers the syntax-rule diagnostics, IR is lowered, the IR semantic verifier

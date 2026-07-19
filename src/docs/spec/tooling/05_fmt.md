@@ -1,10 +1,19 @@
 # Formatter (mfb fmt)
 
-`mfb fmt` rewrites MFBASIC source in place, normalizing only **block
-indentation** and **keyword capitalization**. Everything else — intra-line
-spacing, string contents, comments, blank lines, and `DOC`/`LINK` block bodies —
-is preserved byte-for-byte. The transform is pure and deterministic: the same
-input and indent width always produce the same output. [[src/fmt.rs:format_source]]
+`mfb fmt` rewrites MFBASIC source in place, normalizing only **leading
+whitespace** and **keyword capitalization**. String contents, comments, blank
+lines, and the interiors of `DOC` and `LINK` block bodies are preserved. The
+transform is pure and deterministic: the same input and indent width always
+produce the same output. [[src/fmt.rs:format_source]]
+
+"Byte-for-byte" would be too strong, and the exceptions are all at the line
+edges. Within a logical line the **first** physical line is trimmed and
+re-indented, while a **continuation** line keeps its original leading whitespace
+and has only its trailing whitespace stripped — which is also why "no tabs in
+output" holds for computed indentation but not for a continuation line whose
+preserved leading whitespace already contained one. `END LINK` is emitted as
+hardcoded uppercase, unlike `END FUNC`, which passes through with its original
+casing. [[src/fmt.rs:format_link_block]]
 
 This topic owns the reimplementable normalization rules. The CLI surface that
 drives them — argument parsing, file selection, exit codes — is summarized below
@@ -37,8 +46,9 @@ order: [[src/fmt.rs:strip_cr]]
 | `LINK "lib"` start | Hand the whole `LINK … END LINK` block to `format_link_block`. |
 | Anything else | Gather a logical line (with continuations), case it, re-indent it. |
 
-Indentation is computed as `level * indent_width` spaces (`indent_str`); there
-are no tabs in output. [[src/fmt.rs:indent_str]]
+Indentation is computed as `level * indent_width` spaces (`indent_str`), so the
+formatter never *emits* a tab. A continuation line's preserved leading whitespace
+may still contain one (see above). [[src/fmt.rs:indent_str]]
 
 ### Trailing newline
 
@@ -259,7 +269,10 @@ first word is `FUNC`, `SUB`, `FREE`, or `CSTRUCT`, or which begins `BIND IN`, is
 **opener** (printed at `depth`, then `depth` increases);
 `END FUNC`/`END SUB`/`END FREE`/`END CSTRUCT`/`END BIND` is a **closer** (`depth`
 decreases first, then printed); `END LINK` returns to `base` and closes the
-block; blank lines emit empty; every other line prints at the current `depth`.
+block — and is the one token this pass **re-cases**, emitted as hardcoded
+uppercase regardless of how it was written, unlike every other block terminator;
+blank lines emit empty; every other line prints at the current `depth` with its
+text and casing preserved.
 [[src/fmt.rs:format_link_block]]
 
 The `BIND IN` opener is matched on **both** words, not on `BIND` alone: `BIND STATE`
@@ -273,7 +286,7 @@ depth — silently de-indenting them one level on any source containing them.
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--indent N` / `--indent=N` | `2` | Indent width in spaces. Must be a non-negative integer; a bad value errors with exit `2`. |
+| `--indent N` / `--indent=N` | `2` | Indent width in spaces. Must be an integer in `0..=256`; negative, non-numeric, or above 256 errors with exit `2`. [[src/cli/fmt.rs:MAX_INDENT]] |
 | `--check` | off | Write nothing; report files that are not already formatted. |
 | `location` | `.` | A single `.mfb` file or a project directory. At most one. |
 

@@ -10,10 +10,16 @@ ClosureObject (CLOSURE_OBJECT_SIZE = 16 bytes, arena-allocated, 8-aligned)
   +8   U64  env    ; absolute pointer to the capture-slot environment, 0 if none (CLOSURE_OFFSET_ENV = 8)
 ```
 
-The object is allocated with `arena_alloc(16, 8)` from the constructing scope's
-arena. `code` holds the resolved symbol address of the lambda-lifted body; `env`
-holds either a pointer to a separate capture environment (a closure with captures)
-or the null sentinel `0` (a bare function reference). [[src/target/shared/code/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_ENV]]
+`code` holds the resolved symbol address of the lambda-lifted body; `env` holds
+either a pointer to a separate capture environment (a closure with captures) or
+the null sentinel `0` (a bare function reference).
+
+**Where the object lives depends on which producer built it.** A capturing
+`Closure` is `arena_alloc(16, 8)`-ed from the constructing scope's arena. A
+non-capturing `FunctionRef` allocates **nothing**: there is one **static
+descriptor per function**, in BSS, populated once at startup, and evaluating the
+reference loads its address. That is what makes a bare lambda in a loop stop
+growing the arena (bug-78). [[src/target/shared/code/builder_values.rs:NirValue::FunctionRef]] [[src/target/shared/code/error_constants.rs:closure_descriptor_symbol]] [[src/target/shared/code/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_ENV]]
 
 ## Function Reference vs Closure
 
@@ -21,8 +27,9 @@ The IR distinguishes two producers of a function value, and the distinction is t
 sole determinant of whether an env allocation happens:
 
 - **`FunctionRef`** — a bare reference to a named function with **no captures**. It
-  builds the 16-byte object with `code = <symbol>` and `env = 0` (the `x31`/zero
-  register is stored into the env word). No separate environment is allocated.
+  loads the address of that function's static BSS descriptor, whose `code` is the
+  symbol address and whose `env` is `0`. Nothing is allocated — not the
+  environment, and not the 16-byte object either.
 - **`Closure`** — a lifted body **with one or more captures**. It allocates the
   capture environment first, populates its slots, then builds the 16-byte object
   with `code = <symbol>` and `env = <env pointer>`. With an empty capture list a
@@ -124,9 +131,11 @@ block on scope drop and never the closure objects it references. This makes stor
 sound (no dangling pointer, no double free) at the cost of not reclaiming an
 individual closure before arena teardown.
 
-Because each *evaluation* of a `FunctionRef` or `Closure` allocates a fresh 16-byte
-object (plus an environment for a capturing `Closure`), repeatedly **creating** new
-function values inside a loop accumulates arena memory for the loop's lifetime.
+Because each *evaluation* of a capturing `Closure` allocates a fresh 16-byte object
+plus its environment, repeatedly **creating** capturing closures inside a loop
+accumulates arena memory for the loop's lifetime. A non-capturing `FunctionRef`
+does **not**: it resolves to the address of a static descriptor, so evaluating one
+in a loop allocates nothing at all (bug-78).
 Building and discarding a *collection* of already-constructed function values in a
 loop does **not** grow memory: the collection's own block is reclaimed each
 iteration and no new closure objects are produced. Function values constructed once

@@ -7,7 +7,7 @@ documentation, e.g. `mfb man <package>`).
 
 ## 18.1 Always-in-scope general built-ins
 
-These **sixteen** names are the *only* callables a program may use with no
+These **eighteen** names are the *only* callables a program may use with no
 `IMPORT` and no package qualifier. The resolver treats exactly this set as
 always-in-scope unqualified callables, whitelisting exactly the general built-in set: [[src/resolver/resolution.rs:resolve_callable]] [[src/builtins/general.rs:is_general_call]]
 
@@ -16,11 +16,13 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 | `error(code, message)` | 2 | `Error` | `(Integer, String)` — builds the read-only `Error` record |
 | `len(value)` | 1 | `Integer` | `String`, `List OF T`, `Map OF K TO V` |
 | `typeName(value)` | 1 | `String` | any `T` (never reads the value) |
-| `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Boolean`/`String`/`Byte`/`List OF Byte`; optional `Byte` precision for `Float`/`Fixed` |
-| `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`; optional `Integer` `base` (2–36) for `String` radix parsing |
-| `toFloat(value)` | 1 | `Float` | `String`, `Integer`, `Fixed` |
-| `toFixed(value)` | 1 | `Fixed` | `String`, `Integer`, `Float` |
-| `toByte(value)` | 1 | `Byte` | `Integer` |
+| `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Money`/`Boolean`/`String`/`Byte`/`Scalar`/`List OF Byte`; optional `Byte` precision for `Float`/`Fixed`/`Money` |
+| `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`; optional `Integer` `base` (2–36) for `String` radix parsing |
+| `toFloat(value)` | 1 | `Float` | `String`, `Integer`, `Fixed`, `Money` |
+| `toFixed(value)` | 1 | `Fixed` | `String`, `Integer`, `Float`, `Money` |
+| `toByte(value)` | 1 | `Byte` | `Integer`, `Money`, `Scalar` |
+| `toMoney(value)` | 1 | `Money` | `String`, `Integer`, `Float`, `Fixed`, `Byte` |
+| `toScalar(value)` | 1 | `Scalar` | `Integer` code point, one-scalar `String`, `Byte` |
 | `isNumeric(value)` | 1 | `Boolean` | `String` |
 | `isEven(value)` / `isOdd(value)` | 1 | `Boolean` | `Integer` |
 | `isPositive` / `isNegative` / `isZero` | 1 | `Boolean` | `Integer`, `Float`, `Fixed` |
@@ -33,7 +35,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 > The `is*` predicates are **inlined** builtins; [[src/builtins/general.rs:builtin_function_id]] they cannot be passed as a function value directly.
 > Wrap one in a `FUNC`/`LAMBDA` where a predicate argument is required.
 
-All sixteen except `error` are **overridable** (see §18.3). Every other built-in
+All eighteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*
 in scope without its `IMPORT`. The package set the resolver recognizes is fixed:
 `audio`, `bits`, `collections`, `crypto`, `csv`, `datetime`, `encoding`,

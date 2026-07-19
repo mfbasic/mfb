@@ -28,13 +28,20 @@ mfb audit [--format text|json] [--locked] [path]
 Unknown `-`-prefixed options, a missing/invalid `--format` value, or a second
 `path` are usage errors.[[src/audit/mod.rs:parse_options]]
 
-Both renderers escape untrusted strings. The text renderer replaces every control
-character in a manifest- or `.mfp`-derived value (names, versions, paths,
-messages) with `\u{XXXX}`, so a crafted package name cannot emit ESC sequences or
-embedded newlines into the operator's terminal.[[src/audit/text.rs:safe]] The JSON
-renderer escapes the same set — C0, DEL, the C1 controls, and the bidi/format
-overrides — as `\uXXXX`, which keeps the output valid
-JSON.[[src/audit/json.rs:write_string]]
+Both renderers escape untrusted strings, against **one** shared predicate:
+`is_terminal_unsafe` — every C0 and C1 control and DEL, plus the invisible but
+semantically active bidi/format code points (`U+061C`, `U+200B..200F`,
+`U+202A..202E`, `U+2060..2064`, `U+2066..2069`, `U+FEFF`). Controls alone would
+not be enough: a crafted package name carrying `U+202E` (RIGHT-TO-LEFT OVERRIDE)
+reverses the rendering of everything after it without emitting a single control
+byte. [[src/terminal_safe.rs:is_terminal_unsafe]]
+
+The two differ only in spelling. The text renderer writes `\u{XXXX}` in a
+manifest- or `.mfp`-derived value (names, versions, paths, messages), so a
+crafted name cannot emit ESC sequences or embedded newlines into the operator's
+terminal. [[src/audit/text.rs:safe]] The JSON renderer writes `\uXXXX`, which
+keeps the output valid JSON; astral-plane code points are not in the unsafe set,
+so no surrogate pair encoding arises. [[src/audit/json.rs:write_string]]
 
 | Exit | Meaning |
 |---|---|

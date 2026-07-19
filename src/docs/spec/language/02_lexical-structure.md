@@ -4,7 +4,7 @@
 - **Comments**: `'` to end of line. `REM` also begins a line comment, but **only when it is the first token of a statement** — that is, at the start of a line or immediately after a `:` separator. Anywhere else `REM` (and any identifier merely containing the letters `rem`) is an ordinary identifier. Both comment forms run to the end of the line; there is no block-comment syntax.
 - **Statement separator**: newline (a `Newline` token), or `:` for multiple statements on one line.
 - **Line continuation**: a trailing `_` followed only by whitespace and then a newline joins the next line; the lexer emits no `Newline` token there. A `_` that is not in trailing position lexes as (the start of) an identifier — e.g. the pipeline placeholder `_`.
-- **Identifiers**: `[A-Za-z_][A-Za-z0-9_]*`, ASCII only (`is_ascii_alphanumeric() || '_'`). Legacy sigils (`$ % !`) are removed: they are not valid in identifiers and the lexer reports `MFB_LEX_UNEXPECTED_CHARACTER` for them. `#` is treated differently — it is **reserved**, not merely removed: it is rejected in user identifiers (also `MFB_LEX_UNEXPECTED_CHARACTER`) precisely so the compiler can use it as the untypeable internal sigil (see §2.4). There is no length limit.
+- **Identifiers**: `[A-Za-z_][A-Za-z0-9_]*`, ASCII only (`is_ascii_alphanumeric() || '_'`). Legacy sigils (`$ % !`) are removed: they are not valid in identifiers and the lexer reports `MFB_LEX_UNEXPECTED_CHARACTER` for them. `#` is treated differently — it is **reserved**, not merely removed: it is rejected in user identifiers (also `MFB_LEX_UNEXPECTED_CHARACTER`) precisely so the compiler can use it as the untypeable internal sigil (see §2.5). There is no length limit.
 - Identifiers are ASCII-only in this version. If a future version allows non-ASCII identifiers, compilers and language servers must lint Unicode confusables and near-collisions after Unicode normalization and case folding.
 
 The full keyword set is: `AS CASE CONTINUE DO ELSE ELSEIF FALSE FAIL EXIT FOR EACH FUNC IF IN IMPORT ISOLATED LET LAMBDA LOOP DIV MOD MATCH MUT NOTHING AND OR NOT NEXT XOR RETURN SUB TESTING THEN TRUE END ENUM EXPORT PUBLIC PROGRAM PRIVATE PROPAGATE RECOVER RES STEP TO TYPE TRAP UNTIL UNION WHEN WHILE WEND WITH`. A keyword token may still be accepted in a name position (e.g. a native `LINK` function named `step`); definition and call sites both canonicalize to the keyword's lowercase lexeme so they match consistently.
@@ -63,11 +63,11 @@ For **any other** escape, the lexer drops the backslash and keeps the following 
 
 A string carrying an embedded NUL (`\0`) is truncated at the NUL when handed to a C/syscall boundary that reads a NUL-terminated C string (e.g. a filesystem path); MFBASIC string operations that use the explicit `byteLength` (length, slicing, comparison, concatenation) see the full payload.
 
-## 2.3 `DOC` blocks
+## 2.4 `DOC` blocks
 
 A `DOC` keyword at the start of a statement begins a documentation block whose body is captured **verbatim** as a single token, not tokenized as code, up to a matching `END DOC` line (`EXAMPLE`/`END EXAMPLE` regions inside the block are tracked so an `END DOC` inside an example is not treated as the terminator). The `DOC` keyword line may carry only whitespace-separated attribute words (e.g. `DOC INTERNAL`); if it carries anything else (`DOC = 1`, `DOC(x)`), the lexer rolls back and treats `DOC` as an ordinary identifier. An unterminated block reports `DOC_UNTERMINATED`. The full `DOC` surface and rendering are specified in §21.
 
-## 2.4 Internal-file lexing and the `#` sigil
+## 2.5 Internal-file lexing and the `#` sigil
 
 The lexer has an *internal* mode, selected when it lexes a file that ships as part of a built-in package's implementation (`lex_with(path, source, internal: true)`). In this mode, after an identifier is read but before it is classified, a **leading `__`** is rewritten to the reserved sigil `#`: `__json_parse` becomes `#json_parse`. (Keywords never carry a `__` prefix, so this only ever affects names; public package names with no `__` prefix — like the type `Json` — pass through untouched.)
 

@@ -25,11 +25,16 @@ every riscv64 build is a console build.
 
 ## Container layout
 
-Constants are shared with the other Linux backends: image base `0x400000`, text
-file offset `0x1000`, page size `0x1000` (4 KiB). The ELF header is `ET_EXEC`,
-**`EM_RISCV` (machine 243)** (aarch64 is 183, x86-64 is 62), entry =
-`text_vmaddr + entry_offset`. There is no `ET_DYN`/PIE path.
-[[src/os/linux/link/mod.rs:IMAGE_BASE]] [[src/os/linux/link/elf.rs:e_machine]]
+Constants are shared with the other Linux backends: text file offset `0x1000`,
+page size `0x1000` (4 KiB). The ELF header is **`EM_RISCV` (machine 243)**
+(aarch64 is 183, x86-64 is 62), entry = `text_vmaddr + entry_offset`.
+[[src/os/linux/link/elf.rs:e_machine]]
+
+Two container shapes ship, and they differ in exactly this. A **dynamic** image
+(any imports — every real program) is `ET_DYN`: a position-independent executable
+at link base `DYN_IMAGE_BASE = 0`, which the loader maps at a random slide, so
+ASLR applies (bug-186). Only the **static**, import-less path keeps `ET_EXEC` at
+image base `0x400000`. [[src/os/linux/link/mod.rs:DYN_IMAGE_BASE]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 RISC-V additionally uses the ELF header's `e_flags` to declare its float ABI: a
 dynamic riscv64 image sets **`EF_RISCV_FLOAT_ABI_DOUBLE` (`0x4`)** for the `lp64d`
@@ -38,8 +43,8 @@ must be set; x86-64 and aarch64 leave `e_flags` zero.
 [[src/os/linux/link/elf.rs:e_flags]]
 
 A dynamic image (imports present, `encode_dynamic_elf`) has the **same program
-headers** as the other Linux targets — seven, or eight with a read-only constant
-partition (see `linux-aarch64` for the list). Only the machine field, `e_flags`,
+headers** as the other Linux targets — eight, or nine with a read-only constant
+partition (see `linux-aarch64` for the list, including `PT_GNU_RELRO`). Only the machine field, `e_flags`,
 and the interpreter string branch on arch.
 
 The **static** image carries **two** `PT_LOAD`s — a text segment (R+X) and a
@@ -95,7 +100,7 @@ For a dynamic image the linker builds `.dynstr`, `.dynsym` (entry 0 is the null
 symbol), a SysV `.hash` table, `.rela`, and `.got`, then a `.dynamic` section. The
 dynamic tags are **identical to aarch64** (`DT_NEEDED` per distinct library,
 `DT_HASH`/`DT_STRTAB`/`DT_SYMTAB`, the `DT_RELA`/`DT_JMPREL` set, `DT_PLTGOT`,
-`DT_FLAGS_1 = DF_1_NODELETE`, `DT_NULL`). The general model is owned by
+`DT_RUNPATH` when the build vendors, `DT_FLAGS = DF_BIND_NOW`, `DT_NULL`). The general model is owned by
 `./mfb spec linker symbols-and-relocations`; the only arch-specific values are the
 relocation-type constants. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 

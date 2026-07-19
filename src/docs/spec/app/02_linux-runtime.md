@@ -1,9 +1,13 @@
 # Linux App Runtime (GTK4)
 
 The Linux counterpart of the macOS AppKit app runtime: when `mfb build --app`
-targets `linux-aarch64`, the backend emits a GTK4 `_main` bootstrap, a language
+targets `linux-aarch64` **or `linux-x86_64`**, the backend emits a GTK4 `_main`
+bootstrap, a language
 worker thread, the transcript/input widgets, a `GtkDrawingArea`+Cairo `term::`
-surface, and the app-mode `io::*`/`term::*` helper bodies. Every GTK / GObject /
+surface, and the app-mode `io::*`/`term::*` helper bodies. Both arches share one
+implementation (`target::linux_gtk`); only the callee-saved bracketing around GTK
+callbacks differs, which is a SysV requirement on x86-64. `linux-riscv64` has no
+app mode at all. Every GTK / GObject /
 GLib / GIO / Cairo call is an ordinary imported C function reached by `bl
 <symbol>` against the imports declared in `app_mode_imports` — there is no
 `objc_msgSend`-style message layer. The container itself (the ELF and its library
@@ -60,10 +64,19 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
 2. `app = gtk_application_new("dev.mfbasic.<name>", G_APPLICATION_DEFAULT_FLAGS=0)`,
    stored at `ST_APPLICATION`. The id is **derived from the project name**, not a
    constant: the name is sanitized to `[A-Za-z0-9_]` with a `_` prefix ahead of a
-   leading digit, so `my-app` yields `dev.mfbasic.my_app`. It matches the macOS
-   `CFBundleIdentifier` and the AppDir `.desktop` entry's `StartupWMClass` — GTK4
-   sets the window's `WM_CLASS` from the application id, so a mismatch would make
-   the desktop's launcher-to-window association silently fail. The accepted
+   leading digit, so `my-app` yields `dev.mfbasic.my_app`. It must equal the
+   AppDir `.desktop` entry's `StartupWMClass` exactly — GTK4 sets the window's
+   `WM_CLASS` from the application id, so a mismatch makes the desktop's
+   launcher-to-window association silently fail.
+
+   **It does *not* always match the macOS `CFBundleIdentifier`.** macOS
+   interpolates the project name into `dev.mfbasic.{name}` **verbatim**, with no
+   sanitization, so for any name containing `-`, `.`, or a space the two
+   platforms produce different identifiers: `my-app` is `dev.mfbasic.my_app` on
+   Linux and `dev.mfbasic.my-app` on macOS. Linux cannot simply follow suit —
+   an invalid GTK id is fatal at runtime (below) — so a project that needs one
+   identifier across both platforms must use a name that is already
+   `[A-Za-z0-9_]`. [[src/os/macos/link/mod.rs:app_info_plist]] The accepted
    character set is deliberately narrower than `g_application_id_is_valid`
    accepts, because `g_application_new` emits a `g_critical` and the app dies
    before its first frame on an invalid id, with nothing at build time to catch
@@ -107,8 +120,9 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 
 `_mfb_gtkapp_worker(void *arg)` is the pthread start routine. It calls
 `code::MACAPP_PROGRAM_SYMBOL` (the standard program entry). If
-`spec.language_entry_accepts_args`, it passes `argc=0/argv=NULL`; argv is not
-plumbed through to the worker. The program normally ends via `FINISH_SYMBOL`,
+`spec.language_entry_accepts_args`, it loads the **real** `argc`/`argv` from
+`ST_ARGC`/`ST_ARGV` — the values that reached `g_application_run`, published to
+the state by `_mfb_gtkapp_main` (bug-240). The program normally ends via `FINISH_SYMBOL`,
 so the function tail (`return NULL`) is only reached defensively.
 [[src/target/linux_gtk/bootstrap.rs:emit_worker_shim]]
 
@@ -180,31 +194,35 @@ loop before `queue_draw`, so a draw can never observe a half-written frame
 | 1192 | `ST_TERM_ROWS` | active rows (derived) |
 | 1200 | `ST_TERM_CELL_W` | cell width (px) |
 | 1208 | `ST_TERM_CELL_H` | cell height (px) |
-| 1216 | `ST_TERM_CHARS` | live char grid, `u8[160*48]` = 7680 B |
-| 8896 | `ST_TERM_FG` | live fg grid, `u32[160*48]` = 30720 B |
-| 39616 | `ST_TERM_BG` | live bg grid, `u32[160*48]` = 30720 B |
-| 70336 | `ST_TERM_SNAP_CHARS` | snapshot char grid, 7680 B |
-| 78016 | `ST_TERM_SNAP_FG` | snapshot fg grid, 30720 B |
-| 108736 | `ST_TERM_SNAP_BG` | snapshot bg grid, 30720 B |
-| 139456 | `STATE_SIZE` | total |
+| 1216 | `ST_TERM_CHARS` | live char grid, `u32[160*48]` = 30720 B |
+| 31936 | `ST_TERM_FG` | live fg grid, `u32[160*48]` = 30720 B |
+| 62656 | `ST_TERM_BG` | live bg grid, `u32[160*48]` = 30720 B |
+| 93376 | `ST_TERM_SNAP_CHARS` | snapshot char grid, `u32[160*48]` = 30720 B |
+| 124096 | `ST_TERM_SNAP_FG` | snapshot fg grid, 30720 B |
+| 154816 | `ST_TERM_SNAP_BG` | snapshot bg grid, 30720 B |
+| 185536 | `STATE_SIZE` | total |
+
+Both char grids are **`u32`, one code point per cell** — not `u8`. A byte per
+cell split a multi-byte glyph across cells and drew each fragment as tofu
+(bug-203); four bytes covers every code point.
 
 [[src/target/linux_gtk/mod.rs:ST_TERM_CHARS]]
 [[src/target/linux_gtk/mod.rs:STATE_SIZE]]
 
 ```text
-_mfb_gtkapp_state layout (139456 bytes, align 8)
+_mfb_gtkapp_state layout (185536 bytes, align 8)
      0 ..    56  handles[7]  GtkApplication,Window,Scrolled,TextView,TextBuffer,
                              pipeRead,pipeWrite
     56 ..    72  argc (u64), argv (u64)
     72 ..    88  mode (u64), lineLen (u64)
     88 ..  1112  lineBuf[1024]
   1112 ..  1216  term cursor/cell/geometry scalars (13 u64 slots)
-  1216 ..  8896  chars      u8[160*48]   (row stride = 160)
-  8896 .. 39616  fg         u32[160*48]
- 39616 .. 70336  bg         u32[160*48]
- 70336 .. 78016  snapChars  u8[160*48]
- 78016 ..108736  snapFg     u32[160*48]
-108736 ..139456  snapBg     u32[160*48]
+  1216 .. 31936  chars      u32[160*48]  (row stride = 160)
+ 31936 .. 62656  fg         u32[160*48]
+ 62656 .. 93376  bg         u32[160*48]
+ 93376 ..124096  snapChars  u32[160*48]
+124096 ..154816  snapFg     u32[160*48]
+154816 ..185536  snapBg     u32[160*48]
 ```
 
 ### Cell color/attribute encoding
@@ -241,7 +259,9 @@ finally a 2px white cursor caret at `(ST_TERM_ROW, ST_TERM_COL)` when
   from Cairo `font_extents.height` (cell H) and `text_extents("M").x_advance`
   (cell W) via a throwaway image surface, then `cols = clamp(900/cellW, 1, 160)`,
   `rows = clamp(640/cellH, 1, 48)` (`TERM_AREA_W=900`, `TERM_AREA_H=640`), and
-  blanks the char grid to spaces. [[src/target/linux_gtk/term_draw.rs:emit_term_init_helper]]
+  blanks the char grid to **0**, not `' '` — `memset` writes whole bytes, so `' '`
+  over `u32` cells would pack four spaces into every cell, and the draw skips 0
+  (bug-203). [[src/target/linux_gtk/term_draw.rs:emit_term_init_helper]]
 - `_mfb_gtkapp_term_write(string, newline)` is the worker-side grid writer the io
   helpers call when term:: is active: pure grid mutation (safe off the main
   thread), advancing the cursor, wrapping at `cols`, scrolling via
@@ -285,7 +305,9 @@ string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
 end iter + auto-scroll via a temporary mark) and frees the chunk.
 `emit_app_io_input_helper` sets `MODE_LINE_ECHO`, writes the prompt via the io
 write helper, then reads a committed line via `_mfb_rt_io_io_readLine` (which reads
-fd 0). The app-mode `io` flush helper returns OK immediately without a marshaled
+fd 0). The app-mode `io` flush helper branches on TUI state: while `term::` mode
+is **on** it presents the frame, posting `g_idle_add(_mfb_gtkapp_term_redraw_idle)`;
+only with TUI **off** does it return OK immediately without a marshaled
 drain. The three `is*Terminal` helpers return `OK(TRUE)`.
 `emit_set_raw_input_mode` (inlined into readChar/readByte) sets `MODE_RAW`.
 [[src/target/linux_gtk/app_io.rs:emit_app_io_input_helper]]
@@ -297,13 +319,13 @@ These are the observable behaviors of the Linux app backend that differ from the
 macOS app runtime:
 [[src/target/linux_gtk/app_io.rs:emit_app_io_write_helper]]
 
-- **No main-thread marshal for the transcript-active path:** the fd fallback is
-  the path exercised when no buffer is attached. The emitted code builds the
-  `g_idle_add` chunk path, but term:: grid writes mutate the
-  `GtkTextBuffer`/grid directly from the worker thread without the macOS-style
-  main-thread hop for the grid itself.
-- **The fd fallback** writes to stdout/stderr; the GTK transcript path is
-  structurally present but not exercised on that path.
+- **The fd fallback** writes to stdout/stderr, and is the path taken headless or
+  before the window exists. Once a `GtkTextBuffer` is attached, the transcript
+  path *is* exercised and *is* marshaled: every transcript write builds a chunk
+  and posts `g_idle_add(_mfb_gtkapp_append_idle, chunk)`, exactly as the write
+  helper above describes. (This bullet previously claimed the opposite — that
+  there was no main-thread marshal — describing the scaffold as it stood before
+  bug-204, and contradicting this topic's own body twenty lines earlier.)
 - **`finish` hard-exits.** `_mfb_gtkapp_finish` takes the exit code in `x0`; with
   no transcript attached it `_exit(code)`s, and the GUI path parks the worker in
   `pause()` (it must not `_exit` in GUI mode or the window dies). There is no

@@ -75,9 +75,11 @@ The GUI path constructs, in order:
    The text view is stashed on NSApp under `ASSOC_KEY`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 2. **TermView surface.** The window and scroll view are stashed under
    `WINDOW_ASSOC_KEY`/`SCROLLVIEW_ASSOC_KEY`. A **`TermView : NSView`** class is
-   synthesized with methods `drawRect:` (`"v@:{CGRect=dddd}"`), `isFlipped`
-   (`"c@:"`), `mfbWriteString:` (`"v@:@"`), `acceptsFirstResponder` (`"c@:"`), and
-   `keyDown:` (`"v@:@"`). A `TermView` instance is allocated at
+   synthesized with seven methods: `drawRect:` (`"v@:{CGRect=dddd}"`), `isFlipped`
+   (`"c@:"`), `mfbWriteString:` (`"v@:@"`), `acceptsFirstResponder` (`"c@:"`),
+   `keyDown:` (`"v@:@"`), `mfbClear:` (`"v@:@"`, the main-thread grid clear —
+   bug-165), and `setFrameSize:` (`"v@:{CGSize=dd}"`, the live-resize hook that
+   recomputes rows/cols and reallocates the grid — plan-35-D). A `TermView` instance is allocated at
    `NSMakeRect(0,0,900,640)` (`TERM_VIEW_WIDTH`/`TERM_VIEW_HEIGHT`),
    auto-sized to fill, initialized by the internal `_mfb_macapp_term_init`, and
    stashed under `TERMVIEW_ASSOC_KEY`. See `./mfb spec app term-backend`.

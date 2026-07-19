@@ -34,7 +34,7 @@ change to symbol naming, section layout, or relocation kinds must be reflected i
 [[src/os/macos/object.rs]] [[src/os/linux/object.rs]]
 
 ```text
-target            "macos-aarch64" | "linux-aarch64"
+target            "macos-aarch64" | "linux-aarch64" | "linux-x86_64" | "linux-riscv64"
 container         "mach-o" | "elf"
 status            "planOnly"
 entry             "_main"
@@ -67,7 +67,11 @@ error-message references are recorded as `dataReference` relocations.
 
 `NativeObjectPlan::validate()` enforces, per platform:
 
-- `target` matches the platform (`"macos-aarch64"` / `"linux-aarch64"`).
+- `target` matches the platform. macOS accepts `"macos-aarch64"`; the Linux
+  validator accepts **any** Linux target — `"linux-aarch64"`, `"linux-x86_64"`, or
+  `"linux-riscv64"` — because the object/ELF plan is ISA-neutral: an ELF container
+  is an ELF container, and nothing at this layer varies by instruction set.
+  [[src/os/linux/object.rs:validate]]
 - `container` is the expected format and `status` is `"planOnly"`.
 - The entry symbol `_main` is present in `defined_symbols`.
 - `defined_symbols` has no duplicates (and, on macOS, `dylibs` has no

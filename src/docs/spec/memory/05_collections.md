@@ -71,20 +71,33 @@ padding and alignment.
 - `dataCapacity` is the number of bytes allocated for `Data`. It may exceed
   `dataLength` for the same reason.
 
-`keyType` and `valueType` are compact runtime type identifiers.
+`keyType` and `valueType` are compact runtime type identifiers. The **payload
+size and alignment** columns are what a decoder strides by; they are not implied
+by the identifier's value. [[src/target/shared/code/error_constants.rs:COLLECTION_TYPE_SCALAR]] [[src/target/shared/code/builder_collection_layout.rs:collection_payload_alignment]]
 
-| Type | Identifier |
-|------|------------|
-| none/list key | 0 |
-| `Boolean` | 2 |
-| `Integer` | 3 |
-| `Float` | 4 |
-| `Fixed` | 5 |
-| `String` | 6 |
-| `Byte` | 7 |
-| `List` | 20 |
-| `Map` | 21 |
-| user-defined object | 22 |
+| Type | Identifier | Payload | Align |
+|------|------------|---------|-------|
+| none/list key | 0 | — | — |
+| `Boolean` | 2 | 1 byte | 1 |
+| `Integer` | 3 | 8 bytes | 8 |
+| `Float` | 4 | 8 bytes | 8 |
+| `Fixed` | 5 | 8 bytes | 8 |
+| `String` | 6 | 8-byte offset/pointer | 1 |
+| `Byte` | 7 | 1 byte | 1 |
+| `Money` | 8 | 8 bytes | 8 |
+| `Scalar` | 9 | **4 bytes** | **4** |
+| `List` | 20 | inlined block | 8 |
+| `Map` | 21 | inlined block | 8 |
+| user-defined object | 22 | inlined block | 8 |
+
+> **`Scalar` is the only 4-byte element type.** Every other payload is either
+> 1-byte or 8-byte aligned, so a decoder that infers the stride from the shape of
+> this table rather than reading the alignment column mis-strides every element of
+> a `List OF Scalar`.
+
+> These identifiers are the **runtime** type space. The package wire format uses a
+> *different*, independently numbered id space for the same types — see
+> `./mfb spec package type-table`. The two must not be read into one another.
 
 User-defined, generic, nested, or future extended types may require an extended
 type table; that extension must preserve the fixed header size through

@@ -128,6 +128,120 @@ mod tests {
         assert!(topic(package, "does-not-exist").is_none());
     }
 
+    /// Drift guard (bug-338): every `./mfb spec <package> <topic>` cross-link in
+    /// an embedded page must resolve to a package/topic that exists.
+    ///
+    /// The spec is written to be reimplementable and is version-locked to the
+    /// binary, so a link that goes nowhere is a defect in the shipped artifact,
+    /// not a broken doc link in a repo. bug-338 found 51 drifts by hand; this is
+    /// the half a machine can keep checking.
+    #[test]
+    fn spec_links_resolve() {
+        let mut broken = Vec::new();
+        for pkg in packages() {
+            let pages = std::iter::once(("spec", pkg.overview))
+                .chain(pkg.topics.iter().map(|t| (t.name, t.page)));
+            for (page, body) in pages {
+                for target in cross_links(body) {
+                    let mut parts = target.split_whitespace();
+                    let (Some(pkg_name), topic_name) = (parts.next(), parts.next()) else {
+                        continue;
+                    };
+                    let Some(found) = package(pkg_name) else {
+                        broken.push(format!(
+                            "{}/{page} -> unknown package `{pkg_name}`",
+                            pkg.name
+                        ));
+                        continue;
+                    };
+                    if let Some(topic_name) = topic_name {
+                        if topic(found, topic_name).is_none() {
+                            broken.push(format!(
+                                "{}/{page} -> `{pkg_name} {topic_name}` (no such topic)",
+                                pkg.name
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            broken.is_empty(),
+            "unresolvable spec cross-links:\n{}",
+            broken.join("\n")
+        );
+    }
+
+    /// Drift guard (bug-338): the **file** component of every `[[path:Symbol]]`
+    /// provenance citation must exist in the tree.
+    ///
+    /// Deliberately file-level only. The symbol half needs a language-aware
+    /// resolver, and a naive grep would false-positive on re-exports — bug-338-H2
+    /// is exactly that shape, where `verify_semantics` exists one module up from
+    /// the file cited. File breakage is unambiguous and is what this catches.
+    #[test]
+    fn spec_citations_resolve() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut broken = Vec::new();
+        for pkg in packages() {
+            let pages = std::iter::once(("spec", pkg.overview))
+                .chain(pkg.topics.iter().map(|t| (t.name, t.page)));
+            for (page, body) in pages {
+                for cite in citations(body) {
+                    let file = cite.split(':').next().unwrap_or(&cite);
+                    if file.is_empty() || !root.join(file).exists() {
+                        broken.push(format!("{}/{page} -> [[{cite}]]", pkg.name));
+                    }
+                }
+            }
+        }
+        assert!(
+            broken.is_empty(),
+            "unresolvable spec citations:\n{}",
+            broken.join("\n")
+        );
+    }
+
+    /// `./mfb spec <package> [<topic>]` targets named in a page's prose.
+    fn cross_links(body: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for (index, _) in body.match_indices("./mfb spec ") {
+            let rest = &body[index + "./mfb spec ".len()..];
+            let end = rest
+                .find(|c: char| {
+                    c == '\n' || c == '`' || c == ')' || c == ',' || c == ';' || c == '—'
+                })
+                .unwrap_or(rest.len());
+            let target = rest[..end].trim().trim_end_matches('.');
+            // `./mfb spec` with no argument is the index; a `--flag` example and
+            // the `language *` glob (prose for "the language topics") are not
+            // cross-links.
+            if target.is_empty() || target.starts_with('-') || target.ends_with('*') {
+                continue;
+            }
+            out.push(target.to_string());
+        }
+        out
+    }
+
+    /// `[[path]]` / `[[path:Symbol]]` provenance citations in a page.
+    fn citations(body: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = body;
+        while let Some(start) = rest.find("[[") {
+            let after = &rest[start + 2..];
+            let Some(end) = after.find("]]") else { break };
+            let inner = &after[..end];
+            rest = &after[end + 2..];
+            // POSIX character classes (`[[:alpha:]]`) are not citations.
+            if inner.starts_with(':') || inner.contains(' ') || !inner.contains('/') {
+                continue;
+            }
+            out.push(inner.to_string());
+        }
+        out
+    }
+
     #[test]
     fn summary_skips_headings() {
         assert_eq!(
