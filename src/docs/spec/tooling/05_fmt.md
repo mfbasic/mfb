@@ -255,11 +255,17 @@ remainder, after whitespace, starts with `"` — the trailing string literal
 distinguishes the block from any ordinary use of the word. [[src/fmt.rs:is_link_start]]
 
 Indentation is tracked by a local `depth` starting at `base+1`: a line whose
-first word is `FUNC`, `SUB`, or `FREE` is an **opener** (printed at `depth`, then
-`depth` increases); `END FUNC`/`END SUB`/`END FREE` is a **closer** (`depth`
+first word is `FUNC`, `SUB`, `FREE`, or `CSTRUCT`, or which begins `BIND IN`, is an
+**opener** (printed at `depth`, then `depth` increases);
+`END FUNC`/`END SUB`/`END FREE`/`END CSTRUCT`/`END BIND` is a **closer** (`depth`
 decreases first, then printed); `END LINK` returns to `base` and closes the
 block; blank lines emit empty; every other line prints at the current `depth`.
 [[src/fmt.rs:format_link_block]]
+
+The `BIND IN` opener is matched on **both** words, not on `BIND` alone: `BIND STATE`
+is a single line with no body and must not open a block. Before bug-356 neither
+`CSTRUCT` nor `BIND IN` was recognized, so both bodies printed at the enclosing
+depth — silently de-indenting them one level on any source containing them.
 
 ## CLI: flags, selection, exit codes
 

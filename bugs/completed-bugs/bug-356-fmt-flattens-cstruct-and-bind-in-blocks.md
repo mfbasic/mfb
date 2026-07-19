@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (formatter output; silently destroys authored structure)
 
-Status: Open
+Status: Fixed
 Regression Test: tests/syntax/native/native-cstruct-valid (add an `mfb fmt --check` assertion), plus a `src/fmt.rs` unit test over a LINK block containing `CSTRUCT`, `BIND IN`, and `BIND STATE`
 
 `mfb fmt` does not recognize `CSTRUCT … END CSTRUCT` or `BIND IN … END BIND` as
@@ -289,3 +289,32 @@ over-indent the remainder of every enclosing `LINK` block. The existing
 `FUNC`/`SUB`/`FREE` handling is the working reference, and the committed sources
 are the correct expected output — they must not be rewritten to match the broken
 formatter.
+
+## Resolution
+
+`format_link_block` recognized only `FUNC`/`SUB`/`FREE` as openers. `CSTRUCT` and
+`BIND IN` are now openers too, and `END CSTRUCT` / `END BIND` closers.
+
+The one subtlety is that the `BIND IN` opener is matched on **both** words rather
+than on `BIND` alone. `BIND STATE` is a single line with no body, so matching bare
+`BIND` would have opened a block that nothing ever closes — turning a de-indentation
+bug into a runaway-indentation one. The test pins this explicitly: `BIND STATE`
+stays a sibling of `BIND IN`, not a child of it.
+
+Verified three ways:
+
+- the reproduction from the report round-trips unchanged, and flattened input is
+  restored to the authored nesting (both directions asserted, since they fail for
+  different reasons);
+- every bundled binding under `bindings/` and every `.mfb` fixture mentioning
+  `CSTRUCT` passes `mfb fmt --check` — the sweep is clean, where before the fix the
+  `libsnd` binding and the `native-cstruct-*` fixtures did not round-trip;
+- artifact gate 0 diffs, i.e. nothing about compilation changed.
+
+`spec/tooling/05_fmt.md`'s LINK section now lists both constructs in its opener and
+closer sets and records why `BIND IN` is matched on two words.
+
+Shares a root cause with [[bug-348]] (the formatter's block model missing
+constructs the language has), fixed in the same pass but committed separately.
+
+Full `cargo test` green.

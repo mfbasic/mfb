@@ -668,13 +668,23 @@ fn format_link_block(
         let words: Vec<&str> = text.split_whitespace().collect();
         let first = words.first().copied().unwrap_or("");
         let second = words.get(1).copied().unwrap_or("");
+        // bug-356: `CSTRUCT … END CSTRUCT` and `BIND IN … END BIND` are block
+        // constructs inside a LINK block too. Without them their bodies were
+        // emitted at the enclosing depth, silently de-indenting the nesting a
+        // reader relies on by one level. `BIND STATE` is a single line with no
+        // body and correctly opens nothing.
+        let is_bind_block = first.eq_ignore_ascii_case("BIND") && second.eq_ignore_ascii_case("IN");
         let is_opener = first.eq_ignore_ascii_case("FUNC")
             || first.eq_ignore_ascii_case("SUB")
-            || first.eq_ignore_ascii_case("FREE");
+            || first.eq_ignore_ascii_case("FREE")
+            || first.eq_ignore_ascii_case("CSTRUCT")
+            || is_bind_block;
         let is_closer = first.eq_ignore_ascii_case("END")
             && (second.eq_ignore_ascii_case("FUNC")
                 || second.eq_ignore_ascii_case("SUB")
-                || second.eq_ignore_ascii_case("FREE"));
+                || second.eq_ignore_ascii_case("FREE")
+                || second.eq_ignore_ascii_case("CSTRUCT")
+                || second.eq_ignore_ascii_case("BIND"));
         if first.eq_ignore_ascii_case("END") && second.eq_ignore_ascii_case("LINK") {
             out.push(format!("{}END LINK", indent_str(base, width)));
             *i += 1;
@@ -946,6 +956,51 @@ mod tests {
             "END FUNC\n",
         );
         assert_eq!(fmt(input), input);
+    }
+
+    /// bug-356: `CSTRUCT … END CSTRUCT` and `BIND IN … END BIND` are block
+    /// constructs inside a LINK block, but `format_link_block` recognized only
+    /// `FUNC`/`SUB`/`FREE` as openers -- so both bodies were emitted at the
+    /// enclosing depth, silently de-indenting them one level. `BIND STATE` is a
+    /// single line with no body and must NOT open a block, which is why the
+    /// opener test is `BIND` + `IN` rather than `BIND` alone.
+    #[test]
+    fn link_cstruct_and_bind_in_blocks_indent_their_bodies() {
+        let flat = concat!(
+            "LINK \"snd\" AS snd\n",
+            "CSTRUCT SfInfo AS AudioFormat\n",
+            "frames CInt64\n",
+            "END CSTRUCT\n",
+            "FUNC open(p AS String) AS RES Sf\n",
+            "SYMBOL \"sf_open\"\n",
+            "BIND IN info\n",
+            "rate = 44100\n",
+            "END BIND\n",
+            "BIND STATE h = info\n",
+            "END FUNC\n",
+            "END LINK\n",
+        );
+        let expected = concat!(
+            "LINK \"snd\" AS snd\n",
+            "  CSTRUCT SfInfo AS AudioFormat\n",
+            "    frames CInt64\n",
+            "  END CSTRUCT\n",
+            "  FUNC open(p AS String) AS RES Sf\n",
+            "    SYMBOL \"sf_open\"\n",
+            "    BIND IN info\n",
+            "      rate = 44100\n",
+            "    END BIND\n",
+            // BIND STATE has no body: it stays a sibling of BIND IN, not a child.
+            "    BIND STATE h = info\n",
+            "  END FUNC\n",
+            "END LINK\n",
+        );
+        assert_eq!(fmt(flat), expected);
+        assert_eq!(
+            fmt(expected),
+            expected,
+            "correct input must be a fixed point"
+        );
     }
 
     #[test]
