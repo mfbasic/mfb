@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Robustness (DoS on untrusted input)
 
-Status: Open
-Regression Test: tests/rt-error (new) — `json::parse` of a long whitespace run / long number returns an error, never crashes
+Status: Fixed
+Regression Test: tests/rt-behavior/json/json-parse-deep-scalar-scan-rt
 
 The `json_package.mfb` array and object parsers were deliberately rewritten to be
 iterative ("to avoid deep call stacks on large objects"), but the scalar scanners
@@ -92,3 +92,39 @@ input-length-proportional recursion cannot be bounded that way.
 Untrusted JSON crashes the process because the scalar scanners recurse per
 character; loop-ifying them (and capping nesting) removes the remote crash. This is
 the untrusted-input boundary, so it matters for the MVP's HTTP/JSON story.
+
+## Resolution
+
+All five scalar scanners are now loops. The crash was reproduced first — a 200 KB
+whitespace run ahead of a trivial value made `json::parse` exit **139 (SIGSEGV)**,
+exactly as reported — and the fix was bisected against it: reverting
+`json_package.mfb` alone restores the segfault, reapplying it restores exit 0.
+
+- `__json_skipWhitespace`, `__json_consumeDigits`, `__json_collectNumber` were the
+  genuinely dangerous three: recursion depth equalled input length, so a payload far
+  under the 64 MiB HTTP request cap crashed the process at the untrusted-data
+  boundary.
+- `__json_isRawControlCharAt` (bounded at 32) and `__json_expectLiteralAt` (bounded
+  by `true`/`false`/`null`) could **not** overflow. They were converted anyway, so
+  the scanner family reads one way and a future edit cannot reintroduce the shape
+  next to four siblings that look like it. That is recorded in their comments rather
+  than left to look like an oversight.
+
+The fixture pushes to **1 MiB** of whitespace — five times the crashing size — plus a
+4000-digit fraction that drives `collectNumber`/`consumeDigits` per character, and
+then parses an ordinary document and stringifies it back. The last part matters: the
+scanners were rewritten, not merely bounded, so correctness had to be shown
+unchanged, not just absence of a crash.
+
+### Golden churn is IR-shape only
+
+Two JSON `.ir` goldens moved, because they capture the lowered IR of the stdlib
+source that was rewritten. The runtime behaviour is unchanged, and that was verified
+rather than assumed: `json-behavior`'s `build.log` — which embeds the program's
+complete stdout — is **byte-identical** before and after. Only the IR shape differs.
+
+A 200000-digit integer now returns a clean `77050003` parse error rather than
+crashing; that is correct (it overflows `Float`), and the distinction between "errors
+loudly" and "kills the process" is the whole point of the fix.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1006/1006.

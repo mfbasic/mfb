@@ -1,0 +1,44 @@
+{
+  "project": "json_parse_deep_scalar_scan_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 12 },
+    { "module": "json", "line": 13 },
+    { "module": "strings", "line": 14 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "pad", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": " " }, { "kind": "number", "value": "1000000" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "pad" }, "right": { "kind": "string", "value": "1" } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "whitespace ok" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "frac", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "0." }, "right": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "1" }, { "kind": "number", "value": "4000" }] } }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "frac" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "long number ok" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "obj", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip=" }, "right": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "obj" }] } }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 32,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 34 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

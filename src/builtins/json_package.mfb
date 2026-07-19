@@ -481,14 +481,18 @@ FUNC __json_isRawControlChar(ch AS String) AS Boolean
   RETURN __json_isRawControlCharAt(ch, 0)
 END FUNC
 
+' bug-302: iterative (see __json_skipWhitespace). Bounded at 32 frames rather than
+' by input length, so this one could not overflow — converted with its siblings so
+' the whole scanner family reads one way and no future edit reintroduces the shape.
 FUNC __json_isRawControlCharAt(ch AS String, codePoint AS Integer) AS Boolean
-  IF codePoint >= 32 THEN
-    RETURN FALSE
-  END IF
-  IF ch = __json_codePointToString(codePoint) THEN
-    RETURN TRUE
-  END IF
-  RETURN __json_isRawControlCharAt(ch, codePoint + 1)
+  MUT cp AS Integer = codePoint
+  WHILE cp < 32
+    IF ch = __json_codePointToString(cp) THEN
+      RETURN TRUE
+    END IF
+    cp = cp + 1
+  WEND
+  RETURN FALSE
 END FUNC
 
 FUNC __json_parseEscape(chars AS List OF String, index AS Integer) AS __json_StringNode
@@ -594,26 +598,29 @@ FUNC __json_parseNumber(chars AS List OF String, index AS Integer) AS __json_Nod
   RETURN __json_Node[value, token.index]
 END FUNC
 
+' bug-302: iterative (see __json_skipWhitespace) — a long numeric literal recursed
+' once per character and overflowed the native stack.
 FUNC __json_collectNumber(chars AS List OF String, index AS Integer, current AS String) AS __json_StringNode
-  IF index >= len(chars) THEN
-    RETURN __json_StringNode[current, index]
-  END IF
-
-  LET ch AS String = collections::get(chars, index)
-  IF ch = "," THEN
-    RETURN __json_StringNode[current, index]
-  END IF
-  IF ch = "]" THEN
-    RETURN __json_StringNode[current, index]
-  END IF
-  IF ch = "}" THEN
-    RETURN __json_StringNode[current, index]
-  END IF
-  IF __json_isWhitespace(ch) THEN
-    RETURN __json_StringNode[current, index]
-  END IF
-
-  RETURN __json_collectNumber(chars, index + 1, current & ch)
+  MUT at AS Integer = index
+  MUT acc AS String = current
+  WHILE at < len(chars)
+    LET ch AS String = collections::get(chars, at)
+    IF ch = "," THEN
+      RETURN __json_StringNode[acc, at]
+    END IF
+    IF ch = "]" THEN
+      RETURN __json_StringNode[acc, at]
+    END IF
+    IF ch = "}" THEN
+      RETURN __json_StringNode[acc, at]
+    END IF
+    IF __json_isWhitespace(ch) THEN
+      RETURN __json_StringNode[acc, at]
+    END IF
+    acc = acc & ch
+    at = at + 1
+  WEND
+  RETURN __json_StringNode[acc, at]
 END FUNC
 
 FUNC __json_toNumber(value AS String) AS Float
@@ -708,14 +715,17 @@ FUNC __json_validNumber(value AS String) AS Boolean
   RETURN index = len(chars)
 END FUNC
 
+' bug-302: iterative (see __json_skipWhitespace) — a long digit run recursed once
+' per digit and overflowed the native stack.
 FUNC __json_consumeDigits(chars AS List OF String, index AS Integer) AS Integer
-  IF index >= len(chars) THEN
-    RETURN index
-  END IF
-  IF __json_isDigit(collections::get(chars, index)) THEN
-    RETURN __json_consumeDigits(chars, index + 1)
-  END IF
-  RETURN index
+  MUT at AS Integer = index
+  WHILE at < len(chars)
+    IF NOT __json_isDigit(collections::get(chars, at)) THEN
+      RETURN at
+    END IF
+    at = at + 1
+  WEND
+  RETURN at
 END FUNC
 
 FUNC __json_expectLiteral(chars AS List OF String, index AS Integer, literal AS String) AS Integer
@@ -723,29 +733,41 @@ FUNC __json_expectLiteral(chars AS List OF String, index AS Integer, literal AS 
   RETURN __json_expectLiteralAt(chars, index, target, 0)
 END FUNC
 
+' bug-302: iterative (see __json_skipWhitespace). Bounded by the literal's length
+' (`true`/`false`/`null`), so this one could not overflow either; converted for the
+' same consistency reason.
 FUNC __json_expectLiteralAt(chars AS List OF String, index AS Integer, literal AS List OF String, offset AS Integer) AS Integer
-  IF offset = len(literal) THEN
-    RETURN index
-  END IF
-  IF index >= len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-  LET actual AS String = collections::get(chars, index)
-  LET expected AS String = collections::get(literal, offset)
-  IF actual <> expected THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-  RETURN __json_expectLiteralAt(chars, index + 1, literal, offset + 1)
+  MUT at AS Integer = index
+  MUT off AS Integer = offset
+  WHILE off < len(literal)
+    IF at >= len(chars) THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET actual AS String = collections::get(chars, at)
+    LET expected AS String = collections::get(literal, off)
+    IF actual <> expected THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    at = at + 1
+    off = off + 1
+  WEND
+  RETURN at
 END FUNC
 
+' bug-302: iterative, not recursive. MFBASIC has no tail-call optimization, so
+' `RETURN __json_skipWhitespace(chars, index + 1)` consumed one native frame per
+' input character and a long whitespace run overflowed the stack (SIGSEGV) on a
+' payload well under the HTTP request cap. The array/object parsers were already
+' rewritten iteratively for exactly this reason; the scalar scanners were missed.
 FUNC __json_skipWhitespace(chars AS List OF String, index AS Integer) AS Integer
-  IF index >= len(chars) THEN
-    RETURN index
-  END IF
-  IF __json_isWhitespace(collections::get(chars, index)) THEN
-    RETURN __json_skipWhitespace(chars, index + 1)
-  END IF
-  RETURN index
+  MUT at AS Integer = index
+  WHILE at < len(chars)
+    IF NOT __json_isWhitespace(collections::get(chars, at)) THEN
+      RETURN at
+    END IF
+    at = at + 1
+  WEND
+  RETURN at
 END FUNC
 
 FUNC __json_isWhitespace(ch AS String) AS Boolean

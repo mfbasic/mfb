@@ -1,0 +1,3 @@
+whitespace ok
+long number ok
+roundtrip={"a":[1,2.5,true,null],"b":"x"}

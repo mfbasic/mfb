@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_json_stringify_invalid_runtime",
+  "project": "json_parse_deep_scalar_scan_rt",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -136,40 +136,32 @@
   ],
   "functions": [
   {
-    "name": "showInvalid",
-    "line": 4,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    { "name": "value", "line": 4, "type": "Json", "default": null }
-    ],
-    "returns": "Nothing",
-    "body": [
-    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#json_stringify", "args": [{ "kind": "local", "name": "value" }] }] } },
-    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
-    {
-      "op": "trap",
-      "line": 7,
-      "name": "err",
-      "body": [
-      { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "invalid" }] } },
-      { "op": "return", "line": 9, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
-      ]
-    }
-    ]
-  },
-  {
     "name": "main",
-    "line": 13,
+    "line": 16,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "showInvalid", "args": [{ "kind": "unionWrap", "union": "Json", "member": "JsonNum", "value": { "kind": "constructor", "type": "JsonNum", "args": [{ "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "inf" }] }] } }] } },
-    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "showInvalid", "args": [{ "kind": "unionWrap", "union": "Json", "member": "JsonNum", "value": { "kind": "constructor", "type": "JsonNum", "args": [{ "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "nan" }] }] } }] } },
-    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 18, "mutable": false, "name": "pad", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": " " }, { "kind": "const", "type": "Integer", "value": "1000000" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "v", "type": "Json", "value": { "kind": "call", "type": "Json", "target": "#json_parse", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "pad" }, "right": { "kind": "const", "type": "String", "value": "1" } }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "whitespace ok" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "frac", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "0." }, "right": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4000" }] } } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "n", "type": "Json", "value": { "kind": "call", "type": "Json", "target": "#json_parse", "args": [{ "kind": "local", "name": "frac" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "long number ok" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "obj", "type": "Json", "value": { "kind": "call", "type": "Json", "target": "#json_parse", "args": [{ "kind": "const", "type": "String", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "roundtrip=" }, "right": { "kind": "call", "type": "String", "target": "#json_stringify", "args": [{ "kind": "local", "name": "obj" }] } }] } },
+    { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 32,
+      "name": "e",
+      "body": [
+      { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "trapped: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "return", "line": 34, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
     ]
   },
   {

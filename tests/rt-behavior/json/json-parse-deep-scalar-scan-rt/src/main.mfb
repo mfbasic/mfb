@@ -1,0 +1,36 @@
+' bug-302: json_package's array and object parsers were deliberately rewritten to
+' be iterative "to avoid deep call stacks on large objects", but the SCALAR
+' scanners were left recursive -- __json_skipWhitespace, __json_consumeDigits,
+' __json_collectNumber, __json_isRawControlCharAt and __json_expectLiteralAt each
+' recursed once per input character. MFBASIC has no tail-call optimization, so
+' recursion depth equalled input length and a long whitespace run or numeric
+' literal overflowed the native stack: SIGSEGV, exit 139.
+'
+' JSON is the untrusted-data boundary and the HTTP server dispatches handler
+' bodies through it, so a payload far under the 64 MiB request cap was a remote
+' crash. A 200 KB whitespace run was enough; this fixture uses 1 MiB.
+IMPORT io
+IMPORT json
+IMPORT strings
+
+FUNC main AS Integer
+  ' Drives __json_skipWhitespace far past the depth that used to crash.
+  LET pad AS String = strings::repeat(" ", 1000000)
+  LET v AS Json = json::parse(pad & "1")
+  io::print("whitespace ok")
+
+  ' Drives __json_collectNumber and __json_consumeDigits per character.
+  LET frac AS String = "0." & strings::repeat("1", 4000)
+  LET n AS Json = json::parse(frac)
+  io::print("long number ok")
+
+  ' Ordinary input must still parse identically -- the scanners were rewritten,
+  ' not just bounded.
+  LET obj AS Json = json::parse("{\"a\": [1, 2.5, true, null], \"b\": \"x\"}")
+  io::print("roundtrip=" & json::stringify(obj))
+  RETURN 0
+  TRAP(e)
+    io::print("trapped: " & toString(e.code))
+    RETURN 1
+END TRAP
+END FUNC
