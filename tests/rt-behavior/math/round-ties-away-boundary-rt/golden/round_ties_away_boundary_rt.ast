@@ -1,0 +1,35 @@
+{
+  "project": "round_ties_away_boundary_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 11 },
+    { "module": "math", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "below=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "0.49999999999999994" }] }] } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "belowNeg=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.49999999999999994" } }] }] } }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "half=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "0.5" }] }] } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "halfNeg=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.5" } }] }] } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "twoHalf=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "2.5" }] }] } }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "threeHalf=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "3.5" }] }] } }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "low=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "2.4" }] }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "high=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "2.6" }] }] } }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      ]
+    }
+    ]
+  }
+  ]
+}

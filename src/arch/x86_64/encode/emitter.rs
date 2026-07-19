@@ -233,6 +233,26 @@ fn sib(scale: u8, index: u8, base: u8) -> u8 {
 /// destination — the `/r` form with the 0x01/0x09/… opcodes). We always emit the
 /// `MR` form (opcode operates rm := rm OP reg), so `reg` is the source and `rm`
 /// is the destination.
+/// `push r64` / `pop r64` — 0x50+rd / 0x58+rd, with REX.B for r8-r15. The 64-bit
+/// operand size is implicit, so no REX.W.
+fn enc_push_reg(reg_n: u8) -> Vec<u8> {
+    let mut b = Vec::new();
+    if reg_n >= 8 {
+        b.push(rex(false, false, false, true));
+    }
+    b.push(0x50 + (reg_n & 7));
+    b
+}
+
+fn enc_pop_reg(reg_n: u8) -> Vec<u8> {
+    let mut b = Vec::new();
+    if reg_n >= 8 {
+        b.push(rex(false, false, false, true));
+    }
+    b.push(0x58 + (reg_n & 7));
+    b
+}
+
 fn alu_rr(opcode: u8, dst: u8, src: u8) -> Vec<u8> {
     // REX.R extends `src` (reg field), REX.B extends `dst` (rm field).
     vec![
@@ -859,32 +879,46 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(b))
         }
         // f64 → i64 round-to-nearest, ties AWAY from zero (AArch64 `fcvtas`).
-        // SSE `roundsd`/`cvtsd2si` round ties to EVEN, so realize the ties-away
-        // rule directly: result = trunc(src + copysign(0.5, src)).
+        // SSE `roundsd`/`cvtsd2si` round ties to EVEN, so the ties-away rule has
+        // to be realized directly.
         //
-        // `copysign(0.5, src)` is built entirely inside the scratch `dst` GPR:
-        // `bits(0.5)` is `0x3FE << 52`, so shifting the sign bit up to bit 11,
-        // OR-ing the 10-bit `0x3FE` beneath it, and shifting the pair left by 52
-        // lands `sign<<63 | 0x3FE<<52` with no second register. The earlier
-        // sequence staged the constant with `movabs rax` on the claim that rax is
-        // free; rax is merely un-allocatable (it is the ABI return register, and
-        // it is also a legal `dst` here — in which case the `movabs` destroyed the
-        // sign bits it had just computed). xmm15 is the FP scratch (bug-17).
+        // bug-295: the previous realization was `trunc(src + copysign(0.5, src))`,
+        // and that addition itself rounds. For `x = 0.49999999999999994`
+        // (0.5 − 2⁻⁵⁴) the sum `x + 0.5` is `1 − 2⁻⁵⁴`, exactly halfway between
+        // the predecessor of 1.0 and 1.0; round-to-nearest-even picks 1.0 and the
+        // truncation yields 1. AArch64 `fcvtas` and riscv RMM both yield 0 — the
+        // input is strictly below one half, not a tie — so linux-x86_64 alone
+        // returned a wrong, divergent answer.
+        //
+        // Instead compute the fraction exactly and let a second truncation decide:
+        //
+        //     t = trunc(x)                  exact
+        //     f = t − x                     exact (x − trunc(x) is representable)
+        //     d = trunc(2f)                 ∈ {−1, 0, +1}
+        //     result = t − d
+        //
+        // No step rounds, so the just-below-half family can never be nudged onto a
+        // tie. `2f` is exact (a doubling, and |2f| < 2), and at a genuine tie
+        // |2f| is exactly 1, which is what carries the away-from-zero step.
+        // xmm15 is the FP scratch (bug-17); one GPR is borrowed across the
+        // sequence and restored, chosen to differ from `dst`.
         "f2i_nearest" | "fcvtas_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
-            let mut b = enc_movq_r64_xmm(dst, src); // dst = raw bits of src
-            b.extend(enc_shift_imm_reg(5, dst, 63)); // shr dst, 63  → sign bit
-            b.extend(enc_shift_imm_reg(4, dst, 11)); // shl dst, 11  → sign << 11
-                                                     // or dst, 0x3FE : REX.W 81 /1 id (imm32, sign-extended; 0x3FE > 0)
-            b.push(rex(true, false, false, dst >= 8));
-            b.push(0x81);
-            b.push(modrm(0b11, 1, dst));
-            b.extend(0x3FE_u32.to_le_bytes());
-            b.extend(enc_shift_imm_reg(4, dst, 52)); // shl dst, 52 → sign<<63 | bits(0.5)
-            b.extend(enc_movq_xmm_r64(15, dst)); // xmm15 = copysign(0.5, src)
-            b.extend(enc_sse_rr(Some(0xf2), 0x58, 15, src)); // addsd xmm15, src
-            b.extend(enc_sse_cvt(0xf2, 0x2c, false, dst, 15)); // cvttsd2si dst, xmm15
+            // A borrowed GPR holds `d` for the final subtract. rax and rcx are
+            // both non-allocatable (bug-284 pins that), so either is safe to
+            // clobber under a push/pop; pick whichever is not `dst`.
+            let scratch = if dst == 0 { 1 } else { 0 };
+            let mut b = Vec::new();
+            b.extend(enc_push_reg(scratch));
+            b.extend(enc_sse_cvt(0xf2, 0x2c, false, dst, src)); // cvttsd2si dst, src → t
+            b.extend(enc_sse_cvt(0xf2, 0x2a, true, 15, dst)); // cvtsi2sd xmm15, dst → (double)t
+            b.extend(enc_sse_rr(Some(0xf2), 0x5c, 15, src)); // subsd xmm15, src → f = t − x
+            b.extend(enc_sse_rr(Some(0xf2), 0x58, 15, 15)); // addsd xmm15, xmm15 → 2f
+            b.extend(enc_roundsd(15, 15, 3)); // roundsd xmm15, xmm15, trunc → d
+            b.extend(enc_sse_cvt(0xf2, 0x2c, false, scratch, 15)); // cvttsd2si scratch, xmm15
+            b.extend(alu_rr(0x29, dst, scratch)); // sub dst, scratch → t − d
+            b.extend(enc_pop_reg(scratch));
             Ok(Encoded::plain(b))
         }
         // 32-bit variable rotate-right (`rorv_w`/`rotr_w`): ror r32, cl.
@@ -1104,27 +1138,25 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             };
             Ok(Encoded::plain(enc_roundpd(dst, src, mode)))
         }
-        // Round to nearest, ties AWAY from zero (AArch64 frinta). x86 has no such
-        // roundpd mode, so emulate `trunc(x + copysign(0.5, x))`: at a tie the
-        // half nudges past the boundary, and truncation then lands away from zero.
-        // Materialize 0.5 and the sign mask through rax (preserved via push/pop —
-        // the kernels keep live values there); only xmm15 is reserved scratch. dst
-        // is fully overwritten, src is read-only.
+        // Round to nearest, ties AWAY from zero (AArch64 frinta), packed. x86 has
+        // no such roundpd mode, so the rule is realized directly.
+        //
+        // bug-295: this was the packed twin of the scalar `x + copysign(0.5, x)`
+        // bug and double-rounded the same just-below-half family. It now uses the
+        // same exact-fraction identity — t = trunc(x); f = t − x; result =
+        // t − trunc(2f) — which no step rounds. dst holds t and src is read-only,
+        // so both operands stay live and only xmm15 is needed: the packed form
+        // needs neither the GPR nor the push/pop the old sequence used to
+        // materialize its constants.
         "frinta_v" => {
             let dst = fp_reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
-            let mut b = vec![0x50]; // push rax
-            b.extend(enc_mov_imm64(0, 0x3FE0_0000_0000_0000)); // movabs rax, bits(0.5)
-            b.extend(enc_movq_xmm_r64(dst, 0));
-            b.extend(enc_sse_rr(Some(0x66), 0x6C, dst, dst)); // punpcklqdq → [0.5, 0.5]
-            b.extend(enc_mov_imm64(0, 0x8000_0000_0000_0000)); // movabs rax, sign bit
-            b.extend(enc_movq_xmm_r64(15, 0));
-            b.extend(enc_sse_rr(Some(0x66), 0x6C, 15, 15)); // punpcklqdq → sign mask ×2
-            b.extend(enc_sse_rr(Some(0x66), 0xDB, 15, src)); // xmm15 = signmask & src
-            b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // dst = copysign(0.5, src)
-            b.extend(enc_sse_rr(Some(0x66), 0x58, dst, src)); // addpd dst, src
-            b.extend(enc_roundpd(dst, dst, 3)); // truncate toward zero
-            b.push(0x58); // pop rax
+            let mut b = enc_roundpd(dst, src, 3); // dst = trunc(x) = t
+            b.extend(enc_sse_rr(Some(0x66), 0x28, 15, dst)); // movapd xmm15, dst
+            b.extend(enc_sse_rr(Some(0x66), 0x5C, 15, src)); // subpd xmm15, src → f = t − x
+            b.extend(enc_sse_rr(Some(0x66), 0x58, 15, 15)); // addpd xmm15, xmm15 → 2f
+            b.extend(enc_roundpd(15, 15, 3)); // xmm15 = trunc(2f) = d
+            b.extend(enc_sse_rr(Some(0x66), 0x5C, dst, 15)); // subpd dst, xmm15 → t − d
             Ok(Encoded::plain(b))
         }
         // Immediate lane shifts (i64): psllq /6, psrlq /2 (66 0F 73).

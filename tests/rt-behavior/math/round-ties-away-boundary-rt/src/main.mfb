@@ -1,0 +1,27 @@
+' bug-295: x86-64 emulated AArch64 ties-away rounding as
+' `trunc(x + copysign(0.5, x))`, and that addition itself rounds. For
+' x = 0.49999999999999994 (0.5 - 2^-54) the sum is 1 - 2^-54, exactly halfway
+' between the predecessor of 1.0 and 1.0; round-to-nearest-even picks 1.0 and the
+' truncation yielded 1. AArch64 fcvtas/frinta and riscv RMM both yield 0 -- the
+' input is strictly BELOW one half, not a tie -- so linux-x86_64 alone returned a
+' wrong and platform-divergent answer.
+'
+' This fixture is target-independent on purpose: it passes on aarch64/riscv64
+' today and is what catches the x86 leg when the suite is run there.
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  ' Strictly below one half in both signs: ties-away gives zero.
+  io::print("below=" & toString(math::round(0.49999999999999994)))
+  io::print("belowNeg=" & toString(math::round(-0.49999999999999994)))
+  ' Genuine ties still round AWAY from zero, not to even.
+  io::print("half=" & toString(math::round(0.5)))
+  io::print("halfNeg=" & toString(math::round(-0.5)))
+  io::print("twoHalf=" & toString(math::round(2.5)))
+  io::print("threeHalf=" & toString(math::round(3.5)))
+  ' Ordinary values either side of a half are unchanged.
+  io::print("low=" & toString(math::round(2.4)))
+  io::print("high=" & toString(math::round(2.6)))
+  RETURN 0
+END FUNC

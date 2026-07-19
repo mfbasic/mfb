@@ -974,32 +974,44 @@ fn float_int_conversions() {
 }
 
 #[test]
-fn f2i_nearest_never_touches_rax() {
+fn f2i_nearest_never_clobbers_its_own_dst() {
     // bug-17: the ties-away sequence staged `bits(0.5)` with `movabs rax`, the one
     // GPR-shuttling float op that neither preserved nor avoided rax. With
     // `dst == rax` (a legal encoding: rax is the ABI return register) the movabs
     // destroyed the sign bit the previous two shifts had just computed, so every
     // negative input rounded toward zero instead of away.
-    for dst in ["rax", "rbx", "r10"] {
+    //
+    // bug-295 replaced the whole copysign-materialization approach — the sequence
+    // no longer builds `bits(0.5)` at all, because computing the fraction exactly
+    // is what stops the double rounding. This test therefore asserts bug-17's
+    // INVARIANT (the sequence must not corrupt its own `dst`) rather than the
+    // mechanism that used to satisfy it: the previous version also required a
+    // literal `0x3FE` immediate to be present, which pinned an implementation
+    // detail rather than the property that matters.
+    for dst in ["rax", "rcx", "rbx", "r10"] {
         let b = bytes("fcvtas_x_from_d", &[("dst", dst), ("src", "xmm0")]);
-        // No `movabs r64, imm64` (REX.W + B8+rd) anywhere in the sequence.
+        // No `movabs r64, imm64` (REX.W + B8+rd) anywhere in the sequence — the
+        // specific instruction bug-17 removed.
         assert!(
             !b.windows(2)
                 .any(|w| w[0] & 0xF8 == 0x48 && w[1] & 0xF8 == 0xB8),
-            "{dst}: movabs must be gone: {b:02x?}"
-        );
-        // The 0.5 mantissa constant is OR-ed in as a 32-bit immediate (0x3FE).
-        assert!(
-            b.windows(4).any(|w| w == 0x3FE_u32.to_le_bytes()),
-            "{dst}: 0x3FE imm32: {b:02x?}"
+            "{dst}: movabs must stay gone: {b:02x?}"
         );
     }
-    // The identity the sequence relies on: ((sign << 11) | 0x3FE) << 52 is exactly
-    // `copysign(0.5, src)`'s bit pattern for either sign.
-    for sign in 0..2_u64 {
+    // The GPR borrowed for the correction term is pushed first and popped last,
+    // and is never `dst` — so whichever register the caller asked the result in,
+    // the sequence cannot destroy it. (0x50+rd = push, 0x58+rd = pop.)
+    for (dst, dst_num) in [("rax", 0u8), ("rcx", 1), ("rbx", 3), ("r10", 10)] {
+        let b = bytes("fcvtas_x_from_d", &[("dst", dst), ("src", "xmm0")]);
+        let pushed = b[0] - 0x50;
+        let popped = b[b.len() - 1] - 0x58;
         assert_eq!(
-            ((sign << 11) | 0x3FE) << 52,
-            (sign << 63) | 0.5_f64.to_bits(),
+            pushed, popped,
+            "{dst}: must restore the register it borrowed"
+        );
+        assert_ne!(
+            pushed, dst_num,
+            "{dst}: the borrowed scratch must not be dst itself: {b:02x?}"
         );
     }
 }
@@ -2520,4 +2532,119 @@ fn fixed_register_aliasing_is_rejected_rather_than_miscompiled() {
         ]
     )
     .is_empty());
+}
+
+/// bug-295: the ties-away emulation's *arithmetic*, checked independently of the
+/// encoding. This models exactly what the emitted sequence computes —
+/// `t = trunc(x); f = t − x; d = trunc(2f); result = t − d` — and pins it against
+/// the old `trunc(x + copysign(0.5, x))` formula, which double-rounds.
+///
+/// The x86 backend cannot be executed from this host, so this is what proves the
+/// replacement is right rather than merely different: every step below is exact in
+/// IEEE-754 double, so evaluating the model in Rust computes the same values the
+/// SSE sequence does.
+#[test]
+fn ties_away_model_matches_aarch64_semantics() {
+    // What the emitted sequence computes.
+    let fixed = |x: f64| -> f64 {
+        let t = x.trunc();
+        let f = t - x;
+        t - (2.0 * f).trunc()
+    };
+    // What it computed before: the addition itself rounds.
+    let broken = |x: f64| -> f64 { (x + 0.5f64.copysign(x)).trunc() };
+
+    // The reported input: 0.5 − 2⁻⁵⁴, strictly below one half, so ties-away is 0.
+    let below_half = 0.499_999_999_999_999_94_f64;
+    assert!(below_half < 0.5, "fixture must be strictly below one half");
+    assert_eq!(broken(below_half), 1.0, "the old formula's double rounding");
+    assert_eq!(broken(-below_half), -1.0);
+    assert_eq!(fixed(below_half), 0.0);
+    assert_eq!(fixed(-below_half), -0.0);
+
+    // Genuine ties still round AWAY from zero (not to even, which is what the
+    // native SSE roundsd/cvtsd2si modes would have given).
+    for (input, expected) in [
+        (0.5, 1.0),
+        (-0.5, -1.0),
+        (1.5, 2.0),
+        (-1.5, -2.0),
+        (2.5, 3.0),
+        (-2.5, -3.0),
+        (3.5, 4.0),
+    ] {
+        assert_eq!(
+            fixed(input),
+            expected,
+            "tie {input} must round away from zero"
+        );
+    }
+
+    // Ordinary values are unchanged, including either side of a half.
+    for (input, expected) in [
+        (0.0, 0.0),
+        (0.4, 0.0),
+        (0.6, 1.0),
+        (2.4, 2.0),
+        (2.6, 3.0),
+        (-2.4, -2.0),
+        (-2.6, -3.0),
+        (1e15, 1e15),
+        (-1e15, -1e15),
+    ] {
+        assert_eq!(fixed(input), expected, "round({input})");
+    }
+
+    // Beyond 2^52 every double is already an integer: f is zero, so the
+    // correction term vanishes and the value passes through untouched.
+    for big in [4.503_599_627_370_496e15_f64, 1e300, -1e300] {
+        assert_eq!(fixed(big), big);
+    }
+
+    // The fix never disagrees with the old formula except on the family the old
+    // one got wrong -- swept across a range of exponents.
+    for exponent in -60..60 {
+        let scale = 2.0f64.powi(exponent);
+        for step in [0.0, 0.25, 0.5, 0.75, 1.0, 2.5, 7.5] {
+            let x = step * scale;
+            let t = x.trunc();
+            let exact_half = (x - t).abs() == 0.5;
+            if !exact_half && x.abs() < 4.503_599_627_370_496e15 {
+                // Away from a genuine tie both agree, so the change is surgical.
+                assert_eq!(fixed(x), broken(x), "disagreement at {x}");
+            }
+        }
+    }
+}
+
+/// bug-295: byte-exact encodings of the replacement sequences, verified against
+/// llvm-objdump's disassembly of the emitted bytes.
+#[test]
+fn ties_away_encodes_the_exact_fraction_sequence() {
+    // pushq %rax ; cvttsd2si %xmm3,%r10 ; cvtsi2sd %r10,%xmm15 ;
+    // subsd %xmm3,%xmm15 ; addsd %xmm15,%xmm15 ; roundsd $3,%xmm15,%xmm15 ;
+    // cvttsd2si %xmm15,%rax ; subq %rax,%r10 ; popq %rax
+    assert_eq!(
+        bytes("fcvtas_x_from_d", &[("dst", "r10"), ("src", "xmm3")]),
+        [
+            0x50, 0xf2, 0x4c, 0x0f, 0x2c, 0xd3, 0xf2, 0x4d, 0x0f, 0x2a, 0xfa, 0xf2, 0x44, 0x0f,
+            0x5c, 0xfb, 0xf2, 0x45, 0x0f, 0x58, 0xff, 0x66, 0x45, 0x0f, 0x3a, 0x0b, 0xff, 0x03,
+            0xf2, 0x49, 0x0f, 0x2c, 0xc7, 0x49, 0x29, 0xc2, 0x58
+        ]
+    );
+    // roundpd $3,%xmm3,%xmm2 ; movapd %xmm2,%xmm15 ; subpd %xmm3,%xmm15 ;
+    // addpd %xmm15,%xmm15 ; roundpd $3,%xmm15,%xmm15 ; subpd %xmm15,%xmm2
+    assert_eq!(
+        bytes("frinta_v", &[("dst", "xmm2"), ("src", "xmm3")]),
+        [
+            0x66, 0x0f, 0x3a, 0x09, 0xd3, 0x03, 0x66, 0x44, 0x0f, 0x28, 0xfa, 0x66, 0x44, 0x0f,
+            0x5c, 0xfb, 0x66, 0x45, 0x0f, 0x58, 0xff, 0x66, 0x45, 0x0f, 0x3a, 0x09, 0xff, 0x03,
+            0x66, 0x41, 0x0f, 0x5c, 0xd7
+        ]
+    );
+    // The borrowed GPR is chosen to differ from dst: with dst == rax it must not
+    // push/pop the register it is about to return in.
+    let with_rax_dst = bytes("fcvtas_x_from_d", &[("dst", "rax"), ("src", "xmm3")]);
+    assert_eq!(with_rax_dst[0], 0x51, "dst == rax must borrow rcx, not rax");
+    assert_eq!(*with_rax_dst.last().unwrap(), 0x59, "and restore rcx");
 }
