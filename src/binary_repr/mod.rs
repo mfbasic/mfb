@@ -592,6 +592,12 @@ struct BinaryReprManifest {
     signing_fingerprint: u32,
     author: u32,
     url: u32,
+    /// Redundant table counts the writer emits and `read_binary_repr_package`
+    /// cross-validates against the decoded tables (bug-282 B4). They were
+    /// previously decoded into `_`-prefixed locals and discarded, so a crafted
+    /// manifest could claim any counts it liked.
+    dependency_count: u32,
+    export_count: u32,
 }
 
 #[derive(Clone)]

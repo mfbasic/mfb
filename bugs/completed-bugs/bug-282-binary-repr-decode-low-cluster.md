@@ -5,7 +5,7 @@ Effort: medium (1h–2h across items)
 Severity: LOW
 Class: Security / Correctness / Dead-code
 
-Status: Open
+Status: Fixed
 Regression Test: per-item (src/binary_repr/tests.rs)
 
 A cluster of LOW-severity hardening/consistency gaps in the `.mfp` package decoder
@@ -119,3 +119,47 @@ constructible in `tests.rs`). No shared refactor.
 Four small decoder-strictness residuals; each is a localized rejection or
 tightening with a directly-constructible test. No active exploit given signature
 gating; value is consistency and defense-in-depth pre-MVP.
+
+## Resolution
+
+All four items landed, each with its own crafted-input regression test.
+
+**B1** — `validate_abi_index`'s callable loop is driven by EXPORT_TABLE, so an
+ABI_INDEX `Func`/`Sub` entry naming no EXPORT_TABLE row was simply never reached.
+The `continue` arm now requires the counterpart before skipping, so an unbacked
+callable is rejected by name instead of carrying an arbitrary sigHash into
+`pkg info`, `pkg check-abi` and the registry `abi_index`.
+Test: `validate_abi_index_rejects_callable_export_with_no_export_table_row`.
+
+**B2** — `read_type_entries` now rejects a repeated `(name, kind)` pair. The
+report's premise (a legitimate writer never emits one) was *not* taken on faith:
+a comment in `validate_abi_index` explicitly anticipates several same-name
+candidates, so the rejection was landed first and the whole suite -- unit and all
+1000 acceptance tests, which build real packages -- run against it. Nothing broke,
+confirming the duplicate is crafted-only.
+Test: `read_type_entries_rejects_duplicate_name_and_kind`.
+
+**B3** — the trailing-bytes rejection every other section performs was added to
+`read_doc_table` and `read_native_library_table`.
+Tests: `read_doc_table_rejects_trailing_bytes`,
+`a_table_with_trailing_bytes_is_rejected`.
+
+**B4** — took the report's second option (document as reserved) for the
+register/cleanup surface, and the first (tighten) for the part that actually
+matters. The decision point was a test: `encode_functions_emits_registers_and_cleanups`
+deliberately round-trips registers and cleanups through encode → `pkg info`, so
+rejecting a nonzero count would have meant deleting a live assertion and changing
+`BinaryReprPackageInfoCleanup`, a public shape -- disproportionate for a
+bounds-checked, no-hazard surface. What was closed instead is the real defect the
+report names: the manifest's `dependency_count` and `export_count` were decoded
+into `_`-prefixed locals and dropped, letting a manifest lie about its own tables.
+Both now live on `BinaryReprManifest` and are cross-checked by a new
+`validate_manifest_counts`, extracted as a named sibling of `validate_abi_index`
+rather than left inline -- which is also what makes it directly testable.
+`native_link_count` and `entry_function`/`entry_flags` are genuinely unvalidatable
+(the writer emits a literal `0` for the first even on binding packages, and a
+package has no entry point), so those are commented as reserved at the decode site.
+Test: `validate_manifest_counts_rejects_a_manifest_that_lies_about_its_tables`.
+
+The `.mfp` wire layout is unchanged throughout; every rejection is new strictness
+on input a legitimate writer never produces.

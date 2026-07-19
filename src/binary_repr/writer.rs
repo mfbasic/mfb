@@ -115,6 +115,11 @@ pub(super) fn lower_project_with_external_functions(
         signing_fingerprint: strings.intern(&metadata.signing_fingerprint),
         author: strings.intern(&metadata.author),
         url: strings.intern(&metadata.url),
+        // Derived at encode time from the tables themselves (`encode_manifest`),
+        // not from these fields; they exist so the decoder can cross-check a
+        // manifest against its own tables (bug-282 B4).
+        dependency_count: 0,
+        export_count: 0,
     };
     let mut imports = ImportTable::from_metadata(&mut strings, metadata);
 

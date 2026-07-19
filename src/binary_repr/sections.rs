@@ -779,6 +779,12 @@ pub(super) fn read_native_library_table(
         }
         entries.push(NativeLibraryEntry { logical, locators });
     }
+    // bug-282 B3: every other section rejects trailing garbage; this one (and the
+    // doc table) were added after audit-1 PKG-05 and missed the invariant, leaving
+    // a smuggling nook inside an otherwise strict decoder.
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in native library table".to_string());
+    }
     Ok(NativeLibraryTable { entries })
 }
 

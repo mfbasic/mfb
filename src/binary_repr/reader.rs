@@ -108,6 +108,11 @@ pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
             deprecated,
         });
     }
+    // bug-282 B3: restore the trailing-bytes invariant every other section
+    // enforces (audit-1 PKG-05); the doc table was added afterwards and skipped it.
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in doc table".to_string());
+    }
     Ok(PackageDocs { package, decls })
 }
 
@@ -427,6 +432,7 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
             .copied()
             .ok_or_else(|| "MFPC is missing the ABI_INDEX section".to_string())?,
     )?;
+    validate_manifest_counts(&manifest, &imports, &exports)?;
     validate_abi_index(
         &abi,
         &exports,
@@ -613,6 +619,13 @@ pub(super) fn read_type_entries(bytes: &[u8], strings: &[String]) -> Result<Type
 
     let mut entries = Vec::with_capacity(count);
     let mut ids = HashMap::new();
+    // bug-282 B2: a `(name, kind)` pair identifies one type definition. Accepting
+    // two lets `validate_abi_index` (any same-name candidate may reproduce the
+    // hash) and `package_type_exports` (last-wins `HashMap`) resolve the same
+    // export to *different* definitions -- validation passes against entry A while
+    // importers compile against entry B. The writer interns a name once, so a
+    // duplicate only arises from a crafted package.
+    let mut seen_definitions = HashSet::new();
     for index in 0..count {
         let kind = cursor_u16(bytes, &mut offset)?;
         let _reserved = cursor_u16(bytes, &mut offset)?;
@@ -627,6 +640,12 @@ pub(super) fn read_type_entries(bytes: &[u8], strings: &[String]) -> Result<Type
             return Err("invalid type payload bounds".to_string());
         }
         let id = FIRST_TABLE_TYPE_ID + index as u32;
+        if !seen_definitions.insert((name, kind)) {
+            return Err(format!(
+                "duplicate type table entry `{}` (kind {kind})",
+                string_at(strings, name)?
+            ));
+        }
         ids.insert(string_at(strings, name)?.to_string(), id);
         entries.push(TypeEntry {
             kind,
@@ -953,31 +972,45 @@ pub(super) fn read_const_pool(bytes: &[u8]) -> Result<ConstPool, String> {
 
 pub(super) fn read_manifest(bytes: &[u8]) -> Result<BinaryReprManifest, String> {
     let mut offset = 0;
-    let manifest = BinaryReprManifest {
-        package_name: cursor_u32(bytes, &mut offset)?,
-        package_ident: cursor_u32(bytes, &mut offset)?,
-        package_version: cursor_u32(bytes, &mut offset)?,
-        ident_key: cursor_u32(bytes, &mut offset)?,
-        ident_fingerprint: cursor_u32(bytes, &mut offset)?,
-        signing_fingerprint: cursor_u32(bytes, &mut offset)?,
-        author: cursor_u32(bytes, &mut offset)?,
-        url: cursor_u32(bytes, &mut offset)?,
-    };
+    let package_name = cursor_u32(bytes, &mut offset)?;
+    let package_ident = cursor_u32(bytes, &mut offset)?;
+    let package_version = cursor_u32(bytes, &mut offset)?;
+    let ident_key = cursor_u32(bytes, &mut offset)?;
+    let ident_fingerprint = cursor_u32(bytes, &mut offset)?;
+    let signing_fingerprint = cursor_u32(bytes, &mut offset)?;
+    let author = cursor_u32(bytes, &mut offset)?;
+    let url = cursor_u32(bytes, &mut offset)?;
     let _binary_repr_major = cursor_u16(bytes, &mut offset)?;
     let _binary_repr_minor = cursor_u16(bytes, &mut offset)?;
     let _language_major = cursor_u16(bytes, &mut offset)?;
     let _language_minor = cursor_u16(bytes, &mut offset)?;
     let _minimum_runtime_major = cursor_u16(bytes, &mut offset)?;
     let _minimum_runtime_minor = cursor_u16(bytes, &mut offset)?;
-    let _dependency_count = cursor_u32(bytes, &mut offset)?;
+    let dependency_count = cursor_u32(bytes, &mut offset)?;
+    // Reserved: the writer always emits 0 here, including for a binding package
+    // whose native libraries live in section 10, so there is nothing to validate
+    // it against. Kept in the layout for wire stability.
     let _native_link_count = cursor_u32(bytes, &mut offset)?;
-    let _export_count = cursor_u32(bytes, &mut offset)?;
+    let export_count = cursor_u32(bytes, &mut offset)?;
+    // Reserved: a package has no entry point, so the writer emits the IR entry
+    // only for a program image. Decoded for layout, ignored by every consumer.
     let _entry_function = cursor_u32(bytes, &mut offset)?;
     let _entry_flags = cursor_u32(bytes, &mut offset)?;
     if offset != bytes.len() {
         return Err("invalid trailing bytes in manifest".to_string());
     }
-    Ok(manifest)
+    Ok(BinaryReprManifest {
+        package_name,
+        package_ident,
+        package_version,
+        ident_key,
+        ident_fingerprint,
+        signing_fingerprint,
+        author,
+        url,
+        dependency_count,
+        export_count,
+    })
 }
 
 pub(super) fn read_import_table(bytes: &[u8]) -> Result<ImportTable, String> {
@@ -1171,7 +1204,26 @@ pub(super) fn validate_abi_index(
     // is trusted unverified.
     for abi_export in &abi.exports {
         let entry_kind = match abi_export.kind {
-            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => continue,
+            // bug-282 B1: the loop above is driven by EXPORT_TABLE, so a callable
+            // ABI entry naming no EXPORT_TABLE row was never reached and its
+            // sigHash never recomputed. Such an entry flows into
+            // `package_info().exports`, `pkg check-abi` and the registry
+            // `abi_index`, and can satisfy an importer's used-symbol pin at
+            // resolve time for a function that does not exist -- failing much
+            // later at merge with a far more confusing error. Require the
+            // counterpart here; the hash itself is then verified above.
+            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => {
+                if !exports
+                    .iter()
+                    .any(|export| export.name == abi_export.name && export.kind == abi_export.kind)
+                {
+                    let name = string_at(strings, abi_export.name)?;
+                    return Err(format!(
+                        "ABI_INDEX callable export `{name}` is missing from the export table"
+                    ));
+                }
+                continue;
+            }
             BinaryReprExportKind::Type => 1u16,
             BinaryReprExportKind::Union => 2,
             BinaryReprExportKind::Enum => 3,
@@ -1261,6 +1313,34 @@ pub(super) fn validate_abi_index(
         }
     }
 
+    Ok(())
+}
+
+/// Cross-check the counts the manifest repeats against the tables they describe
+/// (bug-282 B4). Both were previously decoded into `_`-prefixed locals and
+/// discarded, so a crafted manifest could claim counts its own tables
+/// contradicted and no reader would notice. A legitimate writer derives both from
+/// the tables it is about to emit, so any disagreement means the file is
+/// internally inconsistent.
+pub(super) fn validate_manifest_counts(
+    manifest: &BinaryReprManifest,
+    imports: &ImportTable,
+    exports: &[DecodedExport],
+) -> Result<(), String> {
+    if manifest.dependency_count as usize != imports.entries.len() {
+        return Err(format!(
+            "manifest claims {} dependencies but the import table holds {}",
+            manifest.dependency_count,
+            imports.entries.len()
+        ));
+    }
+    if manifest.export_count as usize != exports.len() {
+        return Err(format!(
+            "manifest claims {} exports but the export table holds {}",
+            manifest.export_count,
+            exports.len()
+        ));
+    }
     Ok(())
 }
 

@@ -1342,6 +1342,24 @@ mod reader_tests {
     }
 
     #[test]
+    fn read_doc_table_rejects_trailing_bytes() {
+        // bug-282 B3: the doc table was added after audit-1 PKG-05 and skipped the
+        // trailing-bytes rejection every other section performs, so garbage past
+        // the last declaration decoded silently.
+        let docs = PackageDocs {
+            package: None,
+            decls: vec![],
+        };
+        let mut bytes = encode_doc_table(&docs);
+        bytes.push(0xAA);
+        let err = match read_doc_table(&bytes) {
+            Ok(_) => panic!("trailing garbage must be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("trailing bytes"), "unexpected error: {err}");
+    }
+
+    #[test]
     fn read_string_pool_rejects_trailing_and_truncation() {
         // Count 0 but trailing bytes present.
         let mut trailing = Vec::new();
@@ -1353,6 +1371,37 @@ mod reader_tests {
         put_u32(&mut truncated, 1);
         put_u32(&mut truncated, 100);
         assert!(read_string_pool(&truncated).is_err());
+    }
+
+    #[test]
+    fn read_type_entries_rejects_duplicate_name_and_kind() {
+        // bug-282 B2: two entries sharing `(name, kind)` let validation and
+        // decoding disagree about which definition an export names.
+        // `validate_abi_index` passes when *any* same-name candidate reproduces
+        // the hash, while `package_type_exports` collects into a last-wins map --
+        // so a crafted package can pass validation against entry A while importers
+        // compile against entry B. The writer interns a name once and never emits
+        // a duplicate, so rejecting one costs nothing legitimate.
+        let mut strings = StringPool::new();
+        let name = strings.intern("Dup");
+        // Two 20-byte headers naming the same (kind 1, "Dup"), both with an empty
+        // payload parked past the header block.
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, 2);
+        let payload_offset = 4 + 2 * 20;
+        for _ in 0..2 {
+            put_u16(&mut bytes, 1);
+            put_u16(&mut bytes, 0);
+            put_u32(&mut bytes, name);
+            put_u32(&mut bytes, 0);
+            put_u32(&mut bytes, payload_offset as u32);
+            put_u32(&mut bytes, 0);
+        }
+        let err = match read_type_entries(&bytes, &strings.values) {
+            Ok(_) => panic!("a duplicate type definition must be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("duplicate type"), "unexpected error: {err}");
     }
 
     #[test]
@@ -2761,6 +2810,89 @@ mod package_info_and_validation_tests {
     }
 
     #[test]
+    fn validate_manifest_counts_rejects_a_manifest_that_lies_about_its_tables() {
+        // bug-282 B4: the manifest repeats the dependency and export counts, and
+        // both were decoded into `_`-prefixed locals and dropped -- so a manifest
+        // could claim counts its own tables contradicted and no reader noticed.
+        let inner = encode_project(
+            &rich_project(),
+            &BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string()),
+        );
+        let package = read_binary_repr_package(&inner).expect("decode");
+        let manifest = &package.project.manifest;
+        let imports = &package.project.imports;
+        assert!(!package.exports.is_empty(), "fixture must export something");
+
+        // The package as written agrees with itself.
+        validate_manifest_counts(manifest, imports, &package.exports)
+            .expect("a well-formed package agrees with its own manifest");
+
+        // Overstating the export count is rejected...
+        let mut lying = BinaryReprManifest {
+            export_count: manifest.export_count + 1,
+            ..*manifest
+        };
+        let err = validate_manifest_counts(&lying, imports, &package.exports)
+            .expect_err("an overstated export count must be rejected");
+        assert!(
+            err.contains("manifest claims") && err.contains("exports"),
+            "unexpected error: {err}"
+        );
+
+        // ...as is disagreeing about dependencies.
+        lying = BinaryReprManifest {
+            dependency_count: manifest.dependency_count + 1,
+            ..*manifest
+        };
+        let err = validate_manifest_counts(&lying, imports, &package.exports)
+            .expect_err("an overstated dependency count must be rejected");
+        assert!(
+            err.contains("manifest claims") && err.contains("dependencies"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_abi_index_rejects_callable_export_with_no_export_table_row() {
+        // bug-282 B1: the callable verification loop is driven by EXPORT_TABLE, so
+        // an ABI_INDEX Func/Sub entry naming no EXPORT_TABLE row was never reached
+        // and its sigHash never recomputed -- it was accepted verbatim, then flowed
+        // into `pkg info`, `pkg check-abi` and the registry `abi_index`, where it
+        // could satisfy an importer's used-symbol pin for a function that does not
+        // exist. This is the callable-side mirror of the type asymmetry bug-21
+        // closed.
+        let inner = encode_project(
+            &rich_project(),
+            &BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string()),
+        );
+        let package = read_binary_repr_package(&inner).expect("decode");
+        let mut abi = package.project.abi.clone();
+        let mut strings = package.project.strings.clone();
+        // A callable entry for a name no EXPORT_TABLE row carries, with a sig hash
+        // that was never derived from anything.
+        let ghost = strings.intern("ghostFunction");
+        abi.exports.push(AbiExport {
+            name: ghost,
+            kind: BinaryReprExportKind::Func,
+            sig_hash: [0x11; ABI_HASH_LEN],
+        });
+        let err = validate_abi_index(
+            &abi,
+            &package.exports,
+            &package.project.imports,
+            &strings.values,
+            &package.project.types,
+            &package.project.constants,
+            &package.project.functions,
+        )
+        .expect_err("an unbacked callable ABI entry must be rejected");
+        assert!(
+            err.contains("ghostFunction") && err.contains("export table"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn abi_export_for_decoded_finds_matching_entry() {
         let inner = encode_project(
             &rich_project(),
@@ -3626,6 +3758,19 @@ mod native_library_table_tests {
         let table = NativeLibraryTable::default();
         assert!(table.is_empty());
         assert_eq!(round_trip(&table).expect("decodes"), table);
+    }
+
+    #[test]
+    fn a_table_with_trailing_bytes_is_rejected() {
+        // bug-282 B3: section 10 was added after audit-1 PKG-05 fixed the same
+        // omission on the resource table, and reintroduced it -- garbage past the
+        // last locator decoded silently.
+        let mut strings = StringPool::new();
+        let mut bytes = encode_native_library_table(&mut strings, &populated());
+        bytes.push(0xAA);
+        let err = read_native_library_table(&bytes, &strings.values)
+            .expect_err("trailing garbage must be rejected");
+        assert!(err.contains("trailing bytes"), "unexpected error: {err}");
     }
 
     #[test]
