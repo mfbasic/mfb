@@ -96,21 +96,27 @@ const BUF_MAX: &str = "8192";
 /// Emit `pthread_<op>(state + field)` — object pointer in x0, called through the
 /// platform ABI. `state_off` is the stack slot holding the AudioState pointer.
 fn emit_pthread1(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     op: &str,
     state_off: usize,
     field: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    instructions.extend([
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), state_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), field),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    platform.emit_libc_call(op, symbol, platform_imports, instructions, relocations)
+    platform.emit_libc_call(
+        op,
+        symbol,
+        platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )
 }
 
 /// Validate `openOutput`/`openInput` scalar parameters (sampleRate x-reg from
@@ -273,24 +279,28 @@ fn lower_open_output(
     ]);
     // pthread_mutex_init(state+S_MUTEX, NULL); pthread_cond_init(state+S_COND, NULL)
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_init",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_init",
         STATE_OFF,
         S_COND,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // Build the ASBD.
     instructions.extend([
@@ -348,12 +358,14 @@ fn lower_open_output(
     // Optionally select the named device.
     if device {
         emit_select_device(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             &dev_fail,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
     }
     // Allocate NUM_BUFFERS buffers; all start free.
@@ -432,13 +444,13 @@ fn lower_open_output(
         &done,
     );
     instructions.push(abi::label(&dev_fail));
-    emit_open_cleanup(
-        symbol,
-        &mut instructions,
-        &mut relocations,
-        platform,
+    emit_open_cleanup(&mut EmitCtx {
+        symbol: symbol,
         platform_imports,
-    )?;
+        platform,
+        instructions: &mut instructions,
+        relocations: &mut relocations,
+    })?;
     emit_fail(
         symbol,
         ERR_AUDIO_DEVICE_CODE,
@@ -465,14 +477,11 @@ fn lower_open_output(
 
 /// AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &uidCF, 8)
 /// from the `AudioDevice.id` string, selecting the named device.
-fn emit_select_device(
-    symbol: &str,
-    dev_fail: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // kAudioQueueProperty_CurrentDevice = 'aqcd' = 0x61716364 = 1634820964.
     // Build a CFString from the device id, set it, release it.
     let copy_loop = format!("{symbol}_uid_copy");
@@ -480,7 +489,7 @@ fn emit_select_device(
     let clamp_ok = format!("{symbol}_uid_clamp_ok");
     // The device record's `id` String field pointer is at DEVID_OFF's record + H? No:
     // DEVID_OFF holds the AudioDevice record pointer; its `id` field is at offset 0.
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), DEVID_OFF),
         abi::load_u64("%v9", "%v9", DEVICE_FIELD_ID), // id String ptr
         abi::store_u64("%v9", abi::stack_pointer(), BUFPTR_OFF),
@@ -516,10 +525,10 @@ fn emit_select_device(
         "CFStringCreateWithCString",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), UID_CFREF_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(dev_fail),
@@ -534,10 +543,10 @@ fn emit_select_device(
         "AudioQueueSetProperty",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CAP_OFF), // save status
         // CFRelease(cfref)
@@ -547,10 +556,10 @@ fn emit_select_device(
         "CFRelease",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CAP_OFF),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(dev_fail),
@@ -563,16 +572,14 @@ fn emit_select_device(
 /// them. Safe to reach before either exists — `STATE_OFF` is zeroed at entry (so
 /// the page-mapped test fails when mmap never ran) and mmap zero-fills
 /// `S_OSOBJECT` (so the queue-created test fails before `AudioQueueNew*`).
-fn emit_open_cleanup(
-    symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-) -> Result<(), String> {
+fn emit_open_cleanup(ctx: &mut EmitCtx) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let munmap = format!("{symbol}_cleanup_munmap");
     let skip = format!("{symbol}_cleanup_skip");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&skip),
@@ -587,10 +594,10 @@ fn emit_open_cleanup(
         "AudioQueueDispose",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&munmap),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
@@ -599,10 +606,10 @@ fn emit_open_cleanup(
         "munmap",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.push(abi::label(&skip));
+    ctx.instructions.push(abi::label(&skip));
     Ok(())
 }
 
@@ -623,16 +630,16 @@ fn build_propaddr(selector: &str, scope: &str, instructions: &mut Vec<CodeInstru
 /// `size_val`. Leaves the `OSStatus` in the return register.
 #[allow(clippy::too_many_arguments)]
 fn call_get_property(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     object_off: usize,
     size_val: &str,
     out_off: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    instructions.extend([
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    ctx.instructions.extend([
         abi::move_immediate("%v9", "Integer", size_val),
         abi::store_u32("%v9", abi::stack_pointer(), SIZE_OFF),
         abi::load_u32(abi::return_register(), abi::stack_pointer(), object_off),
@@ -646,12 +653,12 @@ fn call_get_property(
         "AudioObjectGetPropertyData",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
     // OSStatus is a 32-bit SInt32 returned in w0; the upper half of x0 is
     // undefined, so extend before any full-width compare (bug-04).
-    instructions.push(abi::sign_extend_word(
+    ctx.instructions.push(abi::sign_extend_word(
         abi::return_register(),
         abi::return_register(),
     ));
@@ -663,34 +670,36 @@ fn call_get_property(
 /// to `dev_fail` on any Core Audio / CoreFoundation failure, `alloc_fail` on OOM.
 #[allow(clippy::too_many_arguments)]
 fn emit_cfstring_field(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     selector: &str,
     out_off: usize,
     dev_fail: &str,
     alloc_fail: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let field = out_off; // unique label suffix
     let copy_loop = format!("{symbol}_cf{field}_copy");
     let copy_done = format!("{symbol}_cf{field}_copy_done");
     let len_loop = format!("{symbol}_cf{field}_len");
     let len_done = format!("{symbol}_cf{field}_len_done");
 
-    build_propaddr(selector, SCOPE_GLOBAL, instructions);
+    build_propaddr(selector, SCOPE_GLOBAL, ctx.instructions);
     call_get_property(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         CURID_OFF,
         "8",
         CFREF_OFF,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(dev_fail),
         // CFStringGetCString(cfref, CSTRBUF, 256, kCFStringEncodingUTF8)
@@ -703,10 +712,10 @@ fn emit_cfstring_field(
         "CFStringGetCString",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         // Boolean is a 32-bit result in w0 (bug-04).
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), BOOLTMP_OFF),
@@ -717,10 +726,10 @@ fn emit_cfstring_field(
         "CFRelease",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), BOOLTMP_OFF),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(dev_fail),
@@ -740,8 +749,8 @@ fn emit_cfstring_field(
         abi::add_immediate(abi::return_register(), "%v10", 9),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
-    emit_alloc(symbol, instructions, relocations, alloc_fail);
-    instructions.extend([
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
         abi::move_register("%v15", abi::RET[1]),
         abi::load_u64("%v10", abi::stack_pointer(), SIZE_OFF),
         abi::store_u64("%v10", "%v15", 0),
@@ -768,33 +777,32 @@ fn emit_cfstring_field(
 /// storing `1` (any channel) or `0` into `out_off`. A failed query means the
 /// direction is unsupported → `0`.
 #[allow(clippy::too_many_arguments)]
-fn emit_channel_flag(
-    symbol: &str,
-    scope: &str,
-    out_off: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_channel_flag(ctx: &mut EmitCtx, scope: &str, out_off: usize) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let unsupported = format!("{symbol}_ch{out_off}_none");
     let sum_loop = format!("{symbol}_ch{out_off}_loop");
     let sum_done = format!("{symbol}_ch{out_off}_done");
     let set_flag = format!("{symbol}_ch{out_off}_flag");
 
-    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), out_off));
-    build_propaddr(SEL_STREAMCFG, scope, instructions);
+    ctx.instructions
+        .push(abi::store_u64(abi::ZERO, abi::stack_pointer(), out_off));
+    build_propaddr(SEL_STREAMCFG, scope, ctx.instructions);
     call_get_property(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         CURID_OFF,
         BUFLIST_CAP,
         BUFLIST_OFF,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&unsupported),
         // mNumberBuffers @ BUFLIST[0]; buffers start at BUFLIST+8, stride 16,
@@ -885,14 +893,16 @@ fn lower_write(
         abi::branch_ge(&write_done),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::label(&wait_loop),
@@ -926,14 +936,16 @@ fn lower_write(
         abi::store_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), TOTAL_OFF),
@@ -1036,14 +1048,16 @@ fn lower_close_output(
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::label(&drain_loop),
@@ -1069,14 +1083,16 @@ fn lower_close_output(
         abi::store_u64("%v9", "%v10", S_CLOSED),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -1103,24 +1119,28 @@ fn lower_close_output(
         &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_destroy",
         STATE_OFF,
         S_COND,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_destroy",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), HANDLE_OFF),
@@ -1205,14 +1225,16 @@ fn lower_query(
         let pt_have = format!("{symbol}_pt_have");
         let pt_result = format!("{symbol}_pt_result");
         emit_pthread1(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_mutex_lock",
             STATE_OFF,
             S_MUTEX,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
         // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6 on macOS).
         instructions.extend([
@@ -1303,14 +1325,16 @@ fn lower_query(
             abi::label(&pt_result),
         ]);
         emit_pthread1(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_mutex_unlock",
             STATE_OFF,
             S_MUTEX,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.push(abi::load_u64(
             RESULT_VALUE_REGISTER,
@@ -1319,14 +1343,16 @@ fn lower_query(
         ));
     } else {
         emit_pthread1(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_mutex_lock",
             STATE_OFF,
             S_MUTEX,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), HANDLE_OFF),
@@ -1353,14 +1379,16 @@ fn lower_query(
             abi::store_u64("%v14", abi::stack_pointer(), CAP_OFF),
         ]);
         emit_pthread1(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_mutex_unlock",
             STATE_OFF,
             S_MUTEX,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
         match kind {
             Query::Available => instructions.push(abi::load_u64(
@@ -1424,14 +1452,16 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
         abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
         CB_STATE,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), CB_STATE),
@@ -1467,14 +1497,16 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
     )?;
     instructions.push(abi::label(&ret));
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         CB_STATE,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], CB_FRAME);
@@ -1715,24 +1747,28 @@ fn lower_open_input(
         abi::store_u64("%v9", "%v15", S_MAP_SIZE),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_init",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_init",
         STATE_OFF,
         S_COND,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // ASBD.
     instructions.extend([
@@ -1785,12 +1821,14 @@ fn lower_open_input(
     ]);
     if device {
         emit_select_device(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             &dev_fail,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
     }
     // Allocate NUM_BUFFERS buffers and enqueue each (input buffers must be
@@ -1883,13 +1921,13 @@ fn lower_open_input(
         &done,
     );
     instructions.push(abi::label(&dev_fail));
-    emit_open_cleanup(
-        symbol,
-        &mut instructions,
-        &mut relocations,
-        platform,
+    emit_open_cleanup(&mut EmitCtx {
+        symbol: symbol,
         platform_imports,
-    )?;
+        platform,
+        instructions: &mut instructions,
+        relocations: &mut relocations,
+    })?;
     emit_fail(
         symbol,
         ERR_AUDIO_DEVICE_CODE,
@@ -1999,14 +2037,16 @@ fn lower_read(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     if timeout {
         // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6).
@@ -2150,14 +2190,16 @@ fn lower_read(
         abi::label(&drain_done),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // If we filled the request, return the pre-allocated result; otherwise (timed
     // partial) build a right-sized list of `got` bytes.
@@ -2270,14 +2312,16 @@ fn lower_close_input(
     ]);
     // Set closed under the mutex first (a racing callback must not touch the ring).
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -2285,14 +2329,16 @@ fn lower_close_input(
         abi::store_u64("%v9", "%v10", S_CLOSED),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -2319,24 +2365,28 @@ fn lower_close_input(
         &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_destroy",
         STATE_OFF,
         S_COND,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_destroy",
         STATE_OFF,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), HANDLE_OFF),
@@ -2395,14 +2445,16 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
         abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
     ]);
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
         CB_STATE,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), CB_STATE),
@@ -2485,14 +2537,16 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
         &mut relocations,
     )?;
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         CB_STATE,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // Re-enqueue the buffer.
     instructions.extend([
@@ -2512,14 +2566,16 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
     // Closed path: unlock and return without touching the ring or re-enqueuing.
     instructions.push(abi::label(&closed_exit));
     emit_pthread1(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
         CB_STATE,
         S_MUTEX,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], CB_FRAME);
@@ -2561,39 +2617,45 @@ fn lower_devices(
     ]);
     build_propaddr(SEL_DEFIN, SCOPE_GLOBAL, &mut instructions);
     call_get_property(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         CURID_OFF,
         "4",
         DEFIN_OFF,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     build_propaddr(SEL_DEFOUT, SCOPE_GLOBAL, &mut instructions);
     call_get_property(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         CURID_OFF,
         "4",
         DEFOUT_OFF,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
 
     // Device list.
     build_propaddr(SEL_DEVICES, SCOPE_GLOBAL, &mut instructions);
     // object is still the system object (CURID_OFF = 1).
     call_get_property(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         CURID_OFF,
         IDSBUF_CAP,
         IDSBUF_OFF,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -2655,44 +2717,52 @@ fn lower_devices(
     ]);
     // name, id (UID), channel-capability flags.
     emit_cfstring_field(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         SEL_NAME,
         NAMEPTR_OFF,
         &dev_fail,
         &alloc_fail,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_cfstring_field(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         SEL_UID,
         IDPTR_OFF,
         &dev_fail,
         &alloc_fail,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_channel_flag(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         SCOPE_INPUT,
         CANIN_OFF,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_channel_flag(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         SCOPE_OUTPUT,
         CANOUT_OFF,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // Build the record at DATA_OFF + index*RECORD.
     instructions.extend([
