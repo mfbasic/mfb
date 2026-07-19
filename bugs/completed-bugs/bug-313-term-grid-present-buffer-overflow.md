@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/ (new) — a grid sized ≥1000 rows/cols with many scattered dirty cells does not overflow the present buffer
+Status: Fixed
+Regression Test: term_grid::tests::outbuf_per_cell_covers_the_worst_case_escape_run
 
 The per-block out buffer is sized `rows*cols*OUTBUF_PER_CELL(64) + TRAILER_SLACK(64)`,
 but the present loop can emit, per changed cell, a CUP + a full SGR + the glyph.
@@ -95,3 +95,41 @@ bounds check. Rejected: relying on the fixed 64 budget — it is provably insuff
 The present buffer's fixed 64-byte/cell budget underflows the worst-case escape
 sequence for ≥4-digit coordinates, overflowing the arena block on large terminals.
 Coordinate-aware sizing plus a bounds check fixes it.
+
+## Resolution
+
+`OUTBUF_PER_CELL` raised from 64 to 72.
+
+The report's arithmetic was recomputed independently from the escape sequences this
+module actually emits, rather than taken on trust, and it holds exactly — with one
+detail worth stating plainly that the old comment obscured. That comment claimed a
+cell's worst case "fits comfortably" in 64 bytes. It does not: **64 is the worst
+case exactly**, at zero margin, and only for coordinates below 1000.
+
+| coordinate digits | CUP | SGR | glyph | total |
+| --- | --- | --- | --- | --- |
+| 3 | 10 | 50 | 4 | **64** |
+| 4 | 12 | 50 | 4 | 66 |
+| 5 | 14 | 50 | 4 | 68 |
+
+`rows`/`cols` come from raw `TIOCGWINSZ` as u16 with no clamp, so a coordinate can
+reach five digits. Past three, each changed cell overran its share, and once the
+aggregate excess passed `TRAILER_SLACK` the present loop wrote past the arena grid
+block into adjacent arena memory.
+
+### The test recomputes the budget rather than restating it
+
+`outbuf_per_cell_covers_the_worst_case_escape_run` derives the worst case from the
+sequence lengths — `ESC[0m`, `ESC[1m`, `ESC[4m`, `ESC[38;2;r;g;b m` twice, the CUP,
+a 4-byte glyph — and asserts the constant covers it for the widest coordinate `u16`
+geometry admits. It also pins that `worst_case(3) == 64`, which documents what the
+old value silently encoded.
+
+That shape matters more than the number: a magic 72 would go stale the same way 64
+did the moment someone adds an escape or widens a colour. Confirmed the test rejects
+the old value by reverting the constant and watching it fail.
+
+The steady state is unaffected — the diff coalesces SGR, so real repaints stay far
+below this bound; the budget only has to cover the pathological case.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1013/1013.

@@ -50,10 +50,36 @@ const C_BG: usize = 8;
 const C_BOLD: usize = 12;
 const C_UN: usize = 13;
 
-/// Worst-case escape bytes emitted per changed cell (CUP + full SGR + a 4-byte
-/// glyph fits comfortably; the diff coalesces SGR so the steady state is far
-/// smaller). Sizes the per-block output buffer.
-const OUTBUF_PER_CELL: usize = 64;
+/// Worst-case escape bytes emitted per changed cell. Sizes the per-block output
+/// buffer.
+///
+/// bug-313: this was 64, described as fitting "comfortably". It does not — 64 is
+/// the worst case *exactly*, with zero margin, and only for coordinates below
+/// 1000. Counted from the sequences this module actually emits, for a coordinate
+/// of `d` digits:
+///
+/// ```text
+///   CUP    ESC [ <row> ; <col> H      2 + d + 1 + d + 1  = 2d + 4
+///   SGR    ESC [0m                    4
+///          ESC [1m                    4   (bold)
+///          ESC [4m                    4   (underline)
+///          ESC [38;2;<r>;<g>;<b>m     7 + 11 + 1 = 19    (fg, 3 digits each)
+///          ESC [48;2;<r>;<g>;<b>m     19                 (bg)
+///   glyph  up to 4 UTF-8 bytes        4
+///                                     -----------------
+///                                     2d + 58
+/// ```
+///
+/// So d=3 needs exactly 64, d=4 needs 66 and d=5 needs 68 — and `rows`/`cols`
+/// come from raw `TIOCGWINSZ` `ws_row`/`ws_col` as u16 with no clamp, so d reaches
+/// 5. Past d=3 each changed cell overran its share, and once the aggregate excess
+/// passed `TRAILER_SLACK` the present loop wrote beyond the arena grid block into
+/// adjacent arena memory.
+///
+/// 72 covers the d=5 worst case with margin. The diff coalesces SGR, so the steady
+/// state remains far below this; the budget only has to bound the pathological
+/// repaint.
+const OUTBUF_PER_CELL: usize = 72;
 
 /// Extra bytes reserved past the exact `rows*cols*OUTBUF_PER_CELL` out-buffer so
 /// the fixed trailing reset/CUP/cursor sequence (~24 bytes) appended after the
@@ -1082,4 +1108,52 @@ pub(super) fn emit_grid_present(
     platform.emit_write(symbol, platform_imports, instrs, relocations)?;
     instrs.push(abi::label(&done_ok));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// bug-313: `OUTBUF_PER_CELL` must cover the worst-case escape run a single
+    /// changed cell can emit, for the widest coordinate the geometry admits.
+    ///
+    /// It was 64 — the exact worst case for a 3-digit coordinate and short of it
+    /// for anything wider. `rows`/`cols` come from raw `TIOCGWINSZ` as u16 with no
+    /// clamp, so a coordinate can be 5 digits, and past 3 digits each changed cell
+    /// overran its share until the aggregate excess passed `TRAILER_SLACK` and the
+    /// present loop wrote outside the arena grid block.
+    ///
+    /// This recomputes the budget from the sequences the module emits rather than
+    /// restating a number, so shrinking it or adding a longer escape fails here
+    /// instead of silently overflowing a customer's terminal.
+    #[test]
+    fn outbuf_per_cell_covers_the_worst_case_escape_run() {
+        /// Bytes a single changed cell can emit at a `digits`-wide coordinate.
+        fn worst_case(digits: usize) -> usize {
+            let cup = 2 + digits + 1 + digits + 1; // ESC [ row ; col H
+            let reset = "\x1b[0m".len();
+            let bold = "\x1b[1m".len();
+            let underline = "\x1b[4m".len();
+            // ESC [38;2; r ; g ; b m — three components of up to three digits.
+            let colour = "\x1b[38;2;".len() + 3 + 1 + 3 + 1 + 3 + "m".len();
+            let glyph = 4; // widest UTF-8 encoding
+            cup + reset + bold + underline + colour * 2 + glyph
+        }
+
+        // The historical budget was exactly the 3-digit worst case, which is why
+        // the shortfall only appeared on large terminals.
+        assert_eq!(worst_case(3), 64, "the 3-digit worst case is what 64 encoded");
+        assert_eq!(worst_case(4), 66);
+        assert_eq!(worst_case(5), 68);
+
+        // u16 geometry means a coordinate is at most 65535 — five digits.
+        let widest = u16::MAX.to_string().len();
+        assert_eq!(widest, 5);
+        assert!(
+            OUTBUF_PER_CELL >= worst_case(widest),
+            "OUTBUF_PER_CELL ({OUTBUF_PER_CELL}) must cover the {widest}-digit worst \
+             case ({})",
+            worst_case(widest)
+        );
+    }
 }
