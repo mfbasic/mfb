@@ -1,0 +1,41 @@
+' bug-326-A10: `BIND STATE <res> = <out-struct>` names the resource slot on its
+' left, and the grammar makes that word mandatory. It must name the slot the
+' wrapper actually returns. Here the OUT struct half is correct (`info` is a
+' well-mapped OUT SfFileInfo), but the resource half says `handle` while the
+' wrapper returns `file` — a typo that used to be accepted in silence, with the
+' STATE attaching to `file` anyway. Rejected with NATIVE_BIND_STATE_INVALID.
+EXPORT RESOURCE SoundFile CLOSE BY snd::closeFile
+
+EXPORT TYPE FileInfo
+  frames     AS Integer
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
+
+LINK "libsnd" AS snd
+  CSTRUCT SfFileInfo AS FileInfo
+    frames     CInt64
+    samplerate CInt32
+    channels   CInt32
+    format     CInt32
+    sections   CInt32
+    seekable   CInt32
+  END CSTRUCT
+
+  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+    SYMBOL "sf_open"
+    ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+    CONST mode = 16
+    BIND STATE handle = info
+    ERROR_ON file = NOTHING
+    RETURN file
+  END FUNC
+
+  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+    SYMBOL "sf_close"
+    ABI (sndfile CPtr) AS status CInt32
+  END FUNC
+END LINK

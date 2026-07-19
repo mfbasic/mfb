@@ -211,8 +211,6 @@ pub(crate) const CSTRING_STRUCT_FIELDS: bool = true;
 
 /// A struct slot's shape, resolved for validation (plan-50-E).
 pub(crate) struct StructSlotView<'a> {
-    pub(crate) slot: &'a str,
-    pub(crate) direction: AbiDirection,
     /// The `CSTRUCT`'s fields, in C declaration order.
     pub(crate) cfields: &'a [(String, String)],
     /// The `AS <MfbType>` record's fields, as `(name, mfb_type)`.
@@ -436,6 +434,17 @@ pub(crate) struct IrLinkFunction {
     /// resource slot is the native return; only the struct slot is needed at
     /// codegen. `None` when the native func has no BIND STATE.
     pub(crate) bind_state: Option<String>,
+    /// The `<res>` half of `BIND STATE <res> = <out-struct-slot>`, carried purely
+    /// so `ir::verify` can check it names the slot the wrapper actually returns
+    /// (bug-326-A10). Codegen never reads it — the STATE always attaches to the
+    /// return — but the grammar makes the word mandatory, so it must mean
+    /// something rather than be silently ignored.
+    ///
+    /// Source-path only: it does **not** ride the `.mfp` trailer, so a decoded
+    /// package leaves it `None` and the check is skipped. That is correct rather
+    /// than a gap — the name is surface syntax that was already validated when
+    /// that package was built from source, and it binds nothing at the boundary.
+    pub(crate) bind_state_resource: Option<String>,
     /// `FREE <slot>` deallocation of a caller-owned native return (mfbasic.md §17).
     pub(crate) free: Option<IrFree>,
 }

@@ -17,7 +17,6 @@
 //! manual `-app` run on a GTK desktop.
 
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -37,7 +37,15 @@ const RUNTIME_AARCH64: &[u8] = include_bytes!("runtime-aarch64");
 
 /// Recorded blob lengths. A stale or truncated copy fails a unit test rather
 /// than shipping.
+///
+/// Test-only by construction: the guard they serve is
+/// `every_runtime_ends_exactly_at_its_own_length`, and nothing in the shipping
+/// build should consult a hardcoded length instead of the blob itself. The
+/// `#[cfg(test)]` keeps them honest rather than deleting a supply-chain check to
+/// quiet a dead-code warning (bug-326-D7).
+#[cfg(test)]
 const RUNTIME_X86_64_LEN: usize = 944_632;
+#[cfg(test)]
 const RUNTIME_AARCH64_LEN: usize = 936_456;
 
 /// The AppImage type-2 runtime for `arch` (plan-51-C §4.3).

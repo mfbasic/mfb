@@ -938,7 +938,6 @@ impl<'a> FileParser<'a> {
     /// `BIND STATE <resource-slot> = <out-struct-slot>` — a single-line clause
     /// (unlike `BIND IN … END BIND`). `STATE` and `BIND` are already consumed.
     pub(super) fn parse_bind_state(&mut self) -> Option<BindState> {
-        let line = self.previous().line;
         let resource_slot =
             self.consume_identifier("BIND STATE requires the resource slot name.")?;
         if !self.consume_kind(
@@ -954,7 +953,6 @@ impl<'a> FileParser<'a> {
         Some(BindState {
             resource_slot,
             struct_slot,
-            line,
         })
     }
 

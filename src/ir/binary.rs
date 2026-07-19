@@ -548,6 +548,10 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         // after the whole project decodes (decode_link_state_trailer).
         return_state_type: None,
         bind_state: None,
+        // Stays `None`: the BIND STATE resource-slot NAME is source-only surface
+        // syntax that binds nothing at the package boundary, so it never rode the
+        // wire. Its check ran when this package was built from source.
+        bind_state_resource: None,
         abi_slots: decode_vec(r, |r| {
             let name = r.string()?;
             let ctype = r.string()?;
