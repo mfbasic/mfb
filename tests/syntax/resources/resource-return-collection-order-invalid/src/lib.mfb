@@ -1,0 +1,19 @@
+IMPORT fs
+IMPORT collections
+
+' bug-291: escape analysis floats a resource's ownership to a RETURNed collection
+' only when the collection is declared strictly BEFORE the resource, because the
+' collection's runtime owned-list must already exist when the resource is
+' produced. The other order matched no float rule and silently degraded to
+' ResOwner::Local: the function closed the resource at exit while the returned
+' list still carried it, and the caller's adopted owned-list closed it a second
+' time -- a double close with no diagnostic at all.
+'
+' §15.6 already required this ("the resources must be added to the collection at
+' or after the collection's own binding"); it simply was not enforced. It is now.
+EXPORT FUNC openThem AS List OF RES File
+  RES f AS File = fs::createTempFile()
+  MUT xs AS List OF RES File = []
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC

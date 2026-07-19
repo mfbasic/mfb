@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-return-collection-order-invalid
+  16 |   MUT xs AS List OF RES File = []
+  17 |   xs = collections::append(xs, f)
+  18 |   RETURN xs
+     | ^
+tests/syntax/resources/resource-return-collection-order-invalid/src/lib.mfb:18 error[2-203-0131 TYPE_RESOURCE_RETURN_ORDER]: a collection that carries a returned resource must be declared before that resource
+               resource `f` is returned inside collection `xs`, but `xs` is declared after it, so it cannot take ownership; declare `xs` before `f`
+[exit 1]

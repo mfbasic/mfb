@@ -1,0 +1,48 @@
+{
+  "project": "resource_return_collection_order_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 },
+    { "module": "fs", "line": 10 },
+    { "module": "collections", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "openThem",
+      "line": 15,
+      "params": [
+      ],
+      "returnType": "List OF RES File",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 17 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "f" }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "xs" }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "items", "type": "List OF RES File", "value": { "kind": "call", "callee": "openThem", "arguments": [] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "opened=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "items" }] }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "items" }, { "kind": "number", "value": "0" }] }, { "kind": "string", "value": "adopted by the caller" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "wrote ok" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}

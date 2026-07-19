@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/resource-return-collection-order-rt
+Wrote AST to tests/rt-behavior/resources/resource-return-collection-order-rt/resource_return_collection_order_rt.ast
+Wrote IR to tests/rt-behavior/resources/resource-return-collection-order-rt/resource_return_collection_order_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/resource-return-collection-order-rt
+Wrote executable to tests/rt-behavior/resources/resource-return-collection-order-rt/build/resource_return_collection_order_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/resource-return-collection-order-rt/build/resource_return_collection_order_rt.out
+opened=1
+wrote ok
+[exit 0]

@@ -796,6 +796,11 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
                 put_u8(o, 1);
                 put_str(o, target);
             }
+            // bug-291: unreachable on the wire -- `ir::verify` rejects a program
+            // carrying a blocked float before it can be encoded. Encoded as
+            // `Local` so the format stays v4-compatible rather than gaining a tag
+            // no reader could ever legitimately see.
+            crate::escape::ResOwner::FloatBlocked(_) => put_u8(o, 0),
         }
     });
 }

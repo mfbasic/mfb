@@ -977,6 +977,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a resource's STATE type is fixed at its owning binding and every other declaration of it must agree",
     },
     Rule {
+        code: "2-203-0131",
+        name: "TYPE_RESOURCE_RETURN_ORDER",
+        severity: Severity::Error,
+        message: "a collection that carries a returned resource must be declared before that resource",
+    },
+    Rule {
         code: "2-203-0130",
         name: "NATIVE_BIND_STATE_INVALID",
         severity: Severity::Error,

@@ -146,6 +146,10 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESOURCE_BORROW_INVALIDATE",
     "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
     "TYPE_MEMBER_NOT_VISIBLE",
+    // ir::verify is the sole implementer: the condition is knowable only from
+    // escape analysis' ownership decision, which syntaxcheck does not compute
+    // (bug-291).
+    "TYPE_RESOURCE_RETURN_ORDER",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -308,6 +312,24 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
         for (name, owner) in &function.resource_owners {
             if matches!(owner, crate::escape::ResOwner::Float(_)) {
                 borrowed.insert(name.clone());
+            }
+            // bug-291: the resource flows into a collection this function
+            // RETURNs, but the collection is declared after it, so it has no
+            // runtime owned-list at the point the resource is produced and the
+            // float cannot be honoured. Silently treating this as `Local`
+            // compiled a program that closed the resource at function exit while
+            // the returned collection still carried it -- the caller's adopted
+            // owned-list then closed it a second time, a double close with no
+            // diagnostic. Reject it, and name the order that fixes it.
+            if let crate::escape::ResOwner::FloatBlocked(collection) = owner {
+                env.emit(
+                    "TYPE_RESOURCE_RETURN_ORDER",
+                    format!(
+                        "resource `{name}` is returned inside collection `{collection}`, but \
+                         `{collection}` is declared after it, so it cannot take ownership; \
+                         declare `{collection}` before `{name}`"
+                    ),
+                );
             }
         }
         env.check_resource_moves(

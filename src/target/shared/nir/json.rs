@@ -368,6 +368,12 @@ fn res_owner_json(owner: &crate::escape::ResOwner) -> String {
                 json_string(scope)
             )
         }
+        crate::escape::ResOwner::FloatBlocked(scope) => {
+            format!(
+                "{{ \"kind\": \"float-blocked\", \"scope\": {} }}",
+                json_string(scope)
+            )
+        }
     }
 }
 

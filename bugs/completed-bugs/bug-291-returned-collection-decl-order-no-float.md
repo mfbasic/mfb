@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (resource lifetime)
 
-Status: Open
-Regression Test: tests/rt-behavior (new) — returning a collection that holds a resource declared before it, in either declaration order, does not double-close
+Status: Fixed
+Regression Test: tests/syntax/resources/resource-return-collection-order-invalid (rejection) + tests/rt-behavior/resources/resource-return-collection-order-rt (supported order)
 
 Escape analysis floats a resource's ownership to a returned collection only when
 the collection is declared strictly *before* the resource (phase 1's `order >=
@@ -107,3 +107,73 @@ Escape analysis honors the resource→returned-collection float only in one
 declaration order and silently miscompiles the other into a double-close. Fixing the
 ordering assumption (or rejecting it) closes a runtime memory-safety-adjacent
 failure; the real engineering choice is diagnostic-vs-lowering.
+
+## Resolution — the diagnostic, as the report recommended
+
+The report offered two fixes and recommended the diagnostic first. That is what
+landed, and the choice was checked rather than assumed: the ordering constraint was
+tested by deleting the `order >= res_order` skip and rebuilding. Lowering then fails
+with `resource floats to 'xs', which has no owned-list while lowering bind f AS File`
+— so the constraint is real, not stale conservatism. The owned-list is created at
+the collection's *bind* site (`setup_owned_list`, from `builder_control`), so
+honouring the other order means hoisting that allocation, which changes the scope
+the drain obligation lives at. That is the report's "preferred long-term" fix and it
+remains open; it is a lowering change, not an escape-analysis one.
+
+What is closed is the memory-safety-adjacent part: the program no longer compiles.
+
+- `ResOwner` gains a `FloatBlocked(collection)` variant. The unsupportable case
+  previously collapsed into `Local`, which is exactly what made it silent — `Local`
+  is also the correct answer for a resource that legitimately does not escape, so
+  the two were indistinguishable downstream. Modelling it separately costs nothing
+  and makes it rejectable.
+- `solve` records it when phase 1 skipped a returned collection that genuinely holds
+  the resource and phase 2 then found no outer collection either.
+- `ir::verify` emits `TYPE_RESOURCE_RETURN_ORDER` (`2-203-0131`), naming both
+  bindings and the order that fixes it. ir::verify is the sole implementer: the
+  condition is knowable only from escape analysis' decision, which syntaxcheck does
+  not compute.
+- The variant is unreachable on the wire — verification rejects the program before
+  it can be encoded — so `ir::binary` writes it as `Local` and the `.mfp` format
+  stays v4-compatible rather than gaining a tag no reader could legitimately see.
+
+### The spec already required this
+
+§15.6 already said "the resources must be added to the collection at or after the
+collection's own binding so the obligation rides the collection." The rule was
+stated and simply never enforced, so this is the compiler catching up to its own
+contract rather than a new restriction. §15.6 now cites the rule code, and
+`diagnostics/01_rule-codes.md` lists it — the latter because
+`every_rule_is_documented_in_the_spec` failed and caught the omission, which is the
+guard working as intended.
+
+### Verification
+
+Two fixtures, deliberately paired: the syntax test pins the rejection (with the
+diagnostic text in its golden), and the rt-behavior test pins that the *supported*
+order still builds and runs, so the new rule cannot creep into rejecting valid
+programs. Both use a returned handle rather than counting the list — the count alone
+reports success while the handles are already closed, which is how this class of bug
+hides.
+
+Full `cargo test` green; acceptance 1004/1004.
+
+### The first version of the rule was over-broad — two existing tests caught it
+
+Full acceptance failed two pre-existing fixtures,
+`syntax/resources/resource-collection-return-invalid` and
+`syntax/resources/native-resource-in-list-invalid`. Both declare a **bare**
+`List OF File` / `List OF Db` returned holding a resource, and both already assert
+a `TYPE_RESOURCE_REQUIRES_RES` rejection for the missing `RES` marker. The new rule
+piled a third error on top of them.
+
+Those goldens were not regenerated, because the tests were right and the rule was
+wrong. A bare `List OF File` cannot own a resource at *any* declaration order, so
+"declare the collection before the resource" is advice that would not fix either
+program — it is noise on an already-correct rejection, and following it would leave
+the author no better off.
+
+The rule is now gated on the collection's declared type actually carrying the `RES`
+ownership axis. That required escape analysis to start recording declared types
+(`decl_type`), which it had no reason to before. Both fixtures are green with their
+original goldens intact.

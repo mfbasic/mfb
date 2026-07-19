@@ -1,0 +1,28 @@
+' bug-291 companion to tests/syntax/resources/resource-return-collection-order-invalid.
+' That fixture pins the rejection of the unsupported declaration order; this one
+' pins that the SUPPORTED order still works end to end, so the new
+' TYPE_RESOURCE_RETURN_ORDER rule cannot creep into rejecting valid programs.
+'
+' The check has to USE a returned handle, not just count the list: the original
+' bug printed the right count while the handles were already closed, and only
+' writing through one surfaced the double close.
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' Collection declared BEFORE the resource: ownership floats to it, and the
+' RETURN transfers its owned-list to the caller (§15.6).
+FUNC openThem AS List OF RES File
+  MUT xs AS List OF RES File = []
+  RES f AS File = fs::createTempFile()
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC main AS Integer
+  LET items AS List OF RES File = openThem()
+  io::print("opened=" & toString(len(items)))
+  fs::writeAll(collections::get(items, 0), "adopted by the caller")
+  io::print("wrote ok")
+  RETURN 0
+END FUNC

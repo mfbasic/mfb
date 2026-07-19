@@ -36,6 +36,18 @@ pub enum ResOwner {
     /// collection is `RETURN`ed (`List OF RES File`), the `RETURN` transfers the
     /// owned-list to the caller's scope instead of draining it (§15.6).
     Float(String),
+    /// The resource flows into a collection that is `RETURN`ed, but the float
+    /// cannot be honored: the collection is declared *after* the resource (or in
+    /// an inner scope), so its runtime owned-list does not exist yet when the
+    /// resource is produced.
+    ///
+    /// bug-291: this case previously collapsed to [`ResOwner::Local`], which is a
+    /// silent miscompile -- the resource was closed at function exit while the
+    /// returned collection still carried it, and the caller's adopted owned-list
+    /// then closed it a second time. Modelling it separately lets `ir::verify`
+    /// reject it with a diagnostic naming both bindings instead. Lowering never
+    /// sees it, because verification rejects the program first.
+    FloatBlocked(String),
 }
 
 /// Per-function resource ownership decisions, keyed by `RES` binding name.
@@ -91,6 +103,11 @@ struct Analyzer {
     decl_depth: HashMap<String, usize>,
     /// Declaration order index of every local binding, for deterministic ties.
     decl_order: HashMap<String, usize>,
+    /// Declared type of each binding, when it carried one. Used only to tell a
+    /// collection that can actually *own* resources (`List OF RES File`) from a
+    /// bare one, so the bug-291 rejection does not pile onto a program already
+    /// rejected for the missing `RES` marker.
+    decl_type: HashMap<String, String>,
     res_depth: HashMap<String, usize>,
     routings: Vec<Routing>,
     next_order: usize,
@@ -102,6 +119,7 @@ pub fn analyze_function(function: &Function) -> FunctionEscape {
         res_names: HashSet::new(),
         decl_depth: HashMap::new(),
         decl_order: HashMap::new(),
+        decl_type: HashMap::new(),
         res_depth: HashMap::new(),
         routings: Vec::new(),
         next_order: 0,
@@ -145,10 +163,16 @@ impl Analyzer {
             Statement::Let {
                 resource,
                 name,
+                type_name,
                 value,
                 ..
             } => {
                 self.declare(name, depth);
+                if let Some(type_name) = type_name {
+                    self.decl_type
+                        .entry(name.clone())
+                        .or_insert_with(|| type_name.clone());
+                }
                 if *resource {
                     self.res_names.insert(name.clone());
                     self.res_depth.insert(name.clone(), depth);
@@ -360,6 +384,33 @@ impl Analyzer {
                     _ => Some(candidate),
                 };
             }
+            // bug-291: remember whether phase 1 had a *candidate* it had to skip
+            // purely because of declaration order -- that is the unsupportable
+            // case, and it must not silently degrade to `Local`.
+            let mut blocked_by_order: Option<String> = None;
+            if best.is_none() {
+                for collection in &returned_collections {
+                    if !membership
+                        .get(collection)
+                        .is_some_and(|members| members.contains(resource))
+                    {
+                        continue;
+                    }
+                    // Only a RES-marked collection can own a resource at all. A
+                    // bare `List OF File` is already rejected for the missing
+                    // marker, and telling its author to reorder declarations
+                    // would be advice that does not fix their program.
+                    if !self
+                        .decl_type
+                        .get(collection)
+                        .is_some_and(|type_| is_res_marked_resource_collection(type_))
+                    {
+                        continue;
+                    }
+                    blocked_by_order = Some(collection.clone());
+                    break;
+                }
+            }
             // 2) Otherwise, float to the outermost strictly-outer collection.
             if best.is_none() {
                 for (collection, members) in &membership {
@@ -385,14 +436,37 @@ impl Analyzer {
                 Some((_, _, collection)) => {
                     owners.insert(resource.clone(), ResOwner::Float(collection));
                 }
-                None => {
-                    owners.insert(resource.clone(), ResOwner::Local);
-                }
+                // bug-291: phase 2 found no outer collection either. If phase 1 had
+                // skipped a *returned* collection that genuinely holds this
+                // resource, the program is the unsupportable ordering, not an
+                // ordinary local: report it so verification can reject it.
+                None => match blocked_by_order {
+                    Some(collection) => {
+                        owners.insert(resource.clone(), ResOwner::FloatBlocked(collection));
+                    }
+                    None => {
+                        owners.insert(resource.clone(), ResOwner::Local);
+                    }
+                },
             }
         }
 
         FunctionEscape { owners }
     }
+}
+
+/// Does this declared type mark its element with the `RES` ownership axis, i.e.
+/// can the collection actually take ownership of resources (§15.6)? Mirrors
+/// `builder_codegen_primitives::is_res_marked_resource_collection`, which lives in
+/// the target layer and is not reachable from here.
+fn is_res_marked_resource_collection(type_: &str) -> bool {
+    type_
+        .strip_prefix("List OF ")
+        .is_some_and(|element| element.starts_with("RES "))
+        || type_
+            .strip_prefix("Map OF ")
+            .and_then(|rest| rest.split_once(" TO "))
+            .is_some_and(|(_, value)| value.starts_with("RES "))
 }
 
 /// Collection-update builtins whose first argument is the collection being

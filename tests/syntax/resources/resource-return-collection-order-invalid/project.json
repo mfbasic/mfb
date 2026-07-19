@@ -1,0 +1,15 @@
+{
+  "name": "resource_return_collection_order_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ]
+}
