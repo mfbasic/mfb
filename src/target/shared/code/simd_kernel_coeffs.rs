@@ -1,15 +1,14 @@
-#![allow(dead_code)] // most coeff sets are consumed as later Phase-5 kernels land
-                     // GENERATED — minimax coefficients for the NEON f64 math kernels.
-                     // Source: tools/math-kernels/gen_coeffs.py  (Remez exchange via mpmath)
-                     // Regenerate: python3 tools/math-kernels/gen_coeffs.py gen --out <this file>
-                     // Each block lists the function approximated, the reduction it assumes,
-                     // the fit interval, and the achieved minimax relative error. Coefficients
-                     // are ordered by ascending power of the reduced variable (c[0] = constant).
-                     //
-                     // These approximate the *reduced* function; the kernel reconstructs the
-                     // full transcendental as noted in each block (plan-01-simd §4.6). They are
-                     // validated <=1 ULP against the committed macOS-libm reference vectors by
-                     // `gen_coeffs.py verify`.
+// GENERATED — minimax coefficients for the NEON f64 math kernels.
+// Source: tools/math-kernels/gen_coeffs.py  (Remez exchange via mpmath)
+// Regenerate: python3 tools/math-kernels/gen_coeffs.py gen --out <this file>
+// Each block lists the function approximated, the reduction it assumes,
+// the fit interval, and the achieved minimax relative error. Coefficients
+// are ordered by ascending power of the reduced variable (c[0] = constant).
+//
+// These approximate the *reduced* function; the kernel reconstructs the
+// full transcendental as noted in each block (plan-01-simd §4.6). They are
+// validated <=1 ULP against the committed macOS-libm reference vectors by
+// `gen_coeffs.py verify`.
 
 /// exp: minimax of `exp(x) = 2**n * P(r)`
 /// reduction: x = n*ln2 + r,  n = round(x/ln2),  r in [-ln2/2, ln2/2]
@@ -75,9 +74,18 @@ pub const COS_COEFFS: [f64; 8] = [
 ];
 
 /// atan: minimax of `atan(x) = x * P(x**2)   (asin/acos/atan2 via identities, §4.6)`
+///
+/// No consumer: `atan` is computed from the fdlibm 4-segment `ATAN_AT` table,
+/// not from this minimax fit, and no SIMD `atan` kernel exists. Kept anyway
+/// because `tools/math-kernels/gen_coeffs.py` emits `atan` as one of its five
+/// primitive reduced approximations — deleting the block here would be undone
+/// by the next regeneration and would leave the tool and this file disagreeing
+/// (bug-326-A6; the item was filed as a deletion, which is wrong for a
+/// generated file).
 /// reduction: |x|>1 -> pi/2 - atan(1/x); fit on |x| in [0,1]
 /// fit var `x2` on [0, 1], degree 18 (relative error)
 /// achieved minimax relative error: 1.658e-16 (~0.747 ULP of the reduced value)
+#[allow(dead_code)]
 pub const ATAN_COEFFS: [f64; 19] = [
     0.9999999999999999,     // x2^0
     -0.33333333333321036,   // x2^1

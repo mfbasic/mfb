@@ -12,7 +12,6 @@
 //! Much of this model (the allocatable/caller-saved banks, the FP class, the
 //! spill emitters) is consumed by the liveness-driven strategies in Stage B/C of
 //! the plan; it is defined in full now as the ISA description the core queries.
-#![allow(dead_code)]
 
 use super::abi;
 use crate::target::shared::code::CodeInstruction;

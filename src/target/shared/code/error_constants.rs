@@ -488,7 +488,14 @@ pub(crate) const STDIN_LOCAL_BUFFER_CAPACITY: u64 = 4096;
 pub(crate) const STDIN_LOG_SYMBOL: &str = "_mfb_rt_stdin_log";
 /// pthread primitives reserve 64 bytes each (matching the transfer-queue reserve),
 /// which fits both glibc and macOS `pthread_mutex_t`/`pthread_cond_t`.
-#[allow(dead_code)] // used by plan-15 Phase 3 (self-pipe) / layout doc
+// Reserved layout slot, not a deferred feature: the mutex is addressed
+// *implicitly* — `stdin_broadcast` passes the bare log address as `ARG[0]`,
+// which is this offset — so no code names the constant. It completes the
+// documented block map (0, 64, 128, 136 … 208); deleting it renumbers nothing
+// and erases the map. The old comment claimed plan-15 Phase 3 used it for the
+// self-pipe, which was wrong twice over: that phase is unbuilt, and the
+// self-pipe fds are the two slots at 192/200, not this one (bug-326-D1).
+#[allow(dead_code)]
 pub(crate) const STDIN_LOG_MUTEX_OFFSET: usize = 0;
 pub(crate) const STDIN_LOG_CV_OFFSET: usize = 64;
 /// 0 until the log has been lazily initialized (mutex/cond init + self-pipe), 1 after.
@@ -509,9 +516,12 @@ pub(crate) const STDIN_LOG_SHUTTING_DOWN_OFFSET: usize = 184;
 /// Self-pipe read / write fds (plan-15 D4): `_mfb_shutdown` writes the write end;
 /// the reader `poll`s the read end beside fd 0 so an orderly shutdown wakes a parked
 /// reader deterministically. `-1` until the log is initialized.
-#[allow(dead_code)] // used by plan-15 Phase 3 (self-pipe) / layout doc
+// Reserved layout slots completing the block map. The self-pipe itself is
+// unbuilt — plan-15 D4 was deferred — so nothing reads these yet; they are
+// kept so the two fd slots stay claimed and the map has no hole (bug-326-D1).
+#[allow(dead_code)]
 pub(crate) const STDIN_LOG_SELFPIPE_READ_OFFSET: usize = 192;
-#[allow(dead_code)] // used by plan-15 Phase 3 (self-pipe) / layout doc
+#[allow(dead_code)]
 pub(crate) const STDIN_LOG_SELFPIPE_WRITE_OFFSET: usize = 200;
 /// Fixed-capacity subscriber registry (kept inside the shared log so no registry
 /// entry ever lives in a per-thread arena). Each entry is `{active u64, cursor u64}`;

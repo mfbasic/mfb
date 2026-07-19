@@ -324,8 +324,11 @@ core:
   drop its high lane. All three ISAs — AArch64, x86-64, and RISC-V 64 —
   implement the trait.[[src/target/shared/regmodel.rs:RegisterModel]] [[src/arch/aarch64/regmodel.rs:Aarch64RegisterModel]]
 
-The allocation method is a swappable `AllocationStrategy`, selected by the
-`--regalloc <name>` build flag. The default, `linear-scan`, computes liveness over
+The allocation method is selected by the `--regalloc <name>` build flag. Only one
+of the two shipping methods actually goes through the `AllocationStrategy` trait:
+`bump` is invoked through it, while the default `linear-scan` path is called
+directly and bypasses it. The trait is therefore the differential-oracle seam, not
+the dispatch mechanism for the default. The default, `linear-scan`, computes liveness over
 the lowered stream and colors the integer class by live interval, spilling to a
 stack slot under pressure (so a deeply nested expression no longer fails — it
 spills); a value live across a call is spilled, since no register survives an

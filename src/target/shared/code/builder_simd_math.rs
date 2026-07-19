@@ -14,12 +14,15 @@ const FLOAT_TWO_POW_63_BITS: &str = "4890909195324358656";
 /// the most negative value that *does* fit.
 const FLOAT_NEG_TWO_POW_63_BITS: &str = "14114281232179134464";
 /// Q32.32 scale `2^32`, the fixed-point fraction mask `2^32-1`, and half `2^31`.
-/// bug-175 H: `FIXED_FRACTION_MASK_STR` (RoundFixed's fraction mask) and
-/// `FIXED_ONE_MINUS_1_STR` (CeilFixed's "one ULP below 1.0" bias) intentionally
-/// share the value `2^32-1`; the two names are kept for call-site intent.
+///
+/// bug-175 H once carried a second name for `2^32-1`, `FIXED_ONE_MINUS_1_STR`,
+/// on the rationale that `CeilFixed` reads it as a "one ULP below 1.0" bias
+/// while `RoundFixed` reads it as a fraction mask, and that the two call sites
+/// deserved distinct names. `CeilFixed` never used it — it reads
+/// `FIXED_FRACTION_MASK_STR` like everything else — so the name documented an
+/// intent no call site expressed (bug-326).
 const FIXED_SHIFT: u8 = 32;
 const FIXED_FRACTION_MASK_STR: &str = "4294967295";
-const FIXED_ONE_MINUS_1_STR: &str = "4294967295";
 const FIXED_HALF_STR: &str = "2147483648";
 
 /// A unary `math::` array kernel: how to transform one input list of 8-byte

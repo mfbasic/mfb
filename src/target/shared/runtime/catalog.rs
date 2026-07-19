@@ -112,10 +112,9 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         OS_HOST_NAME_SPEC,
         OS_USER_NAME_SPEC,
         OS_CPU_COUNT_SPEC,
-        // strings:: ops are all native-direct (lowered inline, no `_mfb_rt_strings_*`
-        // helper is ever emitted), so their catalog entries were dead (bug-120.1).
-        // The `STRINGS_*_SPEC` constants and `strings_specs.rs` remain in place to
-        // avoid a wide enum-variant churn.
+        // No `strings::` row: those ops are all native-direct (lowered inline; no
+        // `_mfb_rt_strings_*` helper is ever emitted, bug-120.1). The dead spec
+        // table that used to sit beside this comment is gone (bug-326-A1).
         THREAD_START_SPEC,
         THREAD_IS_RUNNING_SPEC,
         THREAD_WAIT_FOR_SPEC,

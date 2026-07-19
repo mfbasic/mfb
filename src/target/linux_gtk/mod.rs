@@ -167,6 +167,11 @@ const ARENA_REG: &str = "x19";
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
 // each keystroke's bytes to the pipe immediately (`io::readChar`/`readByte`).
 /// Default mode: line-buffered, no echo (the zero-initialized state value).
+///
+/// Never assigned, and that is the point: it is the value the state word
+/// already holds, so no code writes it. The specification documents it as
+/// such (`app/03_console-io.md`: "default; never set explicitly"), and it
+/// completes the enumeration its two live siblings belong to (bug-326-D6).
 #[allow(dead_code)]
 const MODE_LINE_NOECHO: &str = "0";
 const MODE_LINE_ECHO: &str = "1";

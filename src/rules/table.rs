@@ -55,6 +55,11 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Warn,
         message: "project.json kind is not recognized",
     },
+    // Reserved, not emitted. `mfb build` reports manifest problems and says
+    // nothing on success, so there is no site that would raise this. Kept as a
+    // reserved code rather than deleted so `2-200-0010` is never recycled for a
+    // different meaning; the spec rows now say "reserved" instead of describing
+    // a diagnostic users can never see (bug-326-A15).
     Rule {
         code: "2-200-0010",
         name: "PROJECT_JSON_VALID",

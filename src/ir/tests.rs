@@ -273,13 +273,22 @@ mod lowering_totality_tests {
         )
     }
 
-    /// Porting-progress report (plan-20-E..I): for every invalid fixture that
-    /// reaches lowering, compare the rule ids `ir::verify` produces against the
-    /// golden (the AST checker). Not an assertion — a census that names which
-    /// rules are still only in `syntaxcheck` (MISSING) so the port can drive them
-    /// to zero. Run with `--nocapture`.
+    /// Standing parity census: for every invalid fixture that reaches lowering,
+    /// compare the rule ids `ir::verify` produces against the golden (the AST
+    /// checker). Not an assertion — a report naming which rules are still only in
+    /// `syntaxcheck` (MISSING), which agree, and which `ir::verify` adds.
+    ///
+    /// It was written to drive plan-20's relocation of the rejection rules into
+    /// `ir::verify`; that plan finished at phase D, with 65 rules relocated. The
+    /// citation here used to read "plan-20-E..I" — phases that were never written
+    /// and do not exist in `planning/` or `planning/old-plans/` (bug-326-A20).
+    /// The census is kept because parity between the two checkers is a standing
+    /// property, not a migration milestone.
+    ///
+    /// `#[ignore]`d because it prints a report rather than asserting: run it with
+    /// `cargo test verify_vs_syntaxcheck_diagnostic_parity -- --ignored --nocapture`.
     #[test]
-    #[ignore = "porting census (plan-20-E..I); run with --ignored --nocapture"]
+    #[ignore = "prints a parity census rather than asserting; run with --ignored --nocapture"]
     fn verify_vs_syntaxcheck_diagnostic_parity() {
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));

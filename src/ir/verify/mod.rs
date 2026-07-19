@@ -2878,7 +2878,7 @@ impl TypeEnv {
                     cstruct_name: &decl.name,
                     maps_to: &decl.maps_to,
                 };
-                for fault in crate::ir::check_struct_slot(&view, crate::ir::CSTRING_STRUCT_FIELDS) {
+                for fault in crate::ir::check_struct_slot(&view) {
                     self.emit(fault.rule, fault.message);
                 }
             }
@@ -3011,7 +3011,6 @@ impl TypeEnv {
         self.current_file.replace(String::new());
         self.current_line.set(0);
         for function in &project.link_functions {
-            let display = format!("{}::{}", function.alias, function.name);
             for (pname, ptype) in &function.params {
                 if is_c_abi_type(ptype) {
                     self.emit(
@@ -3283,7 +3282,6 @@ impl TypeEnv {
                     }
                 }
             }
-            let _ = display;
         }
 
         // plan-53-A: a native resource's STATE type is fixed, so every native

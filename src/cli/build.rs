@@ -2951,9 +2951,6 @@ mod tests {
         assert_eq!(resource_src_fixed_prefix("a/b/c/*.txt"), "a/b/c");
     }
 
-    /// plan-55-A §4.3: the three worked examples — flat glob, `**` subtree
-    /// preservation, and a single literal file — plus the empty-match no-op.
-    #[test]
     /// bug-298 defense in depth: manifest validation rejects an escaping `src`
     /// textually, but `copy_resources` is the step that actually reads files, and
     /// a symlink *inside* the project pointing outside it passes every textual
@@ -2983,6 +2980,9 @@ mod tests {
         assert!(!out.join("cfg/secret.conf").exists());
     }
 
+    /// plan-55-A §4.3: the three worked examples — flat glob, `**` subtree
+    /// preservation, and a single literal file — plus the empty-match no-op.
+    #[test]
     fn copy_resources_maps_the_worked_examples() {
         let project = tempfile::tempdir().expect("project dir");
         let root = project.path();

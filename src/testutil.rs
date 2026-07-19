@@ -6,9 +6,6 @@
 //! composable; anything file-specific stays in that file's own test module.
 
 #![cfg(test)]
-// Helpers are consumed incrementally as file test modules land; not every one
-// is referenced from every build configuration.
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -91,25 +88,3 @@ pub fn accepts(source: &str) -> bool {
 pub fn rejects_with(source: &str, rule: &str) -> bool {
     check_src(source).iter().any(|r| r == rule)
 }
-
-/// Load a real on-disk project directory (containing `project.json` plus its
-/// `packages/*.mfp`) through the full manifest→AST pipeline and run the syntax
-/// checker over it, returning the emitted diagnostic rule codes. This is the
-/// only way to exercise the package-metadata validation path, which reads
-/// `<dir>/packages/<name>.mfp` from disk. Returns `Err(())` if manifest parsing
-/// or project parsing fails.
-pub fn check_project_dir(dir: &Path) -> Result<Vec<String>, ()> {
-    let manifest = crate::manifest::validate_project_manifest(&dir.join("project.json"))?;
-    let name = manifest
-        .get("name")
-        .and_then(|value| value.get::<String>())
-        .cloned()
-        .unwrap_or_else(|| "test".to_string());
-    let ast = crate::ast::parse_project(&name, dir, &manifest)?;
-    let diagnostics = crate::syntaxcheck::check_project_collect(dir, &ast)?;
-    Ok(diagnostics.into_iter().map(|d| d.rule).collect())
-}
-
-/// A tiny but complete program: an entry `main` that does nothing observable.
-/// Useful as a baseline IR for codegen smoke tests.
-pub const EMPTY_MAIN: &str = "SUB main\nEND SUB\n";

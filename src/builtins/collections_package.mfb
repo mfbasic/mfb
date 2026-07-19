@@ -6,8 +6,8 @@
 ' The native list/map members (`get`, `set`, `append`, `transform`, ...) moved
 ' out of the bare global namespace into `collections::` (plan-01-functions.md §5),
 ' so this implementation imports the package and qualifies those calls. `len(...)`
-' stays a global builtin. The internal `__collections_slice`/`__collections_reverse`
-' helpers are plain top-level functions and are called unqualified.
+' stays a global builtin. The internal `__collections_slice` helper is a plain
+' top-level function and is called unqualified.
 IMPORT collections
 
 ' Stable bottom-up merge sort — O(n log n). Equal elements keep their original
@@ -78,16 +78,6 @@ FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
 END FUNC
 
 ' --- internal helpers ---------------------------------------------------------
-
-FUNC __collections_reverse OF T(value AS List OF T) AS List OF T
-  MUT result AS List OF T = []
-  MUT i AS Integer = len(value) - 1
-  WHILE i >= 0
-    result = collections::append(result, collections::get(value, i))
-    i = i - 1
-  WEND
-  RETURN result
-END FUNC
 
 ' bug-306 S4: this body is DEAD -- `slice` is natively lowered as a bulk range copy,
 ' and the native path is what clamps `start` into [0, len] and `stop` into

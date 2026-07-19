@@ -130,6 +130,7 @@ pub struct CallSite {
     pub capability: Option<String>,
 }
 
+/// One `RES`/`LET` acquisition of a resource handle, as the audit sees it.
 pub struct ResourceEntry {
     pub function: String,
     pub name: String,
@@ -137,6 +138,15 @@ pub struct ResourceEntry {
     pub close_op: String,
     pub path: String,
     pub line: usize,
+    /// Always `false` in a real run — and correctly so, not by oversight
+    /// (bug-326-A17). `collect::source` only builds a `ResourceEntry` when
+    /// `resource_producer` recognizes the callee, and that table lists built-in
+    /// producers exclusively (`fs.open`, `net.connectTcp`, `tls.accept`, …). A
+    /// native `LINK` resource is reported through `AuditReport::native_resources`
+    /// instead, so nothing here is ever native. The field and the `text`/`json`
+    /// renderings of it stay because they are part of the audit's committed
+    /// output shape, and because they are what a native producer would need if
+    /// `resource_producer` ever grew one.
     pub native: bool,
     pub close_may_fail: bool,
 }
@@ -205,6 +215,15 @@ impl AuditReport {
     }
 
     /// Rank used to order findings deterministically by category.
+    ///
+    /// `sourceFlow`, `native`, and `policy` have no rank-consumer in practice:
+    /// `audit::collect` emits only dependency, lint, lockfile, package,
+    /// permission, and resource findings. They are kept so the ordering is
+    /// total and stable if a collector for one of them lands — adding a
+    /// category later must not renumber the ones already in use, which is what
+    /// would change committed audit output (bug-326-A16). `sourceFlow` is also
+    /// a live *report section* name (`audit::json`), just never a finding
+    /// category.
     pub fn category_rank(category: &str) -> u8 {
         match category {
             "lockfile" => 0,

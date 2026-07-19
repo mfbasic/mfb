@@ -29,38 +29,19 @@ const LINUX_TIOCGWINSZ: &str = "21523";
 
 // Fixed ANSI escape-sequence byte strings (ESC = 0x1b). `term::on` resets state
 // to defaults and switches to the alternate screen; `term::off` restores it.
+//
+// These two are the whole set. plan-35-C moved every other sequence — clear,
+// bold, underline, cursor show/hide, the SGR colour prefixes, and the cursor
+// -addressing pieces — into `term_grid.rs`'s `append_const`, which composes them
+// into the shadow-grid diff. The thirteen leftover data objects here were still
+// emitted into every binary that used `term::` while no emitted code referenced
+// them (bug-326-A21).
 const ESC_ON: &[u8] =
     b"\x1b[?1049h\x1b[0m\x1b[38;2;255;255;255m\x1b[48;2;0;0;0m\x1b[2J\x1b[H\x1b[?25h";
 const ESC_OFF: &[u8] = b"\x1b[?25h\x1b[?1049l\x1b[0m";
-const ESC_CLEAR: &[u8] = b"\x1b[2J\x1b[H";
-const ESC_BOLD_ON: &[u8] = b"\x1b[1m";
-const ESC_BOLD_OFF: &[u8] = b"\x1b[22m";
-const ESC_UNDERLINE_ON: &[u8] = b"\x1b[4m";
-const ESC_UNDERLINE_OFF: &[u8] = b"\x1b[24m";
-const ESC_SHOW_CURSOR: &[u8] = b"\x1b[?25h";
-const ESC_HIDE_CURSOR: &[u8] = b"\x1b[?25l";
-const ESC_FG_PREFIX: &[u8] = b"\x1b[38;2;";
-const ESC_BG_PREFIX: &[u8] = b"\x1b[48;2;";
-const ESC_SEMICOLON: &[u8] = b";";
-const ESC_LETTER_M: &[u8] = b"m";
-const ESC_BRACKET: &[u8] = b"\x1b[";
-const ESC_LETTER_H: &[u8] = b"H";
 
 const ESC_ON_SYMBOL: &str = "_mfb_term_esc_on";
 const ESC_OFF_SYMBOL: &str = "_mfb_term_esc_off";
-const ESC_CLEAR_SYMBOL: &str = "_mfb_term_esc_clear";
-const ESC_BOLD_ON_SYMBOL: &str = "_mfb_term_esc_bold_on";
-const ESC_BOLD_OFF_SYMBOL: &str = "_mfb_term_esc_bold_off";
-const ESC_UNDERLINE_ON_SYMBOL: &str = "_mfb_term_esc_underline_on";
-const ESC_UNDERLINE_OFF_SYMBOL: &str = "_mfb_term_esc_underline_off";
-const ESC_SHOW_CURSOR_SYMBOL: &str = "_mfb_term_esc_show_cursor";
-const ESC_HIDE_CURSOR_SYMBOL: &str = "_mfb_term_esc_hide_cursor";
-const ESC_FG_PREFIX_SYMBOL: &str = "_mfb_term_esc_fg_prefix";
-const ESC_BG_PREFIX_SYMBOL: &str = "_mfb_term_esc_bg_prefix";
-const ESC_SEMICOLON_SYMBOL: &str = "_mfb_term_esc_semicolon";
-const ESC_LETTER_M_SYMBOL: &str = "_mfb_term_esc_m";
-const ESC_BRACKET_SYMBOL: &str = "_mfb_term_esc_bracket";
-const ESC_LETTER_H_SYMBOL: &str = "_mfb_term_esc_h";
 
 const TERM_COLOR_RECORD_SIZE: usize = 24;
 const TERM_SIZE_RECORD_SIZE: usize = 16;
@@ -68,23 +49,7 @@ const TERM_SIZE_RECORD_SIZE: usize = 16;
 const DEFAULT_FOREGROUND_PACKED: &str = "16777215";
 
 fn esc_entries() -> &'static [(&'static str, &'static [u8])] {
-    &[
-        (ESC_ON_SYMBOL, ESC_ON),
-        (ESC_OFF_SYMBOL, ESC_OFF),
-        (ESC_CLEAR_SYMBOL, ESC_CLEAR),
-        (ESC_BOLD_ON_SYMBOL, ESC_BOLD_ON),
-        (ESC_BOLD_OFF_SYMBOL, ESC_BOLD_OFF),
-        (ESC_UNDERLINE_ON_SYMBOL, ESC_UNDERLINE_ON),
-        (ESC_UNDERLINE_OFF_SYMBOL, ESC_UNDERLINE_OFF),
-        (ESC_SHOW_CURSOR_SYMBOL, ESC_SHOW_CURSOR),
-        (ESC_HIDE_CURSOR_SYMBOL, ESC_HIDE_CURSOR),
-        (ESC_FG_PREFIX_SYMBOL, ESC_FG_PREFIX),
-        (ESC_BG_PREFIX_SYMBOL, ESC_BG_PREFIX),
-        (ESC_SEMICOLON_SYMBOL, ESC_SEMICOLON),
-        (ESC_LETTER_M_SYMBOL, ESC_LETTER_M),
-        (ESC_BRACKET_SYMBOL, ESC_BRACKET),
-        (ESC_LETTER_H_SYMBOL, ESC_LETTER_H),
-    ]
+    &[(ESC_ON_SYMBOL, ESC_ON), (ESC_OFF_SYMBOL, ESC_OFF)]
 }
 
 /// Read-only data objects for the fixed escape-sequence byte strings.

@@ -37,7 +37,6 @@ const T1: u8 = 6;
 const T2: u8 = 7;
 const ZERO: u8 = 0;
 const RA: u8 = 1;
-const FT0: u8 = 0;
 
 pub(super) struct Encoder {
     pub(super) text: Vec<u8>,
@@ -734,6 +733,3 @@ impl Encoder {
         Ok(())
     }
 }
-
-// Scratch registers reserved for later phases (referenced to keep them named).
-const _: (u8, u8, u8) = (T1, T2, FT0);

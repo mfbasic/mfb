@@ -527,7 +527,6 @@ pub(super) fn lower_io_flush_helper(
     // other io helper lowerings dispatched from mod.rs.
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
-    stderr: bool,
 ) -> HelperResult {
     const FRAME_SIZE: usize = 16;
 
@@ -543,16 +542,18 @@ pub(super) fn lower_io_flush_helper(
     // flush's success/failure depend on the runtime environment rather than on
     // what the program actually wrote. The buffer drain's write() is the one
     // portable failure signal — identical on every platform/libc. A no-op when
-    // buffering is off, and stderr is never buffered, so flushing stderr always
-    // succeeds (nothing to drain).
-    if !stderr {
-        instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
-        relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_ne(&output_error),
-        ]);
-    }
+    // buffering is off.
+    //
+    // There used to be a `stderr: bool` parameter gating this drain, on the
+    // reasoning that stderr is never buffered and so has nothing to flush. No
+    // caller ever passed `true` — `io::flush()` is stdout-only — so the guarded
+    // and unguarded halves were the same program (bug-326-A23).
+    instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
+    relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&output_error),
+    ]);
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

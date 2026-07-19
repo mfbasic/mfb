@@ -88,6 +88,16 @@ was merely asserted. Same sentence, opposite epistemic status.
   fallbacks, simulations, or "unsupported" stand-ins unless explicitly asked. If
   blocked, state the blocker plainly — never fill the gap with non-functional code
   or call it done.
+- **Never blanket-suppress dead code.** A file-level `#![allow(dead_code)]` is
+  banned: the tree has none, and `cargo check --all-targets` is clean, so a new
+  dead item is reported the moment it appears. If an item must stay without a
+  reader, give it a *targeted* `#[allow(dead_code)]` (or `#[cfg(test)]` when a
+  test is the only consumer) plus a comment saying what makes it load-bearing —
+  a spec `[[path:symbol]]` anchor, a layout/enumeration slot, an integrity
+  guard. Never write "consumed by a later phase": bug-326 found a dozen such
+  promises whose phases had landed by another route or been dropped, and three
+  attributes that had become outright false — the item they suppressed was
+  heavily used. If it is neither used nor load-bearing, delete it.
 - **Git.** Never create/switch/rename a branch unless asked — commit on the current
   branch (even `main`). Never run tree-wide `git checkout`/`reset`/`restore`/
   `stash`; only touch and commit files you changed this session, leaving all others

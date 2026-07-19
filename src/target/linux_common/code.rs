@@ -1080,10 +1080,9 @@ mod tests {
 
             let mut saw_stack_access = false;
             for instruction in &instructions {
-                let stack_relative = instruction
-                    .fields
-                    .iter()
-                    .any(|(name, value)| matches!(*name, "base" | "src") && abi::is_stack_pointer(value));
+                let stack_relative = instruction.fields.iter().any(|(name, value)| {
+                    matches!(*name, "base" | "src") && abi::is_stack_pointer(value)
+                });
                 if !stack_relative {
                     continue;
                 }

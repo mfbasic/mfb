@@ -489,7 +489,7 @@ impl<'a> SyntaxChecker<'a> {
                 maps_to: &decl.maps_to,
             };
             // plan-50-E marshals scalar fields only; plan-50-F lifts CString.
-            for fault in crate::ir::check_struct_slot(&view, crate::ir::CSTRING_STRUCT_FIELDS) {
+            for fault in crate::ir::check_struct_slot(&view) {
                 self.report(fault.rule, &fault.message, file, slot.line);
             }
             // A wrapper returning this struct must declare the mapped record.

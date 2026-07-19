@@ -371,7 +371,6 @@ pub struct AbiSpec {
     pub return_name: String,
     pub return_ctype: String,
     /// Source line of the `ABI` clause; retained for diagnostics.
-    #[allow(dead_code)]
     pub line: usize,
 }
 

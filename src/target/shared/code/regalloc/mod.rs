@@ -8,11 +8,13 @@
 //! [`AllocationStrategy`] and the per-ISA
 //! [`RegisterModel`](crate::target::shared::regmodel::RegisterModel).
 //!
-//! The strategy is selected by the `-regalloc <name>` build flag (§4.2). Stage A
-//! ships exactly one strategy, [`BumpAndReset`], which reproduces the legacy
-//! bump-and-reset physical assignment byte-for-byte — it is the reference /
-//! differential-debugging oracle the later liveness-driven strategies validate
-//! against.
+//! The strategy is selected by the `--regalloc <name>` build flag (§4.2; it was
+//! `-regalloc` before plan-42 modernized the CLI). Two methods ship, but only
+//! [`BumpAndReset`] is dispatched through [`AllocationStrategy`] — it reproduces
+//! the legacy bump-and-reset physical assignment byte-for-byte and is the
+//! differential-debugging oracle. The default `linear-scan` path was built
+//! alongside the trait rather than behind it and is called directly, so the
+//! trait is the oracle seam rather than the dispatch mechanism (bug-326-B5).
 
 use std::sync::OnceLock;
 
@@ -70,16 +72,6 @@ pub(crate) enum RegallocKind {
     LinearScan,
 }
 
-impl RegallocKind {
-    #[allow(dead_code)]
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            RegallocKind::BumpAndReset => "bump",
-            RegallocKind::LinearScan => "linear-scan",
-        }
-    }
-}
-
 /// Names accepted by `-regalloc`, for the error message on an unknown value.
 pub(crate) fn available_strategies() -> &'static [&'static str] {
     &["bump", "linear-scan"]
@@ -114,20 +106,17 @@ pub(crate) fn active_kind() -> RegallocKind {
 }
 
 /// The inputs an [`AllocationStrategy`] consumes to color a function.
+///
+/// Only [`BumpAndReset`] goes through the trait, and it reads only `eager`. The
+/// struct used to carry `instructions` and `model` as well, on the expectation
+/// that the liveness-driven strategies would arrive behind the same trait; the
+/// default linear-scan path was built alongside it instead and never used it, so
+/// both fields were populated on every call and read by nothing (bug-326-A18).
 pub(crate) struct AllocInput<'a> {
-    /// The fully-lowered instruction stream (virtual registers still present).
-    /// Read by the liveness-driven strategies (Stage B); the bump reference
-    /// strategy ignores it.
-    #[allow(dead_code)]
-    pub(crate) instructions: &'a [CodeInstruction],
     /// Per-virtual-register physical assignment the bump allocator computed
     /// eagerly during lowering (index == virtual register number). The
     /// [`BumpAndReset`] reference strategy returns this verbatim.
     pub(crate) eager: &'a [String],
-    /// The target register description (§5). Queried by the liveness-driven
-    /// strategies (Stage B); the bump reference strategy ignores it.
-    #[allow(dead_code)]
-    pub(crate) model: &'a dyn RegisterModel,
 }
 
 /// A strategy's coloring result.
@@ -240,11 +229,7 @@ pub(crate) fn allocate(
 ) -> AllocOutcome {
     match kind {
         RegallocKind::BumpAndReset => {
-            let allocation = BumpAndReset.assign(&AllocInput {
-                instructions,
-                eager,
-                model,
-            });
+            let allocation = BumpAndReset.assign(&AllocInput { eager });
             rewrite(instructions, parse_vreg, &allocation.physical);
             rewrite(instructions, parse_fp_vreg, fp_eager);
             AllocOutcome {

@@ -27,11 +27,6 @@ pub(crate) enum ResourceKind {
 }
 
 /// Static description of a single resource type.
-//
-// `close_may_fail` and `kind` are recorded by the registry now and consumed by
-// later overhaul phases (drop-time cleanup handling and resource-union/thread
-// classification); allow them to sit unread until then.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceInfo {
     /// The registered close op: a built-in call name like `"fs.close"`, or an
@@ -40,9 +35,20 @@ pub(crate) struct ResourceInfo {
     /// Whether the resource may cross a thread boundary (the `RESOURCE_TABLE`
     /// "sendable to thread" bit).
     pub sendable: bool,
-    /// Whether the close op can fail (drives drop-time cleanup handling).
+    /// Whether the close op can fail.
+    ///
+    /// Recorded at registration and not read by the compiler: drop-time cleanup
+    /// handling derives the same fact independently, from whether the close
+    /// wrapper declares `SUCCESS ON` (`ir::lower::…`, `ir::link::ResourceRecord::
+    /// close_may_fail`). Kept because it is part of what a `RESOURCE_TABLE` row
+    /// states, and dropping it would make this struct a lossy copy of the table.
+    #[allow(dead_code)]
     pub close_may_fail: bool,
-    /// Provenance of the registration.
+    /// Provenance of the registration. Read only by this module's own
+    /// `every_builtin_resource_has_a_close_op` guard, which is the point: it is
+    /// how a built-in seed is told apart from a package contribution if the two
+    /// tables ever drift.
+    #[allow(dead_code)]
     pub kind: ResourceKind,
 }
 
@@ -75,16 +81,8 @@ impl ResourceRegistry {
         self.entries.contains_key(type_name)
     }
 
-    /// The full registration for `type_name`, if any. Consumed by later phases
-    /// (LUT runtime, resource unions); kept here as the registry's primary API.
-    #[allow(dead_code)]
-    pub(crate) fn info(&self, type_name: &str) -> Option<&ResourceInfo> {
-        self.entries.get(type_name)
-    }
-
-    /// The registered close op for `type_name`, if it is a resource. Consumed by
-    /// the LUT runtime phase for drop/close lowering.
-    #[allow(dead_code)]
+    /// The registered close op for `type_name`, if it is a resource. Used by the
+    /// type checker to recognize a close call as a transfer (`syntaxcheck::types`).
     pub(crate) fn close_function(&self, type_name: &str) -> Option<&str> {
         self.entries
             .get(type_name)
@@ -98,9 +96,14 @@ impl ResourceRegistry {
             .is_some_and(|info| info.sendable)
     }
 
-    /// Whether closing `type_name` can fail. Consumed by the LUT runtime phase
-    /// for the drop-time cleanup-failure ledger.
-    #[allow(dead_code)]
+    /// Whether closing `type_name` can fail.
+    ///
+    /// Test-only, and deliberately so: the compiler derives this fact from the
+    /// close wrapper's `SUCCESS ON` clause rather than from here (see
+    /// [`ResourceInfo::close_may_fail`]). It survives as the only way
+    /// `builtins_carry_close_op_and_sendability` can assert what the built-in
+    /// seed table records, so the seed cannot drift unnoticed.
+    #[cfg(test)]
     pub(crate) fn close_may_fail(&self, type_name: &str) -> bool {
         self.entries
             .get(type_name)

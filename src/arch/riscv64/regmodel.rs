@@ -13,7 +13,6 @@
 //! (compare-and-branch immediate materialization, overflow detection, float
 //! compare staging). The remaining registers form a large allocatable pool, so
 //! the linear-scan allocator rarely spills.
-#![allow(dead_code)]
 
 use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
 use crate::target::shared::code::CodeInstruction;

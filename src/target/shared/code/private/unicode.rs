@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::super::*;
 
 const UNICODE_PROPERTY_SIZE: usize = 24;
@@ -17,7 +15,6 @@ const UNICODE_NFD_ENTRY_SIZE: usize = 16;
 const UNICODE_NFD_ENTRY_OFFSET_CODEPOINT: usize = 0;
 const UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_OFFSET: usize = 4;
 const UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_LENGTH: usize = 8;
-const UNICODE_PROPERTY_FLAG_COMB_IS_SECOND: &str = "1";
 const GRAPHEME_BOUNDCLASS_CR: &str = "2";
 const GRAPHEME_BOUNDCLASS_LF: &str = "3";
 const GRAPHEME_BOUNDCLASS_CONTROL: &str = "4";
@@ -464,7 +461,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&not_found));
         self.emit(abi::add_registers(mid, x6, x7));
         self.emit(abi::shift_right_immediate(mid, mid, 1));
-        self.emit(abi::shift_left_immediate(offset, mid, 4));
+        // `mid * UNICODE_NFD_ENTRY_SIZE`, as a shift. Deriving the shift from the
+        // constant rather than hard-coding `4` is what keeps the stride and the
+        // record layout above from drifting apart — the spec cites the constant
+        // by name (`unicode/01_tables-and-algorithms.md`), so a silent
+        // disagreement here would make the spec wrong (bug-326-D2).
+        const NFD_ENTRY_SHIFT: u32 = UNICODE_NFD_ENTRY_SIZE.trailing_zeros();
+        const _: () = assert!(UNICODE_NFD_ENTRY_SIZE.is_power_of_two());
+        self.emit(abi::shift_left_immediate(
+            offset,
+            mid,
+            NFD_ENTRY_SHIFT as u8,
+        ));
         self.emit_load_data_address(entry_ptr, entries_symbol);
         self.emit(abi::add_registers(entry_ptr, entry_ptr, offset));
         self.emit(abi::load_u32(

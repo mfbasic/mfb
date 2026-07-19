@@ -309,6 +309,13 @@ fn checked_imm32(value: u64) -> Result<i32, String> {
 // Per-instruction encoding (single source of truth for size + bytes)
 // ---------------------------------------------------------------------------
 
+/// The dispatch key is [`CodeOp::mnemonic`], which returns the **AArch64**
+/// spelling for every op. The neutral MIR names (`i2f`, `f2i_trunc`, `rotr_w`,
+/// `fmov_i2f`, …) exist only above `MirOp::to_code()`, which renames back to
+/// `CodeOp` before selection, so they cannot reach here. This match used to
+/// carry eight of them as extra alternatives; they were unreachable, and the
+/// aarch64 and riscv64 emitters (which dispatch the same way) correctly carry
+/// none (bug-326-A28).
 pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let m = instruction.op.mnemonic();
     match m {
@@ -750,13 +757,13 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
 
         // --- Scalar double (SSE2) — the AArch64 `dN` bank maps to `xmm` --------
         // movq xmm, r64 — reinterpret i64 bits as f64 (66 REX.W 0F 6E /r).
-        "fmov_i2f" | "fmov_d_from_x" => {
+        "fmov_d_from_x" => {
             let dst = fp_reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
             Ok(Encoded::plain(enc_movq_xmm_r64(dst, src)))
         }
         // movq r64, xmm — reinterpret f64 bits as i64 (66 REX.W 0F 7E /r, MR).
-        "fmov_f2i" | "fmov_x_from_d" => {
+        "fmov_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
             Ok(Encoded::plain(enc_movq_r64_xmm(dst, src)))
@@ -853,27 +860,23 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(b))
         }
         // cvtsi2sd xmm, r64 — signed i64 → f64 (F2 REX.W 0F 2A /r).
-        "i2f" | "scvtf_d_from_x" => {
+        "scvtf_d_from_x" => {
             let dst = fp_reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
             Ok(Encoded::plain(enc_sse_cvt(0xf2, 0x2a, true, dst, src)))
         }
         // cvttsd2si r64, xmm — f64 → i64 toward zero (F2 REX.W 0F 2C /r).
-        "f2i_trunc" | "fcvtzs_x_from_d" => {
+        "fcvtzs_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
             Ok(Encoded::plain(enc_sse_cvt(0xf2, 0x2c, false, dst, src)))
         }
         // f64 → i64 with a directed rounding mode: `roundsd xmm15, src, mode`
         // (SSE4.1, mode 1=−∞ floor / 2=+∞ ceil) then truncating `cvttsd2si`.
-        "f2i_floor" | "fcvtms_x_from_d" | "f2i_ceil" | "fcvtps_x_from_d" => {
+        "fcvtms_x_from_d" | "fcvtps_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
-            let mode = if m.starts_with("f2i_floor") || m.starts_with("fcvtms") {
-                1
-            } else {
-                2
-            };
+            let mode = if m.starts_with("fcvtms") { 1 } else { 2 };
             let mut b = enc_roundsd(15, src, mode); // roundsd xmm15, src, mode
             b.extend(enc_sse_cvt(0xf2, 0x2c, false, dst, 15)); // cvttsd2si dst, xmm15
             Ok(Encoded::plain(b))
@@ -902,7 +905,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         // |2f| is exactly 1, which is what carries the away-from-zero step.
         // xmm15 is the FP scratch (bug-17); one GPR is borrowed across the
         // sequence and restored, chosen to differ from `dst`.
-        "f2i_nearest" | "fcvtas_x_from_d" => {
+        "fcvtas_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
             // A borrowed GPR holds `d` for the final subtract. rax and rcx are
@@ -922,7 +925,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(b))
         }
         // 32-bit variable rotate-right (`rorv_w`/`rotr_w`): ror r32, cl.
-        "rorv_w" | "rotr_w" => var_shift_w(instruction, 1),
+        "rorv_w" => var_shift_w(instruction, 1),
         // movsd xmm, [base+disp] / movsd [base+disp], xmm (F2 0F 10 / 11 /r).
         "ldr_d" => {
             let dst = fp_reg(field(instruction, "dst")?)?;

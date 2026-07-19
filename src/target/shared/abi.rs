@@ -6,20 +6,12 @@ use crate::target::shared::code::CodeInstruction;
 /// register-lifetime rule (`.ai/compiler.md`). The runtime-spec `abi.clobbers`
 /// fields reuse this constant, but the only thing read off them today is
 /// `!is_empty()` (a "this helper clobbers something" gate in
-/// `runtime/validate.rs`); no code reads the individual register names. A future
-/// per-call clobber reader MUST use `RUNTIME_HELPER_CLOBBERS`, not this list,
-/// which understates the real set (bug-120).
+/// `runtime/validate.rs`); no code reads the individual register names. This list
+/// understates the real set — an internal `bl _mfb_*` clobbers all of `x0`-`x17`
+/// — so a future per-call clobber reader must not read it (bug-120). The
+/// register allocator already models the real set independently, in
+/// `regalloc/analysis.rs`'s call-clobber masks.
 pub(crate) const IO_PRINT_CLOBBERS: &[&str] = &["x0", "x1", "x2", "x9", "x16"];
-
-/// The full caller-saved integer clobber set of any internal `bl _mfb_*` runtime
-/// helper (`x0`–`x17`). Provided for a correct per-call clobber reader; the
-/// register allocator already models this via its call-clobber masks
-/// (`regalloc/analysis.rs`), so nothing consumes this constant yet (bug-120).
-#[allow(dead_code)]
-pub(crate) const RUNTIME_HELPER_CLOBBERS: &[&str] = &[
-    "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
-    "x15", "x16", "x17",
-];
 
 pub(crate) fn argument_register(index: usize) -> Result<String, String> {
     if index < ARG.len() {
@@ -166,10 +158,14 @@ pub(crate) const SYSARG: [&str; 6] = [
     "%sysarg0", "%sysarg1", "%sysarg2", "%sysarg3", "%sysarg4", "%sysarg5",
 ];
 
-/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`). Emitters stage
-/// the result through `RET[0]` (which realizes to the same register), so this
-/// member of the syscall token family is retained for the documented vocabulary
-/// and the defensive `%sysret` arm in [`realize_abi_token`] rather than emitted.
+/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
+///
+/// Never emitted, and not expected to be: emitters stage a syscall result
+/// through `RET[0]`, which realizes to the same register. It is kept because
+/// [`realize_abi_token`] spells every token in this family literally, so
+/// deleting the one unread member would leave the `"%sysret"` arm there as a
+/// magic string with no name anywhere (bug-326-A2 — a deliberate keep, not an
+/// oversight and not a promise about a later phase).
 #[allow(dead_code)]
 pub(crate) const SYSRET: &str = "%sysret";
 
@@ -533,25 +529,6 @@ pub(crate) fn add_carry(
         .field("carry_in", carry_in)
 }
 
-/// `sub_borrow dst, borrow_out, lhs, rhs, borrow_in` (plan-00-G §4) — explicit-
-/// borrow subtract: `dst = lhs - rhs - borrow_in`, `borrow_out` the borrow as a
-/// value. Subtractive counterpart to [`add_carry`].
-#[allow(dead_code)]
-pub(crate) fn sub_borrow(
-    dst: &str,
-    borrow_out: &str,
-    lhs: &str,
-    rhs: &str,
-    borrow_in: &str,
-) -> CodeInstruction {
-    CodeInstruction::new("sub_borrow")
-        .field("dst", dst)
-        .field("borrow_out", borrow_out)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
-        .field("borrow_in", borrow_in)
-}
-
 /// `rorv dst, src, amount` — rotate `src` right by the low 6 bits of `amount`.
 pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
     CodeInstruction::new("rorv")
@@ -788,7 +765,6 @@ pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction 
         .field("offset", &offset.to_string())
 }
 
-#[allow(dead_code)]
 pub(crate) fn load_u32(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u32")
         .field("dst", dst)
@@ -796,7 +772,6 @@ pub(crate) fn load_u32(dst: &str, base: &str, offset: usize) -> CodeInstruction 
         .field("offset", &offset.to_string())
 }
 
-#[allow(dead_code)]
 pub(crate) fn load_u16(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u16")
         .field("dst", dst)
@@ -828,7 +803,6 @@ pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction
 /// 16-bit store (plan-50-D). Needed by struct-field marshaling for a
 /// `CInt16`/`CUInt16` member; `ldr_u16` has always been encodable, this is its
 /// missing counterpart.
-#[allow(dead_code)]
 pub(crate) fn store_u16(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u16")
         .field("src", src)
@@ -1005,7 +979,6 @@ pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
 // `x*` names.
 
 /// `ldr q<dst>, [<base>, #offset]` — load 128 bits (two i64/f64 lanes).
-#[allow(dead_code)]
 pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_q")
         .field("dst", dst)
@@ -1014,7 +987,6 @@ pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstructi
 }
 
 /// `str q<src>, [<base>, #offset]` — store 128 bits (two i64/f64 lanes).
-#[allow(dead_code)]
 pub(crate) fn vector_store(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_q")
         .field("src", src)
@@ -1042,7 +1014,6 @@ fn vector_shift(op: &str, dst: &str, src: &str, shift: u8) -> CodeInstruction {
 
 macro_rules! vector_three_same {
     ($name:ident, $op:literal) => {
-        #[allow(dead_code)]
         pub(crate) fn $name(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
             vector_three($op, dst, lhs, rhs)
         }
@@ -1051,7 +1022,6 @@ macro_rules! vector_three_same {
 
 macro_rules! vector_two_misc {
     ($name:ident, $op:literal) => {
-        #[allow(dead_code)]
         pub(crate) fn $name(dst: &str, src: &str) -> CodeInstruction {
             vector_two($op, dst, src)
         }
@@ -1060,7 +1030,6 @@ macro_rules! vector_two_misc {
 
 macro_rules! vector_shift_imm {
     ($name:ident, $op:literal) => {
-        #[allow(dead_code)]
         pub(crate) fn $name(dst: &str, src: &str, shift: u8) -> CodeInstruction {
             vector_shift($op, dst, src, shift)
         }
@@ -1083,8 +1052,6 @@ vector_three_same!(vector_sub, "sub_v");
 vector_three_same!(vector_cmgt, "cmgt_v");
 vector_three_same!(vector_cmge, "cmge_v");
 vector_three_same!(vector_cmeq, "cmeq_v");
-vector_three_same!(vector_sshl, "sshl_v");
-vector_three_same!(vector_ushl, "ushl_v");
 vector_three_same!(vector_and, "and_v");
 vector_three_same!(vector_orr, "orr_v");
 vector_three_same!(vector_eor, "eor_v");
@@ -1094,18 +1061,10 @@ vector_three_same!(vector_bit, "bit_v");
 vector_two_misc!(vector_fabs, "fabs_v");
 vector_two_misc!(vector_fneg, "fneg_v");
 vector_two_misc!(vector_fsqrt, "fsqrt_v");
-vector_two_misc!(vector_frintp, "frintp_v");
 vector_two_misc!(vector_frintm, "frintm_v");
-vector_two_misc!(vector_frinta, "frinta_v");
-vector_two_misc!(vector_frintn, "frintn_v");
-vector_two_misc!(vector_frintz, "frintz_v");
 vector_two_misc!(vector_fcvtzs, "fcvtzs_v");
-vector_two_misc!(vector_fcvtas, "fcvtas_v");
 vector_two_misc!(vector_scvtf, "scvtf_v");
-vector_two_misc!(vector_neg, "neg_v");
 vector_two_misc!(vector_abs, "abs_v");
-vector_two_misc!(vector_fcmgt_zero, "fcmgt_zero_v");
-vector_two_misc!(vector_fcmge_zero, "fcmge_zero_v");
 vector_two_misc!(vector_fcmeq_zero, "fcmeq_zero_v");
 vector_two_misc!(vector_fcmlt_zero, "fcmlt_zero_v");
 vector_two_misc!(vector_fcmle_zero, "fcmle_zero_v");
@@ -1120,7 +1079,6 @@ vector_shift_imm!(vector_sshr, "sshr_v");
 vector_shift_imm!(vector_ushr, "ushr_v");
 
 /// `dup v<dst>.2d, x<src>` — broadcast a 64-bit GPR into both lanes.
-#[allow(dead_code)]
 pub(crate) fn vector_dup_from_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("dup_v_from_x")
         .field("dst", dst)
@@ -1128,7 +1086,6 @@ pub(crate) fn vector_dup_from_x(dst: &str, src: &str) -> CodeInstruction {
 }
 
 /// `umov x<dst>, v<src>.d[index]` — extract lane `index` (0 or 1) into a GPR.
-#[allow(dead_code)]
 pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstruction {
     CodeInstruction::new("umov_x_from_v")
         .field("dst", dst)
@@ -1142,7 +1099,9 @@ pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstru
 ///   `fmadd_d`  = `addend + lhs*rhs`
 ///   `fmsub_d`  = `lhs*rhs - addend`
 ///   `fnmsub_d` = `addend - lhs*rhs`
-///   `fnmadd_d` = `-(lhs*rhs) - addend`
+///   `fnmadd_d` = `-(lhs*rhs) - addend` — encodable and byte-tested, but no
+///     builder: the multiply-accumulate recognizer never emits it, because a
+///     `-(a*b) - c` source is a three-node shape it does not match (bug-326-A2).
 fn float_fma_op(mnemonic: &str, dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new(mnemonic)
         .field("dst", dst)
@@ -1186,16 +1145,6 @@ pub(crate) fn float_negate_multiply_sub_d(
 /// byte tests, but the multiply-accumulate recognizer only emits the other three
 /// (a `-(a*b) - c` source is a rarer three-node shape), so this builder currently
 /// has no caller — kept for completeness / future negated-product fusion.
-#[allow(dead_code)]
-pub(crate) fn float_negate_multiply_add_d(
-    dst: &str,
-    addend: &str,
-    lhs: &str,
-    rhs: &str,
-) -> CodeInstruction {
-    float_fma_op("fnmadd_d", dst, addend, lhs, rhs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1293,7 +1242,6 @@ mod tests {
             (signed_multiply_high_registers("x0", "x1", "x2"), "smulh"),
             (unsigned_multiply_high_registers("x0", "x1", "x2"), "umulh"),
             (add_carry("x0", "x1", "x2", "x3", "xzr"), "add_carry"),
-            (sub_borrow("x0", "x1", "x2", "x3", "xzr"), "sub_borrow"),
             (rotate_right_registers("x0", "x1", "x2"), "rorv"),
             (rotate_right_word_registers("x0", "x1", "x2"), "rorv_w"),
             (shift_left_variable("x0", "x1", "x2"), "lslv"),

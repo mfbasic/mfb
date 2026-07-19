@@ -573,7 +573,6 @@ fn lower_open(
         },
         &unavailable,
         &dev_fail,
-        input,
     )?;
     // snd_pcm_prepare(pcm)
     emit_alsa_call(
@@ -768,7 +767,6 @@ fn emit_configure_hw_params(
     ctx: &mut EmitCtx,
     unavailable: &str,
     dev_fail: &str,
-    _input: bool,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -1756,7 +1754,10 @@ fn lower_query(
             instructions.extend([
                 abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
                 abi::load_u64(RESULT_VALUE_REGISTER, "%v10", S_XRUNS),
-                abi::branch(&clamp),
+                // No `branch(&clamp)` here: the label is the very next
+                // instruction, so the branch only ever fell through to its own
+                // target (bug-326-A22). The other two arms reach `clamp` from a
+                // real conditional.
                 abi::label(&clamp),
             ]);
         }

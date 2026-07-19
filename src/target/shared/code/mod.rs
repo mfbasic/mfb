@@ -1608,7 +1608,7 @@ fn lower_runtime_helper(
                     )
                 })??)
             } else {
-                lower_io_flush_helper(symbol, platform_imports, platform, false)?
+                lower_io_flush_helper(symbol, platform_imports, platform)?
             };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),

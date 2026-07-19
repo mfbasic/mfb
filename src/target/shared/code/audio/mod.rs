@@ -78,9 +78,7 @@ pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 // Shared emit helpers: `emit_alloc` is the one arena-allocation free function
 // (`code/mod.rs`, bug-322); the rest still live in `tls`. Reuse them rather than
 // duplicating. `emit_data_address` is re-exported for the AudioQueue phases.
-#[allow(unused_imports)]
 pub(super) use super::emit_alloc;
-#[allow(unused_imports)]
 pub(super) use super::tls::{emit_arena_free, emit_data_address, emit_fail};
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls

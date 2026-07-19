@@ -11,7 +11,6 @@ pub enum RuntimeHelper {
     Math,
     Net,
     Os,
-    Strings,
     Term,
     Thread,
     Tls,
@@ -29,7 +28,6 @@ impl RuntimeHelper {
             RuntimeHelper::Math => "math",
             RuntimeHelper::Net => "net",
             RuntimeHelper::Os => "os",
-            RuntimeHelper::Strings => "strings",
             RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
             RuntimeHelper::Tls => "tls",
@@ -84,11 +82,6 @@ mod fs_specs;
 mod io_specs;
 mod net_specs;
 mod os_specs;
-// strings:: ops are native-direct, so these specs are no longer catalogued
-// (bug-120.1); the module is retained to avoid a wide `RuntimeHelper::Strings`
-// enum-variant churn.
-#[allow(dead_code)]
-mod strings_specs;
 mod term_specs;
 mod thread_specs;
 mod usage;
@@ -103,8 +96,6 @@ use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
 use os_specs::*;
-#[allow(unused_imports)]
-use strings_specs::*;
 use term_specs::*;
 use thread_specs::*;
 

@@ -9,7 +9,6 @@
 //! `arena_base` is pinned to `r15` for correctness-first bring-up (reserved from
 //! allocation, like AArch64 pins `x19`); plan-00-H §7 will move it to a TLS slot
 //! load to recover the register under x86's tighter 16-GPR pressure.
-#![allow(dead_code)]
 
 use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
 use crate::target::shared::code::CodeInstruction;

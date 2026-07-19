@@ -7,7 +7,6 @@
 //! class, and the spill/reload/move emitters. Each backend supplies its own
 //! implementation (`Aarch64RegisterModel`, `X86RegisterModel`,
 //! `Riscv64RegisterModel`) without touching the core.
-#![allow(dead_code)]
 
 use crate::target::shared::code::CodeInstruction;
 
@@ -21,6 +20,28 @@ pub(crate) enum RegClass {
 
 /// The register questions the allocator core asks an ISA. Implemented per backend
 /// (`Aarch64RegisterModel`, and the x86_64 / riscv64 siblings).
+///
+/// Five methods — `class_of`, `caller_saved`, `emit_move`, `closure_env`, and
+/// `current_thread` — have no caller in the allocator today and carry a targeted
+/// `#[allow(dead_code)]`. They are kept deliberately, not by oversight
+/// (bug-326-A4):
+///
+/// - `closure_env` is cited from the specification
+///   (`src/docs/spec/memory/09_closures.md:83`,
+///   `[[src/target/shared/regmodel.rs:closure_env]]`); deleting it breaks that
+///   anchor.
+/// - `closure_env` and `current_thread` are the *only* statement anywhere of
+///   which physical register each ISA pins for its role token. Shared code names
+///   both solely through `%closure_env` / `%thread`, so if these went, the
+///   `x28`/`r13`/`s10` and `x20`/`rbx`/`s2` assignments would exist only inside
+///   `abi::realize_abi_token`'s literal table.
+/// - `caller_saved` is unread because `regalloc::analysis` hand-rolls its own
+///   per-ISA clobber masks. That is a genuine duplication — the same ISA fact
+///   stated twice, with the authoritative-looking copy the unused one — but the
+///   fix is to route the allocator through this model, not to delete the model.
+///
+/// A method here that is *neither* spec-anchored nor the sole statement of an
+/// ISA fact should be deleted rather than gaining an allow.
 pub(crate) trait RegisterModel {
     /// Allocatable physical registers for `class`, in allocation-preference
     /// order (caller-saved scratch first, then callee-saved).
@@ -28,6 +49,7 @@ pub(crate) trait RegisterModel {
 
     /// The class a physical register name belongs to, or `None` for a name the
     /// allocator does not manage (`sp`, `xzr`, immediates, …).
+    #[allow(dead_code)] // see the note on `RegisterModel` above
     fn class_of(&self, reg: &str) -> Option<RegClass>;
 
     /// Whether `reg` is callee-saved (survives a `bl`).
@@ -35,6 +57,7 @@ pub(crate) trait RegisterModel {
 
     /// Caller-saved (clobbered-across-call) registers for `class`. A value live
     /// across a `bl` must not be colored into one of these.
+    #[allow(dead_code)] // see the note on `RegisterModel` above
     fn caller_saved(&self, class: RegClass) -> &'static [&'static str];
 
     /// Emit a spill of `reg` (of `class`) to the stack slot at `[sp, #offset]`.
@@ -44,6 +67,7 @@ pub(crate) trait RegisterModel {
     fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction;
 
     /// Emit a register-to-register move within a class.
+    #[allow(dead_code)] // see the note on `RegisterModel` above
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction;
 
     /// Bytes reserved per stack spill slot — the widest spill this ISA performs.
@@ -74,6 +98,7 @@ pub(crate) trait RegisterModel {
     /// hardcoded `move %closure_env, <env>` overwrite the code pointer with the
     /// environment pointer between its definition and the indirect call through it
     /// (plan-34-C §2.5). AArch64 `x28`, x86-64 `r13`, riscv64 `s10`.
+    #[allow(dead_code)] // see the note on `RegisterModel` above
     fn closure_env(&self) -> &'static str;
 
     /// The register this ISA realizes the `%thread` token as — the worker
@@ -84,6 +109,7 @@ pub(crate) trait RegisterModel {
     /// only through the `%thread` token, and every function (including the worker
     /// body) must preserve it, so the allocator must never color a body vreg onto
     /// it. AArch64 `x20`, x86-64 `rbx`, riscv64 `s2`.
+    #[allow(dead_code)] // see the note on `RegisterModel` above
     fn current_thread(&self) -> &'static str;
 
     /// The register the SIMD float-math kernels (`builder_simd_float_math`) use

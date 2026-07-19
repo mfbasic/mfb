@@ -201,14 +201,6 @@ pub(crate) struct CStructFault {
     pub(crate) message: String,
 }
 
-/// Whether a `CSTRUCT` may declare a `CString` (`const char *`) field.
-///
-/// plan-50-F implements the pointer path, so this is now `true`. Kept as a named
-/// constant because it is what held the two checkers and the thunk in step while
-/// the capability landed, and it documents that the scalar and pointer paths are
-/// separable.
-pub(crate) const CSTRING_STRUCT_FIELDS: bool = true;
-
 /// A struct slot's shape, resolved for validation (plan-50-E).
 pub(crate) struct StructSlotView<'a> {
     /// The `CSTRUCT`'s fields, in C declaration order.
@@ -224,9 +216,11 @@ pub(crate) struct StructSlotView<'a> {
 /// Coverage must be **total** both ways: a silently-unmapped field would be
 /// zeroed going in and dropped coming out — a wrong answer with no diagnostic.
 ///
-/// `allow_cstring` gates the `CString` field type: plan-50-E rejects it (scalar
-/// fields only) and plan-50-F lifts the restriction. Shared by both checkers.
-pub(crate) fn check_struct_slot(view: &StructSlotView, allow_cstring: bool) -> Vec<CStructFault> {
+/// plan-50-E accepted scalar fields only and gated `CString` behind an
+/// `allow_cstring` parameter; plan-50-F implemented the pointer path and every
+/// caller passed `true` from then on, so the gate and its rejection branch were
+/// unreachable (bug-326-A8). `CString` struct fields are simply marshaled now.
+pub(crate) fn check_struct_slot(view: &StructSlotView) -> Vec<CStructFault> {
     let mut faults = Vec::new();
     let fault = |rule: &'static str, message: String| CStructFault { rule, message };
 
@@ -238,16 +232,6 @@ pub(crate) fn check_struct_slot(view: &StructSlotView, allow_cstring: bool) -> V
                 format!(
                     "CSTRUCT `{}` field `{cname}` is a `CPtr`, which cannot map into record `{}` — a raw pointer may not surface in ordinary code.",
                     view.cstruct_name, view.maps_to
-                ),
-            ));
-            continue;
-        }
-        if ctype == "CString" && !allow_cstring {
-            faults.push(fault(
-                "NATIVE_STRUCT_FIELD_MISMATCH",
-                format!(
-                    "CSTRUCT `{}` field `{cname}` is a `CString`; string struct fields are not yet marshaled.",
-                    view.cstruct_name
                 ),
             ));
             continue;

@@ -39,7 +39,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
-| `targets` | array | no | build targets; emitted by `mfb init` as `["native"]` |
+| `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** (bug-326-A14) |
 | `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
@@ -71,11 +71,12 @@ macOS-only — a Linux/GTK app build ignores it.
 Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url`/`icon`
 (optional strings), `kind`, `mode`, and `sources` are *validated* by the manifest
 validator. The
-remaining fields (`ident`, `packages`, `targets`, `config`, and the per-source
-`role`) are read lazily by later stages — `package_metadata`,
-`package_dependencies`, the source selector, and the codegen tunable readers — and
+remaining fields (`ident`, `packages`, `config`) are read lazily by later stages —
+`package_metadata`, `package_dependencies`, and the codegen tunable readers — and
 are **not** schema-checked here; an absent or wrong-typed value simply defaults
-rather than erroring.
+rather than erroring. `targets` and the per-source `role` are **not read at all**:
+`mfb init` writes both and no stage consults either, so they are reserved keys
+rather than lazily-read ones (bug-326-A14).
 [[src/manifest/mod.rs:validate_project_manifest]] [[src/manifest/package.rs:package_metadata]]
 
 ⁴ `config` holds build-time runtime tunables baked into the compiled executable
@@ -97,7 +98,7 @@ Each element of `sources[]` is an object describing one source root:
 | `root` | string | yes | directory (relative to the project) to scan; non-empty after trim |
 | `include` | array of strings | no | glob patterns to include |
 | `exclude` | array of strings | no | glob patterns to exclude |
-| `role` | string | no | role tag (`"main"`/`"package"`); not validated here |
+| `role` | string | no | reserved role tag (`"main"`/`"package"`); neither validated nor read (bug-326-A14) |
 
 `root` is validated as a required, non-empty string. `include` and `exclude`,
 when present, must each be an **array of strings** — any non-array value, or an
@@ -106,8 +107,9 @@ A `sources[]` element that is not a JSON object is a `PROJECT_JSON_FIELD_TYPE`
 error reported as `Source entry #N must be an object.`. [[src/manifest/mod.rs:validate_sources]] [[src/manifest/mod.rs:validate_source_pattern_field]]
 
 The glob algorithm that turns these patterns into the `.mfb` input set is
-`./mfb spec tooling source-selection`; `role` semantics are part of
-that selection model.
+`./mfb spec tooling source-selection`. That model describes `role` semantics, but
+the selector does not currently read the key — every source root is treated the
+same regardless of its `role` tag.
 
 ## Dependency Entries
 
@@ -275,7 +277,7 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0007` | `PROJECT_JSON_EMPTY_FIELD` | error | a required string is empty after trim [[src/manifest/mod.rs:validate_required_string]] |
 | `2-200-0008` | `PROJECT_JSON_EMPTY_SOURCES` | error | `sources` is present but an empty array [[src/manifest/mod.rs:validate_sources]] |
 | `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | `kind` is a string other than `executable`/`package` (non-fatal) [[src/manifest/mod.rs:validate_kind]] |
-| `2-200-0010` | `PROJECT_JSON_VALID` | info | manifest passed validation |
+| `2-200-0010` | `PROJECT_JSON_VALID` | info | reserved; not emitted — a successful validation is silent |
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | executable entry-point resolution failed [[src/manifest/entry.rs:validate_entry_point]] |
 | `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a `libraries` locator is malformed, carries an unknown `os`/`arch`/`libc`/`type` token, sets `libc` on macOS, omits `arch`/`libc` on a Linux `vendor` entry, or names a `source` that is not a bare filename [[src/manifest/mod.rs:validate_libraries]] |
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |

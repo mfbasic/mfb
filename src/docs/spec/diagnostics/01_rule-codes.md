@@ -266,7 +266,7 @@ registry's only `info`, and `2-200-0009` one of exactly six `warn` rules
 | `2-200-0007` | `PROJECT_JSON_EMPTY_FIELD` | error | project.json field must not be empty |
 | `2-200-0008` | `PROJECT_JSON_EMPTY_SOURCES` | error | project.json must include at least one source entry |
 | `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | project.json kind is not recognized |
-| `2-200-0010` | `PROJECT_JSON_VALID` | info | project.json passed validation |
+| `2-200-0010` | `PROJECT_JSON_VALID` | info | reserved; not emitted — a successful validation is silent |
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | project entry point is invalid |
 | `2-200-0012` | `PROJECT_JSON_UNKNOWN_MODE` | warn | project.json mode is not recognized |
 | `2-200-0013` | `PROJECT_JSON_ICON_MISSING` | error | project.json icon path does not resolve to a readable file |
