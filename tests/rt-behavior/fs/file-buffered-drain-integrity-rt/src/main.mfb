@@ -1,0 +1,54 @@
+' bug-311: lower_fs_file_drain advanced only local cursor/remaining vregs per
+' partial write and zeroed BUF_FILLED only after the WHOLE buffer landed. Its error
+' path returned 1 without writing back any progress, so after a partial write landed
+' k bytes and the next write hard-errored, the File record still claimed the full
+' buffer starting at the base -- and a later fs::flush re-issued write from byte 0,
+' duplicating the k bytes already on disk.
+'
+' This is bug-208's fix for the stdout twin, which the file drain never received.
+' The tail is SLID back to the base rather than advancing BUF_PTR, because the
+' buffered append path computes its destination as BUF_PTR + BUF_FILLED and so
+' treats BUF_PTR as a fixed base.
+'
+' The error path needs a failing fd and is not reachable from MFBASIC, so what this
+' fixture pins is the path that IS reachable and that the slide could break: many
+' buffered writes across repeated overflow drains must produce byte-exact output.
+IMPORT io
+IMPORT fs
+IMPORT strings
+IMPORT collections
+
+FUNC main AS Integer
+  LET path AS String = "target/file_buffered_drain_integrity.txt"
+  RES f AS File = fs::openFile(path, "w")
+  MUT i AS Integer = 0
+  WHILE i < 5000
+    fs::writeAll(f, "line " & toString(i) & "\n")
+    i = i + 1
+  WEND
+  fs::flush(f)
+  fs::close(f)
+
+  LET back AS String = fs::readText(path)
+  LET lines AS List OF String = strings::split(back, "\n")
+  io::print("lines=" & toString(len(lines)))
+  io::print("first=" & collections::get(lines, 0))
+  io::print("last=" & collections::get(lines, 4999))
+  ' Every line must appear exactly once and in order -- a duplicated prefix would
+  ' show up as extra lines or a shifted tail.
+  MUT ok AS Boolean = TRUE
+  MUT n AS Integer = 0
+  WHILE n < 5000
+    IF collections::get(lines, n) <> "line " & toString(n) THEN
+      ok = FALSE
+    END IF
+    n = n + 1
+  WEND
+  IF ok THEN
+    io::print("all lines exact")
+  ELSE
+    io::print("LINES CORRUPTED")
+  END IF
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

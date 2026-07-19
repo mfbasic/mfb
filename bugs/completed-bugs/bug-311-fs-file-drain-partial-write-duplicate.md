@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (data duplication)
 
-Status: Open
-Regression Test: tests/rt-behavior (new) — a short-write then hard-error on a buffered File, then retry, does not duplicate bytes
+Status: Fixed
+Regression Test: tests/rt-behavior/fs/file-buffered-drain-integrity-rt (reachable path) + emitted-plan inspection (the error path)
 
 `lower_fs_file_drain` advances only local cursor/remaining vregs per partial write
 and zeroes `BUF_FILLED` only after the whole buffer lands. The error path returns 1
@@ -97,3 +97,36 @@ avoided; keep `BUF_PTR` as a fixed base.
 The file drain's error path leaves the buffer describing already-written bytes, so a
 retry re-sends them; mirroring the stdout drain's bug-208 tail-slide fixes it. Risk
 is matching the stdout persistence logic exactly.
+
+## Resolution
+
+The file drain's error path now persists progress, mirroring bug-208's fix for the
+stdout twin that this helper never received. Confirmed the two really were the same
+shape before touching either: `lower_stdout_drain`'s `err` label slides and stores;
+`lower_fs_file_drain`'s just returned 1.
+
+The unflushed tail is **slid back to the base** rather than advancing `BUF_PTR` into
+the middle of the buffer. That choice is not stylistic — it was verified from the
+consumer: the buffered append path computes its destination as
+`BUF_PTR + BUF_FILLED` (`fs_helpers_io.rs`, the `fits` block), so it treats `BUF_PTR`
+as a fixed base. Advancing it would make every later append write past the buffer's
+end. dst (base) < src (cursor), so the forward byte copy is overlap-safe.
+
+### Verifying an error path that is not reachable from MFBASIC
+
+The failure needs a partial write followed by a hard error on the same fd, which no
+MFBASIC program can arrange. Rather than claim it untested, two things were done:
+
+1. **The emitted plan was inspected.** `mfb build -ncode` shows the slide loop
+   (`ldr_u8`/`str_u8`/two `add_imm`/`sub_imm`/branch) followed by
+   `str_u64 → [File+24]` and `str_u64 → [File+32]` — `FILE_OFFSET_BUF_PTR` and
+   `FILE_OFFSET_BUF_FILLED` respectively — and then the `return 1`. So the code that
+   persists progress is provably present and writes the right two fields.
+2. **The reachable path is regression-tested**, because the slide is exactly the kind
+   of change that could corrupt it. The fixture writes 5000 lines through roughly a
+   dozen overflow drains, reads the file back, and checks every line individually
+   rather than just the count — a duplicated prefix would show as extra lines or a
+   shifted tail. Out of tree the same program was byte-compared against the expected
+   48890 bytes: exact match.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1012/1012.
