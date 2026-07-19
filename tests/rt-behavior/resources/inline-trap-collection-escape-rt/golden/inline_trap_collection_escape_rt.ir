@@ -1,0 +1,125 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "inline_trap_collection_escape_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "guarded",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 23, "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "line": 24, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 25,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+      { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF RES File", "value": { "kind": "callResult", "type": "List OF RES File", "target": "collections.insert", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "f" }] } },
+      { "op": "bind", "line": 27, "mutable": true, "name": "$trap_val1", "type": "List OF RES File", "value": null },
+      {
+        "op": "if",
+        "line": 27,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+        "then": [
+        { "op": "assign", "line": 27, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "List OF RES File", "value": { "kind": "local", "name": "$trap_res0" } } }
+        ],
+        "else": [
+        { "op": "bind", "line": 27, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+        { "op": "assign", "line": 28, "name": "$trap_val1", "value": { "kind": "local", "name": "handles" } }
+        ]
+      },
+      { "op": "assign", "line": 27, "name": "handles", "value": { "kind": "local", "name": "$trap_val1" } },
+      { "op": "assign", "line": 30, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "guarded opened=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "handles" }] }] } }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "call", "type": "File", "target": "collections.get", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "const", "type": "String", "value": "still open" }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "guarded wrote ok" }] } },
+    { "op": "return", "line": 35, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "alwaysFails",
+    "line": 38,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 38, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF RES File",
+    "body": [
+    { "op": "fail", "line": 39, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "always" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "39" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "handlerSide",
+    "line": 44,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 45, "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "line": 46, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 47,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "body": [
+      { "op": "bind", "line": 48, "mutable": false, "name": "g", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+      { "op": "bind", "line": 49, "mutable": false, "name": "$trap_res2", "type": "Result OF List OF RES File", "value": { "kind": "callResult", "type": "List OF RES File", "target": "alwaysFails", "args": [{ "kind": "local", "name": "n" }] } },
+      { "op": "bind", "line": 49, "mutable": true, "name": "$trap_val3", "type": "List OF RES File", "value": null },
+      {
+        "op": "if",
+        "line": 49,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+        "then": [
+        { "op": "assign", "line": 49, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "List OF RES File", "value": { "kind": "local", "name": "$trap_res2" } } }
+        ],
+        "else": [
+        { "op": "bind", "line": 49, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+        { "op": "assign", "line": 50, "name": "$trap_val3", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.insert", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "g" }] } }
+        ]
+      },
+      { "op": "assign", "line": 49, "name": "handles", "value": { "kind": "local", "name": "$trap_val3" } },
+      { "op": "assign", "line": 52, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "handler opened=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "handles" }] }] } }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "call", "type": "File", "target": "collections.get", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "const", "type": "String", "value": "still open" }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "handler wrote ok" }] } },
+    { "op": "return", "line": 57, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 60,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 61, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "guarded", "args": [] } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "handlerSide", "args": [] } },
+    { "op": "return", "line": 63, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    ]
+  }
+  ]
+}

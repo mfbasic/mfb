@@ -1,0 +1,64 @@
+' bug-290: escape analysis matched Identifier/ListLiteral/MapLiteral/insertion-Call
+' and fell through `_ => {}` for everything else -- including
+' `Expression::Trapped`, the wrapper an inline TRAP puts around the expression it
+' guards. An insertion written with a TRAP therefore routed NO ownership: the
+' resource stayed ResOwner::Local and was closed at its own (loop-body) scope even
+' though the outer collection still held it, violating the §15.6 float-up
+' contract. It compiled with zero diagnostics and died at runtime.
+'
+' Both arms of a trap produce the same target, so both are covered here, and each
+' was confirmed to fail on its own: with no Trapped arm, `guarded` dies; with only
+' the guarded-expression unwrap and no RECOVER scan, `guarded` passes but
+' `handlerSide` still dies.
+'
+' Counting the list is NOT enough to detect this -- the original repro printed
+' opened=3 while the handles were already closed. Each case must actually USE a
+' handle it retained.
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' The resource enters the collection through the TRAP's guarded expression.
+FUNC guarded AS Integer
+  MUT handles AS List OF RES File = []
+  MUT n AS Integer = 0
+  WHILE n < 3
+    RES f AS File = fs::createTempFile()
+    handles = collections::insert(handles, 0, f) TRAP(e)
+      RECOVER handles
+    END TRAP
+    n = n + 1
+  WEND
+  io::print("guarded opened=" & toString(len(handles)))
+  fs::writeAll(collections::get(handles, 0), "still open")
+  io::print("guarded wrote ok")
+  RETURN 0
+END FUNC
+
+FUNC alwaysFails(n AS Integer) AS List OF RES File
+  FAIL error(77050001, "always")
+END FUNC
+
+' The resource enters the collection through the TRAP's RECOVER value instead,
+' which is reached only because the handler statements are scanned too.
+FUNC handlerSide AS Integer
+  MUT handles AS List OF RES File = []
+  MUT n AS Integer = 0
+  WHILE n < 2
+    RES g AS File = fs::createTempFile()
+    handles = alwaysFails(n) TRAP(e)
+      RECOVER collections::insert(handles, 0, g)
+    END TRAP
+    n = n + 1
+  WEND
+  io::print("handler opened=" & toString(len(handles)))
+  fs::writeAll(collections::get(handles, 0), "still open")
+  io::print("handler wrote ok")
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Integer = guarded()
+  LET b AS Integer = handlerSide()
+  RETURN a + b
+END FUNC

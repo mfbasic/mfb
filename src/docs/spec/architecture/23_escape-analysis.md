@@ -85,10 +85,22 @@ scan_collection_expr(expr):
                              arg[0] is the collection being updated -> recurse
                                scan_collection_expr
                              arg[1..] are elements -> scan_element
+  Trapped{expression,handler}
+                          -> scan_collection_expr(expression), and
+                             scan_collection_expr on each RECOVER value in handler
   _                       -> ignore
 ```
 
 [[src/escape.rs:scan_collection_expr]]
+
+An inline `TRAP` is *unwrapped*, not ignored: both of its arms produce the same
+target, so the guarded expression and each handler `RECOVER` value flow into it
+alike. Before bug-290 `Expression::Trapped` fell through to `_ -> ignore`, so an
+insertion written with a trap routed no ownership at all and the inserted resource
+was closed at its own scope while the collection still held it -- a use-after-close
+with no diagnostic. Note that both arms must be scanned: covering only the guarded
+expression leaves a resource acquired outside the trap and inserted by its
+`RECOVER` value equally stranded.
 
 `scan_element` treats a `RES`-identifier as a direct insertion (push to
 `res_elems`); anything else falls through to `scan_collection_expr` so a nested

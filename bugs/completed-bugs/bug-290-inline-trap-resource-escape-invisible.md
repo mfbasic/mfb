@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (resource lifetime)
 
-Status: Open
-Regression Test: tests/rt-behavior (new) — a resource inserted into a collection via a `... TRAP ... END TRAP` expression floats its ownership up correctly
+Status: Fixed
+Regression Test: tests/rt-behavior/resources/inline-trap-collection-escape-rt — both trap arms float ownership up correctly
 
 Escape analysis (`scan_collection_expr`/`scan_element`) matches
 `Identifier`/`ListLiteral`/`MapLiteral`/insertion `Call` and ignores everything
@@ -101,3 +101,43 @@ on insertion expressions — a real usability regression.
 Escape analysis is blind to inline-TRAP-wrapped insertions, closing a still-borrowed
 resource. Unwrapping Trapped in the scanners fixes it; the risk is covering the
 handler-side acquisition case too.
+
+## Resolution
+
+`scan_collection_expr` gained an `Expression::Trapped` arm that scans **both** of
+the trap's arms into the same target: the guarded expression, and each `RECOVER`
+value in the handler. The report's suggested `walk_statement` change turned out to
+be unnecessary — routing is recorded from the expression scanner, and reaching the
+handler through the `Trapped` arm covers the handler-side case without walking
+statements separately.
+
+### The reproduction needed correcting before it proved anything
+
+The report's repro as written does not compile today (`List OF File` is rejected:
+a resource element must be `List OF RES File`), and once corrected it **passed** —
+printing `opened=3` exactly as the report says a correct build should. That is a
+false negative, not a fixed bug: counting a list never touches its handles. The
+resources really were already closed. The repro only becomes a repro when it
+*uses* a retained handle, at which point it dies with
+`7-703-0004 Resource handle is already closed` as described. The fixture therefore
+writes through a retained handle in each case, and the control — the identical
+program with the `TRAP` removed — passes, isolating the trap as the sole cause.
+
+### Both arms are independently load-bearing
+
+Established by bisecting the fix against the fixture rather than by argument:
+
+- with no `Trapped` arm at all, the guarded-expression case dies;
+- with only the guarded-expression unwrap and no `RECOVER` scan, that case passes
+  but the handler-acquisition case still dies;
+- with both, both pass.
+
+So the handler scan is not defensive padding — a resource acquired outside the trap
+and inserted by the handler's `RECOVER` value is stranded by exactly the same hole,
+and would have survived a fix that only unwrapped the guarded expression.
+
+Spec `architecture/23_escape-analysis.md` — which codified this hole as
+`_ -> ignore` — now documents the `Trapped` arm and records why covering one arm is
+insufficient.
+
+Full `cargo test` green; acceptance 1002/1002.

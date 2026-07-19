@@ -244,6 +244,28 @@ impl Analyzer {
                     }
                 }
             }
+            // bug-290: an inline `TRAP` wraps the expression it guards, and this
+            // scan previously fell through to `_ => {}` for it -- so
+            // `xs = insert(xs, 0, f) TRAP … END TRAP` routed no ownership at all,
+            // `f` stayed `ResOwner::Local`, and it was closed at its own scope
+            // while the collection still held it. Both arms of the trap produce
+            // the same target, so both flow into it: the guarded expression on
+            // success, and whatever the handler `RECOVER`s on failure.
+            Expression::Trapped {
+                expression,
+                handler,
+                ..
+            } => {
+                self.scan_collection_expr(expression, res_elems, src_collections);
+                for statement in handler {
+                    if let Statement::Recover {
+                        value: Some(value), ..
+                    } = statement
+                    {
+                        self.scan_collection_expr(value, res_elems, src_collections);
+                    }
+                }
+            }
             _ => {}
         }
     }

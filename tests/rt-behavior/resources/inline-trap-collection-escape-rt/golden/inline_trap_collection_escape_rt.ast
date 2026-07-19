@@ -1,0 +1,118 @@
+{
+  "project": "inline_trap_collection_escape_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 17 },
+    { "module": "fs", "line": 18 },
+    { "module": "collections", "line": 19 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "guarded",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 24 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "3" } },
+        "line": 25,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 26 },
+        { "kind": "assignment", "name": "handles", "value": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 27,
+          "expression": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "f" }] },
+          "handler": [
+          { "kind": "recover", "value": { "kind": "identifier", "value": "handles" }, "line": 28 }
+          ]
+        }, "line": 27 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 30 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "guarded opened=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }] } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }] }, { "kind": "string", "value": "still open" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "guarded wrote ok" }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "alwaysFails",
+      "line": 38,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 38 }
+      ],
+      "returnType": "List OF RES File",
+      "body": [
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050001" }, { "kind": "string", "value": "always" }] }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "handlerSide",
+      "line": 44,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 45 },
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 46 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } },
+        "line": 47,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 48 },
+        { "kind": "assignment", "name": "handles", "value": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 49,
+          "expression": { "kind": "call", "callee": "alwaysFails", "arguments": [{ "kind": "identifier", "value": "n" }] },
+          "handler": [
+          { "kind": "recover", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "g" }] }, "line": 50 }
+          ]
+        }, "line": 49 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 52 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "handler opened=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }] }, { "kind": "string", "value": "still open" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "handler wrote ok" }] }, "line": 56 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 57 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 60,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "guarded", "arguments": [] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "handlerSide", "arguments": [] }, "line": 62 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 63 }
+      ]
+    }
+    ]
+  }
+  ]
+}
