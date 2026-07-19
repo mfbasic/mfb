@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Memory-safety / Security (untrusted-package trust boundary)
 
-Status: Open
-Regression Test: src/ir/verify/tests.rs (new) — an out-of-range `Capture` in a MATCH guard/pattern of a closure body is rejected
+Status: Fixed
+Regression Test: src/ir/verify/tests.rs::rejects_capture_out_of_range_in_match_pattern_and_guard + ::rejects_stray_capture_in_parameter_default_and_global_initializer
 
 The capture-index bounds defense (bug-99 / bug-32) lives in a separate walker,
 `check_value_captures` → `walk_captures`; `check_value`/`check_value_depth` never
@@ -99,3 +99,47 @@ lacks the `closure_slots` context there; keep the two-walker split but call both
 A collector-asymmetry: the capture-bounds walker exists but isn't called at MATCH
 guards/patterns/defaults/globals, leaving a crafted-`.mfp` OOB env read. Adding the
 missing calls closes it; risk is finding every uncovered value position.
+
+## Resolution
+
+The report's blast radius asked to "audit any other `check_value`-only value
+position for the same gap". That audit was done mechanically rather than by
+inspection: every `check_value` / `check_value_captures` call site in the file was
+listed in source order and paired up. Exactly five `check_value` calls had no
+`check_value_captures` sibling — and they are precisely the five the report named,
+with none beyond them:
+
+| site | position |
+| --- | --- |
+| 272 | parameter default |
+| 380 | global-binding initializer |
+| 1225 | MATCH pattern `Value` |
+| 1229 | MATCH pattern `OneOf` |
+| 1244 | MATCH `WHEN` guard |
+
+All five now call the walker. The two contexts need different arguments, which is
+the substantive part:
+
+- the MATCH sites pass `closure_slots`, so an index is bounds-checked against the
+  enclosing closure's slot count exactly as the scrutinee already was;
+- a parameter default is evaluated in the **caller's** frame and a global
+  initializer runs before any closure exists, so neither has a captured environment
+  at all. They pass `None`, which selects `check_value_captures`' existing
+  stray-capture rejection — *any* `Capture` there is malformed IR, not merely an
+  out-of-range one. That path already existed for bug-99; it simply was never
+  reached from these two positions.
+
+### Verified against the unfixed verifier
+
+All four crafted shapes were confirmed to pass verification before the fix: the five
+new calls were stripped back out and both tests failed, then restored and both
+passed. So the tests exercise the gap rather than merely asserting current
+behaviour.
+
+The in-range contrast case matters as much as the rejections: a `Capture{index: 0}`
+in a MATCH pattern of a one-slot closure still verifies, so the new calls reject the
+crafted shape rather than closures generally.
+
+Not front-end reachable — source lambdas lower to a single `RETURN` — so this was
+only ever a crafted-`.mfp` trust-boundary gap, and no legitimate program changes
+behaviour. Full `cargo test` green.

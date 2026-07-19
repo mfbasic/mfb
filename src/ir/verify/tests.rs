@@ -3640,6 +3640,170 @@ fn rejects_capture_out_of_range_in_bind_value() {
     assert!(err.contains("out of range"), "{err}");
 }
 
+// --- bug-297: capture bounds at the value positions the walker was not called on
+
+/// The capture-bounds defense (bug-99/bug-32) lives in `check_value_captures`,
+/// a walker separate from `check_value` -- whose own `Capture` arm is a no-op.
+/// Every value position in `check_ops` called both, EXCEPT MATCH case patterns
+/// and WHEN guards, so an out-of-range `Capture` there passed verification and
+/// lowered to `load_u64(CLOSURE_ENV_REGISTER, index*8)` -- an out-of-bounds env
+/// read in the victim binary. Not front-end reachable (source lambdas lower to a
+/// single RETURN), so this is purely a crafted-`.mfp` trust-boundary gap.
+#[test]
+fn rejects_capture_out_of_range_in_match_pattern_and_guard() {
+    // One capture slot exists; index 9999 is far outside it.
+    let oob = || IrValue::Capture {
+        index: 9999,
+        type_: "Integer".to_string(),
+        by_ref: false,
+    };
+    let maker = |body: &str| {
+        func_returns(
+            "make",
+            "FUNC() AS Integer",
+            vec![],
+            vec![ret(IrValue::Closure {
+                name: body.to_string(),
+                type_: "FUNC() AS Integer".to_string(),
+                captures: vec![int_const("1")],
+            })],
+        )
+    };
+
+    // (a) a pattern VALUE position
+    let pattern_body = func_returns(
+        "body",
+        "Integer",
+        vec![],
+        vec![
+            IrOp::Match {
+                value: int_const("1"),
+                cases: vec![
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Value(oob()),
+                        guard: None,
+                        body: vec![ret(int_const("0"))],
+                        loc: IrSourceLoc::default(),
+                    },
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Else,
+                        guard: None,
+                        body: vec![ret(int_const("0"))],
+                        loc: IrSourceLoc::default(),
+                    },
+                ],
+                loc: IrSourceLoc::default(),
+            },
+            ret(int_const("0")),
+        ],
+    );
+    let err = check(&project(vec![pattern_body, maker("body")], vec![]))
+        .expect_err("an out-of-range capture in a MATCH pattern must be rejected");
+    assert!(err.contains("out of range"), "{err}");
+
+    // (b) a WHEN guard
+    let guard_body = func_returns(
+        "body",
+        "Integer",
+        vec![],
+        vec![
+            IrOp::Match {
+                value: int_const("1"),
+                cases: vec![
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Value(int_const("1")),
+                        guard: Some(oob()),
+                        body: vec![ret(int_const("0"))],
+                        loc: IrSourceLoc::default(),
+                    },
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Else,
+                        guard: None,
+                        body: vec![ret(int_const("0"))],
+                        loc: IrSourceLoc::default(),
+                    },
+                ],
+                loc: IrSourceLoc::default(),
+            },
+            ret(int_const("0")),
+        ],
+    );
+    let err = check(&project(vec![guard_body, maker("body")], vec![]))
+        .expect_err("an out-of-range capture in a WHEN guard must be rejected");
+    assert!(err.contains("out of range"), "{err}");
+
+    // (c) an IN-RANGE capture in the same positions still verifies, so the new
+    // calls reject the crafted shape rather than closures generally.
+    let ok_body = func_returns(
+        "body",
+        "Integer",
+        vec![],
+        vec![
+            IrOp::Match {
+                value: int_const("1"),
+                cases: vec![
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Value(IrValue::Capture {
+                            index: 0,
+                            type_: "Integer".to_string(),
+                            by_ref: false,
+                        }),
+                        guard: None,
+                        body: vec![ret(int_const("0"))],
+                        loc: IrSourceLoc::default(),
+                    },
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Else,
+                        guard: None,
+                        body: vec![ret(int_const("0"))],
+                        loc: IrSourceLoc::default(),
+                    },
+                ],
+                loc: IrSourceLoc::default(),
+            },
+            ret(int_const("0")),
+        ],
+    );
+    accept(&project(vec![ok_body, maker("body")], vec![]));
+}
+
+/// A parameter default is evaluated in the CALLER's frame and a global
+/// initializer runs before any closure exists, so neither has a captured
+/// environment at all -- any `Capture` in one is malformed IR that would lower to
+/// an env-relative load off whatever the env register happens to hold. Both
+/// positions called `check_value` alone.
+#[test]
+fn rejects_stray_capture_in_parameter_default_and_global_initializer() {
+    let stray = || IrValue::Capture {
+        index: 0,
+        type_: "Integer".to_string(),
+        by_ref: false,
+    };
+
+    let with_default = func_returns(
+        "run",
+        "Integer",
+        vec![param("n", "Integer", Some(stray()))],
+        vec![ret(int_const("0"))],
+    );
+    let err = check(&project(vec![with_default], vec![]))
+        .expect_err("a capture in a parameter default must be rejected");
+    assert!(err.contains("not a closure body"), "{err}");
+
+    let mut with_global = project(
+        vec![func_returns(
+            "run",
+            "Integer",
+            vec![],
+            vec![ret(int_const("0"))],
+        )],
+        vec![],
+    );
+    with_global.bindings = vec![binding("g", "Integer", Some(stray()), false, true)];
+    let err = check(&with_global).expect_err("a capture in a global initializer must be rejected");
+    assert!(err.contains("not a closure body"), "{err}");
+}
+
 // --- infer_type through global + walk_captures over many value shapes -------
 
 #[test]

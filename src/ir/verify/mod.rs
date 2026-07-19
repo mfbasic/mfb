@@ -269,6 +269,10 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
+                // bug-297: a parameter default is evaluated in the caller's frame,
+                // which has no captured environment at all, so ANY `Capture` here
+                // is malformed IR -- `None` selects the stray-capture rejection.
+                env.check_value_captures(default, None);
                 env.check_value(default, &locals);
                 // A parameter default must match the declared parameter type —
                 // syntaxcheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
@@ -377,6 +381,9 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
             }
         }
         if let Some(value) = &binding.value {
+            // bug-297: a global initializer runs before any closure exists, so a
+            // `Capture` in one is malformed IR for the same reason.
+            env.check_value_captures(value, None);
             env.check_value(value, &HashMap::new());
             let before = env.diags.borrow().len();
             env.check_literal_range(resource_base_type(&binding.type_), value);
@@ -1221,11 +1228,19 @@ impl TypeEnv {
                     for case in cases {
                         match &case.pattern {
                             super::IrMatchPattern::Else => {}
+                            // bug-297: the scrutinee is capture-checked above, but
+                            // these pattern values were checked with `check_value`
+                            // alone -- whose `Capture` arm is a no-op. An
+                            // out-of-range `Capture` here passed verification and
+                            // lowered to an env-relative load, an OOB read a
+                            // crafted `.mfp` could steer.
                             super::IrMatchPattern::Value(v) => {
+                                self.check_value_captures(v, closure_slots);
                                 self.check_value(v, locals);
                             }
                             super::IrMatchPattern::OneOf(vs) => {
                                 for v in vs {
+                                    self.check_value_captures(v, closure_slots);
                                     self.check_value(v, locals);
                                 }
                             }
@@ -1241,6 +1256,8 @@ impl TypeEnv {
                                 };
                                 case_locals.insert(name.clone(), type_.clone());
                             }
+                            // bug-297: same omission as the pattern values above.
+                            self.check_value_captures(guard, closure_slots);
                             self.check_value(guard, &case_locals);
                             self.current_line.set(case.loc.line);
                             self.check_condition_boolean("WHEN guard", guard, &case_locals);
