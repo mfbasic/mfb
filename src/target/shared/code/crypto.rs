@@ -238,13 +238,7 @@ fn emit_arena_alloc(
     fail: &str,
 ) {
     instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(fail),
