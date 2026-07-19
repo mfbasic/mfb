@@ -148,6 +148,15 @@ impl RegisterModel for X86_64RegisterModel {
         ARENA_BASE_REGISTER
     }
 
+    /// SysV x86-64 passes six integer arguments in registers
+    /// (rdi, rsi, rdx, rcx, r8, r9); everything past that goes on the stack.
+    /// `CALL_ARGS` extends the list with `rax`/`rbp` for arguments 7 and 8, which
+    /// is an INTERNAL convention only -- an external C callee reads its 7th and
+    /// 8th integer arguments from the stack and would see garbage (bug-296).
+    fn external_int_argument_registers(&self) -> usize {
+        6
+    }
+
     fn closure_env(&self) -> &'static str {
         // `%closure_env` realizes to `r13` (map_scratch_register(28)); excluded
         // from `INT_ALLOCATABLE` so no body vreg collides with the closure call's
@@ -191,6 +200,21 @@ mod tests {
                  expansions (div_seq, var_shift, msub, rbit) clobber it"
             );
         }
+    }
+
+    #[test]
+    fn external_c_abi_passes_six_integer_arguments_not_eight() {
+        // bug-296: CALL_ARGS extends the SysV six with rax/rbp for arguments 7 and
+        // 8. That extension is INTERNAL -- sound for the compiler's own calls,
+        // wrong for an external C callee, which reads those two from the stack. A
+        // LINK thunk calls a real C function, so it must see 6 here even though
+        // the neutral model shared code uses says 8.
+        assert_eq!(X86_64RegisterModel.external_int_argument_registers(), 6);
+        assert_eq!(
+            crate::target::shared::abi::REGISTER_ARGUMENT_COUNT,
+            8,
+            "the internal model stays at 8; only the external count differs"
+        );
     }
 
     #[test]

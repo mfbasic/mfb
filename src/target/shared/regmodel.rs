@@ -107,4 +107,18 @@ pub(crate) trait RegisterModel {
     fn math_pool_base(&self) -> Option<&'static str> {
         None
     }
+
+    /// How many integer arguments this target's **external C ABI** passes in
+    /// registers.
+    ///
+    /// bug-296: this is deliberately distinct from the neutral 8-register model
+    /// shared code uses for the compiler's own calls. aarch64 (AAPCS64) and
+    /// riscv64 both pass 8 and so agree with it, but SysV x86-64 passes only 6 --
+    /// its backend extends the internal list with `rax`/`rbp` for arguments 7 and
+    /// 8, which is sound for internal calls and wrong for an external callee, which
+    /// takes those from the stack. A LINK thunk calls a real C function, so it must
+    /// consult this rather than the internal count.
+    fn external_int_argument_registers(&self) -> usize {
+        crate::target::shared::abi::REGISTER_ARGUMENT_COUNT
+    }
 }

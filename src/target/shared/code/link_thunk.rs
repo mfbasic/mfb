@@ -670,6 +670,32 @@ fn lower_link_thunk(
 
     // Load the C arguments into their AAPCS64 registers, then call through the
     // resolved pointer.
+    // bug-296: a LINK thunk calls a real C function through `blr`, so its
+    // arguments follow the target's EXTERNAL C ABI, not the compiler's internal
+    // 8-register model. On SysV x86-64 only six integer arguments are passed in
+    // registers; the backend's `CALL_ARGS` extends the list with rax/rbp for
+    // arguments 7 and 8, which is sound for the compiler's own calls but hands an
+    // external callee two registers it never reads -- it takes those from the
+    // stack, so it saw garbage, silently and with no diagnostic. Stack-argument
+    // staging for external calls is the complete fix; until it exists, refuse the
+    // call rather than emit one that is wrong.
+    let external_int_registers = crate::target::shared::code::mir::active_backend()
+        .register_model()
+        .external_int_argument_registers();
+    let int_slot_count = function
+        .abi_slots
+        .iter()
+        .filter(|slot| slot.ctype != "CDouble")
+        .count();
+    if int_slot_count > external_int_registers {
+        return Err(format!(
+            "native function `{}` declares {int_slot_count} integer ABI slots, but this \
+             target passes only {external_int_registers} integer arguments in registers and \
+             stack arguments are not yet staged for native calls; reduce the slot count or \
+             build for a target with more argument registers",
+            function.name
+        ));
+    }
     let mut int_idx = 0usize;
     let mut flt_idx = 0usize;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
@@ -1517,6 +1543,82 @@ mod tests {
     use crate::ir::{
         abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrLinkFunction,
     };
+
+    /// bug-296: a LINK thunk calls a real C function, so its arguments follow the
+    /// target's EXTERNAL C ABI. SysV x86-64 passes six integer arguments in
+    /// registers; the backend's `CALL_ARGS` extends the list with rax/rbp for
+    /// arguments 7 and 8, which is sound for the compiler's own calls but hands an
+    /// external callee two registers it never reads -- it takes those from the
+    /// stack, so a >=7-integer-slot native function was called with garbage
+    /// trailing arguments, silently and with no diagnostic. aarch64 and riscv64
+    /// have 8 real argument registers and are unaffected.
+    #[test]
+    fn seven_integer_slots_are_rejected_on_x86_and_accepted_on_aarch64() {
+        let seven_int_slots = |count: usize| IrLinkFunction {
+            alias: "lib".to_string(),
+            name: "seven".to_string(),
+            library: "demo".to_string(),
+            symbol: "demo_seven".to_string(),
+            // Each ABI slot is sourced from a wrapper parameter of the same name.
+            params: (0..count)
+                .map(|i| (format!("a{i}"), "Integer".to_string()))
+                .collect(),
+            return_type: "Integer".to_string(),
+            return_resource: false,
+            return_state_type: None,
+            abi_slots: (0..count)
+                .map(|i| IrAbiSlot {
+                    name: format!("a{i}"),
+                    ctype: "CInt64".to_string(),
+                    direction: crate::ir::AbiDirection::In,
+                })
+                .collect(),
+            abi_return_name: "return".to_string(),
+            abi_return_ctype: "CInt64".to_string(),
+            consts: vec![],
+            bind_in: vec![],
+            bind_state: None,
+            bind_state_resource: None,
+            success_on: None,
+            result: None,
+            free: None,
+        };
+        let lower = |count: usize| {
+            lower_link_thunk(
+                &seven_int_slots(count),
+                &[],
+                &HashMap::new(),
+                0,
+                0,
+                None,
+                &HashSet::new(),
+            )
+        };
+
+        // x86-64: six is the SysV limit, so six lowers and seven is refused rather
+        // than emitting a call that passes arguments the callee never reads.
+        mir::set_backend(&crate::arch::x86_64::backend::X86_64_BACKEND);
+        assert!(
+            lower(6).is_ok(),
+            "six integer slots must still lower on x86"
+        );
+        let err = match lower(7) {
+            Ok(_) => panic!("seven integer slots must be refused on x86"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("integer ABI slots") && err.contains("seven"),
+            "unexpected error: {err}"
+        );
+
+        // aarch64 has eight real argument registers, so the same function is fine.
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        assert!(
+            lower(7).is_ok(),
+            "seven integer slots are within AAPCS64's eight argument registers"
+        );
+        assert!(lower(8).is_ok(), "eight is AAPCS64's limit");
+    }
 
     /// Every ctype the allow-list accepts must reach a real marshaling arm.
     ///
