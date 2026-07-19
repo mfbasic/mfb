@@ -38,22 +38,6 @@ LINK "sqlite3" AS sqlite
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
-
-```
-EXPORT RESOURCE Db CLOSE BY sqlite::close
-
-LINK "sqlite3" AS sqlite
-  FUNC open(path AS String) AS RES Db
-    SYMBOL "sqlite3_open"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL "sqlite3_close"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
 END LINK
 
 EXPORT FUNC close AS sqlite::close
@@ -67,36 +51,6 @@ forward-reference native functions. A `LINK` alias is distinct from an imported
 package and wins before import lookup for that root name.
 [[src/resolver/mod.rs:collect_top_level_symbols]]
 [[src/resolver/resolution.rs:resolve_package_qualified_name]]
-
-## Binding packages
-
-A source package that declares `LINK` is a binding package. It may contain only
-the native declarations, or it may add ordinary MFBASIC wrapper code around them
-for validation, safer defaults, and higher-level APIs. The compiled `.mfp`
-contains normal package metadata plus native binding metadata, so importers see
-ordinary package functions and resource types.
-
-Native resources are declared at package scope with
-`RESOURCE Name CLOSE BY alias::func`, not inside the `LINK` block. The close
-function must be a native `LINK` function that consumes exactly one `RES`
-parameter of that resource type. A transparent function alias,
-`EXPORT FUNC close AS alias::func`, is the way to expose that same consuming
-close operation to importers. [[src/resolver/resolution.rs:resolve_resource_decl]]
-[[src/resolver/resolution.rs:resolve_func_alias]]
-
-## Native functions
-
-Each native `FUNC` has two signatures:
-
-- The MFBASIC-facing signature after `FUNC`, using source types such as
-  `String`, `Integer`, `Float`, `Nothing`, and `RES Db`.
-- The C-facing ABI signature after `ABI`, using ABI slot types such as
-  `CString`, `CPtr`, `CInt32`, `CBool`, `CByte`, `CDouble`, and `CVoid`.
-
-`SYMBOL "name"` gives the exact dynamic-library symbol to resolve. `ABI (...)`
-lists native arguments in C call order, and `AS slot CType` names the native
-return slot. ABI slots bind to wrapper parameters by name. Every wrapper
-parameter must have a matching ABI slot, and every ABI slot must be a wrapper parameter, a `CONST` pin, or the wrapper result marker.
 
 ## Binding packages
 
@@ -203,6 +157,16 @@ wrap native handles in `RESOURCE` types instead. [[src/syntaxcheck/helpers.rs:is
 | `2-203-0095` | `NATIVE_ABI_UNBOUND_PARAM` | a wrapper parameter has no matching ABI slot |
 | `2-203-0096` | `NATIVE_ABI_NO_RESULT` | a value-returning native wrapper exposes no result |
 | `2-205-0002` | `NATIVE_MANIFEST_INVALID` | imported native binding metadata is malformed or inconsistent |
+| `2-203-0097` | `NATIVE_CONST_OUT` | a `CONST`-pinned ABI slot is also `OUT` |
+| `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | a `CONST` pin names an unknown ABI slot |
+| `2-203-0099` | `NATIVE_FREE_INVALID` | a `FREE` block is malformed — it must release the produced `return` `CPtr` through a deallocator taking one `CPtr` and returning `CVoid` |
+| `2-203-0123` | `NATIVE_ABI_UNKNOWN_CTYPE` | an ABI slot or return names a C type the marshaling backend does not implement |
+| `2-203-0124` | `NATIVE_CSTRUCT_INVALID` | a `CSTRUCT` declaration is not a layout the compiler can compute faithfully |
+| `2-203-0125` | `NATIVE_CSTRUCT_TOO_LARGE` | a `CSTRUCT` lays out larger than the maximum native struct size |
+| `2-203-0126` | `NATIVE_CSTRUCT_ESCAPE` | a `CSTRUCT` name is used outside its `LINK` block, where only its mapped record type is nameable |
+| `2-203-0127` | `NATIVE_STRUCT_FIELD_MISMATCH` | a `CSTRUCT` and the record it maps to differ by field name, type, or coverage |
+| `2-203-0128` | `NATIVE_BIND_IN_INVALID` | a `BIND IN` block names an unknown slot or field, or binds a value it cannot marshal |
+| `2-203-0130` | `NATIVE_BIND_STATE_INVALID` | a `BIND STATE` does not name the native function's stateful resource return and an `OUT` `CSTRUCT` slot whose record is the resource's `STATE` type |
 | `2-203-0114` | `NATIVE_LIBRARY_MISSING` | a `LINK "name"` has no `libraries` entry in project.json |
 | `2-203-0115` | `NATIVE_LIBRARY_TARGET_UNCOVERED` | a supported target has no locator (warn; one per uncovered slot) |
 | `2-203-0116` | `NATIVE_LIBRARY_SOURCE_UNREADABLE` | a `vendor` locator's file under `vendor/` is missing or unreadable |
@@ -211,6 +175,7 @@ wrap native handles in `RESOURCE` types instead. [[src/syntaxcheck/helpers.rs:is
 | `2-203-0119` | `NATIVE_LIBRARY_AMBIGUOUS` | two equally-specific locators match the target |
 | `2-203-0120` | `NATIVE_LIBRARY_FILE_MISSING` | a resolved `vendor` library is absent from the consumer's `vendor/` |
 | `2-203-0121` | `NATIVE_LIBRARY_HASH_MISMATCH` | a resolved `vendor` library is the wrong version (sha256 differs) |
+| `2-203-0122` | `NATIVE_LIBRARY_VENDOR_COLLISION` | two declaring units vendor different native libraries that copy to the same output filename |
 
 ## Errors
 

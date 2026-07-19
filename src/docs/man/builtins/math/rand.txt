@@ -1,8 +1,9 @@
 NAME
-  rand - uniform pseudo-random integer in an inclusive range
+  rand - uniform pseudo-random value in an inclusive range
 
 SYNOPSIS
   math::rand(min AS Integer, max AS Integer) AS Integer
+  math::rand(min AS Money, max AS Money) AS Money
 
 PACKAGE
   math
@@ -30,21 +31,26 @@ DESCRIPTION
   math::seed first to reseed the thread and make its subsequent sequence
   reproducible.
 
+  A second overload takes two Money bounds and returns a Money, drawn the same
+  way over the inclusive span of the underlying scaled amounts. Both arguments
+  must be the same type; there is no mixed Integer/Money form.
+
   Either argument may be supplied positionally or by name. The first argument
   accepts the name min or minimum, and the second accepts the name max or
   maximum.
 
 PARAMETERS
-  min AS Integer
+  min AS Integer | Money
     The inclusive lower bound of the range, also accepted under the name
-    minimum. Any Integer is accepted provided it is not greater than max.
+    minimum. Any value of the chosen type is accepted provided it is not
+    greater than max.
 
-  max AS Integer
+  max AS Integer | Money
     The inclusive upper bound of the range, also accepted under the name
-    maximum. Any Integer is accepted provided it is not less than min.
+    maximum. Must be the same type as min, and not less than it.
 
 RETURN VALUE
-  AS Integer
+  AS Integer | Money
     A pseudo-random Integer x satisfying min <= x <= max, drawn uniformly from
     that inclusive range. When min equals max the returned value is that single
     bound.

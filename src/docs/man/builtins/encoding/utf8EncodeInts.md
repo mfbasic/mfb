@@ -67,7 +67,7 @@ Encode a string to its UTF-8 code units:
 IMPORT encoding
 
 LET units AS List OF Integer = encoding::utf8EncodeInts("héllo")
-io::print(toString(collections::len(units)))
+io::print(toString(len(units)))
 ```
 
 Round-trip a string through its UTF-8 code units:

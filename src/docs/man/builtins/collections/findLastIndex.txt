@@ -2,13 +2,13 @@ NAME
     findLastIndex - index of the last item satisfying a predicate
 
 SYNOPSIS
-    collections::findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, end AS Integer = -1) AS Integer
+    collections::findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer = -1) AS Integer
 
 DESCRIPTION
-    Returns the zero-based index of the last item at or before end for which
-    predicate returns TRUE. The search runs backward from end, which defaults
-    to -1. A negative end counts from the end of the list, so -1 is the last
-    item. Pass predicate as a named FUNC value.
+    Returns the zero-based index of the last item at or before endIndex for
+    which predicate returns TRUE. The search runs backward from endIndex, which
+    defaults to -1. A negative endIndex counts from the end of the list, so -1
+    is the last item. Pass predicate as a named FUNC value.
 
 EXAMPLES
     IMPORT io
@@ -24,5 +24,5 @@ EXAMPLES
     END FUNC
 
 ERRORS
-    77050004 (ErrNotFound) when no item at or before end satisfies predicate.
-    77050001 (ErrIndexOutOfRange) when end is out of range.
+    77050004 (ErrNotFound) when no item at or before endIndex satisfies predicate.
+    77050001 (ErrIndexOutOfRange) when endIndex is out of range.

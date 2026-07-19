@@ -67,7 +67,7 @@ Encode a string to its UTF-16 code units:
 IMPORT encoding
 
 LET units AS List OF Integer = encoding::utf16Encode("hello")
-io::print(toString(collections::len(units)))
+io::print(toString(len(units)))
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-16:

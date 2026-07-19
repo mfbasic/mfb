@@ -63,8 +63,10 @@ default the name is the host, but a non-empty `serverName` both selects the name
 to validate and is sent as the TLS Server Name Indication (SNI) extension, which
 is needed when connecting to a literal IP or a virtual host. Ports and the
 `maxBytes` read cap are `Integer` values, and `maxBytes` must be positive. The
-`timeoutMs` argument to `tls::connect` is `Integer` milliseconds but is advisory
-on the current backend and does not yet bound the attempt. [[src/builtins/tls.rs:default_argument_padding]]
+`timeoutMs` argument to `tls::connect` is `Integer` milliseconds; a positive
+value bounds the connection and handshake and raises `ErrTimeout` when it
+elapses, while `0` means no bound. Host resolution runs before the deadline
+starts and is not counted against it. [[src/target/shared/code/tls/openssl.rs:connect_timeout]]
 
 The read and write functions come in paired byte/text forms: the byte form
 transfers a `List OF Byte` verbatim, while the text form transfers a `String`'s
@@ -91,9 +93,16 @@ distinguishing timeouts and closes. [[src/target/shared/code/tls/openssl.rs:lowe
 | `77020004` | `ErrEncoding` | raised by `readText` when the received bytes are not valid UTF-8 [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
 | `77030004` | `ErrResourceClosed` | raised by `read`, `readText`, `write`, and `writeText` when the `TlsSocket` has already been closed, and by `accept` when the `TlsListener` has already been closed [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77050002` | `ErrInvalidArgument` | raised by `read` and `readText` when `maxBytes` is not positive [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77060001` | `ErrTimeout` | raised by `accept` when a positive `timeoutMs` elapses before a connection arrives and its handshake completes [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77070001` | `ErrAddressInvalid` | raised by `listen` when `host`/`port` cannot be resolved to a bindable local endpoint [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_INVALID_CODE]] |
-| `77070002` | `ErrAddressNotFound` | raised by `connect` when `host` cannot be resolved, including when it is malformed or has no address record [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
+| `77050008` | `ErrTimeout` | raised by `connect` when a positive `timeoutMs` elapses before the connection and handshake complete (host resolution is not counted against it), and by `accept` when a positive `timeoutMs` elapses before a connection arrives and its handshake completes [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77070001` | `ErrAddressInvalid` | raised by `listen` when `host`/`port` cannot be resolved to a bindable local endpoint — **Linux only**; see the platform note below [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_INVALID_CODE]] |
+| `77070002` | `ErrAddressNotFound` | raised by `connect` when `host` cannot be resolved, including when it is malformed or has no address record — **Linux only**; see the platform note below [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
 | `77070003` | `ErrNetworkFailed` | raised by `connect` when the socket cannot be created or the TCP connection cannot be established before the handshake begins; by `listen` when the listening socket cannot be created, bound, or set to listen; and by `accept` when the underlying accept fails [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
 | `77070004` | `ErrConnectionClosed` | raised by `read` and `readText` when the peer has closed the TLS session (an end-of-stream read) [[src/target/shared/code/error_constants.rs:ERR_CONNECTION_CLOSED_CODE]] |
 | `77070008` | `ErrTlsFailed` | raised by any function when the TLS layer cannot be initialized (the system OpenSSL library or a required symbol could not be loaded); by `connect` when the client handshake fails; by `listen` when the server certificate or key cannot be loaded or the key does not match the certificate; by `accept` when the server handshake fails; by `read` and `readText` when the underlying TLS read fails; by `write` and `writeText` when the underlying TLS write fails; and by `close` when a session or listener cannot be torn down [[src/target/shared/code/error_constants.rs:ERR_TLS_FAILED_CODE]] |
+
+Two of the codes above are raised only by the Linux (OpenSSL) backend. The macOS
+(Network.framework) backend collapses every connection-establishment and bind
+failure — an unresolvable host included — into `ErrTlsFailed`, so a program that
+branches on `ErrAddressNotFound` or `ErrAddressInvalid` takes a different branch
+there. Branch on `ErrTlsFailed` as well when the behavior must be identical on
+both platforms. [[src/target/shared/code/tls/macos.rs:lower_tls_connect_macos]]

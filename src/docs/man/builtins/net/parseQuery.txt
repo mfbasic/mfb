@@ -23,6 +23,9 @@ DESCRIPTION
   otherwise valid request. This is the parser the http server applies to the
   request query (plan-05 §F.4.2).
 
+  The argument may be supplied positionally or by name, spelled s, query, or
+  value.
+
 EXAMPLES
   Parsing a query:
 

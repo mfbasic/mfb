@@ -19,6 +19,9 @@ DESCRIPTION
   space. This is the decoder the http server applies to the request path
   (plan-05 §F.4.2).
 
+  The argument may be supplied positionally or by name, spelled s, text, or
+  value.
+
 ERRORS
   77050003 (ErrInvalidFormat)
   Raised when a "%" escape is truncated or invalid, or the decoded bytes are not

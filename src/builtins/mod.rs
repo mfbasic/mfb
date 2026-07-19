@@ -365,6 +365,16 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
     matches!((callee, index), ("forEach", 1) | ("collections.forEach", 1))
 }
 
+/// Built-in names that resolve, but only from toolchain-provided source.
+///
+/// These are the seam between a public built-in written in MFBASIC and the
+/// native helper backing it: the injected `*_package.mfb` glue calls them, user
+/// source must not. The resolver applies this only when the calling file is not
+/// `AstFile::internal`, so the glue still resolves (bug-337-D9).
+pub(crate) fn is_internal_only_call(name: &str) -> bool {
+    crypto::is_crypto_internal_call(name)
+}
+
 pub(crate) fn is_builtin_call(name: &str) -> bool {
     // The `audio::` lowered-only internal names are not user-callable. They must be
     // excluded before the `call_return_type_name` fallback below, which knows their

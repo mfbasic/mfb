@@ -66,7 +66,7 @@ Encode a string to raw UTF-8 bytes:
 IMPORT encoding
 
 LET raw AS List OF Byte = encoding::utf8EncodeBytes("héllo")
-io::print(toString(collections::len(raw)))
+io::print(toString(len(raw)))
 ```
 
 Round-trip a string through its UTF-8 bytes:

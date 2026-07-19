@@ -2,12 +2,12 @@ NAME
     window - produce sliding windows over a list
 
 SYNOPSIS
-    collections::window OF T(value AS List OF T, size AS Integer, step AS Integer = 1) AS List OF List OF T
+    collections::window OF T(value AS List OF T, size AS Integer, stride AS Integer = 1) AS List OF List OF T
 
 DESCRIPTION
     Returns a list of overlapping windows over value. Each window is a list of
-    size consecutive items, and successive windows advance by step positions.
-    step defaults to 1. When size is greater than the length of value, no
+    size consecutive items, and successive windows advance by stride positions.
+    stride defaults to 1. When size is greater than the length of value, no
     window is produced and the result is empty. value is not modified.
 
 EXAMPLES
@@ -21,4 +21,4 @@ EXAMPLES
     END FUNC
 
 ERRORS
-    77050002 (ErrInvalidArgument) when size is less than 1 or step is less than 1.
+    77050002 (ErrInvalidArgument) when size is less than 1 or stride is less than 1.

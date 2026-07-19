@@ -89,7 +89,7 @@ default). [[src/builtins/tls.rs:resolve_call]]
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77010001` | `ErrOutOfMemory` | Memory for a path/host C string or the `TlsListener` handle could not be allocated. |
-| `77070001` | `ErrAddressInvalid` | `host`/`port` could not be resolved to a bindable local endpoint. |
+| `77070001` | `ErrAddressInvalid` | `host`/`port` could not be resolved to a bindable local endpoint. **Linux only:** the macOS backend reports this as `ErrTlsFailed`. |
 | `77070003` | `ErrNetworkFailed` | The listening socket could not be created, bound, or set to listen. |
 | `77070008` | `ErrTlsFailed` | The TLS layer could not be initialized, or the server identity could not be loaded — the certificate or key file could not be read or parsed, or the key does not match the certificate. |
 

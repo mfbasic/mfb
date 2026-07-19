@@ -45,12 +45,13 @@ PARAMETERS
     when old does not occur.
 
   old AS String
-    The substring to search for. An empty old never matches, so value is
-    returned unchanged; an old longer than value also never matches.
+    The substring to search for, also accepted under the name needle. An empty
+    old never matches, so value is returned unchanged; an old longer than value
+    also never matches.
 
   new AS String
-    The replacement string written in place of each match of old. May be empty
-    to delete matches.
+    The replacement string written in place of each match of old, also accepted
+    under the name replacement. May be empty to delete matches.
 
 RETURN VALUE
   AS String

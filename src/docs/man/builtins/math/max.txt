@@ -57,16 +57,16 @@ OVERLOADS
     exactly.
 
 PARAMETERS
-  a AS Integer | Float | Fixed
-    The first value to compare. Any value of the chosen numeric type is
-    accepted.
+  a AS Integer | Float | Fixed | Money
+    The first value to compare, also accepted under the name left. Any value of
+    the chosen numeric type is accepted.
 
-  b AS Integer | Float | Fixed
-    The second value to compare. Must be the same numeric type as a. Any value
-    of that type is accepted.
+  b AS Integer | Float | Fixed | Money
+    The second value to compare, also accepted under the name right. Must be the
+    same numeric type as a. Any value of that type is accepted.
 
 RETURN VALUE
-  AS Integer | Float | Fixed
+  AS Integer | Float | Fixed | Money
     The larger of a and b, in the same numeric type as the arguments. When a
     and b are equal, that value is returned.
 

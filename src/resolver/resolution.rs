@@ -1380,7 +1380,11 @@ impl Resolver<'_> {
             if builtins::qualified_builtin_type(&qualified_name).is_some() {
                 return;
             }
-            if !builtins::is_builtin_member(&qualified_name) {
+            // An internal-only member resolves for the injected package glue that
+            // needs it and is invisible to user source, which is what makes it
+            // internal (bug-337-D9).
+            let internal_only = builtins::is_internal_only_call(&qualified_name) && !file.internal;
+            if internal_only || !builtins::is_builtin_member(&qualified_name) {
                 self.report(
                     "SYMBOL_UNKNOWN_IDENTIFIER",
                     &format!("Built-in package `{package}` does not export `{qualified_name}`."),
@@ -1507,6 +1511,35 @@ mod tests {
             .unwrap();
         let ast = crate::ast::parse_project(&pname, &dir, &manifest).unwrap();
         quiet(|| crate::resolver::resolve_project(&dir, &manifest, &ast)).is_err()
+    }
+
+    /// bug-337-D9: `crypto::generateP*Raw` are the internal raw key generators
+    /// behind the public `generateP*` wrappers. `scripts/list_functions.py` has
+    /// always excluded them from the documented surface, but the resolver
+    /// admitted them, so a user program could call one and get the raw
+    /// `0x04||X||Y||K` bytes with no man page describing them.
+    ///
+    /// The public wrappers must keep working — they are the very thing that
+    /// calls the raw generators, from injected package source.
+    #[test]
+    fn crypto_raw_key_generators_are_not_user_callable() {
+        for raw in ["generateP256Raw", "generateP384Raw", "generateP521Raw"] {
+            assert!(
+                resolve_source_fails(&format!(
+                    "IMPORT crypto\nSUB main()\n  LET k = crypto::{raw}()\nEND SUB\n"
+                )),
+                "crypto::{raw} must not resolve from user source"
+            );
+        }
+        for public in ["generateP256", "generateP384", "generateP521"] {
+            assert!(
+                !resolve_source_fails(&format!(
+                    "IMPORT crypto\nSUB main()\n  LET k = crypto::{public}()\nEND SUB\n"
+                )),
+                "crypto::{public} must still resolve — it is the public wrapper \
+                 whose injected body calls the raw generator"
+            );
+        }
     }
 
     #[test]

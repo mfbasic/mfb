@@ -76,9 +76,11 @@ ERRORS
   because every Fixed value floors to an Integer that fits in range.
 
 TYPE CHECKING
-  value must be a single Float or Fixed. Passing any other type, such as an
-  Integer, String, Boolean, Byte, record, union, resource, thread, function, or
-  lambda, is a compile-time type error.
+  value must be a single Float, Fixed, or Money. Flooring a Money returns an
+  Integer — the dimensionless count of whole units, a deliberate exit from the
+  Money dimension. Passing any other type, such as an Integer, String, Boolean,
+  Byte, record, union, resource, thread, function, or lambda, is a compile-time
+  type error.
 
 EXAMPLES
   Floor a positive value:

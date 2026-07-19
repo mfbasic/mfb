@@ -27,7 +27,10 @@ DESCRIPTION
 
   The resulting Url has fields scheme, username, password, host, path, query, and
   fragment (all String) and port (Integer). Render a Url back to an href with the
-  universal toString; see net::toAddress to project it onto a connectable endpoint.
+  universal toString; connect to one by passing its parts to net::connectTcp.
+
+  The argument may be supplied positionally or by name, spelled href, value,
+  or url.
 
 ERRORS
   77050003 (ErrInvalidFormat)
@@ -49,4 +52,4 @@ EXAMPLES
     io::print(toString(u))       ' the href, rendered back
 
 SEE ALSO
-  net::toAddress, net::connectTcp, net::lookup
+  net::connectTcp, net::lookup

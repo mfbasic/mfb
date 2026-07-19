@@ -77,7 +77,7 @@ complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:resolve_call]]
 | --- | --- | --- |
 | `77010001` | `ErrOutOfMemory` | The `TlsSocket` handle for the accepted connection could not be allocated. |
 | `77030004` | `ErrResourceClosed` | The `listener` has already been closed. |
-| `77060001` | `ErrTimeout` | `timeoutMs` is positive and no connection arrived, or the handshake did not complete, before the deadline. |
+| `77050008` | `ErrTimeout` | `timeoutMs` is positive and no connection arrived, or the handshake did not complete, before the deadline. |
 | `77070003` | `ErrNetworkFailed` | The underlying `accept` failed. |
 | `77070008` | `ErrTlsFailed` | The TLS layer could not be initialized, or the server-side handshake failed (the peer is not speaking TLS, protocol negotiation failed, or the connection reset during the handshake). |
 

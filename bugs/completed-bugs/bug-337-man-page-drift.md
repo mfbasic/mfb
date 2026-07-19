@@ -5,9 +5,17 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (documentation)
 
-Status: Open
-Regression Test: per-item; the `mfb build` repros in D3/D8/D9 belong in
-`tests/acceptance/` as compile-success/compile-failure fixtures
+Status: Fixed (2026-07-19)
+Regression Test:
+- `resolver::resolution::tests::crypto_raw_key_generators_are_not_user_callable`
+  (D9) — asserts both halves: the three raw generators no longer resolve from
+  user source, and the public `generateP*` wrappers still do, since it is their
+  injected bodies that call the raw ones.
+- D3, D8, D5, D12 were each verified by building and running the repro from the
+  page verbatim against `target/release/mfb`; D7 by rendering `mfb man link`.
+- The structural gate that would catch this class mechanically (a citation
+  resolver that compares *values*, not just symbol existence — see D2) belongs
+  to bug-336-S12.
 
 A cluster of *content* defects in the `mfb man` corpus: places where a page states
 something the compiler does not do. These are worse than a missing page. A reader who
@@ -370,6 +378,50 @@ io::print(toString(math::min(left := 3, right := 5)))
 - The tour is the first thing a new user reads, and this is its only content drift —
   the other five tour pages check out.
 - Fix: add `Scalar` and `Money` to the sentence.
+
+## Outcome (2026-07-19)
+
+All fourteen items resolved. Verification per item is recorded above; the
+notable decisions and corrections:
+
+- **D9 needed a different mechanism than the bug-213 precedent it cites.**
+  `audio`'s lowered-only internals are synthesized during IR lowering, so
+  excluding them from `is_builtin_call` outright is safe. The `crypto::generateP*Raw`
+  names are not like that: they are called from injected MFBASIC source
+  (`crypto_package.mfb`'s `__crypto_generateP*` glue), so the same exclusion
+  would have broken public key generation. The guard therefore lives in the
+  resolver, which knows whether the calling file is toolchain-provided
+  (`AstFile::internal`), and user source now gets the ordinary
+  `SYMBOL_UNKNOWN_IDENTIFIER` for them.
+- **D7's fence diagnosis was one step off.** The page does not have a stray
+  opening fence at `:60`; it has a *truncated duplicate* of the SQLite example
+  at `:26-42` — missing `END LINK` and the trailing `EXPORT FUNC` — whose
+  closing fence landed where `END LINK` belonged, leaving the complete example
+  that follows with no opening fence. Deleting the truncated copy balances the
+  fences and fixes the runaway block in one edit. The duplicated
+  `## Binding packages` / `## Native functions` pair was real; the second copy
+  was kept, since the first carried an unwrapped 120-column line.
+- **D7's "two documented names match no entry" is wrong.** `NATIVE_ABI` and
+  `NATIVE_SYMBOL` are the tails of `MFB_PARSE_MISSING_NATIVE_ABI` and
+  `MFB_PARSE_MISSING_NATIVE_SYMBOL`, both real. Only the 11 missing rows were a
+  defect; the Diagnostics table now matches `src/rules/table.rs` exactly, all 25
+  `NATIVE_*` codes.
+- **D11 is much smaller than reported, and wider.** A sweep of every
+  `call_param_names` table against every page found 37 aliased slots across 12
+  packages — not six — but only **7 pages** had an undocumented spelling
+  (`math/min`, `math/max`, `math/clamp`, `strings/replace`, `net/toUrl`,
+  `net/percentDecode`, `net/parseQuery`). The rest already documented theirs.
+  All 7 fixed; the sweep now reports zero gaps.
+- **D4 resolved by deletion, as recommended.** `net::toAddress` had zero
+  implementation anywhere; the page is gone and all four cross-references are
+  struck. A man page is not a roadmap.
+- **D13 resolved by retargeting, not by adding a page.** `Money` is documented
+  in `types/numeric.md` alongside the other numeric primitives; giving it a
+  separate `types/money.md` would duplicate that content and invite drift, so
+  the two dead links now point at `mfb man types numeric`. The
+  `mfb man builtins general toScalar` link became `mfb man general` — the
+  `general` function pages still do not exist (bug-336-S5), so pointing at the
+  package page is the honest target until they do.
 
 ## Goal
 

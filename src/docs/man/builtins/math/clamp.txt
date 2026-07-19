@@ -64,19 +64,21 @@ OVERLOADS
     corresponding scalar result exactly.
 
 PARAMETERS
-  value AS Integer | Float | Fixed
+  value AS Integer | Float | Fixed | Money
     The value to restrict. Any value of the chosen numeric type is accepted.
 
-  low AS Integer | Float | Fixed
-    The inclusive lower bound of the range. Must be the same numeric type as
-    value and must not be greater than high.
+  low AS Integer | Float | Fixed | Money
+    The inclusive lower bound of the range, also accepted under the name
+    minimum. Must be the same numeric type as value and must not be greater than
+    high.
 
-  high AS Integer | Float | Fixed
-    The inclusive upper bound of the range. Must be the same numeric type as
-    value and must not be less than low.
+  high AS Integer | Float | Fixed | Money
+    The inclusive upper bound of the range, also accepted under the name
+    maximum. Must be the same numeric type as value and must not be less than
+    low.
 
 RETURN VALUE
-  AS Integer | Float | Fixed
+  AS Integer | Float | Fixed | Money
     The value clamped into [low, high], in the same numeric type as the
     arguments: low if value is less than low, high if value is greater than
     high, and value itself otherwise. A value equal to either bound is

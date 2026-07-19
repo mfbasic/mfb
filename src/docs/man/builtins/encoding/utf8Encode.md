@@ -87,7 +87,7 @@ Encode a string to raw UTF-8 bytes:
 IMPORT encoding
 
 LET raw AS List OF Byte = encoding::utf8Encode("héllo")
-io::print(toString(collections::len(raw)))
+io::print(toString(len(raw)))
 ```
 
 Encode to the `List OF Integer` form and round-trip it back:

@@ -84,4 +84,4 @@ collection element occupies a 4-byte, 4-aligned inline payload.
 - `mfb spec language types`
 - `mfb spec language lexical-structure`
 - `mfb man strings toScalars`
-- `mfb man builtins general toScalar`
+- `mfb man general`

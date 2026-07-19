@@ -15,7 +15,7 @@ money::round(value, decimals)
 
 The `money` package controls how `Money` **arithmetic** settles the half case and
 provides an explicit settling function. `Money` itself is a built-in scalar type
-(see `mfb man types money`): an exact base-10 fixed-point value scaled to five
+(see `mfb man types numeric`): an exact base-10 fixed-point value scaled to five
 decimal places. Its arithmetic (`M / k`, `M * Float`, `M * Fixed`, and the
 `toMoney`/`toFixed` conversions) rounds under a per-execution-context mode that
 this package reads and writes. `money` is a built-in package: `IMPORT money` needs
@@ -49,6 +49,6 @@ dimensionless whole-unit `Integer` count with a fixed half-away rule.
 
 ## See Also
 
-- `mfb man types money`
+- `mfb man types numeric`
 - `mfb man general toMoney`
 - `mfb man math round`

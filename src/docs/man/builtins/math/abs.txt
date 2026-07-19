@@ -58,13 +58,13 @@ OVERLOADS
     corresponding scalar result exactly.
 
 PARAMETERS
-  value AS Integer | Float | Fixed
+  value AS Integer | Float | Fixed | Money
     The number whose absolute value is computed. Any value of the chosen
     numeric type is accepted, except the minimum Integer or Fixed, whose
     magnitude cannot be represented.
 
 RETURN VALUE
-  AS Integer | Float | Fixed
+  AS Integer | Float | Fixed | Money
     The non-negative magnitude of value, in the same numeric type as value.
     Zero (including negative zero for Float) returns zero.
 

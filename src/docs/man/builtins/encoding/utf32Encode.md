@@ -66,7 +66,7 @@ Encode a string to its UTF-32 code points:
 IMPORT encoding
 
 LET points AS List OF Integer = encoding::utf32Encode("hello")
-io::print(toString(collections::len(points)))
+io::print(toString(len(points)))
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-32:

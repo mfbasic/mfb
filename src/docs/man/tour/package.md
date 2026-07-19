@@ -53,7 +53,8 @@ More: `mfb man types`.
 
 ## Data
 
-Scalars are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, and `Byte`.
+Scalars are `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`, `Byte`,
+and `Scalar` (a single 32-bit Unicode scalar value).
 Integer arithmetic is checked (overflow fails, never wraps) and an observed
 `Float` is never NaN or infinity.
 

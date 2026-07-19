@@ -68,6 +68,23 @@ const P521_VERIFY: &str = "crypto.p521Verify";
 // Verification.
 const CONSTANT_TIME_EQUAL: &str = "crypto.constantTimeEqual";
 
+/// The raw NIST key generators are **not user-callable**: they exist for
+/// `crypto_package.mfb`'s `__crypto_generateP*` glue, which slices the public
+/// point out of the returned `0x04||X||Y||K` bytes and builds a `KeyPair`.
+///
+/// Unlike `audio`'s lowered-only internals (bug-213), these are reached from
+/// injected MFBASIC source and so must stay resolvable there — the exclusion is
+/// applied in the resolver, which knows whether the calling file is
+/// toolchain-provided (`AstFile::internal`). `scripts/list_functions.py`'s
+/// `INTERNAL_CALLS` has always agreed they are internal; the compiler did not
+/// (bug-337-D9).
+pub(crate) fn is_crypto_internal_call(name: &str) -> bool {
+    matches!(
+        name,
+        GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW
+    )
+}
+
 /// The native (runtime-helper) entry points: they lower to `_mfb_rt_crypto_*`
 /// rather than to an injected `__crypto_*` source body, so `implementation_name`
 /// returns `None` and `runtime::helper_for_call` claims them.
