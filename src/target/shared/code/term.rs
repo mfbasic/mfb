@@ -129,29 +129,26 @@ fn load_data_address(
 /// Emit a write of a fixed escape-sequence byte string to stdout (fd 1). The
 /// write result is intentionally ignored: a failed escape write is not a program
 /// error (term setters are best-effort, plan §4.2.1 / §9.4).
-fn emit_write_const(
-    from: &str,
-    symbol: &str,
-    len: usize,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_write_const(ctx: &mut EmitCtx, from: &str, len: usize) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     load_data_address(
         from,
         symbol,
         abi::string_data_register(),
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    instructions.push(abi::move_immediate(
+    ctx.instructions.push(abi::move_immediate(
         abi::string_length_register(),
         "Integer",
         &len.to_string(),
     ));
-    instructions.push(abi::move_immediate(abi::return_register(), "Integer", "1"));
-    platform.emit_write(from, platform_imports, instructions, relocations)
+    ctx.instructions
+        .push(abi::move_immediate(abi::return_register(), "Integer", "1"));
+    platform.emit_write(from, platform_imports, ctx.instructions, ctx.relocations)
 }
 
 /// Load `active` and branch to `target` when TUI mode is off (the §4.2.1 gate).
@@ -203,22 +200,26 @@ pub(super) fn lower_term_helper(
 
     match call {
         "term.on" => emit_on(
-            symbol,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             term_state_offset,
             &done,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?,
         "term.off" => emit_off(
-            symbol,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             term_state_offset,
             &done,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?,
         "term.isOn" => emit_is_on(term_state_offset, &mut instructions),
         "term.setForeground" => emit_set_color(
@@ -309,13 +310,15 @@ pub(super) fn lower_term_helper(
             &mut instructions,
         ),
         "term.terminalSize" => emit_terminal_size(
-            symbol,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             term_state_offset,
             &done,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?,
         other => return Err(format!("unknown term runtime helper '{other}'")),
     }
@@ -328,15 +331,11 @@ pub(super) fn lower_term_helper(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn emit_on(
-    symbol: &str,
-    term_state_offset: usize,
-    done: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // plan-35-B: allocate the console shadow-grid header block sized to the
     // terminal *before* marking TUI mode active, so a program never sees
     // `active == 1` with a null grid. On allocation failure surface
@@ -357,8 +356,8 @@ fn emit_on(
         &alloc_fail,
         platform,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
     // Reset all state to defaults (plan §4.2). Foreground white, background
     // black, bold/underline off, cursor visible, active on.
@@ -371,21 +370,24 @@ fn emit_on(
         (TERM_STATE_CURSOR_VISIBLE_OFFSET, "1"),
     ];
     for (offset, value) in writes {
-        instructions.push(abi::move_immediate("%v9", "Integer", value));
-        instructions.push(abi::store_u64(
+        ctx.instructions
+            .push(abi::move_immediate("%v9", "Integer", value));
+        ctx.instructions.push(abi::store_u64(
             "%v9",
             ARENA_STATE_REGISTER,
             term_state_offset + offset,
         ));
     }
     emit_write_const(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         ESC_ON_SYMBOL,
         ESC_ON.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
     )?;
     // bug-149: entering interactive TUI mode also puts the console tty into
     // single-key (cbreak) mode once — `~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0` — so a
@@ -411,76 +413,82 @@ fn emit_on(
         symbol,
         platform_imports,
         platform,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
         &raw_slots,
         ARENA_STATE_REGISTER,
         true,
         true,
         &raw_failed,
     )?;
-    instructions.push(abi::branch(&raw_done));
-    instructions.push(abi::label(&raw_failed));
-    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
-    instructions.push(abi::store_u64(
+    ctx.instructions.push(abi::branch(&raw_done));
+    ctx.instructions.push(abi::label(&raw_failed));
+    ctx.instructions
+        .push(abi::move_immediate("%v9", "Integer", "0"));
+    ctx.instructions.push(abi::store_u64(
         "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::label(&raw_done));
-    instructions.push(abi::move_immediate(
+    ctx.instructions.push(abi::label(&raw_done));
+    ctx.instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
-    instructions.push(abi::branch(done));
+    ctx.instructions.push(abi::branch(done));
     // Grid allocation failed: active was never set, so the terminal is untouched.
-    instructions.push(abi::label(&alloc_fail));
-    instructions.push(abi::move_immediate(
+    ctx.instructions.push(abi::label(&alloc_fail));
+    ctx.instructions.push(abi::move_immediate(
         RESULT_VALUE_REGISTER,
         "Integer",
         ERR_OUT_OF_MEMORY_CODE,
     ));
-    instructions.push(abi::move_immediate(
+    ctx.instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_ERR_TAG,
     ));
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn emit_off(
-    symbol: &str,
-    term_state_offset: usize,
-    done: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_off(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let inactive = format!("{symbol}_inactive");
-    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    emit_gate_inactive(term_state_offset, &inactive, ctx.instructions);
     // plan-35-C: present the final frame before restoring the user's screen, so
     // the last frame the program drew is shown. Reuse the `term::sync` helper as
     // the present routine (force-emitted whenever `term::` is used).
-    instructions.push(abi::branch_link("_mfb_rt_term_term_sync"));
-    relocations.push(internal_branch(symbol, "_mfb_rt_term_term_sync"));
+    ctx.instructions
+        .push(abi::branch_link("_mfb_rt_term_term_sync"));
+    ctx.relocations
+        .push(internal_branch(symbol, "_mfb_rt_term_term_sync"));
     // bug-149: leaving TUI mode restores the saved cooked line discipline that
     // `term::on` captured, so the terminal returns to canonical/echoing input.
     // A no-op when the raw-active flag is 0 (stdin was never put into raw mode).
     let raw_restore_skip = format!("{symbol}_raw_restore_skip");
-    instructions.push(abi::load_u64(
+    ctx.instructions.push(abi::load_u64(
         "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::compare_immediate("%v9", "0"));
-    instructions.push(abi::branch_eq(&raw_restore_skip));
-    instructions.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
-    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
-    instructions.push(abi::add_immediate(
+    ctx.instructions.push(abi::compare_immediate("%v9", "0"));
+    ctx.instructions.push(abi::branch_eq(&raw_restore_skip));
+    ctx.instructions
+        .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ctx.instructions
+        .push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ctx.instructions.push(abi::add_immediate(
         abi::ARG[2],
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
@@ -489,35 +497,39 @@ fn emit_off(
         "tcsetattr",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
-    instructions.push(abi::store_u64(
+    ctx.instructions
+        .push(abi::move_immediate("%v9", "Integer", "0"));
+    ctx.instructions.push(abi::store_u64(
         "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::label(&raw_restore_skip));
+    ctx.instructions.push(abi::label(&raw_restore_skip));
     emit_write_const(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         ESC_OFF_SYMBOL,
         ESC_OFF.len(),
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
     )?;
-    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
-    instructions.push(abi::store_u64(
+    ctx.instructions
+        .push(abi::move_immediate("%v9", "Integer", "0"));
+    ctx.instructions.push(abi::store_u64(
         "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
     // plan-35-B: free the shadow-grid block and zero its slot (no-op if null).
-    term_grid::emit_grid_free(symbol, term_state_offset, instructions, relocations);
-    instructions.push(abi::label(&inactive));
-    instructions.push(abi::move_immediate(
+    term_grid::emit_grid_free(symbol, term_state_offset, ctx.instructions, ctx.relocations);
+    ctx.instructions.push(abi::label(&inactive));
+    ctx.instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
@@ -801,14 +813,14 @@ fn emit_get_attr(
 
 #[allow(clippy::too_many_arguments)]
 fn emit_terminal_size(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     term_state_offset: usize,
     done: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let unsupported = format!("{symbol}_unsupported");
     let active = format!("{symbol}_active");
     let alloc_ok = format!("{symbol}_alloc_ok");
@@ -820,23 +832,23 @@ fn emit_terminal_size(
     };
     // Gate: terminalSize is the one read with no inert value; while inactive it
     // returns ERR_UNSUPPORTED_OPERATION (§4.7).
-    instructions.push(abi::load_u64(
+    ctx.instructions.push(abi::load_u64(
         "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::compare_immediate("%v9", "0"));
-    instructions.push(abi::branch_ne(&active));
-    emit_unsupported(symbol, instructions, relocations);
-    instructions.push(abi::branch(done));
-    instructions.push(abi::label(&active));
-    instructions.extend([
+    ctx.instructions.push(abi::compare_immediate("%v9", "0"));
+    ctx.instructions.push(abi::branch_ne(&active));
+    emit_unsupported(symbol, ctx.instructions, ctx.relocations);
+    ctx.instructions.push(abi::branch(done));
+    ctx.instructions.push(abi::label(&active));
+    ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::move_immediate(abi::ARG[1], "Integer", request),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SCRATCH_OFFSET),
     ]);
-    platform.emit_terminal_size(symbol, platform_imports, instructions, relocations)?;
-    instructions.extend([
+    platform.emit_terminal_size(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&unsupported),
         abi::load_u16("%v10", abi::stack_pointer(), SCRATCH_OFFSET),
@@ -855,8 +867,9 @@ fn emit_terminal_size(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
@@ -870,13 +883,18 @@ fn emit_terminal_size(
         abi::branch(done),
         abi::label(&unsupported),
     ]);
-    emit_unsupported(symbol, instructions, relocations);
-    instructions.extend([
+    emit_unsupported(symbol, ctx.instructions, ctx.relocations);
+    ctx.instructions.extend([
         abi::branch(done),
         abi::label(&alloc_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
     Ok(())
 }
