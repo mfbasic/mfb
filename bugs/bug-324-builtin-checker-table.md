@@ -1,11 +1,20 @@
 # bug-324: 22 near-identical `check_<pkg>_builtin_call` methods + a 236-line hand-written dispatcher in `src/syntaxcheck/builtins.rs`
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: medium-to-large
 Severity: LOW
 Class: Other-cleanup
 
-Status: Open
+Status: Fixed (2026-07-19) — 18 checkers + the 236-line dispatcher replaced by
+an 18-row `BUILTIN_PACKAGES` table; `term`/`thread`/`general`/`collections`
+stay bespoke as required. Two findings the document did not anticipate:
+(1) each package declares its **own** `ResolvedCall` struct — eighteen
+byte-identical `Cow<'a, str>` wrappers, so they are distinct types and no one
+fn pointer spans them; each row adapts `resolve_call` down to the return type,
+which is all the shared body ever read. (2) The document asserts the dispatcher
+order is free but never proves it, so a mutual-exclusion test was added and
+passes: no callee is claimed by two packages. `net`/`fs` gained the
+`consumes_argument` predicate their three siblings already had.
 Regression Test: acceptance suite (`scripts/test-accept.sh`) — 522 `tests/syntax/**/golden/build.log`
 fixtures pin builtin-call diagnostics verbatim
 

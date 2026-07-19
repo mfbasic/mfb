@@ -3,9 +3,10 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
+use crate::target::shared::code::AppHookBody;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,
+    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
+    NativeCodePlan, ProgramEntrySpec, RelocIntent,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -196,23 +197,17 @@ impl code::CodegenPlatform for Platform {
         _newline: bool,
         _term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<Result<AppHookBody, String>> {
         // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
-    fn emit_app_io_flush_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_flush_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
         // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
-    fn emit_app_io_input_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_input_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
         // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
@@ -227,10 +222,7 @@ impl code::CodegenPlatform for Platform {
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
-    fn emit_app_io_is_terminal_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_is_terminal_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
         // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
@@ -240,7 +232,7 @@ impl code::CodegenPlatform for Platform {
         _call: &str,
         _symbol: &str,
         _term_state_offset: usize,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<Result<AppHookBody, String>> {
         // bug-117.1: not ported to rv64 (would emit aarch64-convention code).
         unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }

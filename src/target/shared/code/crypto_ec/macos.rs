@@ -396,15 +396,7 @@ pub(super) fn lower(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     match op {
         EcOp::Generate => generate(curve, symbol, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
@@ -417,15 +409,7 @@ fn generate(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const SEC: usize = 0;
     const CF: usize = 8;
     const FN: usize = 16;
@@ -741,15 +725,7 @@ fn sign(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const SEC: usize = 0;
     const CF: usize = 8;
     const FN: usize = 16;
@@ -1038,15 +1014,7 @@ fn verify(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const SEC: usize = 0;
     const CF: usize = 8;
     const FN: usize = 16;

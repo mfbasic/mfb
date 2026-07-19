@@ -254,15 +254,7 @@ pub(super) fn lower_audio_alsa(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     match call {
         "audio.devices" => lower_devices(symbol, platform_imports, platform),
         "audio.openOutput" => lower_open(symbol, false, false, platform_imports, platform),
@@ -421,15 +413,7 @@ fn lower_open(
     device: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
@@ -749,7 +733,13 @@ fn emit_open_cleanup(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call("munmap", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "munmap",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
         abi::label(&cleanup_done),
@@ -1077,15 +1067,7 @@ fn lower_write(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
@@ -1309,15 +1291,7 @@ fn lower_read(
     timeout: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
@@ -1702,15 +1676,7 @@ fn lower_query(
     kind: Query,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let unavailable = format!("{symbol}_unavailable");
     let closed = format!("{symbol}_closed");
     let clamp = format!("{symbol}_clamp");
@@ -1853,15 +1819,7 @@ fn lower_close(
     input: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let already = format!("{symbol}_already");
     let unavailable = format!("{symbol}_unavailable");
     let done = format!("{symbol}_done");
@@ -2018,15 +1976,7 @@ fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let unavailable = format!("{symbol}_unavailable");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let count_loop = format!("{symbol}_count");
@@ -2375,7 +2325,11 @@ mod open_error_cleanup_tests {
             }
             // Each disposal is guarded on its own slot, so an exit reached
             // before that resource existed skips it rather than acting on NULL.
-            for label in ["o_unavail_params_done", "o_unavail_munmap", "o_unavail_cleanup_done"] {
+            for label in [
+                "o_unavail_params_done",
+                "o_unavail_munmap",
+                "o_unavail_cleanup_done",
+            ] {
                 assert!(
                     has_label(&ins, label),
                     "missing guard label {label} (device={device})"

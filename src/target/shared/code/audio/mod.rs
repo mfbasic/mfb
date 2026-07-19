@@ -75,10 +75,13 @@ pub(super) const DEVICE_FIELD_IS_DEFAULT_INPUT: usize = 32;
 pub(super) const DEVICE_FIELD_IS_DEFAULT_OUTPUT: usize = 40;
 pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 
-// Shared emit helpers live in the `tls` module; reuse them rather than
+// Shared emit helpers: `emit_alloc` is the one arena-allocation free function
+// (`code/mod.rs`, bug-322); the rest still live in `tls`. Reuse them rather than
 // duplicating. `emit_data_address` is re-exported for the AudioQueue phases.
 #[allow(unused_imports)]
-pub(super) use super::tls::{emit_alloc, emit_arena_free, emit_data_address, emit_fail};
+pub(super) use super::emit_alloc;
+#[allow(unused_imports)]
+pub(super) use super::tls::{emit_arena_free, emit_data_address, emit_fail};
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
 // on an ordinary internal thread when a played buffer is free. openOutput takes
@@ -101,15 +104,7 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_audio_macos(call, symbol, platform_imports, platform);
     }

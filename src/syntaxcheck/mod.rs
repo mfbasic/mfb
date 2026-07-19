@@ -276,6 +276,14 @@ struct TypeInfo {
 struct FieldInfo {
     name: String,
     type_: Type,
+    /// Computed per the spec's field-visibility default rule, but not consulted
+    /// here: the field-visibility *rule* is enforced by `ir::verify` (plan-20),
+    /// and bug-325 removed syntaxcheck's emptied shells that used to read this.
+    /// It is retained rather than deleted because dropping it would leave
+    /// `effective_field_visibility` (`helpers.rs:49`) with no caller, and that
+    /// function is the implementation the language spec cites by name for the
+    /// default rule (`spec/language/13_modules-and-packages.md`).
+    #[allow(dead_code)]
     visibility: Visibility,
 }
 
@@ -1573,55 +1581,6 @@ impl<'a> SyntaxChecker<'a> {
         variants
     }
 
-    pub(super) fn report_expanded_union_member_conflicts(
-        &mut self,
-        _file: &AstFile,
-        _type_decl: &TypeDecl,
-    ) {
-        // Expanded-union member-conflict detection is now enforced by `ir::verify`
-        // (the sole rejecter for both the source and package paths, plan-20). This
-        // relocated syntaxcheck rule emits no diagnostic; the body is intentionally
-        // empty.
-    }
-
-    pub(super) fn direct_record_successors(&self, name: &str) -> Vec<String> {
-        let Some(info) = self.type_infos.get(name) else {
-            return Vec::new();
-        };
-        if !matches!(info.kind, TypeDeclKind::Type) {
-            return Vec::new();
-        }
-        info.fields
-            .iter()
-            .filter_map(|field| match &field.type_ {
-                Type::User(type_name)
-                    if matches!(
-                        self.type_infos.get(type_name).map(|info| info.kind),
-                        Some(TypeDeclKind::Type)
-                    ) =>
-                {
-                    Some(type_name.clone())
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    pub(super) fn record_field_cycle(&self, start: &str) -> bool {
-        let mut visited = HashSet::new();
-        let mut stack = self.direct_record_successors(start);
-        while let Some(node) = stack.pop() {
-            if node == start {
-                return true;
-            }
-            if !visited.insert(node.clone()) {
-                continue;
-            }
-            stack.extend(self.direct_record_successors(&node));
-        }
-        false
-    }
-
     pub(super) fn type_info(&self, file: &AstFile, type_decl: &TypeDecl) -> TypeInfo {
         let fields = type_decl
             .fields
@@ -1991,42 +1950,20 @@ impl<'a> SyntaxChecker<'a> {
                 for field in &type_decl.fields {
                     let type_ = self.parse_type(&field.type_name);
                     self.check_type_reference(file, &type_, field.line);
-                    // A record (product) may never own a resource: it would trap
-                    // copyable data behind move-only semantics (ownership
-                    // contagion). Resource data travels in the resource's STATE.
-                    if self.is_resource_type(&type_) {}
                 }
-                if self.record_field_cycle(&type_decl.name) {}
             }
             TypeDeclKind::Union => {
                 for include in &type_decl.includes {
                     let type_ = self.parse_type(include);
                     self.check_type_reference(file, &type_, type_decl.line);
-                    if let Some(kind) = self.user_type_kinds.get(include) {
-                        if !matches!(kind, TypeDeclKind::Union) {}
-                    }
                 }
-                self.report_expanded_union_member_conflicts(file, type_decl);
 
                 for variant in &type_decl.variants {
                     let type_ = self.parse_type(&variant.name);
                     self.check_type_reference(file, &type_, variant.line);
-                    if let Some(kind) = self.user_type_kinds.get(&variant.name) {
-                        if !matches!(kind, TypeDeclKind::Type) {}
-                    }
                 }
-                // A union must be uniformly data or uniformly resource: a union
-                // whose copyability would depend on the runtime tag (the
-                // contagion + conditional-drop problem) is rejected. An
-                // all-resource union is a resource union (§4a).
-                let resource_variants = type_decl
-                    .variants
-                    .iter()
-                    .filter(|variant| self.resource_registry.is_resource(&variant.name))
-                    .count();
-                if resource_variants > 0 && resource_variants < type_decl.variants.len() {}
             }
-            TypeDeclKind::Enum => if type_decl.members.is_empty() {},
+            TypeDeclKind::Enum => {}
         }
     }
 
@@ -2104,8 +2041,6 @@ impl<'a> SyntaxChecker<'a> {
                 .unwrap_or(Type::Unknown);
             self.check_type_reference(file, &param_type, param.line);
 
-            if param.type_name.is_none() {}
-
             self.check_resource_declaration(
                 file,
                 param.line,
@@ -2134,7 +2069,6 @@ impl<'a> SyntaxChecker<'a> {
                         param.line,
                     );
                 }
-                if !self.expression_compatible(&param_type, &default_type, Some(default)) {}
             }
 
             let _borrowed = self.is_resource_type(&param_type);
@@ -2198,14 +2132,6 @@ impl<'a> SyntaxChecker<'a> {
                 );
             }
         }
-
-        // A `FUNC … AS Nothing` produces no value, so — like a `SUB` — it may
-        // fall through with an implicit `RETURN NOTHING`. Only value-producing
-        // FUNCs must return on every path.
-        if matches!(function.kind, FunctionKind::Func)
-            && !matches!(expected_return, Type::Nothing)
-            && flow != Flow::AlwaysReturns
-        {}
     }
 
     pub(super) fn visible_from(
@@ -2327,10 +2253,6 @@ impl<'a> SyntaxChecker<'a> {
                     );
                     return;
                 }
-                let Some(info) = self.type_infos.get(name) else {
-                    return;
-                };
-                if !self.visible_from(file, info.visibility, &info.file_path) {}
             }
             Type::Boolean
             | Type::Byte
@@ -2676,7 +2598,8 @@ mod checker_tests {
 
     #[test]
     fn union_with_includes_accepts() {
-        // Exercises expanded_union_variants / report_expanded_union_member_conflicts.
+        // Exercises expanded_union_variants; the member-conflict rule itself
+        // is enforced by ir::verify (plan-20).
         assert!(accepts(
             "TYPE A\n  x AS Integer\nEND TYPE\nTYPE B\n  y AS Integer\nEND TYPE\nUNION Inner\n  A\nEND UNION\nUNION Outer INCLUDES Inner\n  B\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n"
         ));
@@ -2724,14 +2647,6 @@ mod checker_tests {
     }
 
     #[test]
-    fn record_field_cycle_walk() {
-        // A self-referential record walks record_field_cycle.
-        let _ = check_src(
-            "TYPE Node\n  link AS Node\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-        );
-    }
-
-    #[test]
     fn mixed_resource_union_walk() {
         // A union with one resource variant and one data variant walks the
         // mixed-union arm of check_type_decl.
@@ -2773,8 +2688,8 @@ mod checker_tests {
 
     #[test]
     fn union_include_variant_conflict_walk() {
-        // A variant declared directly that is also brought in via INCLUDES walks
-        // report_expanded_union_member_conflicts' conflict-found arm.
+        // A variant declared directly that is also brought in via INCLUDES; the
+        // conflict is reported by ir::verify (plan-20), not here.
         let _ = check_src(
             "TYPE A\n  x AS Integer\nEND TYPE\nUNION Inner\n  A\nEND UNION\nUNION Outer INCLUDES Inner\n  A\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );

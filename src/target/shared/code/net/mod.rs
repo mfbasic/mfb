@@ -29,32 +29,9 @@ const POLLIN: &str = "1";
 /// connect failure (bug-115).
 const EINTR_ERRNO: &str = "4";
 
-fn internal_reloc(symbol: &str, target: &str) -> CodeRelocation {
-    CodeRelocation {
-        from: symbol.to_string(),
-        to: target.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }
-}
-
 /// Emit `bl _mfb_arena_alloc` with the size in `x0` and alignment in `x1`
 /// (preset by the caller), then branch to `fail` when allocation fails. On
 /// success the block pointer is left in `x1` (`RESULT_VALUE_REGISTER`).
-fn emit_alloc(
-    symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    fail: &str,
-) {
-    instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    relocations.push(internal_reloc(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(fail),
-    ]);
-}
 
 /// Set the result registers to a failure `(code, message)` and branch to
 /// `done`.
@@ -288,15 +265,7 @@ fn lower_net_endpoint_helper(
     platform: &dyn CodegenPlatform,
     listen: bool,
     address: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 192;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -818,15 +787,7 @@ pub(super) fn lower_net_connect_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, false)
 }
 
@@ -834,15 +795,7 @@ pub(super) fn lower_net_connect_tcp_addr_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, true)
 }
 
@@ -850,15 +803,7 @@ pub(super) fn lower_net_listen_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     lower_net_endpoint_helper(symbol, platform_imports, platform, true, false)
 }
 

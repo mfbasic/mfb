@@ -11,15 +11,7 @@ pub(crate) fn lower_tls_connect_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
     }
@@ -894,15 +886,7 @@ pub(crate) fn lower_tls_listen_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_listen_macos(symbol, platform_imports, platform);
     }
@@ -1413,15 +1397,7 @@ pub(crate) fn lower_tls_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_accept_macos(symbol, platform_imports, platform);
     }
@@ -1766,15 +1742,7 @@ pub(crate) fn lower_tls_read_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
     }
@@ -2025,15 +1993,7 @@ pub(crate) fn lower_tls_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
     }
@@ -2172,15 +2132,7 @@ pub(crate) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_close_macos(symbol, platform_imports, platform);
     }
@@ -2337,15 +2289,7 @@ pub(crate) fn lower_tls_close_listener_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     if platform.target().contains("macos") {
         return macos::lower_tls_close_listener_macos(symbol, platform_imports, platform);
     }
@@ -2493,12 +2437,7 @@ mod error_path_release_tests {
     /// A whole-function reloc count cannot substitute: `connect` already frees
     /// SSL/SSL_CTX in `alloc_fail`, so only a windowed check proves `tls_fail`
     /// frees them too.
-    fn resolves_between(
-        ins: &[CodeInstruction],
-        start: &str,
-        end: &str,
-        name: &str,
-    ) -> bool {
+    fn resolves_between(ins: &[CodeInstruction], start: &str, end: &str, name: &str) -> bool {
         let at = |label: &str| {
             ins.iter()
                 .position(|i| i.op == CodeOp::Label && i.get("name") == Some(label))

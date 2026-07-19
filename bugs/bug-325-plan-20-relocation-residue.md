@@ -1,11 +1,23 @@
 # bug-325: plan-20 relocation residue in `src/syntaxcheck/**` — 36 empty-`if` shells, a dead 36-line graph walk, an intentionally-empty reported function, 19 assertion-free tests, and an unenforced LINK-rule mirror
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: medium-to-large
 Severity: LOW
 Class: Dead-code
 
-Status: Open
+Status: Fixed (2026-07-19) — all 36 shells, `record_field_cycle` /
+`direct_record_successors` / `record_field_cycle_walk`,
+`report_expanded_union_member_conflicts` and its call, and all 19
+`assert!(true)` tests are gone; the `NATIVE_*` parity test is added and passes.
+Corrections to this document: `check_link_function` was **already deleted**
+(bug-301 G3 landed first) and `ir/verify/mod.rs`'s doc comment already names
+`check_link_function_in`, so that item was a no-op. The inventory also missed a
+37th shell — `TypeDeclKind::Enum => if type_decl.members.is_empty() {}` — whose
+`=> if ... {},` form the document's own grep cannot match. Deleting the shells
+left `FieldInfo::visibility` write-only; it is **retained** with a comment,
+because dropping it would orphan `effective_field_visibility`, which the
+language spec cites by name as the implementation of the field-visibility
+default rule.
 Regression Test: acceptance suite (`scripts/test-accept.sh`, 522
 `tests/syntax/**/golden/build.log` fixtures) + a new syntaxcheck/`ir::verify`
 NATIVE_* rule-parity test (see Validation Plan)

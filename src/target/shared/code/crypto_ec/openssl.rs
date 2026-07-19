@@ -373,26 +373,6 @@ fn emit_len_check(len_off: usize, expected: usize, fail: &str, ins: &mut Vec<Cod
     ]);
 }
 
-fn emit_alloc(
-    symbol: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-    fail: &str,
-) {
-    ins.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    rel.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
-    ins.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(fail),
-    ]);
-}
-
 /// Free the object at `obj_off` via `free_name` (`dlsym`d into `fn_off`) only when
 /// the slot is non-NULL. The slots are zero-initialised at entry, and an object
 /// is non-NULL only after libcrypto is loaded and the object created, so the
@@ -482,15 +462,7 @@ pub(super) fn lower(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     match op {
         EcOp::Generate => generate(curve, symbol, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
@@ -503,15 +475,7 @@ fn generate(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let p = params(curve);
     const HANDLE: usize = 0;
     const FN: usize = 8;
@@ -957,15 +921,7 @@ fn sign(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let p = params(curve);
     const HANDLE: usize = 0;
     const FN: usize = 8;
@@ -1368,15 +1324,7 @@ fn verify(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let p = params(curve);
     const HANDLE: usize = 0;
     const FN: usize = 8;

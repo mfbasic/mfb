@@ -139,16 +139,6 @@ pub(super) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
     objects
 }
 
-fn internal_reloc(symbol: &str, target: &str) -> CodeRelocation {
-    CodeRelocation {
-        from: symbol.to_string(),
-        to: target.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }
-}
-
 /// Load the address of a read-only data symbol into `dst` (adrp + add).
 pub(super) fn emit_data_address(
     from: &str,
@@ -188,19 +178,6 @@ pub(super) fn emit_data_address(
 
 /// `bl _mfb_arena_alloc` with size in `x0` and alignment in `x1`; block pointer
 /// left in `x1`. Branches to `fail` on allocation failure.
-pub(super) fn emit_alloc(
-    symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    fail: &str,
-) {
-    instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    relocations.push(internal_reloc(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(fail),
-    ]);
-}
 
 /// `bl _mfb_arena_free` returning a single compiler-sized block to the arena.
 /// The caller stages the block pointer in the return register (`x0`) and its
@@ -211,7 +188,7 @@ pub(super) fn emit_arena_free(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.push(abi::branch_link(ARENA_FREE_SYMBOL));
-    relocations.push(internal_reloc(symbol, ARENA_FREE_SYMBOL));
+    relocations.push(super::internal_branch(symbol, ARENA_FREE_SYMBOL));
 }
 
 pub(super) fn emit_fail(

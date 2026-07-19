@@ -194,15 +194,7 @@ pub(super) fn lower_term_helper(
     term_state_offset: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2): the decimal/record-build scratch buffers
     // are an explicit sp-relative local region; x9-x15 scratch becomes vregs.
     let done = format!("{symbol}_done");

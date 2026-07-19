@@ -2,6 +2,7 @@
 //! (write/flush/input/terminal-size/set-color/attr/move/clear/cursor) (plan-11 split).
 
 use super::*;
+use crate::target::shared::code::AppHookBody;
 
 /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`. The
 /// runtime helper receives the MFBASIC string object in `x0` (`{u64 len; bytes}`)
@@ -15,7 +16,7 @@ pub(crate) fn emit_app_io_write_helper(
     stderr: bool,
     newline: bool,
     term_state_offset: Option<usize>,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let fd = if stderr { "2" } else { "1" };
     // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32, x22(sel)@40,
@@ -211,9 +212,7 @@ pub(crate) fn emit_app_io_write_helper(
 /// presented on demand, so `io::flush` drives the same coalesced present as
 /// `term::sync` — a marshaled `setNeedsDisplay:` on the TermView (plan-35-D §3).
 /// Headless / no-surface runs skip the present and return OK.
-pub(crate) fn emit_app_io_flush_helper(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_flush_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
     asm.push(abi::label("entry"));
@@ -243,9 +242,7 @@ pub(crate) fn emit_app_io_flush_helper(
 /// helper (which reads fd 0 — the window input pipe in app mode). The prompt
 /// string is passed in `x0`; `io.readLine` takes no arguments, so its result
 /// (`x0`/`x1`/`x2`) becomes this helper's result.
-pub(crate) fn emit_app_io_input_helper(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -299,9 +296,7 @@ fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
 /// App-mode body for `io.isInputTerminal`/`io.isOutputTerminal`/
 /// `io.isErrorTerminal` (plan §5.4): the window is the interactive console, so
 /// all three return `OK(TRUE)`. Result ABI: x0 = tag (0 = ok), x1 = value.
-pub(crate) fn emit_app_io_is_terminal_helper(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_is_terminal_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::move_immediate("x1", "Boolean", "1")); // value = TRUE
@@ -333,10 +328,7 @@ fn store_term_state(asm: &mut Asm, term_state_offset: usize, field_offset: usize
 /// clears the TermView grid and swaps it in as the window content view on the
 /// main thread. Headless runs (no window) update only the state global so
 /// `isOn`/auto-restore stay correct.
-pub(crate) fn emit_app_term_on_helper(
-    symbol: &str,
-    term_state_offset: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_term_on_helper(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     // Frame: lr@0, x20(app)@8, x21(window)@16, x22(termview)@24, x23(sel)@32.
     let frame = 48;
@@ -465,10 +457,7 @@ pub(crate) fn emit_app_term_on_helper(
 /// already off; otherwise restores the transcript scroll view as the window
 /// content view on the main thread (GUI) and clears the active flag. Headless
 /// runs update only the state global.
-pub(crate) fn emit_app_term_off_helper(
-    symbol: &str,
-    term_state_offset: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_term_off_helper(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     // Frame: lr@0, x20(app)@8, x21(window)@16, x22(scrollview)@24, x23(sel)@32.
     let frame = 48;
@@ -600,7 +589,7 @@ pub(crate) fn emit_app_term_helper(
     call: &str,
     symbol: &str,
     term_state_offset: usize,
-) -> Option<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>)> {
+) -> Option<AppHookBody> {
     let helper = match call {
         "term.on" => emit_app_term_on_helper(symbol, term_state_offset),
         "term.off" => emit_app_term_off_helper(symbol, term_state_offset),
@@ -645,10 +634,7 @@ pub(crate) fn emit_app_term_helper(
 /// attached (headless). This is the *only* redraw trigger for grid writes —
 /// `mfbWriteString:`/`clear` no longer request their own redraw (mandatory
 /// present, plan-35 D1).
-fn emit_app_term_sync(
-    symbol: &str,
-    term_state_offset: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_sync(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
     let done = format!("{symbol}_done");
@@ -756,7 +742,7 @@ fn emit_app_set_color(
     term_state_offset: usize,
     global_field: usize,
     tv_field: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     // Frame: lr@0, x20(state)@8, r/g/b (then packed) @16/@24/@32.
     let frame = 48;
@@ -809,7 +795,7 @@ fn emit_app_set_attr(
     term_state_offset: usize,
     global_field: usize,
     tv_field: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let frame = 32; // lr@0, x20(state)@8, enabled@16
     let done = format!("{symbol}_done");
@@ -846,10 +832,7 @@ fn emit_app_set_attr(
 
 /// `term::moveTo(row, col)` app body: clamp to `[0, rows-1] x [0, cols-1]` and
 /// store into the TermView cursor (plan §4.5).
-fn emit_app_move_to(
-    symbol: &str,
-    term_state_offset: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_move_to(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let frame = 32; // lr@0, x20(state)@8, row@16, col@24
     let done = format!("{symbol}_done");
@@ -910,10 +893,7 @@ fn emit_app_move_to(
 /// `term::clear` app body: clear the grid + home the cursor (worker side). The
 /// surface is repainted only on the next present (`term::sync`/`io::flush`), not
 /// per clear — redraw is present-driven (plan-35-D §3, mandatory present).
-fn emit_app_clear(
-    symbol: &str,
-    term_state_offset: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_clear(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let frame = 32; // lr@0, x20(termView)@8, x21(mfbClear: sel)@16
     let done = format!("{symbol}_done");
@@ -966,11 +946,7 @@ fn emit_app_clear(
 /// `term::showCursor`/`hideCursor` app body: store the cursor-visible flag into
 /// the TermView state (and the term-state global). Cursor glyph rendering is a
 /// later refinement, so no redraw is needed yet.
-fn emit_app_set_cursor_visible(
-    symbol: &str,
-    term_state_offset: usize,
-    value: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_set_cursor_visible(symbol: &str, term_state_offset: usize, value: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     let frame = 16; // lr@0, x20(state)@8
     let done = format!("{symbol}_done");
@@ -1006,10 +982,7 @@ fn emit_app_set_cursor_visible(
 
 /// `term::terminalSize` app body: return a `TermSize { columns, rows }` record
 /// from the TermView grid, or `ERR_UNSUPPORTED` when inactive / no surface.
-fn emit_app_terminal_size(
-    symbol: &str,
-    term_state_offset: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_terminal_size(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     // Frame: lr@0, x20(state)@8, columns@16, rows@24.
     let frame = 48;

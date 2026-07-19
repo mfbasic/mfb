@@ -14,6 +14,40 @@ use super::nir::{
 use super::plan::NativePlan;
 use super::runtime;
 
+/// The body of a lowered runtime helper: its frame, instruction stream,
+/// relocations, and stack slots.
+///
+/// Every `lower_*` helper returns exactly this shape — 115 signatures across 22
+/// files spelled it out longhand, which is what made `clippy::type_complexity`
+/// fire 113 times (bug-323). A type alias is structurally transparent, so this
+/// is a pure renaming: identical `TyKind::Tuple`, identical MIR, no construction
+/// or destructuring site touched.
+pub(super) type HelperBody = (
+    CodeFrame,
+    Vec<CodeInstruction>,
+    Vec<CodeRelocation>,
+    Vec<CodeStackSlot>,
+);
+
+/// The body of a platform app-mode hook: frame, instructions, relocations — the
+/// same shape as `HelperBody` without stack slots.
+///
+/// `pub(crate)`, not `pub(super)`: 46 of its 52 sites live outside
+/// `crate::target::shared` (the three Linux backends, `linux_gtk`, and
+/// `macos_aarch64`), where `pub(super)` would not be nameable. Those files also
+/// lack a glob `use super::*`, so they import it by name (bug-323).
+///
+/// Deliberately only the bare tuple: its sites wrap it in `Option<Result<_,
+/// String>>`, plain `Result`, `Option`, and nothing at all, so no single
+/// `AppHookResult` alias spans them.
+pub(crate) type AppHookBody = (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>);
+
+/// A fallible `HelperBody`. All 113 wrapped sites use `String` as the error
+/// type, so one alias covers them; the two sites that return a bare tuple
+/// (`runtime_helpers_thread::thread_is_cancelled_helper` and `pad_no_slots`)
+/// take `HelperBody` directly and must not be given a `Result` they never had.
+pub(super) type HelperResult = Result<HelperBody, String>;
+
 struct CodeBuilder<'a> {
     current_symbol: String,
     function_symbols: &'a HashMap<String, String>,
@@ -391,14 +425,7 @@ struct TypeModel {
 /// hook that manages its own frame) to the 4-tuple shape with an empty
 /// spill-slot list, so it can share a `match`/`if` with vreg-migrated helpers.
 #[allow(clippy::type_complexity)]
-fn pad_no_slots(
-    body: (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>),
-) -> (
-    CodeFrame,
-    Vec<CodeInstruction>,
-    Vec<CodeRelocation>,
-    Vec<CodeStackSlot>,
-) {
+fn pad_no_slots(body: AppHookBody) -> HelperBody {
     (body.0, body.1, body.2, Vec::new())
 }
 
@@ -2715,6 +2742,29 @@ fn lower_direct_builtin_runtime_helper(
         instructions,
         relocations: builder.relocations,
     })
+}
+
+/// Call `_mfb_arena_alloc` (size in `x0`, alignment in `x1`) and branch to
+/// `fail` when it fails.
+///
+/// The free-function twin of `CodeBuilder::emit_arena_alloc_call`, for the
+/// modules that emit into plain `Vec`s rather than through the builder. It lived
+/// in `tls/mod.rs` as a `pub(super)` item that the whole of `code/` already
+/// resolved through its glob imports, while four sibling modules each defined a
+/// byte-identical private copy that shadowed it (bug-322). Those are deleted;
+/// this is the one definition.
+pub(super) fn emit_alloc(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    fail: &str,
+) {
+    instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(fail),
+    ]);
 }
 
 fn internal_branch(from: &str, to: &str) -> CodeRelocation {

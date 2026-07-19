@@ -287,15 +287,7 @@ pub(super) fn lower_io_write_helper(
     stderr: bool,
     append_newline: bool,
     term_state_offset: Option<usize>,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     // plan-35-B: while TUI mode is on, stdout writes mutate the shadow grid's back
@@ -520,15 +512,7 @@ pub(super) fn lower_io_flush_helper(
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
     stderr: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 16;
 
     let output_error = format!("{symbol}_output_error");
@@ -575,18 +559,7 @@ pub(super) fn lower_io_flush_helper(
 /// `io::isBuffered()` (plan-14-A §4.2): report whether opt-in stdout buffering is
 /// on for this thread — `OUT_ENABLED != 0`. In app mode the buffer is inert, so it
 /// always reports FALSE.
-pub(super) fn lower_io_is_buffered_helper(
-    symbol: &str,
-    app_mode: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+pub(super) fn lower_io_is_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
     const FRAME_SIZE: usize = 16;
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
@@ -620,18 +593,7 @@ pub(super) fn lower_io_is_buffered_helper(
 /// first** (so pending bytes are never stranded on the off transition) and then
 /// clears `OUT_ENABLED`. Returns `Nothing`. In app mode buffering is inert, so it
 /// is a no-op returning OK.
-pub(super) fn lower_io_set_buffered_helper(
-    symbol: &str,
-    app_mode: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+pub(super) fn lower_io_set_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
     const FRAME_SIZE: usize = 16;
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
@@ -669,15 +631,7 @@ pub(super) fn lower_io_poll_input_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const POLLIN_PACKED_FD0: &str = "4294967296";
     const FRAME_SIZE: usize = 48;
     const POLLFD_OFFSET: usize = 8;
@@ -1170,15 +1124,7 @@ pub(super) fn lower_io_read_byte_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 208;
     const BYTE_OFFSET: usize = 8;
     let terminal_slots = TerminalModeSlots {
@@ -1294,15 +1240,7 @@ pub(super) fn lower_io_is_terminal_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     fd: u8,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 16;
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
@@ -1341,15 +1279,7 @@ pub(super) fn lower_io_read_char_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 224;
     const BYTES_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
@@ -1715,15 +1645,7 @@ pub(super) fn lower_io_read_line_helper(
     // cooked-mode restore while TUI single-key mode is active. `None` in app
     // mode (no tty) or when the program never uses `term::`.
     console_term_state: Option<usize>,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 256;
     const BUFFER_OFFSET: usize = 8;
     const CAPACITY_OFFSET: usize = 16;

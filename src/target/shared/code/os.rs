@@ -152,15 +152,7 @@ pub(super) fn lower_os_helper(
     module_name: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     match call {
         "os.getEnv" => lower_get_env(symbol, platform_imports, platform, false),
         "os.getEnvOr" => lower_get_env(symbol, platform_imports, platform, true),
@@ -353,15 +345,7 @@ fn lower_get_env(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     with_fallback: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let not_found = format!("{symbol}_not_found");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -495,15 +479,7 @@ fn lower_has_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let present = format!("{symbol}_present");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -571,15 +547,7 @@ fn lower_set_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let ok = format!("{symbol}_ok");
     let fail = format!("{symbol}_fail");
     let oom = format!("{symbol}_oom");
@@ -691,15 +659,7 @@ fn lower_unset_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
@@ -765,15 +725,7 @@ fn lower_environ(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let count_loop = format!("{symbol}_count_loop");
     let count_done = format!("{symbol}_count_done");
     let count_scan = format!("{symbol}_count_scan");
@@ -1075,18 +1027,7 @@ fn build_string_from_len(
 /// `os::name` / `os::arch` — return a fixed, target-selected `String` constant,
 /// materialized directly into a fresh arena `String` (length header + bytes +
 /// NUL) so the result is an ordinary owned value.
-fn lower_const_string(
-    symbol: &str,
-    value: &str,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
     let alloc_ok = format!("{symbol}_ok");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -1137,15 +1078,7 @@ fn lower_pid(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     platform.emit_libc_call(
@@ -1170,15 +1103,7 @@ fn lower_cpu_count(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let sc_nprocessors_onln = if platform.target().starts_with("macos") {
         "58"
     } else {
@@ -1222,15 +1147,7 @@ fn lower_host_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const BUF: usize = 256;
     let ok = format!("{symbol}_ok");
     let fail = format!("{symbol}_fail");
@@ -1294,15 +1211,7 @@ fn lower_user_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let have_pwd = format!("{symbol}_have_pwd");
     let have_name = format!("{symbol}_have_name");
     let fail = format!("{symbol}_fail");
@@ -1475,15 +1384,7 @@ fn lower_executable_path(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let fail = format!("{symbol}_fail");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -1576,15 +1477,7 @@ fn lower_resource_path(
     module_name: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let (strip, suffix) = resource_base_offset(build_mode, module_name);
     let suffix_bytes = suffix.into_bytes();
 
@@ -1917,17 +1810,7 @@ fn emit_store_byte_advance(
 /// `os::args` — build a `List OF String` from the entry-captured `argv`,
 /// excluding `argv[0]` (the program name; D1). Reads the `_mfb_rt_os_argc` /
 /// `_mfb_rt_os_argv` globals the program entry fills at startup.
-fn lower_args(
-    symbol: &str,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+fn lower_args(symbol: &str) -> HelperResult {
     let count_loop = format!("{symbol}_count_loop");
     let count_done = format!("{symbol}_count_done");
     let count_str = format!("{symbol}_count_str");

@@ -66,16 +66,6 @@ fn slot_offset(globals_base: usize, index: usize) -> usize {
     ENTRY_GLOBALS_OFFSET + (globals_base + index) * 8
 }
 
-fn internal_reloc(from: &str, to: &str) -> CodeRelocation {
-    CodeRelocation {
-        from: from.to_string(),
-        to: to.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }
-}
-
 /// Emit `adrp`/`add` to materialize the address of data `symbol` into `dst`.
 fn emit_data_address(
     from: &str,
@@ -106,19 +96,6 @@ fn emit_data_address(
 
 /// Emit `bl _mfb_arena_alloc` (size in `x0`, align in `x1`); on success the block
 /// pointer is in `x1`. Branches to `fail` on allocation failure.
-fn emit_alloc(
-    from: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    fail: &str,
-) {
-    instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    relocations.push(internal_reloc(from, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(fail),
-    ]);
-}
 
 /// Build the full `LINK` support: the load-time initializer, one thunk per
 /// function, and the backing data objects.

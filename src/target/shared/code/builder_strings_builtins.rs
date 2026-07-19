@@ -114,18 +114,7 @@ impl CodeBuilder<'_> {
             &size_overflow,
         );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         // A size wrap reports the same 77010001 an impossible allocation would
@@ -326,18 +315,7 @@ impl CodeBuilder<'_> {
             &size_overflow,
         );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         // A size wrap reports the same 77010001 an impossible allocation would;
@@ -568,18 +546,7 @@ impl CodeBuilder<'_> {
         let size_overflow = self.label("strings_case_map_size_overflow");
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&size_overflow));
@@ -758,18 +725,7 @@ impl CodeBuilder<'_> {
             &ascii_size_overflow,
         );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&ascii_alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&ascii_size_overflow));
@@ -852,18 +808,7 @@ impl CodeBuilder<'_> {
             &size_overflow,
         );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&temp_alloc_ok));
         self.emit_allocation_error_return()?;
         // A size wrap reports the same 77010001 an impossible allocation would
@@ -1093,18 +1038,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::add_immediate(abi::return_register(), &scratch24, 9));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&result_alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&result_alloc_ok));
@@ -1466,18 +1400,7 @@ impl CodeBuilder<'_> {
         // allocate output_len + 9 (block header), trapping the header add's wrap.
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &overflow);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         // A 64-bit wrap in the size computation raises the same catchable
@@ -1734,18 +1657,7 @@ impl CodeBuilder<'_> {
             &size_overflow,
         );
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&size_overflow));
@@ -2322,18 +2234,7 @@ impl CodeBuilder<'_> {
         // allocate total + 9.
         self.emit_checked_size_add_immediate(abi::return_register(), total, 9, &invalid);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
@@ -2567,18 +2468,7 @@ impl CodeBuilder<'_> {
         // allocate total + 9.
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &invalid);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
+        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));

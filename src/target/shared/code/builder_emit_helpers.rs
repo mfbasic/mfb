@@ -17,6 +17,24 @@ impl CodeBuilder<'_> {
         });
     }
 
+    /// Call `_mfb_arena_alloc` (size in `x0`, alignment in `x1`) and compare the
+    /// result tag against `RESULT_OK_TAG`, leaving the caller to branch.
+    ///
+    /// This exact twelve-line sequence was open-coded at 45 sites across 11
+    /// files (bug-322). It routes through `emit_symbol_call`, which is
+    /// output-identical here: that helper emits `("internal", None)` for any
+    /// symbol `platform_imports` does not carry, and no backend ever lists an
+    /// arena symbol as a platform import — pinned by
+    /// `arena_symbols_are_never_platform_imports` so the equivalence cannot
+    /// quietly lapse.
+    pub(super) fn emit_arena_alloc_call(&mut self) {
+        self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+    }
+
     fn emit_prepared_call_args(
         &mut self,
         args: &[NirValue],
@@ -521,5 +539,41 @@ impl CodeBuilder<'_> {
             .clone();
         self.emit_load_static_string_symbol(register, &symbol);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod arena_call_tests {
+    use crate::target::shared::code::{ARENA_ALLOC_SYMBOL, ARENA_FREE_SYMBOL};
+
+    /// `emit_arena_alloc_call` (bug-322) replaced 45 hand-written blocks that
+    /// pushed `binding: "internal", library: None` unconditionally. Routing them
+    /// through `emit_symbol_call` is output-identical only while no backend
+    /// declares an arena symbol as a platform import — if one ever did, those 45
+    /// sites would silently start emitting an *external* relocation against a
+    /// library, which is a linker-visible change no unit test would otherwise
+    /// catch.
+    ///
+    /// The plan modules are the only source of `platform_imports` keys, so this
+    /// scans them as text: a grep-equivalent that cannot drift from the real
+    /// tables the way a hand-copied list would.
+    #[test]
+    fn arena_symbols_are_never_platform_imports() {
+        let plans = [
+            ("linux_aarch64", include_str!("../../linux_aarch64/plan.rs")),
+            ("linux_x86_64", include_str!("../../linux_x86_64/plan.rs")),
+            ("linux_riscv64", include_str!("../../linux_riscv64/plan.rs")),
+            ("macos_aarch64", include_str!("../../macos_aarch64/plan.rs")),
+        ];
+        for (target, source) in plans {
+            for symbol in [ARENA_ALLOC_SYMBOL, ARENA_FREE_SYMBOL] {
+                assert!(
+                    !source.contains(symbol),
+                    "{target}'s plan mentions {symbol}: if it became a platform import, \
+                     emit_arena_alloc_call would emit an external relocation where the \
+                     hand-written blocks it replaced emitted an internal one"
+                );
+            }
+        }
     }
 }

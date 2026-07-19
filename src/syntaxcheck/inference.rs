@@ -187,7 +187,6 @@ impl<'a> SyntaxChecker<'a> {
                 operator, operand, ..
             } => {
                 if operator == "-" && !integer_literal_in_range(expression) {
-                    if let Expression::Number(_value) = operand.as_ref() {}
                     return Type::Integer;
                 }
                 if operator == "-" {
@@ -250,7 +249,6 @@ impl<'a> SyntaxChecker<'a> {
                     })
                 {
                     self.check_call(file, callee, &sig, arguments, locals, line);
-                    if matches!(sig.kind, FunctionKind::Sub) && !value_less_call_ok {}
                     return sig.return_type;
                 }
 
@@ -372,9 +370,7 @@ impl<'a> SyntaxChecker<'a> {
         match pattern {
             MatchPattern::Else => {}
             MatchPattern::Literal(expression) => {
-                let pattern_type =
-                    self.infer_expression(file, expression, case_locals, line, ExprMode::Read);
-                if !self.expression_compatible(matched_type, &pattern_type, Some(expression)) {}
+                self.infer_expression(file, expression, case_locals, line, ExprMode::Read);
             }
             MatchPattern::OneOf(expressions) => {
                 for expression in expressions {
@@ -488,7 +484,7 @@ impl<'a> SyntaxChecker<'a> {
             }
             for value in values {
                 let mode = self.collection_element_mode(value, locals);
-                let actual = self.infer_expression_with_expected(
+                self.infer_expression_with_expected(
                     file,
                     value,
                     locals,
@@ -496,7 +492,6 @@ impl<'a> SyntaxChecker<'a> {
                     Some(expected_element),
                     mode,
                 );
-                if !self.expression_compatible(expected_element, &actual, Some(value)) {}
             }
             return Type::List(expected_element.clone());
         }
@@ -511,8 +506,7 @@ impl<'a> SyntaxChecker<'a> {
         }
         for value in values.iter().skip(1) {
             let mode = self.collection_element_mode(value, locals);
-            let actual = self.infer_expression(file, value, locals, line, mode);
-            if !self.expression_compatible(&element_type, &actual, Some(value)) {}
+            self.infer_expression(file, value, locals, line, mode);
         }
         Type::List(Box::new(element_type))
     }
@@ -540,11 +534,9 @@ impl<'a> SyntaxChecker<'a> {
             self.report_invalid_collection_element(file, line, "value", &value_type);
         }
         for (key, value) in entries {
-            let actual_key = self.infer_expression(file, key, locals, line, ExprMode::Transfer);
-            if !self.expression_compatible(&key_type, &actual_key, Some(key)) {}
+            self.infer_expression(file, key, locals, line, ExprMode::Transfer);
             let value_mode = self.collection_element_mode(value, locals);
-            let actual_value = self.infer_expression(file, value, locals, line, value_mode);
-            if !self.expression_compatible(&value_type, &actual_value, Some(value)) {}
+            self.infer_expression(file, value, locals, line, value_mode);
         }
         Type::Map(Box::new(key_type), Box::new(value_type))
     }
@@ -629,7 +621,6 @@ impl<'a> SyntaxChecker<'a> {
                 file,
                 type_name,
                 &info.fields,
-                &info.file_path,
                 arguments,
                 locals,
                 line,
@@ -693,8 +684,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
                 continue;
             };
-            if !self.visible_from(file, field.visibility, &info.file_path) {}
-            let actual = self.infer_expression_with_expected(
+            self.infer_expression_with_expected(
                 file,
                 &update.value,
                 locals,
@@ -702,7 +692,6 @@ impl<'a> SyntaxChecker<'a> {
                 Some(&field.type_),
                 ExprMode::Transfer,
             );
-            if !self.expression_compatible(&field.type_, &actual, Some(&update.value)) {}
         }
         target_type
     }
@@ -801,7 +790,6 @@ impl<'a> SyntaxChecker<'a> {
         else {
             return Type::Unknown;
         };
-        if !self.visible_from(file, field.visibility, &info.file_path) {}
         field.type_
     }
 
@@ -810,17 +798,10 @@ impl<'a> SyntaxChecker<'a> {
         file: &AstFile,
         constructor: &str,
         fields: &[FieldInfo],
-        owner_file_path: &str,
         arguments: &[ConstructorArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
-        if arguments.len() != fields.len() {}
-
-        for field in fields {
-            if !self.visible_from(file, field.visibility, owner_file_path) {}
-        }
-
         let mut seen_named = HashSet::new();
         for (index, argument) in arguments.iter().enumerate() {
             let (field, argument_value, argument_line) = match argument {
@@ -847,7 +828,7 @@ impl<'a> SyntaxChecker<'a> {
                     )
                 }
             };
-            let actual = if let Some(field) = field {
+            if let Some(field) = field {
                 self.infer_expression_with_expected(
                     file,
                     argument_value,
@@ -865,11 +846,6 @@ impl<'a> SyntaxChecker<'a> {
                     ExprMode::Transfer,
                 )
             };
-            let Some(field) = field else {
-                if let ConstructorArg::Named { name: _, .. } = argument {}
-                continue;
-            };
-            if !self.expression_compatible(&field.type_, &actual, Some(argument_value)) {}
         }
     }
 
@@ -1326,8 +1302,6 @@ impl<'a> SyntaxChecker<'a> {
                 .as_deref()
                 .map(|name| self.parse_type(name))
                 .unwrap_or(Type::Unknown);
-            if param.type_name.is_none() {}
-            if param.default.is_some() {}
             locals.insert(
                 param.name.clone(),
                 LocalInfo {
@@ -1424,10 +1398,7 @@ impl<'a> SyntaxChecker<'a> {
                 // statement form does — the target must be a mutable binding and
                 // the body type must match it — then yield `Nothing`.
                 let target_type = match locals.get(target).cloned() {
-                    Some(local) => {
-                        if !local.mutable {}
-                        Some(local.type_)
-                    }
+                    Some(local) => Some(local.type_),
                     None => {
                         self.report(
                             "TYPE_UNKNOWN_VALUE",

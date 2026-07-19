@@ -25,15 +25,7 @@ pub(super) fn lower_fs_create_temp_file_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). The 16-byte random buffer is an explicit
     // on-stack local at sp+0 (`finalize_vreg_body_with_locals`); dir/path/cursor/fd
     // (held across the random-bytes / open / record-alloc calls) are spilled vregs.
@@ -365,15 +357,7 @@ pub(super) fn lower_fs_atomic_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     value_kind: AtomicWriteValueKind,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). Atomic write: build a temp template,
     // mkstemps, write the value, fsync, close, then rename onto the final path.
     // Every value held across one of those calls (path, value, temp_path, fd, the
@@ -870,15 +854,7 @@ pub(super) fn lower_fs_write_text_path_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     append: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open, write loop, fsync,
     // close. fd (across write/sync/close) and the value (across open) are spilled
     // vregs; the C-string is consumed at open.
@@ -1109,15 +1085,7 @@ pub(super) fn lower_fs_read_text_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open(read), seek end/start
     // for the size, alloc the string, read loop, close, UTF-8 validate. fd (across
     // seeks/read/close), the length, and the result string are spilled vregs.
@@ -1409,15 +1377,7 @@ pub(super) fn lower_fs_write_bytes_path_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     append: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). Like write_text_path, but the source is a
     // byte-List's data region. fd / value spill across the calls.
     let alloc_ok = format!("{symbol}_alloc_ok");
@@ -1652,15 +1612,7 @@ pub(super) fn lower_fs_read_bytes_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open(read), wrap in a File
     // record, delegate to `readAllBytes`, then close (stashing the Result across the
     // close in vregs). fd and the saved Result fields are spilled vregs.

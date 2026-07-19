@@ -1,11 +1,23 @@
 # bug-322: arena-allocation / internal-call / error-tail emission is open-coded ~1,500 lines across `shared/code`, with no `CodeBuilder` helper
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Open
+Status: Partially fixed (2026-07-19). Landed: the three redundant
+`internal_reloc` copies deleted in favour of the pre-existing shared
+`internal_branch` (see the audit addendum — the document had this backwards),
+and `CodeBuilder::emit_arena_alloc_call` adopted at all **45** byte-identical
+sites across 11 files. `scripts/artifact-gate.sh`: 1,189 goldens, **0 diffs**,
+which is this bug's stated acceptance criterion. The load-bearing precondition
+the document asserted without evidence — that routing through
+`emit_symbol_call` is neutral only while no backend lists an arena symbol as a
+platform import — is now pinned by
+`arena_symbols_are_never_platform_imports`.
+Not done: the 79 near-variant alloc sites, the free-function dialect, and the
+107 error tails. Those need per-site judgement (the audit identified four that
+must NOT be converted) and should land incrementally behind the same gate.
 Regression Test: artifact gate + acceptance suite — `scripts/artifact-gate.sh` and `scripts/test-accept.sh`; **byte-identical generated output is the guarantee**, there is no new behavioral test.
 
 The single largest duplication cluster in the codebase. Three independent
@@ -41,6 +53,66 @@ References:
   (`emit_allocation_error_return`, `emit_error_code_return`,
   `emit_error_register_return` — the existing error-emission cluster).
 - Found during the cleanup-focused source review at base `25c38ba1`.
+
+## Audit addendum (2026-07-19, re-measured at HEAD `4e0b6e04d`)
+
+The measurements below were re-verified 69 commits after the base this document
+was written against (`25c38ba1`). The headline figures held; these did not.
+
+**Corrections.**
+
+- **The shared `internal_reloc` twin already exists and is already adopted.**
+  Fix Design §2 says the three `internal_reloc` copies "should be promoted to
+  one shared definition rather than reinvented." Backwards: `internal_branch`
+  (`src/target/shared/code/mod.rs:2720`) is already that definition — field-for-
+  field identical, same parameter order — with 59 call sites across 9 files.
+  The three copies (`net/mod.rs`, `tls/mod.rs`, `link_thunk.rs`) were pure
+  redundancy and are **deleted, their 4 call sites routed to
+  `super::internal_branch`** (done 2026-07-19; all three are child modules of
+  `code`, so the private fn was already in scope).
+- `builder_strings_builtins.rs:1444,1451,1467` (Open Decisions) are **wrong** —
+  `:1444` is `self.emit(abi::label(&alloc_ok))`. There is exactly **one**
+  suspect site in that file, `:1485-1486`.
+- Phase 4's `io_helpers.rs:751-762` is the **wrong range**; the hand-rolled
+  `adrp`/`add_pageoff` pair is `:774-784`.
+- Counts that drifted at HEAD: `ARENA_FREE_SYMBOL` 13 → **14**;
+  `RelocIntent::Call` 129/150/160 → **131/152/162**.
+- `grep -rn 'fn emit_alloc' src/` returns **8**, not 6 — it also catches
+  `audio/{macos,alsa}.rs`'s `emit_alloc_byte_list`, which are **not** the
+  pattern. The six named copies are the right set.
+- Three more `push_symbol_address` clones the census missed: `tls/mod.rs:158`,
+  `crypto_ec/macos.rs:78`, `crypto_ec/openssl.rs:185`.
+
+**Sites that must NOT be converted** (found by reading, not listed in Blast Radius):
+
+- `entry_and_arena.rs:1392` (`_mfb_simd_alloc_list`) and `:1483`
+  (`_mfb_build_error_loc`) — the relocation is declared ~58 lines later in a
+  separate `vec![]`, and neither failure tail is an error return: the first uses
+  a status-register protocol, the second returns a null pointer. Converting
+  `:1483` would inject an error-return path into the ErrorLoc builder itself.
+- `entry_and_arena.rs:1354` — the reloc *inside* `_mfb_arena_alloc`'s own body.
+- `fs_helpers_io.rs:1043` — a local `alloc_call` closure that pushes the
+  relocation **before** the instruction, inverting the ordering every other site
+  uses.
+
+**The size-overflow hazard is real, and the suspect set is 3, not 5:**
+`builder_strings.rs:217-218`, `:462-463`, `builder_strings_builtins.rs:1485-1486`.
+The chain is confirmed: `emit_checked_size_add_immediate` leaves the *wrapped*
+size in `x0`, `emit_allocation_error_return` reaches
+`emit_error_register_return(RESULT_TAG_REGISTER, …)`, and
+`RESULT_TAG_REGISTER == abi::RET[0] == x0` — so the error *code* is a garbage
+size. All 34 other allocation overflow labels route to
+`emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, …)` correctly. **Caveat before
+filing:** all three carry a comment citing bug-60 claiming the shared error is
+deliberate, so check bug-60 before treating this as an oversight.
+
+**Load-bearing precondition for output-neutrality, asserted but never evidenced
+in this document:** adopting `emit_symbol_call` at arena sites is neutral only
+because it yields `("internal", None)` exactly when `platform_imports` misses
+the symbol, and `_mfb_arena_alloc`/`_mfb_arena_free` are never
+`platform_imports` keys. Add a test asserting that before Phase 2, and require
+the artifact gate to show zero `.nobj` diff **including relocation-table order**
+— label-counter drift is the likeliest silent breaker.
 
 ## Current State
 

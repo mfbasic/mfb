@@ -221,15 +221,7 @@ pub(super) fn lower_thread_helper(
     uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     match call {
         "thread.start" => lower_thread_start_helper(symbol, uses_rng, platform_imports, platform),
         "thread.isRunning" => simple_thread_handle_helper(
@@ -328,18 +320,7 @@ pub(super) fn lower_thread_helper(
 /// subscribes the calling thread (its arena `x19`); a non-null parent `Thread`
 /// handle subscribes the worker behind it (its arena at `THREAD_OFFSET_ARENA_STATE`).
 /// Returns `Nothing`.
-fn lower_thread_stdin_subscription_helper(
-    symbol: &str,
-    subscribe: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> HelperResult {
     let target = if subscribe {
         STDIN_SUBSCRIBE_SYMBOL
     } else {
@@ -377,15 +358,7 @@ fn lower_thread_start_helper(
     uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2): the control-block/queue scratch slots are
     // an explicit sp-relative local region; x9/x10 scratch becomes vregs. Runs in
     // the parent (x20 is not the worker thread block here), so no reservation.

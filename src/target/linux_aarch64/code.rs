@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_gtk as gtk;
+use crate::target::shared::code::AppHookBody;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,
+    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
+    NativeCodePlan, ProgramEntrySpec, RelocIntent,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -199,21 +200,15 @@ impl code::CodegenPlatform for Platform {
         newline: bool,
         _term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<Result<AppHookBody, String>> {
         Some(Ok(gtk::emit_app_io_write_helper(symbol, stderr, newline)))
     }
 
-    fn emit_app_io_flush_helper(
-        &self,
-        symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_flush_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
         Some(Ok(gtk::emit_app_io_flush_helper(symbol)))
     }
 
-    fn emit_app_io_input_helper(
-        &self,
-        symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_input_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
         Some(Ok(gtk::emit_app_io_input_helper(symbol)))
     }
 
@@ -227,10 +222,7 @@ impl code::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
-    fn emit_app_io_is_terminal_helper(
-        &self,
-        symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_is_terminal_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
         Some(Ok(gtk::emit_app_io_is_terminal_helper(symbol)))
     }
 
@@ -239,7 +231,7 @@ impl code::CodegenPlatform for Platform {
         call: &str,
         symbol: &str,
         term_state_offset: usize,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<Result<AppHookBody, String>> {
         gtk::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
     }
 

@@ -107,15 +107,7 @@ pub(super) fn lower_crypto_ec_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     let (op, curve) =
         ec_call(call).ok_or_else(|| format!("crypto EC helper: unknown call {call}"))?;
     if platform.target().contains("macos") {
@@ -251,25 +243,6 @@ pub(super) fn emit_build_byte_list(
 }
 
 /// `bl _mfb_arena_alloc` (size in x0, align in x1); block pointer left in x1.
-fn emit_alloc(
-    symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    fail: &str,
-) {
-    instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(fail),
-    ]);
-}
 
 pub(super) fn emit_fail(
     symbol: &str,

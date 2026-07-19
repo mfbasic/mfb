@@ -1183,7 +1183,11 @@ mod tests {
 
         // The historical budget was exactly the 3-digit worst case, which is why
         // the shortfall only appeared on large terminals.
-        assert_eq!(worst_case(3), 64, "the 3-digit worst case is what 64 encoded");
+        assert_eq!(
+            worst_case(3),
+            64,
+            "the 3-digit worst case is what 64 encoded"
+        );
         assert_eq!(worst_case(4), 66);
         assert_eq!(worst_case(5), 68);
 

@@ -467,17 +467,7 @@ fn emit_append_to_file_buffer(
 }
 
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
-pub(super) fn lower_fs_is_buffered_helper(
-    symbol: &str,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+pub(super) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
@@ -500,17 +490,7 @@ pub(super) fn lower_fs_is_buffered_helper(
 
 /// `fs::setBuffered(file, enabled)` (plan-14-B §4.5): turn per-handle buffering on
 /// or off. Disabling drains any pending bytes first, then clears the flag.
-pub(super) fn lower_fs_set_buffered_helper(
-    symbol: &str,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+pub(super) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
     // x0 = File*, x1 = enabled (Boolean).
@@ -541,17 +521,7 @@ pub(super) fn lower_fs_set_buffered_helper(
 /// `fs::flush(file)` (plan-14-B §4.5): drain this handle's buffer now. Raises the
 /// write-path ErrOutput on a failing final write; a no-op when the handle is
 /// unbuffered.
-pub(super) fn lower_fs_flush_helper(
-    symbol: &str,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+pub(super) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
     let flush_error = format!("{symbol}_flush_error");
     let done = format!("{symbol}_done");
     // x0 = File*.
@@ -582,15 +552,7 @@ pub(super) fn lower_fs_open_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     no_follow: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). path/mode (held across the first alloc),
     // and the open fd (held across the file-record alloc) become spilled vregs; the
     // C-string and flags are consumed before the next call. The mode-literal matcher
@@ -965,15 +927,7 @@ pub(super) fn lower_fs_open_within_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const PATH_MAX_PLUS_NUL: usize = 4097;
     let linux = platform.target().starts_with("linux");
     // Whole-path no-symlink flags — the same set `openFileNoFollow` uses (macOS
@@ -1404,15 +1358,7 @@ pub(super) fn lower_fs_close_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     flush_on_close: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). The file-record pointer is held across the
     // `close` call (read again afterward to mark CLOSED), so it spills.
     // `flush_on_close` is true for `fs::close` (which honors the per-File output
@@ -1544,15 +1490,7 @@ pub(super) fn lower_fs_write_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). fd / remaining / cursor are loop-carried
     // across the `write` syscall, so the allocator spills them.
     let loop_label = format!("{symbol}_write_loop");
@@ -1677,15 +1615,7 @@ pub(super) fn lower_fs_read_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). fd (across the seeks + read loop), the
     // seek positions/length (across the alloc), and the result string (across the
     // read loop + UTF-8 validation) are vregs the allocator spills.
@@ -1883,15 +1813,7 @@ pub(super) fn lower_fs_write_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). Writes the byte-List's data region;
     // fd/remaining/cursor are loop-carried across the `write` syscall (spilled).
     let loop_label = format!("{symbol}_write_loop");
@@ -2019,15 +1941,7 @@ pub(super) fn lower_fs_read_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). fd (across seeks + read loop), seek
     // positions/length (across the alloc), the collection and its data-region base
     // (across the read loop) are spilled vregs; the entry-init loop makes no call.
@@ -2249,15 +2163,7 @@ pub(super) fn lower_fs_eof_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). fd is held across the three seeks, the
     // start position across the second/third — both spilled vregs.
     let closed = format!("{symbol}_closed");
@@ -2501,15 +2407,7 @@ pub(super) fn lower_fs_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Transparent block read buffer (plan-14-C): serve lines from the per-`File`
     // read block (`READ_PTR[READ_POS..READ_FILL]`) and refill with one `read()` when
     // it is exhausted, accumulating a line that spans blocks into a growing arena

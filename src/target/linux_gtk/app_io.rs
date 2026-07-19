@@ -2,15 +2,12 @@
 //! (terminal-size/set-color/attr/cursor/clear/move/write/flush/input) (plan-11 split).
 
 use super::*;
+use crate::target::shared::code::AppHookBody;
 
 /// App-mode `term::*` dispatcher. Returns the helper body for the calls the GTK
 /// surface implements; the rest fall back to the console backend (no-op while the
 /// arena term-state stays inactive).
-pub(crate) fn emit_app_term_helper(
-    call: &str,
-    symbol: &str,
-    tso: usize,
-) -> Option<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>)> {
+pub(crate) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Option<AppHookBody> {
     let helper = match call {
         "term.on" => emit_app_term_on(symbol, tso),
         "term.off" => emit_app_term_off(symbol, tso),
@@ -46,7 +43,7 @@ pub(crate) fn emit_app_term_helper(
 /// live grid then `queue_draw`s (see [`term_draw::emit_term_redraw_idle_helper`]), so
 /// the draw never observes a torn frame. A clean no-op while TUI mode is off (the
 /// §4.2.1 gate), matching the console `term::sync` no-op.
-fn emit_app_term_sync(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_sync(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -81,9 +78,7 @@ fn emit_gtk_term_active_gate(asm: &mut Asm, inactive: &str) {
 /// `term::terminalSize()`: OK(record) where the arena-allocated 16-byte record is
 /// `{ columns@0, rows@8 }` = the fixed grid size. On allocation failure, propagate
 /// the allocator's error result. Result ABI: x0 = tag, x1 = record/err code.
-fn emit_app_term_terminal_size(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -134,7 +129,7 @@ fn emit_app_term_set_color(
     field: usize,
     tso: usize,
     arena_field: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "sc_inactive"); // §4.2.1 no-op gate (bug-111)
@@ -163,7 +158,7 @@ fn emit_app_term_set_attr(
     field: usize,
     tso: usize,
     arena_field: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "sa_inactive"); // §4.2.1 no-op gate (bug-111)
@@ -176,10 +171,7 @@ fn emit_app_term_set_attr(
 }
 
 /// `term::showCursor`/`hideCursor`: store the cursor-visible flag and redraw.
-fn emit_app_term_set_cursor(
-    symbol: &str,
-    visible: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_set_cursor(symbol: &str, visible: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -204,10 +196,7 @@ fn emit_app_term_set_cursor(
 
 /// `term::on`: reset the attributes to defaults (app + arena term-state), mark
 /// active, and schedule the view swap on the main thread (plan-01-term.md §6.3).
-fn emit_app_term_on(
-    symbol: &str,
-    tso: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -268,10 +257,7 @@ fn emit_app_term_on(
 }
 
 /// `term::off`: clear the active flag (app + arena) and restore the transcript.
-fn emit_app_term_off(
-    symbol: &str,
-    tso: usize,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_off(symbol: &str, tso: usize) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -309,7 +295,7 @@ fn emit_app_term_off(
 }
 
 /// `term::isOn`: OK(Boolean) = the active flag. Result ABI x0=tag, x1=value.
-fn emit_app_term_is_on(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_is_on(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.load_state("x1", ST_TERM_ACTIVE); // value
@@ -320,7 +306,7 @@ fn emit_app_term_is_on(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
 
 /// `term::clear`: blank chars to spaces, reset fg/bg cells to default (0), home the
 /// cursor, schedule a redraw.
-fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_clear(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -373,7 +359,7 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
 }
 
 /// `term::moveTo(row /*x0*/, col /*x1*/)`: clamp to the grid and set the cursor.
-fn emit_app_term_move_to(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+fn emit_app_term_move_to(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "mt_inactive"); // §4.2.1 no-op gate (bug-111)
@@ -420,11 +406,7 @@ fn term_frame() -> CodeFrame {
 /// object is in `x0` (`[x0]` = length, `x0+8` = UTF-8 bytes). When a transcript
 /// buffer is attached, append to it; otherwise fall back to the stdout/stderr file
 /// descriptor (the only path verified in headless runs). Returns `OK` (x0 = 0).
-pub(crate) fn emit_app_io_write_helper(
-    symbol: &str,
-    stderr: bool,
-    newline: bool,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool) -> AppHookBody {
     let fd = if stderr { "2" } else { "1" };
     let mut asm = Asm::new(symbol);
     // lr@0, x19(string)@8, x20(len)@16, x21(heap chunk)@24, newline byte@32.
@@ -542,9 +524,7 @@ pub(crate) fn emit_app_io_write_helper(
 /// same coalesced present as `term::sync` — one main-loop present via the redraw-idle
 /// (snapshot the live grid, then `queue_draw`). While TUI is off it is a no-op
 /// (transcript writes are already marshaled synchronously), returning `OK`.
-pub(crate) fn emit_app_io_flush_helper(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_flush_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -576,9 +556,7 @@ pub(crate) fn emit_app_io_flush_helper(
 /// user sees what they type, like the macOS `io::input` path), render the prompt
 /// via the `io.write` helper, then read a committed line via the `io.readLine`
 /// helper (which reads fd 0 — the window-input pipe). Prompt string is in `x0`.
-pub(crate) fn emit_app_io_input_helper(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
@@ -609,9 +587,7 @@ pub(crate) fn emit_app_io_input_helper(
 /// App-mode `io.isInputTerminal`/`io.isOutputTerminal`/`io.isErrorTerminal`
 /// (plan-05 §5.4): the window is the interactive console, so all three return
 /// `OK(TRUE)`. Result ABI: x0 = tag (0 = ok), x1 = value.
-pub(crate) fn emit_app_io_is_terminal_helper(
-    symbol: &str,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn emit_app_io_is_terminal_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::move_immediate("x1", "Boolean", "1")); // value = TRUE

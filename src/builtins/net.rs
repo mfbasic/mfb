@@ -295,6 +295,13 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether argument `index` of `name` consumes (moves) its resource operand.
+/// `net.close` consumes the socket/listener handle it closes; every other
+/// call borrows its handle, which stays open.
+pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
+    matches!((name, index), (CLOSE, 0))
+}
+
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         LOOKUP => Some((1, 2)),

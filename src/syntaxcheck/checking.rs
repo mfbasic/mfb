@@ -207,20 +207,13 @@ impl<'a> SyntaxChecker<'a> {
                         *line,
                     );
                 }
-                if !self.expression_compatible(expected_return, &actual, value.as_ref()) {}
                 Flow::AlwaysReturns
             }
             Statement::Exit { target, code, line } => {
                 match target {
-                    ExitTarget::For | ExitTarget::Do | ExitTarget::While => {
-                        let kind = match target {
-                            ExitTarget::For => LoopKind::For,
-                            ExitTarget::Do => LoopKind::Do,
-                            ExitTarget::While => LoopKind::While,
-                            _ => unreachable!(),
-                        };
-                        if !self.loop_stack.iter().rev().any(|item| *item == kind) {}
-                    }
+                    // EXIT FOR/DO/WHILE outside a matching loop is rejected by
+                    // ir::verify (plan-20), so there is nothing to check here.
+                    ExitTarget::For | ExitTarget::Do | ExitTarget::While => {}
                     ExitTarget::Sub => {
                         if !self.current_is_sub {
                             self.report(
@@ -252,17 +245,15 @@ impl<'a> SyntaxChecker<'a> {
                             return Flow::AlwaysReturns;
                         };
                         // coverage:on
-                        let actual =
-                            self.infer_expression(file, code, locals, *line, ExprMode::Read);
-                        if !self.expression_compatible(&Type::Integer, &actual, Some(code)) {}
+
+                        self.infer_expression(file, code, locals, *line, ExprMode::Read);
                     }
                 }
                 Flow::AlwaysReturns
             }
             Statement::Continue { kind: _, line: _ } => Flow::AlwaysReturns,
             Statement::Fail { error, line } => {
-                let actual = self.infer_expression(file, error, locals, *line, ExprMode::Transfer);
-                if !self.compatible(&Type::Error, &actual) {}
+                self.infer_expression(file, error, locals, *line, ExprMode::Transfer);
                 Flow::AlwaysReturns
             }
             Statement::Propagate { line: _ } => Flow::AlwaysReturns,
@@ -370,7 +361,7 @@ impl<'a> SyntaxChecker<'a> {
                     return Flow::FallsThrough;
                 };
                 let state_type = self.parse_type(&state_name);
-                let actual = self.infer_expression_with_expected(
+                self.infer_expression_with_expected(
                     file,
                     value,
                     locals,
@@ -378,7 +369,6 @@ impl<'a> SyntaxChecker<'a> {
                     Some(&state_type),
                     ExprMode::Transfer,
                 );
-                if !self.expression_compatible(&state_type, &actual, Some(value)) {}
                 Flow::FallsThrough
             }
             Statement::Expression { expression, line } => {
@@ -395,9 +385,7 @@ impl<'a> SyntaxChecker<'a> {
                 else_body,
                 line,
             } => {
-                let condition_type =
-                    self.infer_expression(file, condition, locals, *line, ExprMode::Read);
-                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {}
+                self.infer_expression(file, condition, locals, *line, ExprMode::Read);
                 let mut then_locals = locals.clone();
                 let then_flow = self.check_block(
                     file,
@@ -471,14 +459,13 @@ impl<'a> SyntaxChecker<'a> {
                         case.line,
                     );
                     if let Some(guard) = &case.guard {
-                        let guard_type = self.infer_expression(
+                        self.infer_expression(
                             file,
                             guard,
                             &mut case_locals,
                             case.line,
                             ExprMode::Read,
                         );
-                        if !self.expression_compatible(&Type::Boolean, &guard_type, Some(guard)) {}
                     }
                     let case_flow = self.check_block(
                         file,
@@ -530,13 +517,6 @@ impl<'a> SyntaxChecker<'a> {
                 let loop_type = if all_numeric {
                     promote_loop_numeric_type(&start_type, &end_type, &step_type)
                 } else {
-                    for (_label, type_) in [
-                        ("start", &start_type),
-                        ("end", &end_type),
-                        ("step", &step_type),
-                    ] {
-                        if !self.is_numeric(type_) {}
-                    }
                     Type::Unknown
                 };
                 let mut nested = locals.clone();
@@ -604,9 +584,7 @@ impl<'a> SyntaxChecker<'a> {
                 body,
                 line,
             } => {
-                let condition_type =
-                    self.infer_expression(file, condition, locals, *line, ExprMode::Read);
-                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {}
+                self.infer_expression(file, condition, locals, *line, ExprMode::Read);
                 let mut nested = locals.clone();
                 self.loop_stack.push(*kind);
                 let body_flow =
@@ -627,9 +605,8 @@ impl<'a> SyntaxChecker<'a> {
                 let body_flow =
                     self.check_block(file, body, expected_return, &mut nested, trap_name);
                 self.loop_stack.pop();
-                let condition_type =
-                    self.infer_expression(file, condition, locals, *line, ExprMode::Read);
-                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {}
+
+                self.infer_expression(file, condition, locals, *line, ExprMode::Read);
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
@@ -1184,8 +1161,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1201,8 +1177,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1218,8 +1193,7 @@ FUNC main AS Integer
   RETURN total
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1273,8 +1247,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1293,8 +1266,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1312,8 +1284,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1383,8 +1354,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]

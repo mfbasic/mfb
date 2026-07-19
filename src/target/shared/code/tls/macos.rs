@@ -473,15 +473,7 @@ pub(super) fn lower_tls_connect_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 288;
     const HOST: usize = 8;
     const PORT: usize = 16;
@@ -1127,15 +1119,7 @@ pub(super) fn lower_tls_read_macos(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 192;
     const REC: usize = 8;
     const CONN: usize = 16;
@@ -1489,15 +1473,7 @@ pub(super) fn lower_tls_write_macos(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 160;
     const REC: usize = 8;
     const CONN: usize = 16;
@@ -1723,15 +1699,7 @@ pub(super) fn lower_tls_close_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 48;
     const REC: usize = 8;
     const HANDLE: usize = 16;
@@ -2230,15 +2198,7 @@ pub(super) fn lower_tls_listen_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 448;
     const HOST: usize = 8;
     const PORT: usize = 16;
@@ -3054,15 +3014,7 @@ pub(super) fn lower_tls_accept_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 208;
     const REC: usize = 8;
     const TIMEOUT: usize = 16;
@@ -3448,15 +3400,7 @@ pub(super) fn lower_tls_close_listener_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     const FRAME_SIZE: usize = 96;
     const REC: usize = 8;
     const HANDLE: usize = 16;

@@ -1,11 +1,11 @@
 # bug-321: the three Linux backends are a ~90% copy-paste triple — 5,250 lines carrying roughly one backend's worth of information
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Open
+Status: Blocked (no Linux box reachable; see BLOCKED)
 Regression Test: none new — the guarantee is **byte-identical generated output**, enforced by `scripts/artifact-gate.sh` plus `scripts/test-accept.sh` (see Validation Plan for the Linux-coverage caveat)
 
 `src/target/linux_aarch64/`, `src/target/linux_riscv64/`, and
@@ -35,6 +35,34 @@ References:
   Findings #6–#26 from the same agent (spec drift, GTK layout staleness, app-runtime
   duplication) are **out of scope here** and should be filed separately.
 - Related: bug-223 (the riscv64 app-mode rejection this refactor must not weaken).
+
+## BLOCKED (2026-07-19)
+
+Phase 1 cannot start: every Linux box in `.ai/remote_systems.md` refuses
+connections (2222 ArchLinux, 2228 Ubuntu x86_64, 2232 Debian riscv64 all
+`Connection refused` — the VMs are not running).
+
+This blocks the whole bug rather than just delaying it, because Phases 1 and 6
+*are* the correctness argument. As this document's own Validation Plan
+establishes, the repo commits **zero** Linux artifact goldens
+(`find tests -path "*/golden/*" -name "*linux*"` → 0), and
+`scripts/artifact-gate.sh` derives its target from `uname`, so running it on
+macOS proves only that `src/target/shared/` was undisturbed. There is no local
+gate that can detect a byte-level change to any of the three Linux backends.
+
+Proceeding without the baseline would mean performing a 5,250-line
+three-backend refactor whose sole acceptance criterion — byte-identical output
+on 3 targets × 2 libc flavors — cannot be evaluated. The specific hazard this
+document already identifies makes that unacceptable rather than merely
+unverified: a `linux_common` trait carrying default app-mode bodies is exactly
+the mechanism that would hand riscv64 working-looking implementations for the
+nine `unimplemented!` hard-stops that were deliberately left unported
+(bug-223), and the guard that would catch it
+(`linux_riscv64/mod.rs` `lower_validated_module`) is per-backend and cannot be
+hoisted.
+
+Resume when the boxes are up. Nothing in this document needs revising first;
+the audit below was re-confirmed against the tree at HEAD.
 
 ## Current State
 

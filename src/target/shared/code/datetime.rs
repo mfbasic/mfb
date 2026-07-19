@@ -40,15 +40,7 @@ pub(super) fn lower_datetime_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2): the timespec/tm buffer is an explicit
     // sp-relative local region; the x9-x11 scratch becomes vregs.
     let mut instructions = vec![abi::label("entry")];

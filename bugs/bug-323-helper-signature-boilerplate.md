@@ -1,11 +1,23 @@
 # bug-323: helper-body 4-tuple and the 5-param emitter preamble are spelled out longhand repo-wide (no type alias, no context struct)
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: Phase 2 done (2026-07-19) — `HelperBody` / `HelperResult` /
+`AppHookBody` added and applied at all 115 + 52 sites.
+`clippy::type_complexity` 119 -> **6**, exactly the out-of-scope set this
+document names. Proven type-position-only: the diff touches no line containing
+`Ok((`, `let (`, or a tuple-index access, and all five backends the 3-tuple
+alias reaches compile unconditionally (no cfg gating), so the host build
+exercised every site. The visibility defect the audit found was real —
+`AppHookBody` is `pub(crate)` with explicit imports in 6 files; `pub(super)`
+would not have compiled. The two bare-tuple sites clippy cannot see
+(`thread_is_cancelled_helper`, `pad_no_slots`) took `HelperBody`, not
+`HelperResult`. Phase 3 (`EmitCtx`) is **not** done and is deliberately
+deferred: bundling two `&mut Vec` into a struct forces callers to restructure
+borrows, so unlike Phase 2 it is not neutral by construction.
 Regression Test: `scripts/artifact-gate.sh` + `scripts/test-accept.sh` (byte-identical
 output gate; no new test — this change must produce no observable behavior)
 
@@ -38,6 +50,62 @@ References:
   cross-module cleanup cluster as one document.
 - `src/docs/spec/architecture/06_native.md` — the native codegen layer this bug is
   confined to.
+
+## Audit addendum (2026-07-19, re-measured at HEAD `4e0b6e04d`)
+
+Re-verified 69 commits after the base this was filed against (`b12213d2`). The
+structural claims survived; most line numbers did not, and four claims are wrong.
+
+**Held exactly:** 119 `type_complexity` warnings; 31 `too_many_arguments`
+warnings; 9 `#[allow(clippy::type_complexity)]`; 115 4-tuple occurrences across
+22 files (**the whole distribution table reproduces row for row**); 52 3-tuple
+occurrences across 8 files; only 2 type aliases in `src/`; the 575-line saving.
+
+**Corrections.**
+
+- **The visibility plan does not work for the 3-tuple.** The document says both
+  aliases go in `shared/code/mod.rs` as `pub(super)` and reach every file
+  through the existing glob import "with no `use` edits." True for the 4-tuple
+  (all 22 files carry `use super::*`). **False for the 3-tuple:** 46 of its 52
+  sites live outside `crate::target::shared`, where `pub(super)` is not
+  nameable, and `linux_{aarch64,x86_64,riscv64}/code.rs` have **no `use
+  super::*` at all**. `AppHookBody` needs `pub(crate)` plus explicit `use` edits
+  in 6 files. **Resolve this before Phase 2 or 46 sites will not compile.**
+- "One occurrence is a call-site expression rather than a signature" — **false**.
+  All 115 are type positions. The 115→113 gap is instead: `mod.rs:393`'s
+  `#[allow]` suppresses one, and `runtime_helpers_thread.rs:1351` returns a
+  **bare** 4-tuple (no `Result` wrapper) so it scores under clippy's threshold.
+  Both bare sites take `HelperBody`, **not** `HelperResult` — and because they
+  are invisible to clippy, the "119 → 6" acceptance criterion passes whether or
+  not they are converted. That is a silent scope leak; check them by hand.
+- `#[allow(clippy::too_many_arguments)]` is **54**, not 51 — Phase 1's baseline
+  fails on the stale number.
+- "This exact block appears 14 times in `os.rs` alone" — **false**. The
+  6-parameter list appears **once**; only the 9-line return-type tail recurs 14
+  times, across 13 functions with *different* parameter lists.
+- The `EmitCtx` carrier count is **43**, not 41 — `audio/alsa.rs` has 5 (not 4)
+  and `net/io.rs:34` was omitted entirely.
+- "78 functions with ≥8 params" is not reproducible: measured **81** counting
+  `self`, **69** excluding it. The document does not record its method.
+- Stale line numbers: `io_helpers.rs` allows are `:829/:1082/:1120` (not
+  `:807/:1060/:1098`); `lower_builtin_function_wrapper` is `:817-827`;
+  `net/poll.rs` is 264 lines with its second signature at `:150`.
+- The ⚠ dirty-tree note is stale — `linux_gtk/mod.rs` is clean.
+
+**Must NOT be converted:** `types.rs:134` (`layout_data_objects`) is the same
+lint, same file, same arity, but is a data-blob layout tuple, not a codegen
+body — it is one of the 6 legitimately out-of-scope warnings. Likewise the
+allows at `docs/man/mod.rs:4`, `docs/spec/mod.rs:19`, `cli/resolve.rs:425` are
+unrelated and must survive.
+
+**Output-neutrality:** Phase 2 is neutral *by construction* — a Rust type alias
+is structurally transparent, producing an identical `TyKind::Tuple` and identical
+MIR, with no construction or destructuring site touched. To *prove* it: confirm
+`git diff` touches no line containing `Ok((`, `let (`, or `.0`/`.1`/`.2`/`.3`,
+and build under **all** backend `cfg`s — a host-only build exercises one of the
+five backends the 3-tuple alias touches. Phase 3 (`EmitCtx`) is **not**
+provably neutral: bundling two `&mut Vec` into a struct forces callers to
+restructure borrows, and only the artifact gate can adjudicate that.
 
 ## Current State
 

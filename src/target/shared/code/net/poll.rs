@@ -19,15 +19,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2): the `pollfd` is an explicit on-stack
     // local; scratch is vregs the allocator places.
     const FRAME_SIZE: usize = 48;
@@ -152,15 +144,7 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     write: bool,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2): the `timeval` is an explicit on-stack
     // local; scratch is vregs.
     const FRAME_SIZE: usize = 48;

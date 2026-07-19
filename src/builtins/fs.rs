@@ -277,6 +277,13 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether argument `index` of `name` consumes (moves) its resource operand.
+/// `fs.close` consumes the `RES File` it closes; every other call borrows the
+/// file, which stays open.
+pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
+    matches!((name, index), (CLOSE, 0))
+}
+
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         FILE_EXISTS

@@ -27,15 +27,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<
-    (
-        CodeFrame,
-        Vec<CodeInstruction>,
-        Vec<CodeRelocation>,
-        Vec<CodeStackSlot>,
-    ),
-    String,
-> {
+) -> HelperResult {
     // Frame slots (sp-relative locals below the spill area).
     const COUNT_OFFSET: usize = 0; // requested byte count
     const BUF_OFFSET: usize = 8; // scratch entropy buffer pointer

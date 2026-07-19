@@ -26,8 +26,8 @@ use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    RelocIntent,
+    self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
+    CodeRelocation, RelocIntent,
 };
 
 // --- Emitted symbols -------------------------------------------------------
@@ -631,9 +631,7 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
 
 /// x86 flavor of an app io/term helper body triple (see
 /// [`finalize_x86_app_function`]).
-pub(crate) fn wrap_x86_helper(
-    triple: (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>),
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+pub(crate) fn wrap_x86_helper(triple: AppHookBody) -> AppHookBody {
     let (frame, mut instructions, relocations) = triple;
     finalize_x86_app_function(&mut instructions);
     (frame, instructions, relocations)

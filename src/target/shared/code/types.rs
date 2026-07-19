@@ -558,16 +558,13 @@ pub(crate) trait CodegenPlatform {
         _newline: bool,
         _term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<Result<AppHookBody, String>> {
         None
     }
 
     /// App-mode body for `io.flush`. `None` for non-app targets.
     #[allow(clippy::type_complexity)]
-    fn emit_app_io_flush_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_flush_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
         None
     }
 
@@ -575,10 +572,7 @@ pub(crate) trait CodegenPlatform {
     /// transcript, then read a line from the window input pipe. `None` for
     /// targets without app mode.
     #[allow(clippy::type_complexity)]
-    fn emit_app_io_input_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_input_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
         None
     }
 
@@ -597,10 +591,7 @@ pub(crate) trait CodegenPlatform {
     /// `io.isErrorTerminal` (plan §5.4): the window is the interactive console,
     /// so all three return TRUE. `None` for targets without app mode.
     #[allow(clippy::type_complexity)]
-    fn emit_app_io_is_terminal_helper(
-        &self,
-        _symbol: &str,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    fn emit_app_io_is_terminal_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
         None
     }
 
@@ -614,7 +605,7 @@ pub(crate) trait CodegenPlatform {
         _call: &str,
         _symbol: &str,
         _term_state_offset: usize,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<Result<AppHookBody, String>> {
         None
     }
 }

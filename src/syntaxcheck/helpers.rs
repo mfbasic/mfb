@@ -465,9 +465,9 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        // Just needs to walk the helper without panicking.
-        let _ = check_src(src);
-        assert!(true);
+        // The helper is a pure shape query, so syntaxcheck must emit nothing —
+        // the range rule itself belongs to ir::verify (plan-20).
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- numeric_literal_type / numeric_literal_is_zero -------------------
@@ -484,8 +484,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -527,8 +526,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- numeric_binary_result_type / numeric_type_name -------------------
@@ -567,8 +565,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- captured_locals / collect_captured_locals ------------------------
@@ -587,8 +584,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -611,8 +607,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -661,8 +656,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- is_c_abi_type (LINK wrapper signature with a raw C type) ----------
@@ -737,8 +731,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -752,8 +745,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- constructor_arg_value (positional + named) -----------------------
@@ -812,8 +804,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- effective_field_visibility ---------------------------------------
@@ -858,8 +849,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- read_only_record_type via with-update ----------------------------
@@ -879,7 +869,6 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        let _ = check_src(src);
-        assert!(true);
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 }
