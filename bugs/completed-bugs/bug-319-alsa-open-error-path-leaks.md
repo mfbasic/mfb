@@ -1,12 +1,20 @@
 # bug-319: ALSA audio open error paths leak the mmap'd state page (and hw-params object) on unavailable/misconfigured devices
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Memory-safety (resource leak)
 
-Status: Open
-Regression Test: tests/ (new) — repeated `audio::openOutput` on a host without libasound does not grow RSS
+Status: Fixed (2026-07-19, aa5adc2d1) — A1 and A2 both closed by one shared
+`emit_open_cleanup` used by the `unavailable` and `dev_fail` exits, releasing
+hw-params, PCM handle and mmap page, each guarded on its own slot. A dlsym miss
+inside the cleanup skips only that disposal and continues, so it can never
+branch back to an error exit and loop.
+
+Found and fixed a hazard this document did not anticipate: `lower_open`
+continues to prepare/start after the success-path `hw_params_free`, and those
+can still reach `dev_fail` — so adding the cleanup without also zeroing
+`PARAMS_OFF` would have introduced a double free.
 
 The ALSA `lower_open` mmaps a 16 KiB `STATE_PAGE` and stores it *before* calling
 `emit_dlopen`/`emit_dlsym`. Every dlopen/dlsym failure branches to the `unavailable`

@@ -1,12 +1,18 @@
 # bug-316: regex POSIX classes `[:alnum:] [:word:] [:xdigit:] [:blank:] [:graph:] [:print:]` silently never match
 
-Last updated: 2026-07-17
+Last updated: 2026-07-19
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/ (new) — `regex::match("a5", "^[[:alnum:]]+$")` is TRUE
+Status: Fixed (2026-07-19, aa5adc2d1) — all six POSIX classes implemented in
+`__regex_propTest`; `posixWord` reuses the existing `__regex_isWordCp`, which
+was already exactly the POSIX word set. Regression fixture
+`tests/rt-behavior/regex/regex-posix-classes-rt` proves each class matches its
+own set and rejects a scalar outside it. The `regex-from-string-rt` IR golden
+moved only because the package source grew 28 lines: normalising line numbers
+and ErrorLoc constants out leaves 0 lines removed and 90 added, all of them the
+new arms.
 
 `__regex_posixProp` maps these six POSIX class names to sentinel tokens
 (`"posixAlnum"`, `"posixWord"`, `"posixXdigit"`, `"posixBlank"`, `"posixGraph"`,

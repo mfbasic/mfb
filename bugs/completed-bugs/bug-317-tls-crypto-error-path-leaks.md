@@ -1,12 +1,17 @@
 # bug-317: TLS handshake-failure error paths leak native connection/session objects (macOS accept = remote server DoS)
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Memory-safety (native-object leak) / Security (DoS)
 
-Status: Open
-Regression Test: tests/ (new) — repeated TLS handshake failures do not grow native-object count
+Status: Fixed (2026-07-19, aa5adc2d1) — all four items. T1/T3 proven at runtime
+against a rebuilt pre-fix compiler: 200 failed `tls::accept` handshakes went
+12.6 -> 11.8 MB peak RSS, and 300 failed `tls::connect` attempts 11.6 -> 9.1 MB.
+T2 (OpenSSL `tls_fail`) and T4 (macOS pubkey length precheck) are pinned by
+codegen tests confirmed to fail against the pre-fix code. accept's exits
+deliberately do NOT release the queue — an accepted socket shares the
+listener's.
 
 The TLS connect/accept error exits cancel the connection but never release the
 native framework objects they own, so each remotely-triggerable handshake failure
