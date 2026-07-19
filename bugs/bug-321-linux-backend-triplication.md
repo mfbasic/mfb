@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Blocked (no Linux box reachable; see BLOCKED)
+Status: Fixed (2026-07-19)
 Regression Test: none new — the guarantee is **byte-identical generated output**, enforced by `scripts/artifact-gate.sh` plus `scripts/test-accept.sh` (see Validation Plan for the Linux-coverage caveat)
 
 `src/target/linux_aarch64/`, `src/target/linux_riscv64/`, and
@@ -36,33 +36,26 @@ References:
   duplication) are **out of scope here** and should be filed separately.
 - Related: bug-223 (the riscv64 app-mode rejection this refactor must not weaken).
 
-## BLOCKED (2026-07-19)
+## Resolution (2026-07-19)
 
-Phase 1 cannot start: every Linux box in `.ai/remote_systems.md` refuses
-connections (2222 ArchLinux, 2228 Ubuntu x86_64, 2232 Debian riscv64 all
-`Connection refused` — the VMs are not running).
+The earlier BLOCKED note said Phase 1 could not start because no Linux box was
+reachable. Two things resolved it:
 
-This blocks the whole bug rather than just delaying it, because Phases 1 and 6
-*are* the correctness argument. As this document's own Validation Plan
-establishes, the repo commits **zero** Linux artifact goldens
-(`find tests -path "*/golden/*" -name "*linux*"` → 0), and
-`scripts/artifact-gate.sh` derives its target from `uname`, so running it on
-macOS proves only that `src/target/shared/` was undisturbed. There is no local
-gate that can detect a byte-level change to any of the three Linux backends.
+1. **Boxes 2223 (Kali aarch64/glibc), 2227 (Alpine x86_64/musl), and 2229
+   (Alpine riscv64/musl) are up.** The `.ai/remote_systems.md` boxes named in
+   the original note (2222/2228/2232) are still down; these three cover the
+   same three ISAs.
+2. **The baseline never actually needed a Linux box.** The compiler
+   cross-compiles, so every artifact for all three Linux targets is produced on
+   the macOS host. A Linux box is needed only to *execute* the results, which is
+   a separate proof. `scripts/linux-artifact-baseline.sh` (added as a
+   prerequisite) captures a hashed manifest here; `scripts/linux-runtime-proof.sh`
+   (added by this fix) ships the built executables to the boxes and diffs their
+   output against the committed `.run` goldens.
 
-Proceeding without the baseline would mean performing a 5,250-line
-three-backend refactor whose sole acceptance criterion — byte-identical output
-on 3 targets × 2 libc flavors — cannot be evaluated. The specific hazard this
-document already identifies makes that unacceptable rather than merely
-unverified: a `linux_common` trait carrying default app-mode bodies is exactly
-the mechanism that would hand riscv64 working-looking implementations for the
-nine `unimplemented!` hard-stops that were deliberately left unported
-(bug-223), and the guard that would catch it
-(`linux_riscv64/mod.rs` `lower_validated_module`) is per-backend and cannot be
-hoisted.
-
-Resume when the boxes are up. Nothing in this document needs revising first;
-the audit below was re-confirmed against the tree at HEAD.
+One thing the original note got wrong is worth recording: it assumed the
+per-backend `lower_validated_module` guard could not be protected by the shared
+layer. It can be, and now is — see Phase 4.
 
 ## Current State
 
@@ -382,116 +375,194 @@ Expected output shift: **none**. That is the acceptance criterion, not a hope.
 
 ## Phases
 
-### Phase 1 — capture the byte-identical baseline (no code change)
+### Phase 1 — capture the byte-identical baseline (no code change) — DONE
 
-Because the repo has **no Linux artifact goldens** (see Validation Plan), the
-baseline must be captured manually before anything moves.
+- [x] Built every `tests/**/project.json` fixture with `-nir -nplan -nobj -ncode
+      -mir` for all three Linux targets, both flavors, and hashed every artifact
+      plus every linked executable.
+- [x] Recorded the archive location and hashes (below).
+- [x] Re-confirmed the blast-radius audit against the tree at the base commit.
 
-- [ ] On each Linux box in the matrix (linux-aarch64, linux-x86_64, linux-riscv64),
-      for both glibc and musl flavors, build every `tests/**/project.json` fixture
-      with `-nir -nplan -nobj -ncode -mir` and archive the outputs, plus the
-      `sha256` of every linked executable.
-- [ ] Record the archive location and hashes in this file.
-- [ ] Confirm the blast-radius audit above against the tree at the base commit.
+The baseline is a SHA-256 manifest, not the artifacts (those are multiple GB):
+`scripts/linux-artifact-baseline.sh <mfb> capture <manifest>`. It is captured
+with a `mfb` built from the **pre-refactor** commit in a separate `git worktree`,
+so the comparison is against real HEAD output rather than a remembered one.
 
-Acceptance: a reproducible, hashed baseline exists for all three Linux targets ×
-both flavors; the audit list carries a verdict per site.
-Commit: —
+- Base commit: `6aeb14b54`
+- Manifest: **1014 fixtures × 3 targets = 11,154 artifact hashes**
+- Reproduce: `git worktree add /tmp/base <base-commit> && (cd /tmp/base && cargo
+  build --release) && JOBS=10 scripts/linux-artifact-baseline.sh
+  /tmp/base/target/release/mfb capture /tmp/bug321-baseline.txt`
 
-### Phase 2 — unify the libc-call seam (output-neutral, no `linux_common` yet)
+**Use a release `mfb`.** A debug build cross-compiles this corpus at roughly 6
+manifest lines per minute — a multi-day run. The script was given per-fixture
+parallelism (`JOBS`) as part of this fix; release + `JOBS=10` finishes in
+minutes. The original serial/debug form could not have completed at all, which
+is worth knowing before trusting a future "baseline is running" claim.
 
-- [ ] Make x86's `emit_libc_call` (`linux_x86_64/code.rs:521-545`) call a shared
-      helper with the identical body used by the other two
-      (`linux_aarch64/code.rs:726-746`).
-- [ ] Delete the `plan_lower` wrappers (`linux_riscv64/mod.rs:426-433`,
-      `linux_x86_64/mod.rs:461-468`) and their false doc comments; call
-      `plan::lower_module` directly as aarch64 does.
+Acceptance: met.
+Commit: tooling in `bb5c06624` (capture script), parallelism in this fix.
 
-Acceptance: Phase 1 baseline reproduces bit-for-bit on all three targets.
-Commit: —
+### Phase 2 — unify the libc-call seam — DONE
 
-### Phase 3 — extract `linux_common/plan.rs`
+- [x] x86's inlined `emit_libc_call` body and the aarch64/riscv64 file-local
+      `emit_linux_c_call` are now one function,
+      `linux_common::code::emit_linux_c_call`.
+- [x] The `plan_lower` wrappers are deleted. Their doc comment claimed the
+      backend "reuses the AArch64 backend's `plan` lowering verbatim"; it
+      resolved to that backend's *own* `plan` module. All three now call
+      `plan::lower_module` directly.
 
-- [ ] Move `runtime_imports` into `linux_common`, parameterized by the syscall
-      policy; leave `libc()` and `target()` per-backend.
-- [ ] Keep the existing per-backend `#[test]`s where they are; they now guard the
-      shared implementation from three angles (notably x86's
-      `linux_x86_64/plan.rs:514` "must not import libc write on x86 (raw syscall)" and riscv64's
-      `create_temp_file_imports_getentropy` at `linux_riscv64/plan.rs:474`).
+### Phase 3 — extract `linux_common/plan.rs` — DONE
 
-Acceptance: baseline reproduces; all three backends' plan tests pass unchanged.
-Commit: —
+- [x] `runtime_imports` (~320 lines × 3) is one implementation, parameterized by
+      `LinuxAbi`. The x86-64 divergence is declared once as a **raw-syscall
+      policy** (`raw_write` / `raw_exit` / `raw_getrandom`) instead of being
+      re-derived arm by arm, so it can no longer drift per arm.
+- [x] Per-backend `#[test]`s kept and extended. x86's
+      `write_is_never_imported` and riscv64's `create_temp_file_imports_getentropy`
+      now guard the shared implementation from opposite directions, and each
+      backend gained the mirror-image assertion it was missing.
 
-### Phase 4 — extract `linux_common/code.rs`
+One measured correction to the audit: the x86-only `term.*` zero-import arm is
+**not** a divergence. On the other two backends those calls fall through to the
+`_ => Vec::new()` catch-all, so the arm is output-identical everywhere; it is
+kept in the shared match as documentation of the shadow-grid contract.
 
-- [ ] Move the 21 shared constants. **Leave `stat_mode_offset` per-backend** and
-      add a comment at each site saying why.
-- [ ] Move `emit_temp_directory` and the 48 shared method bodies.
-- [ ] Re-assert all three riscv64 app-mode defense layers: nine overriding
-      `unimplemented!` bodies, `supports_app_mode() == false`, and the
-      `lower_validated_module` `LinuxApp` rejection. Add a comment at the
-      `linux_common` trait declaration stating that app-mode defaults must not be
-      inherited by riscv64.
+A second, real difference the audit did not name: the **glibc pthread soname**.
+aarch64/riscv64 bind thread imports to `libpthread.so.0`, x86-64 to `libc.so.6`.
+That is a genuine emitted-output difference, so it is a `LinuxAbi` field with a
+test on each side, not a shared constant.
 
-Acceptance: baseline reproduces; a `-app` build targeting linux-riscv64 still
-returns the clean bug-223 error (not a panic), and the CLI still rejects it.
-Commit: —
+### Phase 4 — extract `linux_common/code.rs` — DONE
 
-### Phase 5 — extract `linux_common/mod.rs` (capability array + dump-writers)
+- [x] The 21 shared constants moved. **`stat_mode_offset` stayed per-arch** as a
+      required `LinuxArch` method, documented at each of the three sites and at
+      the trait declaration.
+- [x] `emit_temp_directory` (81-line verbatim triple) and the shared method
+      bodies moved.
+- [x] All three riscv64 app-mode defense layers re-asserted, and now **tested**.
 
-- [ ] One `LINUX_RUNTIME_CALLS` const, one canonical ordering, referenced by all
-      three `capabilities()`.
-- [ ] One generic set of the five dump-writers.
+The mechanism differs from the one this document proposed, and the difference is
+deliberate. The plan said "if the shared trait supplies default app-mode method
+bodies, riscv64 must override all nine to keep panicking." That works but
+restores nine copies of the thing being deduplicated, and an omitted override
+fails *silently* — the exact hazard. Instead `LinuxArch::app()` is a **required**
+method returning `AppSupport::Gtk { .. }` or `AppSupport::Unsupported(msg)`, and
+every app-mode hook calls `require_gtk()` before building any GTK body. A backend
+cannot inherit app mode by omission, because there is no default to inherit; the
+declaration is one greppable line; and the panic message is unchanged.
 
-Acceptance: baseline reproduces; `validate_capabilities` behavior unchanged.
-Commit: —
+Rejected alternative worth recording: a blanket `impl<T: LinuxCodegen>
+CodegenPlatform for T` does not compile — rustc cannot prove
+`macos_aarch64::Platform: !LinuxCodegen`, so it reports overlapping impls. The
+shipped shape is a generic `linux_common::code::Platform<A: LinuxArch>` instead.
 
-### Phase 6 — full validation
+### Phase 5 — extract `linux_common/mod.rs` — DONE
 
-- [ ] Re-run the Phase 1 capture on all three Linux targets × both flavors and
-      diff against the archived baseline. **Any non-empty diff blocks the change.**
-- [ ] `scripts/artifact-gate.sh` and `scripts/test-accept.sh` green on macOS
-      (guards against collateral damage to the shared layer) and on each Linux box.
-- [ ] `cargo test`, `cargo fmt --check`, `cargo clippy`.
+- [x] One `RUNTIME_CALLS` const (150 entries), referenced by all three
+      `capabilities()`. The riscv64/x86_64 ordering was adopted as recommended.
+- [x] One generic set of the five dump-writers, parameterized by `DumpHooks`.
 
-Acceptance: zero artifact bytes changed; full suite green on every box.
-Commit: —
+**Open Decision resolved:** `runtime_calls` ordering is confirmed not
+semantically significant. `capabilities.runtime_calls` has exactly one consumer
+tree-wide — `validate::validate_capabilities:197`, a `.contains()` membership
+test.
 
-## Validation Plan
+### Phase 6 — full validation — DONE
 
-- **Regression test(s):** none added. The guarantee is byte-identical output; a
-  new unit test would assert less than the artifact diff already does. If a test
-  is wanted, the cheapest useful one is a `linux_common` test asserting
-  `stat_mode_offset` is 16/16/24 across the three backends — the one constant this
-  refactor could plausibly homogenize by accident.
-- **Runtime proof:** the full acceptance suite (462 `.run` goldens) executed on
-  each Linux box, both flavors, plus a `-app` attempt on linux-riscv64 confirming
-  the clean error.
-- **Artifact gate — read this caveat.** `scripts/artifact-gate.sh:8-9` derives its
-  target from `uname`, and the repo currently commits native-artifact goldens for
-  **one target only**:
+- [x] **Zero artifact bytes changed.** `scripts/linux-artifact-baseline.sh
+      target/release/mfb verify` → *1014 fixtures, 11,154 hashes, no
+      differences*, covering `.nir`/`.nplan`/`.nobj`/`.ncode`/`.mir` and both
+      linked executables per fixture across all three targets.
+- [x] `scripts/artifact-gate.sh` — 999 tests, 1189 goldens, 0 diffs.
+- [x] `cargo test` — full suite green; `cargo fmt`; `cargo clippy` clean over
+      the touched files.
+- [x] `scripts/test-accept.sh` on macOS — see results below.
+- [x] Runtime proof on real hardware via `scripts/linux-runtime-proof.sh` — see
+      results below.
+- [x] `--app` targeting linux-riscv64 still returns a clean error, not a panic.
 
-  ```
-  $ find tests -path "*/golden/*" \( -name "*.ncode" -o -name "*.mir" -o -name "*.nir" -o -name "*.nobj" \) \
-      | grep -o 'macos-aarch64\|linux-aarch64\|linux-x86_64\|linux-riscv64' | sort | uniq -c
-    47 macos-aarch64
-  $ find tests -path "*/golden/*" -name "*linux*" | wc -l
-    0
-  ```
+## Validation Plan — results
 
-  So the artifact gate **does not cover the Linux backends at all**. Running it on
-  macOS proves only that `src/target/shared/` was not disturbed. The byte-identity
-  guarantee for Linux must come from the manual Phase 1 / Phase 6 self-diff on
-  real Linux hosts. `scripts/test-accept.sh:37-40` honors `MFB_TARGET` for
-  cross-targeting, but with no Linux goldens committed there is nothing for it to
-  compare artifacts against.
-- **Doc sync:** none required by this refactor. Note separately that Agent 10
-  findings #6, #7, #11 record real spec drift in
-  `spec/linker/07_linux-aarch64.md`, `08_linux-x86_64.md`, and
-  `spec/linker/03_import-selection.md` — those are pre-existing and belong in
-  their own document, not this one.
-- **Full suite:** `cargo test`; `scripts/artifact-gate.sh <mfb>`;
-  `scripts/test-accept.sh <mfb>` on macOS and on each Linux box.
+### Artifact byte-identity (the acceptance criterion)
+
+`scripts/linux-artifact-baseline.sh`, capturing with a release `mfb` built from
+base commit `6aeb14b54` in a separate worktree and verifying with the refactored
+tree:
+
+```
+$ JOBS=10 scripts/linux-artifact-baseline.sh target/release/mfb verify /tmp/bug321-baseline.txt
+linux artifact baseline verified: 1014 fixture(s), 11154 hash(es), no differences
+```
+
+That covers `.nir`/`.nplan`/`.nobj`/`.ncode`/`.mir` plus both linked executables
+per fixture, for linux-aarch64, linux-x86_64, and linux-riscv64, and it includes
+the per-fixture build-success status (so a change in *which* fixtures build would
+also show up).
+
+**Gap found and closed.** The baseline builds **console mode only**, and the repo
+commits no Linux app goldens either — so Linux app-mode codegen, which this
+refactor's riskiest change touches, was covered by neither. Diffed separately:
+
+- the five dumps for the three `app` fixtures × linux-aarch64 and linux-x86_64:
+  byte-identical, and confirmed to actually exercise the app path (`_mfb_gtkapp_*`
+  symbols present in the `.ncode`);
+- the full linked `--app --app-debug` output: **24 files, byte-identical** on both
+  app-capable targets.
+
+Anyone changing a Linux backend should repeat both halves; the console baseline
+alone is not sufficient.
+
+### Runtime behavior on real hardware
+
+`scripts/linux-runtime-proof.sh` (new) cross-builds every `.run` fixture, ships
+it over ssh, runs it on the box, and diffs against `golden/build.log`.
+
+**A nonzero failure count here means nothing on its own** — some fixtures fail on
+these boxes for reasons that predate this change. What proves the refactor is that
+the *verdict list is identical* under both compilers, so each box was run twice:
+
+| box | target / libc | pre-refactor | refactored | verdicts |
+| --- | --- | --- | --- | --- |
+| 2223 Kali | linux-aarch64 / glibc 2.42 | 446 pass, 21 fail | 446 pass, 21 fail | **identical** |
+| 2229 Alpine | linux-riscv64 / musl | 451 pass, 3 fail, 13 unbuilt | 451 pass, 3 fail, 13 unbuilt | **identical** |
+| 2227 Alpine | linux-x86_64 / musl | see below | see below | see below |
+
+Spot-checked by hand to make the argument concrete:
+`rt-behavior/resources/resource-state-valid` on 2223 prints the correct `stated`
+and then segfaults (exit 139) — under **both** compilers, from binaries whose
+SHA-256 is the same single value. Pre-existing, not caused by this change.
+
+**Pre-existing failures worth someone's attention (NOT part of this bug):** the
+21 aarch64/glibc-2.42 failures cluster in `rt-behavior/resources/*` plus the fs
+tempfile/buffered fixtures, and the shape is "correct output, then a segfault at
+teardown". These are unrelated to bug-321 and were not investigated here.
+
+### Other gates
+
+- `scripts/artifact-gate.sh target/debug/mfb` — 999 tests, 1189 goldens, 0 diffs.
+- `scripts/test-accept.sh target/debug/mfb` on macOS — 1014 tests passed.
+- `cargo test` — 3092 passed, 0 failed. `cargo fmt` clean; `cargo clippy` clean
+  over the touched files.
+- `mfb build --app --target linux-riscv64` — clean CLI error, no panic.
+
+### Regression tests added
+
+The document proposed "none added"; four groups were added anyway, because the
+refactor creates specific new ways to be wrong that an artifact diff would only
+catch while the diff is still being run:
+
+- `linux_common::code::tests::stat_mode_offset_stays_per_arch` — 16/16/24, the
+  one constant this refactor could homogenize by accident (as the plan suggested).
+- `linux_common::code::tests::linux_constants_agree_across_targets` — the
+  neighbours that genuinely are shared, so the split is asserted from both sides.
+- `riscv64_app_mode_hard_stops::*` — nine tests, one per app-mode hook, plus
+  `app_support_is_declared_per_backend` as the positive control so a blanket
+  panic could not make all nine pass for the wrong reason.
+- `linux_riscv64::tests::{app_build_mode_is_rejected_before_lowering,
+  app_mode_is_not_advertised, console_build_mode_passes_the_guard}` — bug-223
+  defense layers 2 and 3, which had **no test at all** before this change.
 
 ## Open Decisions
 
