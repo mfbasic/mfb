@@ -27,12 +27,14 @@ pub(super) fn emit_thread_deadline(
         abi::add_immediate(abi::ARG[1], abi::stack_pointer(), timespec_stack_offset),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: instructions,
+            relocations: relocations,
+        },
         "clock_gettime",
-        instructions,
-        relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), timeout_stack_offset),
@@ -89,12 +91,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -103,12 +107,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
@@ -145,12 +151,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::label(&loop_label),
@@ -165,12 +173,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[1], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_wait",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::branch(&loop_label),
@@ -208,24 +218,28 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OS_HANDLE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_detach",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64(
@@ -260,12 +274,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64(
@@ -298,12 +314,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -317,12 +335,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -330,24 +350,28 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_INBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::label(&inbound_unlocked),
@@ -356,12 +380,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -371,12 +397,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -384,24 +412,28 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             // Wake anyone parked on the resource plane too (bug-205).
             emit_close_resource_queues(
@@ -437,12 +469,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_INBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
@@ -465,12 +499,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -488,12 +524,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -501,12 +539,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.push(abi::label(&already_closed));
             instructions.extend([
@@ -514,12 +554,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
@@ -531,12 +573,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -550,12 +594,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -563,24 +609,28 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_broadcast",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_INBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.push(abi::label(&inbound_unlocked));
             // Wake anyone parked on the resource plane before detaching, or a worker
@@ -599,12 +649,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OS_HANDLE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_detach",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::label(&done),
@@ -640,12 +692,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_register(abi::ARG[0], "%v9"),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_lock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::label(&wait_loop),
@@ -670,12 +724,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::add_immediate(abi::ARG[2], abi::stack_pointer(), ERROR_OFFSET),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_cond_timedwait",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::compare_immediate(abi::RET[0], "0"),
@@ -725,12 +781,14 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
-                symbol,
-                platform_imports,
-                platform,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "pthread_mutex_unlock",
-                &mut instructions,
-                &mut relocations,
             )?;
             instructions.extend([
                 abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
@@ -812,12 +870,14 @@ pub(super) fn thread_queue_write_helper(
         abi::move_register(abi::ARG[0], "%v9"),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::label(&wait_loop));
     if parent_send {
@@ -858,12 +918,14 @@ pub(super) fn thread_queue_write_helper(
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TIMESPEC_OFFSET),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_timedwait",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::compare_immediate(abi::RET[0], "0"),
@@ -890,12 +952,14 @@ pub(super) fn thread_queue_write_helper(
         abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_signal",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -983,12 +1047,14 @@ pub(super) fn thread_queue_write_helper(
         abi::load_u64(abi::ARG[0], abi::stack_pointer(), QUEUE_OFFSET),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
@@ -1104,12 +1170,14 @@ pub(super) fn thread_queue_read_helper(
         abi::move_register(abi::ARG[0], "%v9"),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
-        &mut instructions,
-        &mut relocations,
     )?;
     // bug-147.5b: drain the queue's pending-free list — the message copies a failed
     // send orphaned in THIS thread's arena. We hold the queue mutex and run in the
@@ -1174,12 +1242,14 @@ pub(super) fn thread_queue_read_helper(
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TIMESPEC_OFFSET),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_timedwait",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::compare_immediate(abi::RET[0], "0"),
@@ -1190,12 +1260,14 @@ pub(super) fn thread_queue_read_helper(
         abi::move_register(abi::ARG[1], "%v9"),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_wait",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::branch(&wait_loop),
@@ -1220,12 +1292,14 @@ pub(super) fn thread_queue_read_helper(
         abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_signal",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
@@ -1302,12 +1376,14 @@ pub(super) fn thread_queue_read_helper(
         abi::load_u64(abi::ARG[0], abi::stack_pointer(), QUEUE_OFFSET),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
@@ -1376,12 +1452,14 @@ fn emit_close_resource_queues(
             abi::move_register(abi::ARG[0], "%v10"),
         ]);
         emit_thread_external_call(
-            symbol,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: instructions,
+                relocations: relocations,
+            },
             "pthread_mutex_lock",
-            instructions,
-            relocations,
         )?;
         instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
@@ -1391,12 +1469,14 @@ fn emit_close_resource_queues(
             abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
         ]);
         emit_thread_external_call(
-            symbol,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: instructions,
+                relocations: relocations,
+            },
             "pthread_cond_broadcast",
-            instructions,
-            relocations,
         )?;
         instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
@@ -1404,24 +1484,28 @@ fn emit_close_resource_queues(
             abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
         ]);
         emit_thread_external_call(
-            symbol,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: instructions,
+                relocations: relocations,
+            },
             "pthread_cond_broadcast",
-            instructions,
-            relocations,
         )?;
         instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64(abi::ARG[0], "%v8", resource_queue_offset),
         ]);
         emit_thread_external_call(
-            symbol,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: instructions,
+                relocations: relocations,
+            },
             "pthread_mutex_unlock",
-            instructions,
-            relocations,
         )?;
     }
     Ok(())

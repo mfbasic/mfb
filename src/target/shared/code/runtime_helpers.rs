@@ -67,52 +67,57 @@ pub(super) fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> Strin
     }
 }
 
-pub(super) fn emit_thread_external_call(
-    from: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    name: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+pub(super) fn emit_thread_external_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    // `ctx.symbol` is the emitting symbol, which is exactly what the old `from`
+    // parameter carried — the two were always passed the same value.
     let symbol = thread_symbol(platform, name);
-    instructions.push(abi::branch_link(&symbol));
-    relocations.push(external_branch(from, &symbol, platform_imports)?);
+    ctx.instructions.push(abi::branch_link(&symbol));
+    ctx.relocations
+        .push(external_branch(ctx.symbol, &symbol, platform_imports)?);
     Ok(())
 }
 
 pub(super) fn emit_thread_queue_alloc(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
+    ctx: &mut EmitCtx,
     limit_stack_offset: usize,
     cb_stack_offset: usize,
     queue_stack_offset: usize,
     cb_queue_offset: usize,
     done_label: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let alloc_queue_ok = format!("{symbol}_queue_{cb_queue_offset}_alloc_ok");
     let alloc_values_ok = format!("{symbol}_queue_{cb_queue_offset}_values_ok");
     let size_overflow = format!("{symbol}_queue_{cb_queue_offset}_size_overflow");
     let init_error = format!("{symbol}_queue_{cb_queue_offset}_init_error");
     let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
 
-    instructions.extend([
+    ctx.instructions.extend([
         abi::move_immediate(abi::ARG[0], "Integer", &THREAD_QUEUE_BLOCK_SIZE.to_string()),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_queue_ok),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
-    instructions.extend([
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_queue_ok),
         abi::store_u64(abi::RET[1], abi::stack_pointer(), queue_stack_offset),
@@ -136,24 +141,35 @@ pub(super) fn emit_thread_queue_alloc(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_values_ok),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
-    instructions.push(abi::branch(done_label));
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.push(abi::branch(done_label));
     // capacity * 8 wrapped 64 bits: raise the same catchable allocation error as an
     // oversized request rather than under-allocate the value array (bug-60).
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&size_overflow),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
-    instructions.extend([
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_values_ok),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
@@ -164,14 +180,16 @@ pub(super) fn emit_thread_queue_alloc(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "pthread_mutex_init",
-        instructions,
-        relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
@@ -179,14 +197,16 @@ pub(super) fn emit_thread_queue_alloc(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "pthread_cond_init",
-        instructions,
-        relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
@@ -194,14 +214,16 @@ pub(super) fn emit_thread_queue_alloc(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     emit_thread_external_call(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "pthread_cond_init",
-        instructions,
-        relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&init_error),
         abi::branch(&init_done),
@@ -209,9 +231,14 @@ pub(super) fn emit_thread_queue_alloc(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INTERRUPTED_SYMBOL, instructions, relocations);
-    instructions.push(abi::branch(done_label));
-    instructions.push(abi::label(&init_done));
+    push_error_message_address(
+        symbol,
+        ERR_INTERRUPTED_SYMBOL,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    ctx.instructions.push(abi::branch(done_label));
+    ctx.instructions.push(abi::label(&init_done));
     Ok(())
 }
 
@@ -523,55 +550,63 @@ fn lower_thread_start_helper(
     relocations.push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
 
     emit_thread_queue_alloc(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         IN_LIMIT_OFFSET,
         CB_OFFSET,
         QUEUE_OFFSET,
         THREAD_OFFSET_INBOUND_QUEUE,
         &parent_done,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_thread_queue_alloc(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         OUT_LIMIT_OFFSET,
         CB_OFFSET,
         QUEUE_OFFSET,
         THREAD_OFFSET_OUTBOUND_QUEUE,
         &parent_done,
-        &mut instructions,
-        &mut relocations,
     )?;
     // Resource plane queues (§7): inbound (parent→worker) bounded like the
     // inbound data queue, outbound (worker→parent) bounded like the outbound
     // data queue.
     emit_thread_queue_alloc(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         IN_LIMIT_OFFSET,
         CB_OFFSET,
         QUEUE_OFFSET,
         THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
         &parent_done,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_thread_queue_alloc(
-        symbol,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         OUT_LIMIT_OFFSET,
         CB_OFFSET,
         QUEUE_OFFSET,
         THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
         &parent_done,
-        &mut instructions,
-        &mut relocations,
     )?;
 
     let pthread_create_symbol = if platform.target() == "macos-aarch64" {
@@ -768,12 +803,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -787,12 +824,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_broadcast",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -804,12 +843,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_broadcast",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -820,12 +861,14 @@ pub(crate) fn lower_thread_trampoline(
         ),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
-        &mut instructions,
-        &mut relocations,
     )?;
     // Close both resource-plane queues on worker exit, mirroring the data
     // queues: wake any parent blocked in `thread::transfer` (writing the inbound
@@ -840,12 +883,14 @@ pub(crate) fn lower_thread_trampoline(
             abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
         ]);
         emit_thread_external_call(
-            THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: THREAD_TRAMPOLINE_SYMBOL,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_mutex_lock",
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.extend([
             abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -855,12 +900,14 @@ pub(crate) fn lower_thread_trampoline(
             abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
         ]);
         emit_thread_external_call(
-            THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: THREAD_TRAMPOLINE_SYMBOL,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_cond_broadcast",
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.extend([
             abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -868,24 +915,28 @@ pub(crate) fn lower_thread_trampoline(
             abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
         ]);
         emit_thread_external_call(
-            THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: THREAD_TRAMPOLINE_SYMBOL,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_cond_broadcast",
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.extend([
             abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
             abi::load_u64(abi::ARG[0], abi::CURRENT_THREAD, resource_queue_offset),
         ]);
         emit_thread_external_call(
-            THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
+            &mut EmitCtx {
+                symbol: THREAD_TRAMPOLINE_SYMBOL,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "pthread_mutex_unlock",
-            &mut instructions,
-            &mut relocations,
         )?;
     }
     instructions.extend([
@@ -898,12 +949,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_lock",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -945,12 +998,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_broadcast",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
@@ -962,12 +1017,14 @@ pub(crate) fn lower_thread_trampoline(
         abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_cond_broadcast",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::label(&result_closed),
@@ -979,12 +1036,14 @@ pub(crate) fn lower_thread_trampoline(
         ),
     ]);
     emit_thread_external_call(
-        THREAD_TRAMPOLINE_SYMBOL,
-        platform_imports,
-        platform,
+        &mut EmitCtx {
+            symbol: THREAD_TRAMPOLINE_SYMBOL,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "pthread_mutex_unlock",
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::move_immediate(abi::RET[0], "Integer", "0"),
