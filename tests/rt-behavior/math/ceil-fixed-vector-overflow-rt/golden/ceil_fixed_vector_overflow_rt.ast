@@ -1,0 +1,73 @@
+{
+  "project": "ceil_fixed_vector_overflow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 14 },
+    { "module": "math", "line": 15 },
+    { "module": "collections", "line": 16 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "check",
+      "line": 18,
+      "params": [
+      { "name": "v", "type": "String", "default": null, "line": 18 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "identifier", "value": "v" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Integer", "value": { "kind": "call", "callee": "math.ceil", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "pair", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "f" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "List OF Integer", "value": { "kind": "call", "callee": "math.ceil", "arguments": [{ "kind": "identifier", "value": "pair" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "0" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "1" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "one", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "f" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "r1", "type": "List OF Integer", "value": { "kind": "call", "callee": "math.ceil", "arguments": [{ "kind": "identifier", "value": "one" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r1" }, { "kind": "number", "value": "0" }] }, "line": 29 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "s" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "c" }, "right": { "kind": "identifier", "value": "s" } } },
+        "line": 30,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok " }, "right": { "kind": "identifier", "value": "v" } }, "right": { "kind": "string", "value": " -> " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] } }] }, "line": 31 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "DIFF " }, "right": { "kind": "identifier", "value": "v" } }, "right": { "kind": "string", "value": " scalar=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] } }, "right": { "kind": "string", "value": " vec=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "right": { "kind": "string", "value": " tail=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "c" }] } }] }, "line": 33 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 38,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "2147483647.5" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "2147483647.0" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.0" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.5" }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1.0" }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1.25" }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-1.25" }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "h", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-1.0" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-0.5" }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-2147483647.5" }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-2147483648.0" }] }, "line": 52 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 53 }
+      ]
+    }
+    ]
+  }
+  ]
+}

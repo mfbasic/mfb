@@ -1,0 +1,54 @@
+' bug-308: the vectorized CeilFixed kernel computed ceil(x) = floor(x + (2^32-1)).
+' That add is modular i64 and overflows for any raw > i64::MAX - (2^32-1) -- i.e.
+' every Fixed whose value lies in (2147483647, 2147483648). It wrapped to a large
+' negative and the arithmetic shift produced a large negative integer.
+'
+' The result IS representable, so nothing errored -- it was simply wrong, and wrong
+' only for EVEN-length lists: a length-1 list takes the odd tail, which runs the
+' correct scalar path. So the same program disagreed with itself depending on list
+' length, and with the scalar math::ceil(Fixed) overload.
+'
+' Every case below compares the vector body against the scalar overload directly,
+' which is the invariant that matters: the two forms must compute identical
+' per-lane results (plan-01-simd §4.3).
+IMPORT io
+IMPORT math
+IMPORT collections
+
+FUNC check(v AS String) AS Integer
+  LET f AS Fixed = toFixed(v)
+  LET s AS Integer = math::ceil(f)
+  ' An even-length list exercises the vector body.
+  LET pair AS List OF Fixed = [f, f]
+  LET r AS List OF Integer = math::ceil(pair)
+  LET a AS Integer = collections::get(r, 0)
+  LET b AS Integer = collections::get(r, 1)
+  ' A length-1 list exercises the odd tail (scalar path).
+  LET one AS List OF Fixed = [f]
+  LET r1 AS List OF Integer = math::ceil(one)
+  LET c AS Integer = collections::get(r1, 0)
+  IF a = s AND b = s AND c = s THEN
+    io::print("ok " & v & " -> " & toString(s))
+  ELSE
+    io::print("DIFF " & v & " scalar=" & toString(s) & " vec=" & toString(a) & "," & toString(b) & " tail=" & toString(c))
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  ' The reported case: just inside the overflowing interval.
+  LET a AS Integer = check("2147483647.5")
+  LET b AS Integer = check("2147483647.0")
+  ' Ordinary values, both signs, must be unaffected by the rewrite.
+  LET c AS Integer = check("0.0")
+  LET d AS Integer = check("0.5")
+  LET e AS Integer = check("1.0")
+  LET f AS Integer = check("1.25")
+  LET g AS Integer = check("-1.25")
+  LET h AS Integer = check("-1.0")
+  LET i AS Integer = check("-0.5")
+  ' The negative extremes.
+  LET j AS Integer = check("-2147483647.5")
+  LET k AS Integer = check("-2147483648.0")
+  RETURN 0
+END FUNC

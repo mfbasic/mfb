@@ -257,7 +257,11 @@ impl CodeBuilder<'_> {
             }
             SimdUnaryKernel::FloorFixed => {}
             SimdUnaryKernel::CeilFixed => {
-                self.broadcast_const(abi::VEC_SCRATCH[4], FIXED_ONE_MINUS_1_STR)?;
+                // bug-308: the fraction mask and a 1, not the `ONE-1` bias — see the
+                // kernel body for why the bias form was wrong.
+                self.broadcast_const(abi::VEC_SCRATCH[4], FIXED_FRACTION_MASK_STR)?;
+                self.broadcast_const(abi::VEC_SCRATCH[5], "0")?;
+                self.broadcast_const(abi::VEC_SCRATCH[6], "1")?;
             }
             SimdUnaryKernel::RoundFixed => {
                 self.broadcast_const(abi::VEC_SCRATCH[4], FIXED_FRACTION_MASK_STR)?;
@@ -376,16 +380,46 @@ impl CodeBuilder<'_> {
                 ));
             }
             SimdUnaryKernel::CeilFixed => {
-                // ceil(x) = floor(x + (ONE-1)); arithmetic shift handles all signs.
-                self.emit(abi::vector_add(
-                    abi::VEC_SCRATCH[0],
-                    abi::VEC_SCRATCH[0],
-                    abi::VEC_SCRATCH[4],
-                ));
+                // result = floor(x) + (frac != 0), matching the scalar Fixed ceil.
+                //
+                // bug-308: this used to compute `ceil(x) = floor(x + (ONE-1))`,
+                // biasing by `2^32-1` before the shift. That add is modular i64 and
+                // overflows for any raw `> i64::MAX - (2^32-1)` — i.e. every Fixed
+                // whose value lies in (2147483647, 2147483648). It wrapped to a
+                // large negative and the arithmetic shift produced a large negative
+                // integer, so `math::ceil([x, x])` returned -2147483648 where both
+                // the scalar overload and a length-1 list (odd tail → scalar path)
+                // returned the correct 2147483648. The result is representable, so
+                // nothing errored — it was simply wrong, and wrong only for even
+                // lengths.
+                //
+                // Deriving the whole part by shifting FIRST cannot overflow: the
+                // shift is a narrowing of a value already in range, and the +1 is
+                // applied to the integer part, which always fits.
                 self.emit(abi::vector_sshr(
-                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
                     abi::VEC_SCRATCH[0],
                     FIXED_SHIFT,
+                )); // whole = floor(x)
+                self.emit(abi::vector_and(
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[4],
+                )); // frac
+                self.emit(abi::vector_cmgt(
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[2],
+                    abi::VEC_SCRATCH[5],
+                )); // frac > 0  (frac is masked, so never negative)
+                self.emit(abi::vector_and(
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[3],
+                    abi::VEC_SCRATCH[6],
+                )); // mask & 1
+                self.emit(abi::vector_add(
+                    abi::VEC_SCRATCH[0],
+                    abi::VEC_SCRATCH[1],
+                    abi::VEC_SCRATCH[3],
                 ));
             }
             SimdUnaryKernel::RoundFixed => {

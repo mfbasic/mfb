@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (platform / vector-vs-scalar divergence)
 
-Status: Open
-Regression Test: tests/rt-behavior (new) — `math::ceil` of a Fixed list near i32::MAX matches the scalar overload for every length
+Status: Fixed
+Regression Test: tests/rt-behavior/math/ceil-fixed-vector-overflow-rt
 
 The vectorized `CeilFixed` kernel computes `ceil(x) = floor(x + (2^32−1))` as
 `vector_add(v0, v0, broadcast(0xFFFFFFFF))` then arithmetic `sshr 32`. The raw add is
@@ -97,3 +97,39 @@ bias entirely.
 The vector ceil biases the raw value and overflows near i64::MAX, diverging from the
 scalar path; switching to the scalar's frac-test-and-bump fixes it overflow-free.
 Small, well-scoped, cross-backend.
+
+## Resolution
+
+Reproduced exactly as reported: for `toFixed("2147483647.5")` the scalar overload and
+a length-1 list both gave `2147483648`, while a length-2 list gave `-2147483648`.
+
+The kernel no longer biases before shifting. It now computes
+`floor(x) + (frac != 0)` — the same formula the scalar tail already used — by
+deriving the whole part with the arithmetic shift **first** and only then adding one:
+
+    whole = sshr(x, 32)
+    frac  = x AND 0xFFFFFFFF
+    out   = whole + (frac > 0 ? 1 : 0)
+
+That ordering is what makes it safe. The old `floor(x + (2^32-1))` added the bias to
+the *raw* Q32.32 value, and that add is modular i64, so it wrapped for any raw above
+`i64::MAX - (2^32-1)`. Shifting first narrows to the integer part, which always fits,
+and the `+1` is applied there. Since `frac` is masked it is never negative, so a
+`cmgt` against zero is sufficient.
+
+The shape mirrors `RoundFixed`, which already solved the same problem the same way —
+the two Fixed kernels now read alike rather than one carrying a bias trick the other
+avoided.
+
+### Verification
+
+The fixture checks eleven values, and each one compares **three** paths against each
+other: the scalar overload, an even-length list (vector body), and a length-1 list
+(odd tail). Comparing all three is the point — the bug's signature was precisely that
+they disagreed, so a test asserting only the expected number would not have located
+it, and one testing only even lengths would not have shown the divergence.
+
+Coverage spans the reported interval, both signs, and both extremes
+(`-2147483648.0` through `2147483647.5`). All agree.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1011/1011.
