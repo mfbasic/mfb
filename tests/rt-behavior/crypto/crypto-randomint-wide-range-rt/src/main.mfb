@@ -1,0 +1,47 @@
+' bug-305: __crypto_randomInt drew from __crypto_rand62 (62 bits, maxVal = 2^62)
+' and rejection-sampled with `limit = maxVal - (maxVal MOD range)`. When
+' `range > maxVal`, `maxVal MOD range` is `maxVal`, so `limit` was 0 and
+' `WHILE v >= limit` never terminated -- v is always >= 0. The only guard was
+' `range <= 0` (i64 overflow), which does not catch the band (2^62, 2^63-1].
+'
+' A wide range now draws 63 bits. For any range in that band floor(2^63/range) is
+' exactly 1, so the rejection limit IS the range and the accepted draw needs no
+' modulo -- which also avoids naming 2^63, a value an Integer cannot hold.
+'
+' This fixture would HANG rather than fail before the fix, which is why it brackets
+' the 2^62 boundary on both sides rather than only testing a wide range.
+IMPORT io
+IMPORT crypto
+
+FUNC check(lo AS Integer, hi AS Integer, label AS String) AS Integer
+  MUT i AS Integer = 0
+  MUT ok AS Boolean = TRUE
+  WHILE i < 200
+    LET v AS Integer = crypto::randomInt(lo, hi)
+    IF v < lo OR v > hi THEN
+      ok = FALSE
+    END IF
+    i = i + 1
+  WEND
+  IF ok THEN
+    io::print(label & " in range")
+  ELSE
+    io::print(label & " OUT OF RANGE")
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Integer = check(0, 4611686018427387903, "below-2^62")
+  LET b AS Integer = check(0, 4611686018427387904, "at-2^62")
+  LET c AS Integer = check(0, 4611686018427387905, "above-2^62")
+  LET d AS Integer = check(0, 9223372036854775806, "max-range")
+  LET e AS Integer = check(-9223372036854775807, -9223372036854775700, "negative")
+  LET f AS Integer = check(1, 6, "dice")
+  LET g AS Integer = check(5, 5, "singleton")
+  RETURN 0
+  TRAP(err)
+    io::print("trapped: " & toString(err.code))
+    RETURN 1
+END TRAP
+END FUNC

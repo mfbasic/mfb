@@ -1,0 +1,91 @@
+{
+  "project": "crypto_randomint_wide_range_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 13 },
+    { "module": "crypto", "line": 14 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "check",
+      "line": 16,
+      "params": [
+      { "name": "lo", "type": "Integer", "default": null, "line": 16 },
+      { "name": "hi", "type": "Integer", "default": null, "line": 16 },
+      { "name": "label", "type": "String", "default": null, "line": 16 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 17 },
+      { "kind": "binding", "mutable": true, "name": "ok", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 18 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "200" } },
+        "line": 19,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "crypto.randomInt", "arguments": [{ "kind": "identifier", "value": "lo" }, { "kind": "identifier", "value": "hi" }] }, "line": 20 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "identifier", "value": "lo" } }, "right": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "identifier", "value": "hi" } } },
+          "line": 21,
+          "then": [
+          { "kind": "assignment", "name": "ok", "value": { "kind": "boolean", "value": false }, "line": 22 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 24 }
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "ok" },
+        "line": 26,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " in range" } }] }, "line": 27 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " OUT OF RANGE" } }] }, "line": 29 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "4611686018427387903" }, { "kind": "string", "value": "below-2^62" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "4611686018427387904" }, { "kind": "string", "value": "at-2^62" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "4611686018427387905" }, { "kind": "string", "value": "above-2^62" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "9223372036854775806" }, { "kind": "string", "value": "max-range" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775807" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775700" } }, { "kind": "string", "value": "negative" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "6" }, { "kind": "string", "value": "dice" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "check", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "5" }, { "kind": "string", "value": "singleton" }] }, "line": 41 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 43,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 45 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

@@ -1522,6 +1522,21 @@ FUNC __crypto_rand62() AS Integer
   RETURN v + top * 72057594037927936
 END FUNC
 
+' A uniform 63-bit value from `crypto::randomBytes` (7 full bytes + 7 bits).
+' Bounded below 2^63 so it stays a non-negative `Integer`. Used only for the wide
+' ranges `__crypto_rand62` cannot cover (bug-305).
+FUNC __crypto_rand63() AS Integer
+  LET rb AS List OF Byte = crypto::randomBytes(8)
+  MUT v AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 7
+    v = v * 256 + toInt(collections::get(rb, i))
+    i = i + 1
+  WEND
+  LET top AS Integer = bits::band(toInt(collections::get(rb, 7)), 127)
+  RETURN v + top * 72057594037927936
+END FUNC
+
 ' Uniform, unbiased integer in the inclusive range [min, max] (rejection sampled).
 FUNC __crypto_randomInt(min AS Integer, max AS Integer) AS Integer
   IF min > max THEN
@@ -1536,6 +1551,23 @@ FUNC __crypto_randomInt(min AS Integer, max AS Integer) AS Integer
     FAIL error(77050002, "randomInt range too large")
   END IF
   LET maxVal AS Integer = 4611686018427387904
+  ' bug-305: when `range > maxVal` (2^62), `maxVal MOD range` is `maxVal`, so
+  ' `limit` was 0 and `WHILE v >= limit` never terminated -- `v` is always >= 0.
+  ' The `range <= 0` guard above only catches i64 overflow, not the band
+  ' (2^62, 2^63-1]. Such a range needs more entropy than a 62-bit draw provides,
+  ' so draw 63 bits instead.
+  '
+  ' For any `range` in that band, floor(2^63 / range) is exactly 1 (since
+  ' 2*range > 2^63 >= range), so the rejection limit IS `range` and the accepted
+  ' draw needs no modulo -- which also avoids naming 2^63, a value an Integer
+  ' cannot hold.
+  IF range > maxVal THEN
+    MUT wide AS Integer = __crypto_rand63()
+    WHILE wide >= range
+      wide = __crypto_rand63()
+    WEND
+    RETURN min + wide
+  END IF
   LET limit AS Integer = maxVal - (maxVal MOD range)
   MUT v AS Integer = __crypto_rand62()
   WHILE v >= limit
