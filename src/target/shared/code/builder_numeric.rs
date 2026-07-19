@@ -1793,6 +1793,30 @@ impl CodeBuilder<'_> {
         let exponent_int = self.allocate_register()?;
         let exponent_roundtrip = self.allocate_register()?;
         let exponent_bits = self.allocate_register()?;
+        // bug-312 K3: the round-trip whole-number test below converts with a
+        // SATURATING `fcvtzs`. An exponent whose magnitude exceeds i64::MAX (e.g.
+        // 1.0e19) saturates to i64::MAX, whose f64 round-trip is unequal, so it was
+        // reported as ErrFloatDomain -- a fractional-exponent rejection -- for an
+        // exponent that is in fact whole. `1.0 ^ 1.0e19` is 1.0 and `0.5 ^ 1.0e19`
+        // is 0.0; both lost their value, and for base > 1 the correct
+        // ErrFloatOverflow was mis-coded as ErrFloatDomain.
+        //
+        // Every finite f64 at or above 2^52 is already an integer (the mantissa has
+        // no fractional bits left), so such an exponent is whole by construction and
+        // needs no round-trip. The exponent is known non-negative here, so its sign
+        // bit is 0 and `bits >> 52` is exactly the biased exponent; 2^52 is biased
+        // 1075. The upper bound excludes 2047 (Inf/NaN), which is NOT a whole number
+        // and must keep falling through to the domain rejection.
+        let biased = self.allocate_register()?;
+        let not_huge = self.label("float_pow_not_huge");
+        self.emit(abi::float_move_x_from_d(&exponent_bits, exponent));
+        self.emit(abi::shift_right_immediate(&biased, &exponent_bits, 52));
+        self.emit(abi::compare_immediate(&biased, "1075"));
+        self.emit(abi::branch_lt(&not_huge));
+        self.emit(abi::compare_immediate(&biased, "2047"));
+        self.emit(abi::branch_ge(&not_huge));
+        self.emit(abi::branch(&exponent_whole));
+        self.emit(abi::label(&not_huge));
         self.emit(abi::float_convert_to_signed_x(&exponent_int, exponent));
         self.emit(abi::signed_convert_to_float_d(
             abi::FP_SCRATCH[2],

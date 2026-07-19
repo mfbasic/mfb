@@ -1,0 +1,74 @@
+' bug-312 K1/K2/K3, three codegen edges.
+'
+' K1 -- toString(Fixed, precision) TRUNCATED its fraction while the Float and Money
+'   overloads round, so `toString(toFixed("0.666"), 2b)` gave "0.66" where Float
+'   gives "0.67". The man page documents all three identically. Fixed now
+'   pre-rounds the raw MAGNITUDE half-away before the int/frac split, which is what
+'   lets `0.99` at one place carry into the integer part.
+' K2 -- the toScalar decoder read continuation bytes at fixed offsets 9/10/11
+'   BEFORE its "exactly one scalar" length check, so a truncated multibyte lead
+'   would read past the allocation. Latent (Strings are guaranteed valid UTF-8).
+' K3 -- the whole-exponent test used a SATURATING conversion, so an exponent past
+'   i64::MAX (1e19) round-tripped unequal and was rejected as fractional. Every
+'   finite f64 at or above 2^52 is already an integer.
+IMPORT io
+
+FUNC fx(v AS String, p AS Integer) AS Integer
+  io::print("fixed " & v & "@" & toString(p) & "=" & toString(toFixed(v), toByte(p)))
+  RETURN 0
+END FUNC
+
+FUNC pw(b AS Float, e AS Float, label AS String) AS Integer
+  LET r AS Float = b ^ e
+  io::print(label & "=" & toString(r, toByte(4)))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "->" & toString(err.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC sc(s AS String, label AS String) AS Integer
+  LET c AS Scalar = toScalar(s)
+  io::print(label & "=" & toString(toInt(c)))
+  RETURN 0
+  TRAP(e)
+    io::print(label & "->" & toString(e.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' K1: rounding, the carry, exact halves, negatives, and no-op cases.
+  LET a AS Integer = fx("0.666", 2)
+  LET b AS Integer = fx("0.99", 1)
+  LET c AS Integer = fx("0.125", 2)
+  LET d AS Integer = fx("0.5", 0)
+  LET e AS Integer = fx("2.5", 0)
+  LET f AS Integer = fx("-0.666", 2)
+  LET g AS Integer = fx("-2.5", 0)
+  LET h AS Integer = fx("9.999", 2)
+  LET i AS Integer = fx("123.456", 3)
+  LET j AS Integer = fx("1.0", 2)
+  ' The Float overload it must now agree with.
+  io::print("float 0.666@2=" & toString(0.666, toByte(2)))
+  io::print("float 0.99@1=" & toString(0.99, toByte(1)))
+
+  ' K3: a whole exponent beyond i64 range keeps its value; overflow is coded as
+  ' overflow, not as a domain error; ordinary and invalid exponents unchanged.
+  LET k AS Integer = pw(1.0, 1.0e19, "1^1e19")
+  LET l AS Integer = pw(0.5, 1.0e19, "0.5^1e19")
+  LET m AS Integer = pw(2.0, 1.0e19, "2^1e19")
+  LET n AS Integer = pw(2.0, 10.0, "2^10")
+  LET o AS Integer = pw(2.0, 0.5, "2^0.5")
+  LET p AS Integer = pw(2.0, -1.0, "2^-1")
+
+  ' K2: every UTF-8 length still decodes; non-single-scalar input still rejected.
+  LET q AS Integer = sc("A", "sc1")
+  LET r AS Integer = sc("é", "sc2")
+  LET s AS Integer = sc("日", "sc3")
+  LET t AS Integer = sc("🎉", "sc4")
+  LET u AS Integer = sc("AB", "sc-two")
+  LET v AS Integer = sc("", "sc-empty")
+  RETURN 0
+END FUNC

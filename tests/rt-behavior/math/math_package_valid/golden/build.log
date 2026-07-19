@@ -7,15 +7,15 @@ Wrote executable to tests/rt-behavior/math/math_package_valid/build/math_package
 [exit 0]
 $ tests/rt-behavior/math/math_package_valid/build/math_package_valid.out
 3.141593
-3.141592
+3.141593
 0.636620
-0.636619
+0.636620
 1.570796
 1.570796
 0.785398
 0.785398
 2.718282
-2.718281
+2.718282
 0.693147
 0.693147
 2.302585
@@ -43,11 +43,11 @@ $ tests/rt-behavior/math/math_package_valid/build/math_package_valid.out
 8.000000
 2.250000
 2.718282
-2.718281
+2.718282
 1.000000
 0.000000
 2.000000
-1.999999
+2.000000
 0.000000
 -0.000000
 -1.000000
@@ -55,9 +55,9 @@ $ tests/rt-behavior/math/math_package_valid/build/math_package_valid.out
 0.000000
 0.000000
 0.523599
-0.523598
+0.523599
 1.047198
-1.047197
+1.047198
 0.785398
 0.785398
 0.785398

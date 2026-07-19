@@ -5,7 +5,7 @@ Effort: small (<1h across items)
 Severity: LOW
 Class: Correctness / Memory-safety (latent) / Footgun
 
-Status: Open
+Status: Fixed
 Regression Test: per-item
 
 LOW-severity codegen residuals found during goal-06. Distinct root causes, one
@@ -96,3 +96,74 @@ Each item is a single cited codegen site; land per item.
 Three codegen residuals: a Fixed/Float rounding inconsistency, a defense-in-depth
 UTF-8 validation gap, and a marginal Float-pow error-code edge. Each is a small
 localized fix.
+
+## Resolution
+
+All three landed. K1 and K3 were reproduced first and both matched the report
+exactly.
+
+**K1 — Fixed now rounds, matching the sibling overloads.** The man page describes all
+three fixed-precision overloads identically ("with `precision` digits after the
+decimal point") and says nothing about truncation, so behaving differently was the
+defect; rounding was chosen over documenting truncation for that reason.
+
+The rounding is applied to the raw **magnitude**, before it is split into integer and
+fraction parts — copied from how the Money renderer solves the same problem. That
+placement is the whole trick: the digits are emitted left to right, so a carry out of
+the fraction (`0.99` at one place → `1.0`) cannot be applied after the integer digits
+are already in the buffer. Rounding the magnitude first lets the existing split see
+the carried value.
+
+One subtlety cost a second iteration. The half-ULP is `2^31 / 10^p`, and a truncating
+divide makes the bias strictly *less* than half — so a value sitting exactly on the
+boundary rounded **down**: the exactly-representable `0.125` at two places gave
+`0.12`. Using a ceiling divide puts the boundary on the away-from-zero side. Caught
+because the test battery included an exact binary half, not only the reported cases.
+
+Precision ≥ 10 skips rounding entirely: the Q32.32 fraction carries ~9.6 decimal
+digits, so beyond that the remaining places are exact zeros — which also keeps `10^p`
+inside 64 bits.
+
+**K2 — the length check now precedes the reads.** The report asked for
+continuation-byte validation, which was added, but the hazard it *describes* is the
+fixed-offset reads at `string+9/10/11` running past the allocation — and validating a
+byte cannot prevent the read that fetched it. So each multi-byte arm first checks
+`length >= nbytes` and only then reads. Both guards are present: the length check
+prevents the over-read, the continuation check rejects malformed input.
+
+**K3 — a saturated conversion is no longer read as "fractional".** Every finite f64 at
+or above 2^52 is already an integer, so such an exponent short-circuits to the whole
+path without a round-trip. The bound is `biased ∈ [1075, 2046]`: the upper end
+deliberately excludes 2047, since Inf/NaN is not a whole number and must keep falling
+through to the domain rejection. Results: `1.0 ^ 1e19` returns `1.0` and
+`0.5 ^ 1e19` returns `0.0` (both previously lost), and `2.0 ^ 1e19` now reports
+`77050015` (ErrFloatOverflow) rather than the mis-coded `77050012`.
+
+The fixture covers all three together, and deliberately includes the cases a fix
+could break rather than only the reported failures: for K1 the exact halves, the
+negatives, the carry, and a value needing no rounding; for K3 an ordinary whole
+exponent plus a fractional and a negative one, both of which must still be domain
+errors; for K2 all four UTF-8 lengths plus non-single-scalar input.
+
+### Two goldens recorded the truncation bug and were regenerated — with proof
+
+K1 changed real output, and acceptance flagged `math_package_valid` and
+`bug128_fixed_atan2_overflow_min`. Those goldens were regenerated, but only after
+establishing the new values are the correct ones rather than merely the new ones:
+
+- `piFixed` at 6 places moved `3.141592` → `3.141593`, `eFixed` `2.718281` →
+  `2.718282`, `twoOverPiFixed` `0.636619` → `0.636620`. Each is the correctly
+  *rounded* value; the old ones were the truncations.
+- The decisive evidence is in the test itself: `math_package_valid` prints each
+  constant in **both** Float and Fixed form on adjacent lines, and the Float lines
+  already read `3.141593` / `2.718282` / `0.636620`. The goldens recorded the two
+  forms disagreeing — which is exactly the defect — and now they agree.
+- `atan2` moved `0.78` → `0.79` and `-2.35` → `-2.36`. π/4 is 0.7853…, so 0.79 is
+  correct to two places; −3π/4 is −2.3562…, so −2.36 is.
+
+Same situation as bug-309: a golden defending a live defect. The difference from an
+unjustified re-baseline is that each new value was checked against the mathematics
+and against the test's own Float sibling, not accepted because it was what the code
+now produced.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1013/1013.

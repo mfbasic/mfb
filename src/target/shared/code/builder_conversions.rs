@@ -573,6 +573,18 @@ impl CodeBuilder<'_> {
     /// lead byte's expected length, reassembles the codepoint, and traps
     /// `ErrInvalidArgument` when the string is empty or its byte length differs
     /// from that scalar's length (i.e. zero or more than one scalar).
+    /// Reject a UTF-8 byte that is not a continuation byte, i.e. one whose top two
+    /// bits are not `10` (bug-312 K2).
+    ///
+    /// `scratch` is clobbered; callers re-materialize the 0x3F payload mask after
+    /// calling, since this borrows the same register for the 0xC0 test.
+    fn emit_continuation_byte_check(&mut self, byte: &str, scratch: &str, invalid: &str) {
+        self.emit(abi::move_immediate(scratch, "Integer", "192")); // 0xC0
+        self.emit(abi::and_registers(scratch, byte, scratch));
+        self.emit(abi::compare_immediate(scratch, "128")); // 0x80
+        self.emit(abi::branch_ne(invalid));
+    }
+
     pub(super) fn emit_string_to_scalar_value(
         &mut self,
         source_register: &str,
@@ -628,10 +640,20 @@ impl CodeBuilder<'_> {
         // 2 bytes: cp = (b0 & 0x1F) << 6 | (b1 & 0x3F).
         self.emit(abi::label(&two_byte));
         self.emit(abi::move_immediate(nbytes, "Integer", "2"));
+        // bug-312 K2: check the length BEFORE the fixed-offset continuation reads
+        // below. The "exactly one scalar" check at `assembled` runs after them, so
+        // a 2-byte lead on a shorter buffer read past the allocation before
+        // anything rejected it. Safe today only because a `String` is guaranteed
+        // well-formed UTF-8; the sibling decoders (`emit_utf8_decode_next`, the
+        // padChar check) were hardened for exactly this in audit-unicode and this
+        // one was left trusting.
+        self.emit(abi::compare_registers(length, nbytes));
+        self.emit(abi::branch_lt(&invalid));
         self.emit(abi::move_immediate(mask, "Integer", "31"));
         self.emit(abi::and_registers(cp, b0, mask));
         self.emit(abi::shift_left_immediate(cp, cp, 6));
         self.emit(abi::load_u8(cont, string, 9));
+        self.emit_continuation_byte_check(cont, mask, &invalid);
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(cont, cont, mask));
         self.emit(abi::or_registers(cp, cp, cont));
@@ -640,15 +662,27 @@ impl CodeBuilder<'_> {
         // 3 bytes: cp = (b0 & 0x0F) << 12 | (b1 & 0x3F) << 6 | (b2 & 0x3F).
         self.emit(abi::label(&three_byte));
         self.emit(abi::move_immediate(nbytes, "Integer", "3"));
+        // bug-312 K2: check the length BEFORE the fixed-offset continuation reads
+        // below. The "exactly one scalar" check at `assembled` runs after them, so
+        // a 3-byte lead on a shorter buffer read past the allocation before
+        // anything rejected it. Safe today only because a `String` is guaranteed
+        // well-formed UTF-8; the sibling decoders (`emit_utf8_decode_next`, the
+        // padChar check) were hardened for exactly this in audit-unicode and this
+        // one was left trusting.
+        self.emit(abi::compare_registers(length, nbytes));
+        self.emit(abi::branch_lt(&invalid));
         self.emit(abi::move_immediate(mask, "Integer", "15"));
         self.emit(abi::and_registers(cp, b0, mask));
         self.emit(abi::shift_left_immediate(cp, cp, 12));
         self.emit(abi::load_u8(cont, string, 9));
+        self.emit_continuation_byte_check(cont, mask, &invalid);
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(cont, cont, mask));
         self.emit(abi::shift_left_immediate(cont, cont, 6));
         self.emit(abi::or_registers(cp, cp, cont));
         self.emit(abi::load_u8(cont, string, 10));
+        self.emit_continuation_byte_check(cont, mask, &invalid);
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(cont, cont, mask));
         self.emit(abi::or_registers(cp, cp, cont));
         self.emit(abi::branch(&assembled));
@@ -656,19 +690,33 @@ impl CodeBuilder<'_> {
         // 4 bytes: cp = (b0 & 0x07)<<18 | (b1&0x3F)<<12 | (b2&0x3F)<<6 | (b3&0x3F).
         self.emit(abi::label(&four_byte));
         self.emit(abi::move_immediate(nbytes, "Integer", "4"));
+        // bug-312 K2: check the length BEFORE the fixed-offset continuation reads
+        // below. The "exactly one scalar" check at `assembled` runs after them, so
+        // a 4-byte lead on a shorter buffer read past the allocation before
+        // anything rejected it. Safe today only because a `String` is guaranteed
+        // well-formed UTF-8; the sibling decoders (`emit_utf8_decode_next`, the
+        // padChar check) were hardened for exactly this in audit-unicode and this
+        // one was left trusting.
+        self.emit(abi::compare_registers(length, nbytes));
+        self.emit(abi::branch_lt(&invalid));
         self.emit(abi::move_immediate(mask, "Integer", "7"));
         self.emit(abi::and_registers(cp, b0, mask));
         self.emit(abi::shift_left_immediate(cp, cp, 18));
         self.emit(abi::load_u8(cont, string, 9));
+        self.emit_continuation_byte_check(cont, mask, &invalid);
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(cont, cont, mask));
         self.emit(abi::shift_left_immediate(cont, cont, 12));
         self.emit(abi::or_registers(cp, cp, cont));
         self.emit(abi::load_u8(cont, string, 10));
+        self.emit_continuation_byte_check(cont, mask, &invalid);
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(cont, cont, mask));
         self.emit(abi::shift_left_immediate(cont, cont, 6));
         self.emit(abi::or_registers(cp, cp, cont));
         self.emit(abi::load_u8(cont, string, 11));
+        self.emit_continuation_byte_check(cont, mask, &invalid);
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(cont, cont, mask));
         self.emit(abi::or_registers(cp, cp, cont));
         self.emit(abi::branch(&assembled));

@@ -1283,6 +1283,12 @@ impl CodeBuilder<'_> {
         let copy_integer_done = self.label("fixed_string_copy_integer_done");
         let fraction_loop = self.label("fixed_string_fraction_loop");
         let fraction_done = self.label("fixed_string_fraction_done");
+        // bug-312 K1 presentation pre-round.
+        let round_skip = self.label("fixed_string_round_skip");
+        let round_pow_loop = self.label("fixed_string_round_pow_loop");
+        let round_pow_done = self.label("fixed_string_round_pow_done");
+        let exponent_s = self.temporary_vreg();
+        let exponent = exponent_s.as_str();
 
         self.emit(abi::move_register(raw, source_register));
         self.emit(abi::move_register(precision, precision_register));
@@ -1297,6 +1303,56 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_registers(raw, abi::ZERO, raw));
         self.emit(abi::move_immediate(negative, "Integer", "1"));
         self.emit(abi::label(&nonnegative));
+        // bug-312 K1: presentation pre-round, half-away-from-zero, mirroring the
+        // Money renderer below. The fraction loop truncates -- it emits
+        // `(frac*10)>>32` per digit and stops -- so `toString(toFixed("0.666"), 2b)`
+        // gave "0.66" where the Float overload gives "0.67", and
+        // `toString(toFixed("0.99"), 1b)` gave "0.9" instead of "1.0". The man page
+        // documents all three fixed-precision overloads identically, so they must
+        // not disagree.
+        //
+        // Rounding the RAW magnitude before it is split into int/frac is what makes
+        // a carry work: `0.99` at one place carries into the integer part, and the
+        // split below then sees the carried value. Adjusting digits after they were
+        // emitted could not do that. `raw` is already the magnitude here (the sign
+        // was stripped above), so half-away is a plain half-up add.
+        //
+        // half ULP at `precision` places = 2^32 * 0.5 * 10^-p = 2^31 / 10^p.
+        // For p >= 10 the Q32.32 fraction (~9.6 decimal digits) is exhausted and the
+        // remaining places render as trailing zeros, so no rounding is needed --
+        // which also keeps 10^p inside 64 bits.
+        self.emit(abi::compare_immediate(precision, "10"));
+        self.emit(abi::branch_ge(&round_skip));
+        self.emit(abi::move_register(exponent, precision));
+        self.emit(abi::move_immediate(divisor, "Integer", "1"));
+        self.emit(abi::move_immediate(scale, "Integer", "10"));
+        self.emit(abi::label(&round_pow_loop));
+        self.emit(abi::compare_immediate(exponent, "0"));
+        self.emit(abi::branch_eq(&round_pow_done));
+        self.emit(abi::multiply_registers(divisor, divisor, scale));
+        self.emit(abi::subtract_immediate(exponent, exponent, 1));
+        self.emit(abi::branch(&round_pow_loop));
+        self.emit(abi::label(&round_pow_done));
+        // half = ceil(2^31 / 10^p).
+        //
+        // The ceiling matters. A truncating divide makes the bias strictly LESS
+        // than half a ULP, so a value sitting exactly on the boundary rounds DOWN:
+        // 2^31/100 is 21474836.48, and with 21474836 the exactly-representable
+        // `0.125` rendered at two places gave "0.12" instead of "0.13". Rounding
+        // the bias up puts the boundary case on the away-from-zero side, which is
+        // the documented intent.
+        self.emit(abi::move_immediate(scale, "Integer", "2147483648"));
+        self.emit(abi::add_registers(scale, scale, divisor));
+        self.emit(abi::subtract_immediate(scale, scale, 1));
+        self.emit(abi::unsigned_divide_registers(scale, scale, divisor));
+        // Skip the bump when it would overflow i64 — only reachable at the very top
+        // of the Fixed range, where truncating is the safe answer.
+        self.emit(abi::move_immediate(quotient, "Integer", "9223372036854775807"));
+        self.emit(abi::subtract_registers(quotient, quotient, scale));
+        self.emit(abi::compare_registers(raw, quotient));
+        self.emit(abi::branch_gt(&round_skip));
+        self.emit(abi::add_registers(raw, raw, scale));
+        self.emit(abi::label(&round_skip));
         self.emit(abi::store_u64(raw, abi::stack_pointer(), magnitude_slot));
         self.emit(abi::shift_right_immediate(int_part, raw, 32));
         self.emit(abi::shift_left_immediate(frac_part, raw, 32));
