@@ -178,6 +178,16 @@ Rules, each a spanned error via `field_position`:
   output tree (§1 non-goal). This check is new relative to `validate_sources`, which
   has no destination field.
 
+> **bug-298 (fixed):** this section's `src` rule ("project-relative") was stated
+> here but never enforced — only `dst` was validated, and only against Unix
+> spellings. An absolute `src` made `Path::join` discard the project root and a
+> `../…` `src` walked above it, so building an untrusted project copied arbitrary
+> readable files into the distributable. Both `src` and `dst` now go through one
+> `path_stays_in_project` validator that also rejects `\` separators and Windows
+> drive prefixes (matching `libraries::source_is_bare`, so plan-47 does not inherit
+> the hole), and `copy_resources` additionally canonicalizes the walk root and
+> requires containment — which is what catches an in-tree symlink pointing out.
+
 Call it from the top-level validator next to `validate_mode`
 (`src/manifest/mod.rs:107`).
 

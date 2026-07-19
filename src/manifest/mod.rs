@@ -398,6 +398,53 @@ fn validate_mode(
 /// valid — resources are opt-in. Mirrors `validate_sources`' diagnostics, with
 /// one extra rule: a `dst` must not escape the build output, so an absolute
 /// `dst` or one containing a `..` component is rejected (§1 non-goal).
+/// Reject a manifest path that is not confined to the project tree (bug-298).
+///
+/// A `resources` entry's `src` and `dst` are both documented as project-relative,
+/// but only `dst` was checked and only against Unix spellings. An absolute `src`
+/// makes `Path::join` discard the project root entirely and a `../…` `src` walks
+/// above it, so `mfb build` on an untrusted or third-party project copied
+/// arbitrary readable files into the distributable — with exit 0 and no
+/// diagnostic.
+///
+/// The rules mirror [`libraries::source_is_bare`]'s escape half. That function is
+/// deliberately *stricter* — a library `source` must be a bare filename with no
+/// separator at all — so the two cannot share one predicate; what is shared is the
+/// set of escapes, including the `\` and drive-prefix cases it already rejects
+/// "so plan-47 does not inherit a hole". A resource path legitimately contains
+/// `/`, so only the escaping constructs are refused here.
+fn path_stays_in_project(value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err("is empty".to_string());
+    }
+    if value.contains('\0') {
+        return Err("contains a NUL byte".to_string());
+    }
+    if value.starts_with('/') || value.starts_with('\\') {
+        return Err(format!(
+            "is absolute (`{value}`) — it must be relative to the project root"
+        ));
+    }
+    // A Windows drive prefix is absolute on a plan-47 host even without a leading
+    // separator, and `Path::join` would discard the base there just as it does for
+    // a leading `/` here.
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        return Err(format!(
+            "carries a drive prefix (`{}:`) — it must be relative to the project root",
+            bytes[0] as char
+        ));
+    }
+    // Split on both separators: the previous `dst` guard split only on `/`, so
+    // `..\..\etc` walked straight through it.
+    if value.split(['/', '\\']).any(|component| component == "..") {
+        return Err(format!(
+            "contains a `..` component (`{value}`) — it may not escape the project root"
+        ));
+    }
+    Ok(())
+}
+
 fn validate_resources(
     manifest: &HashMap<String, JsonValue>,
     project_path: &Path,
@@ -437,8 +484,25 @@ fn validate_resources(
 
         // `src`: required, a non-empty string glob.
         match resource.get("src").and_then(|value| value.get::<String>()) {
-            Some(src) if !src.trim().is_empty() => {}
-            _ => {
+            // bug-298: `src` was checked only for non-emptiness, so the READ side
+            // of the copy was unbounded while the write side was contained.
+            Some(src) => {
+                if let Err(reason) = path_stays_in_project(&src) {
+                    rules::show_diagnostic(
+                        "PROJECT_JSON_FIELD_TYPE",
+                        &format!(
+                            "Resource entry #{index} field `src` {reason}. A resource source is \
+                             a glob relative to the project root."
+                        ),
+                        project_path,
+                        line,
+                        column,
+                        column + "\"resources\"".len(),
+                    );
+                    valid = false;
+                }
+            }
+            None => {
                 rules::show_diagnostic(
                     "PROJECT_JSON_FIELD_TYPE",
                     &format!(
@@ -456,12 +520,14 @@ fn validate_resources(
         // `dst`: required, a string that must not escape the output tree.
         match resource.get("dst").and_then(|value| value.get::<String>()) {
             Some(dst) => {
-                if dst.starts_with('/') || dst.split('/').any(|component| component == "..") {
+                // bug-298: this split only on `/` and treated only a leading `/`
+                // as absolute, so `..\..\etc` and `C:\foo` walked through it.
+                if let Err(reason) = path_stays_in_project(&dst) {
                     rules::show_diagnostic(
                         "PROJECT_JSON_FIELD_TYPE",
                         &format!(
-                            "Resource entry #{index} field `dst` must be a relative path within \
-                             the build output; it may not be absolute or contain `..`."
+                            "Resource entry #{index} field `dst` {reason}. A resource \
+                             destination is a relative path within the build output."
                         ),
                         project_path,
                         line,
@@ -973,6 +1039,54 @@ pub(crate) fn fallback_field_position(contents: &str) -> (usize, usize) {
 
 #[cfg(test)]
 mod tests {
+    /// bug-298: `mfb build` validated a `resources` entry's `dst` against escape
+    /// but checked `src` only for non-emptiness, so the READ side of the copy was
+    /// unbounded while the write side was contained. An absolute `src` makes
+    /// `Path::join` discard the project root and a `../…` `src` walks above it, so
+    /// building an untrusted or third-party project copied arbitrary readable
+    /// files into the distributable with exit 0 and no diagnostic. The `dst` guard
+    /// was separately Unix-only.
+    #[test]
+    fn resource_paths_may_not_escape_the_project() {
+        // Escapes, in every spelling. The last two are the ones the old `dst`
+        // guard missed entirely: it split only on `/` and treated only a leading
+        // `/` as absolute.
+        for escaping in [
+            "/etc/passwd",
+            "/tmp/secret/*.conf",
+            "../outside/*.conf",
+            "a/../../outside/*.conf",
+            "\\\\server\\share",
+            "..\\..\\outside\\*.conf",
+            "C:\\secret\\*.conf",
+            "d:/secret/*.conf",
+            "",
+            "   ",
+        ] {
+            assert!(
+                super::path_stays_in_project(escaping).is_err(),
+                "{escaping:?} must be rejected"
+            );
+        }
+
+        // Ordinary project-relative resource paths keep working -- including
+        // globs, nested directories, a trailing separator, and a leading `./`.
+        for contained in [
+            "assets/*.png",
+            "data/loops/*.ogg",
+            "cfg/",
+            "./data/x.txt",
+            "a.b.c",
+            "dir/..file",
+            "dotted../x",
+        ] {
+            assert!(
+                super::path_stays_in_project(contained).is_ok(),
+                "{contained:?} must be accepted"
+            );
+        }
+    }
+
     use super::*;
     use std::io::Write;
     use tempfile::TempDir;

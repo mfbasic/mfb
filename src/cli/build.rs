@@ -1861,6 +1861,30 @@ fn copy_resources(
         if !walk_root.is_dir() {
             continue;
         }
+        // bug-298 defense in depth: manifest validation rejects an escaping `src`,
+        // but that check is textual and this is the step that actually reads
+        // files. Canonicalize and require containment, so a symlink inside the
+        // project that points outside it cannot widen the read set either.
+        let canonical_root = project_root.canonicalize().map_err(|err| {
+            format!(
+                "failed to resolve project root '{}': {err}",
+                project_root.display()
+            )
+        })?;
+        let canonical_walk = walk_root.canonicalize().map_err(|err| {
+            format!(
+                "failed to resolve resource source '{}': {err}",
+                walk_root.display()
+            )
+        })?;
+        if !canonical_walk.starts_with(&canonical_root) {
+            return Err(format!(
+                "resource source '{}' resolves to '{}', which is outside the project root '{}'",
+                entry.src,
+                canonical_walk.display(),
+                canonical_root.display()
+            ));
+        }
         let mut files = Vec::new();
         collect_files_recursive(&walk_root, &mut files).map_err(|err| {
             format!(
@@ -2923,6 +2947,35 @@ mod tests {
     /// plan-55-A §4.3: the three worked examples — flat glob, `**` subtree
     /// preservation, and a single literal file — plus the empty-match no-op.
     #[test]
+    /// bug-298 defense in depth: manifest validation rejects an escaping `src`
+    /// textually, but `copy_resources` is the step that actually reads files, and
+    /// a symlink *inside* the project pointing outside it passes every textual
+    /// check. Canonicalized containment is what catches that.
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_refuses_a_source_that_resolves_outside_the_project() {
+        let project = tempfile::tempdir().expect("project dir");
+        let outside = tempfile::tempdir().expect("outside dir");
+        std::fs::write(outside.path().join("secret.conf"), b"secret").unwrap();
+        // An in-tree name that textually looks contained, but resolves out.
+        std::os::unix::fs::symlink(outside.path(), project.path().join("assets")).unwrap();
+
+        let out = project.path().join("build");
+        std::fs::create_dir_all(&out).unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "assets/*.conf".to_string(),
+            dst: "cfg/".to_string(),
+        }];
+        let err = copy_resources(project.path(), &entries, &out)
+            .expect_err("a source resolving outside the project must be refused");
+        assert!(
+            err.contains("outside the project root"),
+            "unexpected error: {err}"
+        );
+        // Nothing was copied.
+        assert!(!out.join("cfg/secret.conf").exists());
+    }
+
     fn copy_resources_maps_the_worked_examples() {
         let project = tempfile::tempdir().expect("project dir");
         let root = project.path();

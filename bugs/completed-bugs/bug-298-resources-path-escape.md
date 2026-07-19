@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security / Footgun
 
-Status: Open
-Regression Test: tests/ (new) — a `resources` entry with an absolute or `../` `src` (or a `\`/drive-prefix `dst`) is rejected
+Status: Fixed
+Regression Test: manifest::tests::resource_paths_may_not_escape_the_project + cli::build::tests::copy_resources_refuses_a_source_that_resolves_outside_the_project
 
 The `resources` manifest section (plan-55) validates a resource entry's `dst`
 against escape (rejects absolute or `..`) but only checks `src` non-empty.
@@ -103,3 +103,41 @@ The resource copier trusts `src` and validates `dst` only for Unix paths; a buil
 an untrusted project can exfiltrate local files. Mirroring the `dst`/`source_is_bare`
 rules onto `src` (and cross-platform `dst`) closes it. Low risk, high value for the
 untrusted-build story.
+
+## Resolution
+
+Both reported exfiltrations were reproduced first, against a real build:
+`"src": "/tmp/mfbres/secret/*.conf"` and `"src": "../outside/*.conf"` each landed
+the outside file's bytes in `build/cfg/` with exit 0 and no diagnostic.
+
+Two layers now close it, and they catch different things — which is why both are
+present rather than one being belt-and-braces:
+
+**1. Manifest validation.** A single `path_stays_in_project` validator is applied to
+`src` (which was checked only for non-emptiness) and to `dst` (whose guard split
+only on `/` and treated only a leading `/` as absolute). It rejects an empty value,
+a NUL byte, a leading `/` or `\`, a Windows drive prefix, and a `..` component
+splitting on **both** separators. Verified against a real build for every spelling:
+absolute, `../`, `..\..\`, and `C:\` are each rejected by name, while
+`assets/*.conf` still bundles normally.
+
+The report asked to share a validator with `libraries::source_is_bare`. That is not
+literally possible — `source_is_bare` is strictly stronger, requiring a *bare
+filename* with no separator at all, which a resource glob legitimately has. What is
+shared is the set of escapes, including the `\` and drive-prefix cases
+`source_is_bare` already rejects "so plan-47 does not inherit a hole"; the new
+validator's doc comment records the relationship so the two do not drift.
+
+**2. Copy-time containment.** `copy_resources` canonicalizes both the project root
+and the walk root and requires `starts_with`. This is not redundant with layer 1:
+layer 1 is *textual*, and an in-tree symlink is textually contained. Demonstrated —
+`ln -s /tmp/mfbres/secret assets` with `"src": "assets/*.conf"` passes every
+manifest check and is then refused at copy time with
+`resolves to '…', which is outside the project root`. The unit test reproduces
+exactly that symlink shape.
+
+plan-55-A already specified `src` as "project-relative"; the rule was stated and
+simply never enforced, so this is the implementation catching up to its own design.
+That doc now records the gap and the fix.
+
+Full `cargo test` green; acceptance 1005/1005.
