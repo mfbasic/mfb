@@ -1,11 +1,11 @@
 # bug-309: `fs::createTempFile` fails on all macOS builds — open flags miscomputed, O_CREAT dropped
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Effort: small (<1h)
 Severity: HIGH
 Class: Correctness (platform)
 
-Status: Open
+Status: Fixed 2026-07-18
 Regression Test: tests/rt-behavior (new) — `fs::createTempFile()` creates a file on macOS
 
 `temp_file_open_flags` returns the literal `"16779266"` for the macOS branch =
@@ -87,3 +87,35 @@ would prevent recurrence (optional).
 A one-constant arithmetic error drops O_CREAT, breaking `fs::createTempFile` on all
 macOS builds; correcting the literal fixes it. HIGH because a shipped builtin is
 entirely non-functional on a supported platform.
+
+## Resolution
+
+`temp_file_open_flags`'s macOS literal is now `16779778`. The comment beside it
+already spelled the correct OR — `0x2|0x200|0x800|0x1000000` — but the decimal
+written next to it had been evaluated without O_CREAT (0x200 = 512).
+
+Verified both ways: `RES f = fs::createTempFile()` failed with
+`Error: 7-705-0004 / Requested item, key, file, or resource was not found.`
+(exit 255) before, and prints `created` at exit 0 after.
+
+### The acceptance suite was green while this was completely broken
+
+Three existing fixtures had the failure baked into their goldens as expected
+output — `func_fs_createTempFile_valid`, `func_fs_isBuffered_valid` and
+`func_fs_setBuffered_valid` each recorded
+
+```
+Error: 7-705-0004
+Requested item, key, file, or resource was not found.
+[exit 255]
+```
+
+so the suite passed while `fs::createTempFile()` failed on every macOS build.
+Those goldens now record real behavior (`1 / TRUE / TRUE`, `FALSE / TRUE`, …).
+This is worth remembering: a golden regenerated while a bug is live enshrines the
+bug, and the suite then actively defends it. Two of the three fixtures had nothing
+to do with temp files — they just used one as a scratch file — which is how the
+breakage stayed invisible.
+
+New fixture: `tests/rt-behavior/fs/fs-create-temp-file-rt`, which asserts the
+create-and-close path directly rather than incidentally.

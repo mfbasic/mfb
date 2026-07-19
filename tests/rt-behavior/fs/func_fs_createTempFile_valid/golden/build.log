@@ -6,6 +6,7 @@ $ mfb build tests/rt-behavior/fs/func_fs_createTempFile_valid
 Wrote executable to tests/rt-behavior/fs/func_fs_createTempFile_valid/build/func_fs_createTempFile_valid.out
 [exit 0]
 $ tests/rt-behavior/fs/func_fs_createTempFile_valid/build/func_fs_createTempFile_valid.out
-Error: 7-705-0004
-Requested item, key, file, or resource was not found.
-[exit 255]
+1
+TRUE
+TRUE
+[exit 0]

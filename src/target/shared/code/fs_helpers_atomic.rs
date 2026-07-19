@@ -266,9 +266,16 @@ fn temp_file_open_flags(target: &str) -> &'static str {
     if target.starts_with("linux") {
         "524482"
     } else {
-        // O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC = 0x2|0x200|0x800|0x1000000 = 16779266.
+        // O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC = 0x2|0x200|0x800|0x1000000 = 16779778.
         // The temp fd was previously opened without O_CLOEXEC (bug-102).
-        "16779266"
+        //
+        // This decimal was 16779266 — the same OR expression, but evaluated
+        // without O_CREAT (0x200 = 512), which the comment above already spelled
+        // out correctly (bug-309). Opening a freshly generated, non-existent UUID
+        // name with O_EXCL and no O_CREAT is an unconditional ENOENT, so
+        // `fs::createTempFile()` failed on every macOS build with
+        // ERR_PATH_NOT_FOUND. Linux's 524482 was always right.
+        "16779778"
     }
 }
 

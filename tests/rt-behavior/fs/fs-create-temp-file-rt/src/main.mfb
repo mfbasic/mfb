@@ -1,0 +1,14 @@
+' bug-309: the macOS temp-file open flags omitted O_CREAT, so a freshly generated
+' UUID name opened with O_EXCL and no O_CREAT was an unconditional ENOENT and
+' fs::createTempFile() failed on every macOS build with ERR_PATH_NOT_FOUND.
+' Nothing is printed about the file itself - the name is random, so the golden
+' would not be reproducible.
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  RES f AS File = fs::createTempFile()
+  fs::close(f)
+  io::print("created")
+  RETURN 0
+END FUNC
