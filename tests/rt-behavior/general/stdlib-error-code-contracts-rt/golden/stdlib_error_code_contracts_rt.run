@@ -1,0 +1,12 @@
+parse Ja 2020 -> 77050003
+iso 2020-01-01T00:00:00 -> 77050003
+iso 2020-01-01T00:00:00+ -> 77050003
+entity -> 77050003
+parse ok Jan 2020
+iso ok 2020-01-01T00:00:00Z
+iso ok 2020-06-15T12:30:45+05:30
+iso ok 2020-06-15T12:30:45-0800
+entity ok AB&
+multi-at host=c
+normal host=example.com user=user
+bare host=example.com

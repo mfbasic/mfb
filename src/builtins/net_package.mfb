@@ -30,6 +30,28 @@ FUNC __net_indexOf(s AS String, needle AS String, start AS Integer) AS Integer
   RETURN strings::find(s, needle, start)
 END FUNC
 
+' The index of the LAST occurrence of `needle` in `s`, or -1. RFC 3986 / WHATWG
+' put the userinfo boundary at the last `@` in the authority, not the first
+' (bug-306 S3).
+FUNC __net_lastIndexOf(s AS String, needle AS String) AS Integer
+  MUT best AS Integer = 0 - 1
+  MUT at AS Integer = 0
+  MUT scanning AS Boolean = TRUE
+  WHILE scanning
+    LET found AS Integer = __net_indexOf(s, needle, at)
+    IF found < 0 THEN
+      scanning = FALSE
+    ELSE
+      best = found
+      at = found + 1
+      IF at >= len(s) THEN
+        scanning = FALSE
+      END IF
+    END IF
+  WEND
+  RETURN best
+END FUNC
+
 ' Half-open grapheme slice `s[start, stop)`.
 FUNC __net_slice(s AS String, start AS Integer, stop AS Integer) AS String
   IF stop <= start THEN
@@ -102,7 +124,11 @@ FUNC __net_toUrl(href AS String) AS Url
   MUT username AS String = ""
   MUT password AS String = ""
   MUT hostport AS String = authority
-  LET atIndex AS Integer = __net_indexOf(authority, "@", 0)
+  ' bug-306 S3: the LAST `@` is the userinfo/host boundary (RFC 3986 §3.2,
+  ' WHATWG URL). Splitting on the first left an `@` inside the host for an
+  ' authority carrying more than one -- `http://a@b@c/` produced host `b@c`, which
+  ' then passed host parsing unvalidated.
+  LET atIndex AS Integer = __net_lastIndexOf(authority, "@")
   IF atIndex >= 0 THEN
     LET userinfo AS String = __net_slice(authority, 0, atIndex)
     hostport = __net_slice(authority, atIndex + 1, len(authority))

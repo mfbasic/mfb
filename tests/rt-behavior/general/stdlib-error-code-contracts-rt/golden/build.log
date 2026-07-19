@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-behavior/general/stdlib-error-code-contracts-rt
+Wrote AST to tests/rt-behavior/general/stdlib-error-code-contracts-rt/stdlib_error_code_contracts_rt.ast
+Wrote IR to tests/rt-behavior/general/stdlib-error-code-contracts-rt/stdlib_error_code_contracts_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/stdlib-error-code-contracts-rt
+Wrote executable to tests/rt-behavior/general/stdlib-error-code-contracts-rt/build/stdlib_error_code_contracts_rt.out
+[exit 0]
+$ tests/rt-behavior/general/stdlib-error-code-contracts-rt/build/stdlib_error_code_contracts_rt.out
+parse Ja 2020 -> 77050003
+iso 2020-01-01T00:00:00 -> 77050003
+iso 2020-01-01T00:00:00+ -> 77050003
+entity -> 77050003
+parse ok Jan 2020
+iso ok 2020-01-01T00:00:00Z
+iso ok 2020-06-15T12:30:45+05:30
+iso ok 2020-06-15T12:30:45-0800
+entity ok AB&
+multi-at host=c
+normal host=example.com user=user
+bare host=example.com
+[exit 0]

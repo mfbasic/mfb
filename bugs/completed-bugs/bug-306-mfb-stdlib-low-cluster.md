@@ -5,8 +5,8 @@ Effort: small (<1h across items)
 Severity: LOW
 Class: Error-handling / Correctness / Docs
 
-Status: Open
-Regression Test: per-item
+Status: Fixed
+Regression Test: tests/rt-behavior/general/stdlib-error-code-contracts-rt (S1/S2/S3); S4 is a comment
 
 LOW-severity correctness/error-handling residuals in the hand-written
 MFBASIC-source stdlib, found during goal-06 (first review pass over the `.mfb`
@@ -97,3 +97,52 @@ Each item is a single cited site across four `.mfb` packages; land per item.
 Four LOW `.mfb` stdlib residuals — mostly wrong-error-code and a URL-parsing edge —
 each a small localized fix. Value is honest error codes and edge correctness for the
 untrusted-input packages.
+
+## Resolution
+
+All three behavioural items were reproduced first, and each produced exactly the
+reported symptom: `77050001` for a zoneless ISO timestamp, `77050010` for a long
+numeric entity, and host `b@c` for `http://a@b@c/`.
+
+**S1 — error code only; the rejection itself is correct.** The report bundles two
+claims, and they resolve differently. The wrong *code* is a real defect: fixed-count
+`strings::mid` calls with no length check raise `ErrIndexOutOfRange` where the module
+documents structural failures as `ErrInvalidFormat`. A new `__datetime_peek` helper
+returns `""` past the end instead, so each caller reaches its own mismatch path and
+reports the documented code; it is applied at all four cited sites (`readOffset`'s
+head and `:`, `monthFromName`'s two candidates, the AM/PM marker).
+
+But `parseIso` **should** reject a zoneless timestamp. The man page states the offset
+is mandatory "because a conforming RFC 3339 timestamp always carries its own offset",
+and contrasts it with `datetime::parse`, which does take a zone. That is a documented
+design decision, not an oversight, so it is unchanged — only its diagnostic improved.
+
+**S2** — both numeric-entity parsers stop accumulating once the value passes
+`1114111`, the maximum Unicode scalar. `-1` is already their "not a valid entity"
+signal, so the caller needed no change and the overflow can no longer preempt the
+range check.
+
+**S3** — a new `__net_lastIndexOf` splits userinfo at the **last** `@` per RFC 3986
+§3.2, so `http://a@b@c/` now yields host `c`.
+
+**S4** — the comment attributed clamping to `__collections_slice`'s MFBASIC body. The
+clamping is real but lives in the *native* lowering; the body genuinely does not
+clamp. Both the caller comment and the function itself now say so, and the function
+is explicitly marked dead so it is not read as a specification.
+
+### Verification
+
+The fixture asserts malformed and valid input side by side, which matters because
+three of these fixes add guards: a test that only checked the new error codes would
+not catch a guard that started rejecting input that previously worked. Valid ISO
+timestamps in three offset spellings, a valid patterned parse, valid entities, and
+both ordinary URL shapes all still succeed.
+
+55 `.ir` goldens moved. Most is line-number churn — added comment lines shift the
+recorded lines of every fixture importing these packages — but not all of it: S2's
+range check appears as a real new `if` op in the IR, which is the intended change.
+Runtime behaviour is unchanged and was verified rather than assumed, including
+`crypto-kat-valid` (known-answer tests) and `json-behavior`, whose `build.log`s are
+byte-identical. The only non-`.ir` change in the tree is the new fixture itself.
+
+Full `cargo test` green; artifact gate 0 diffs; acceptance 1009/1009.

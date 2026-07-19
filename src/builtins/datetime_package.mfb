@@ -701,6 +701,24 @@ FUNC __datetime_isDigit(ch AS String) AS Boolean
   RETURN ch >= "0" AND ch <= "9"
 END FUNC
 
+' A bounded fixed-count slice: `strings::mid(value, start, count)` when the input
+' actually has that many characters left, and `""` when it does not (bug-306 S1).
+'
+' `strings::mid` raises ErrIndexOutOfRange (77050001) past the end, but truncated or
+' malformed input is a STRUCTURAL problem and this module documents those as
+' ErrInvalidFormat (77050003). Returning `""` lets each caller reach its own
+' mismatch path and report the documented code, instead of leaking an
+' internal-looking index error to the caller.
+FUNC __datetime_peek(value AS String, start AS Integer, count AS Integer) AS String
+  IF start < 0 OR count <= 0 THEN
+    RETURN ""
+  END IF
+  IF start + count > len(value) THEN
+    RETURN ""
+  END IF
+  RETURN strings::mid(value, start, count)
+END FUNC
+
 FUNC __datetime_readNum(value AS String, start AS Integer, maxDigits AS Integer) AS __datetime_NumRead
   MUT i AS Integer = start
   MUT acc AS Integer = 0
@@ -723,12 +741,12 @@ FUNC __datetime_monthFromName(value AS String, start AS Integer) AS __datetime_N
   WHILE m <= 12
     LET full AS String = strings::lower(__datetime_monthName(m, TRUE))
     LET flen AS Integer = len(full)
-    LET candFull AS String = strings::mid(lowered, start, flen)
+    LET candFull AS String = __datetime_peek(lowered, start, flen)
     IF candFull = full THEN
       RETURN __datetime_NumRead[m, start + flen]
     END IF
     LET short AS String = strings::lower(__datetime_monthName(m, FALSE))
-    LET candShort AS String = strings::mid(lowered, start, 3)
+    LET candShort AS String = __datetime_peek(lowered, start, 3)
     IF candShort = short THEN
       RETURN __datetime_NumRead[m, start + 3]
     END IF
@@ -749,7 +767,14 @@ END FUNC
 ' Reads an offset (`Z`, `±HH:MM`, or `±HHMM`) at `start`; returns the offset in
 ' seconds (encoded in `.value`) and the next position.
 FUNC __datetime_readOffset(value AS String, start AS Integer) AS __datetime_NumRead
-  LET head AS String = strings::mid(value, start, 1)
+  ' bug-306 S1: a zoneless timestamp leaves nothing here. `parseIso` requiring an
+  ' offset is deliberate and documented (RFC 3339 always carries one), so the
+  ' rejection is right -- but it must be the documented ErrInvalidFormat, not the
+  ' ErrIndexOutOfRange a bare `mid` past the end would raise.
+  LET head AS String = __datetime_peek(value, start, 1)
+  IF head = "" THEN
+    FAIL error(77050003, "datetime: expected offset")
+  END IF
   IF head = "Z" OR head = "z" THEN
     RETURN __datetime_NumRead[0, start + 1]
   END IF
@@ -761,7 +786,7 @@ FUNC __datetime_readOffset(value AS String, start AS Integer) AS __datetime_NumR
   END IF
   LET hh AS __datetime_NumRead = __datetime_readNum(value, start + 1, 2)
   MUT pos AS Integer = hh.nextPos
-  IF pos < len(value) AND strings::mid(value, pos, 1) = ":" THEN
+  IF pos < len(value) AND __datetime_peek(value, pos, 1) = ":" THEN
     pos = pos + 1
   END IF
   LET mm AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
@@ -859,7 +884,9 @@ FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime_Fi
         nanos = frac
         vi = r.nextPos
       ELSEIF ch = "a" THEN
-        LET marker AS String = strings::upper(strings::mid(value, vi, 2))
+        ' bug-306 S1: bounded, so a truncated AM/PM marker reports the module's
+        ' documented ErrInvalidFormat rather than ErrIndexOutOfRange.
+        LET marker AS String = strings::upper(__datetime_peek(value, vi, 2))
         IF marker = "PM" THEN
           isPM = TRUE
           hadPM = TRUE

@@ -64,10 +64,15 @@ FUNC __collections_sort OF T(value AS List OF T) AS List OF T
 END FUNC
 
 ' plan-39 A4: take/drop are contiguous ranges, so delegate to __collections_slice
-' (natively lowered as a bulk range copy). __collections_slice clamps start into
+' (natively lowered as a bulk range copy). The NATIVE lowering clamps start into
 ' [0, len] and stop into [start, len], which reproduces the old element-by-element
 ' bounds exactly: take(count) = slice(0, count) (count<0 or >len both collapse the
 ' same way), drop(count) = slice(count, len).
+'
+' bug-306 S4: this used to attribute the clamping to `__collections_slice`, i.e. to
+' the MFBASIC body below. That body does NOT clamp -- it is dead, because `slice` is
+' natively lowered, so the discrepancy was invisible. Anyone reading the body as the
+' specification of the behaviour would have been misled.
 FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
   RETURN __collections_slice(value, 0, count)
 END FUNC
@@ -84,6 +89,10 @@ FUNC __collections_reverse OF T(value AS List OF T) AS List OF T
   RETURN result
 END FUNC
 
+' bug-306 S4: this body is DEAD -- `slice` is natively lowered as a bulk range copy,
+' and the native path is what clamps `start` into [0, len] and `stop` into
+' [start, len]. This source does not clamp, so it is not a usable specification of
+' the behaviour; do not read it as one.
 FUNC __collections_slice OF T(value AS List OF T, start AS Integer, stop AS Integer) AS List OF T
   MUT result AS List OF T = []
   MUT i AS Integer = start

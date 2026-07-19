@@ -811,6 +811,14 @@ FUNC __encoding_parseDecimal(text AS String) AS Integer
       RETURN -1
     END IF
     value = value * 10 + (c - 48)
+    ' bug-306 S2: stop once the value is past the maximum Unicode scalar. Checked
+    ' Integer arithmetic means a long entity (`&#999...;`) would otherwise overflow
+    ' i64 and fail ErrOverflow (77050010) BEFORE the caller's range check could
+    ' report the module's documented ErrInvalidFormat (77050003). `-1` is the
+    ' existing "not a valid entity" signal, so the caller needs no change.
+    IF value > 1114111 THEN
+      RETURN -1
+    END IF
     i = i + 1
   WEND
   RETURN value
@@ -831,6 +839,10 @@ FUNC __encoding_parseHex(text AS String) AS Integer
       RETURN -1
     END IF
     value = value * 16 + d
+    ' bug-306 S2: same cap as the decimal parser above.
+    IF value > 1114111 THEN
+      RETURN -1
+    END IF
     i = i + 1
   WEND
   RETURN value

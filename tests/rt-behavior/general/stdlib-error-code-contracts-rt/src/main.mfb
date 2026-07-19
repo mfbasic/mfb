@@ -1,0 +1,72 @@
+' bug-306 S1/S2/S3: three stdlib packages reported the wrong error code for
+' malformed input, or mis-parsed an edge case.
+'
+' S1 datetime -- fixed-count `strings::mid` calls with no length check raised
+'    ErrIndexOutOfRange (77050001) on truncated input, where the module documents
+'    structural failures as ErrInvalidFormat (77050003). Note `parseIso` REQUIRING
+'    an offset is deliberate and documented (RFC 3339 always carries one), so only
+'    the code was wrong, not the rejection.
+' S2 encoding -- a long numeric HTML entity overflowed i64 in checked arithmetic
+'    before the range check ran, so it failed ErrOverflow (77050010).
+' S3 net -- userinfo split on the FIRST `@` rather than the last, leaving an `@`
+'    inside the host (`http://a@b@c/` gave host `b@c`), contrary to RFC 3986 §3.2.
+IMPORT io
+IMPORT datetime
+IMPORT encoding
+IMPORT net
+
+FUNC tryParse(v AS String, pat AS String) AS Integer
+  LET d AS datetime::DateTime = datetime::parse(v, pat)
+  io::print("parse ok " & v)
+  RETURN 0
+  TRAP(e)
+    io::print("parse " & v & " -> " & toString(e.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC tryIso(v AS String) AS Integer
+  LET d AS datetime::DateTime = datetime::parseIso(v)
+  io::print("iso ok " & v)
+  RETURN 0
+  TRAP(e)
+    io::print("iso " & v & " -> " & toString(e.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC tryEntity(v AS String) AS Integer
+  LET s AS String = encoding::htmlUnescape(v)
+  io::print("entity ok " & s)
+  RETURN 0
+  TRAP(e)
+    io::print("entity -> " & toString(e.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' Malformed input reports the documented structural code.
+  LET a AS Integer = tryParse("Ja 2020", "MMM yyyy")
+  LET b AS Integer = tryIso("2020-01-01T00:00:00")
+  LET c AS Integer = tryIso("2020-01-01T00:00:00+")
+  LET d AS Integer = tryEntity("&#99999999999999999999999;")
+  ' Valid input is unaffected -- the guards must not reject what already worked.
+  LET e AS Integer = tryParse("Jan 2020", "MMM yyyy")
+  LET f AS Integer = tryIso("2020-01-01T00:00:00Z")
+  LET g AS Integer = tryIso("2020-06-15T12:30:45+05:30")
+  LET h AS Integer = tryIso("2020-06-15T12:30:45-0800")
+  LET i AS Integer = tryEntity("&#65;&#x42;&amp;")
+  ' Userinfo splits at the LAST `@`; ordinary URLs are unaffected.
+  LET u1 AS net::Url = net::toUrl("http://a@b@c/")
+  io::print("multi-at host=" & u1.host)
+  LET u2 AS net::Url = net::toUrl("http://user:pw@example.com:8080/p")
+  io::print("normal host=" & u2.host & " user=" & u2.username)
+  LET u3 AS net::Url = net::toUrl("http://example.com/p")
+  io::print("bare host=" & u3.host)
+  RETURN 0
+  TRAP(err)
+    io::print("main trapped: " & toString(err.code))
+    RETURN 1
+END TRAP
+END FUNC
