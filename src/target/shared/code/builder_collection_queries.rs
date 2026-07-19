@@ -1535,6 +1535,10 @@ impl CodeBuilder<'_> {
         ));
         let item =
             self.emit_load_collection_payload(&element_type, &scratch8, &scratch11, &scratch12)?;
+        // bug-307: stash the block pointer before the callback; the call clobbers
+        // every caller-saved register, so the register alone cannot be relied on.
+        let free_slot = self.allocate_stack_object("for_each_item_free", 8);
+        self.emit(abi::store_u64(&item, abi::stack_pointer(), free_slot));
         self.emit(abi::move_register(&abi::argument_register(0)?, &item));
         self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
         self.emit_direct_callable_branch(&scratch17);
@@ -1544,6 +1548,9 @@ impl CodeBuilder<'_> {
         // an inline TRAP the raw error routes to the capture point (plan-26-B).
         self.emit_callback_failure_exit(None)?;
         self.emit(abi::label(&ok_label));
+        // bug-307: the callback took the item by value and retains nothing, so the
+        // freshly materialized String block is dead here.
+        self.free_collection_loop_item(free_slot, &element_type)?;
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
         self.emit(abi::add_immediate(
             &scratch10,
@@ -1635,6 +1642,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done));
         let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
+        // bug-307: stash before the callback (calls clobber caller-saved registers).
+        let free_slot = self.allocate_stack_object("transform_item_free", 8);
+        self.emit(abi::store_u64(&item, abi::stack_pointer(), free_slot));
         self.emit(abi::move_register(&abi::argument_register(0)?, &item));
         self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
         self.emit_direct_callable_branch(&scratch17);
@@ -1652,6 +1662,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
+        // bug-307: only AFTER the callback's result is safely in its slot. The free
+        // is a call and would otherwise destroy RESULT_VALUE_REGISTER before it was
+        // stored. The appended value is that result, a separate allocation, so the
+        // source item is not retained and is dead here.
+        self.free_collection_loop_item(free_slot, &element_type)?;
         // The output accumulator is a private, uniquely-owned buffer, so append
         // each transformed item in place with geometric headroom (plan-01 §4.2)
         // — amortized O(1) instead of the O(n) splice the singleton+insert did.
@@ -1751,6 +1766,13 @@ impl CodeBuilder<'_> {
         // Private accumulator → append in place with headroom (plan-01 §4.2).
         self.lower_list_append_in_place(output_slot, item_slot, &collection.type_, &element_type)?;
         self.emit(abi::label(&skip_label));
+        // bug-307: freed after the append on purpose. `emit_copy_payload_to_collection`
+        // COPIES the String's bytes into the output's packed data region rather than
+        // storing the pointer, so the source block is dead on both the keep and skip
+        // paths — which is why the free sits below `skip_label`, covering both.
+        // `item_slot` already holds the pointer (stored before the callback), so it
+        // survives both calls.
+        self.free_collection_loop_item(item_slot, &element_type)?;
         self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
@@ -1834,6 +1856,14 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
+        // bug-307: `reduce` is deliberately NOT given the loop-item free the other
+        // three higher-order members get. Its reducer may return the item itself as
+        // the new accumulator (`reduce(xs, "", FUNC(acc, x) RETURN x)`), so the
+        // block can still be live after the callback returns — freeing it would
+        // trade this leak for a use-after-free, which is strictly worse. Closing it
+        // needs the accumulator to take an owning copy, which is the same
+        // aliasing question the comment below already records.
+        //
         // A failing reducer: no cleanup — the accumulator may still alias the
         // borrowed seed (no owning copy is inserted for it), so freeing it here
         // would be a use-after-free after the handler recovers; the success path
@@ -2036,6 +2066,56 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit_load_collection_payload(element_type, &scratch8, &scratch11, &scratch12)
+    }
+
+    /// Release a loop item that [`Self::load_collection_loop_item`] materialized
+    /// fresh (bug-307).
+    ///
+    /// Every arm of `emit_load_collection_payload` except `String` hands back a
+    /// borrow -- a scalar loaded from the packed data region, or a pointer into it.
+    /// The `String` arm is the exception: it `arena_alloc`s a fresh owned block
+    /// (`emit_materialize_string_from_bytes`) because a packed String has no
+    /// standalone header to point at. That block was moved into the callback's
+    /// argument register and then never referenced again and never freed, so
+    /// `forEach`/`transform`/`filter`/`reduce` over a `List OF String` grew arena
+    /// RSS by one block per element per pass -- unbounded across repeated
+    /// iteration, since nothing reclaimed it between passes.
+    ///
+    /// The callback receives it by value and does not take ownership, so the block
+    /// is dead the moment the callback returns and freeing it here is safe. A
+    /// callback that *returns* something derived from it returns a separate
+    /// allocation.
+    ///
+    /// A no-op for every other element type, which allocate nothing to free.
+    /// Takes the item by STACK SLOT, not by register, and deliberately so: the
+    /// callback between materialization and this free is a call, and a call
+    /// destroys every caller-saved register (see [[arena-alloc-clobbers-x14-x15]]).
+    /// Reading the pointer back from a slot is what makes the free safe across it.
+    pub(super) fn free_collection_loop_item(
+        &mut self,
+        item_slot: usize,
+        element_type: &str,
+    ) -> Result<(), String> {
+        if element_type != "String" {
+            return Ok(());
+        }
+        let size_slot = self.allocate_stack_object("loop_item_free_size", 8);
+        self.emit_inlined_block_size_from_ptr_slot("String", item_slot, size_slot)?;
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_FREE_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        Ok(())
     }
 
     pub(super) fn advance_collection_loop(

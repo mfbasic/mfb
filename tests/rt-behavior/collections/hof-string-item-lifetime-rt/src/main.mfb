@@ -1,0 +1,63 @@
+' bug-307: emit_load_collection_payload's String arm arena_allocs a FRESH owned
+' block per element (a packed String has no standalone header to point at), unlike
+' every other arm, which hands back a borrow. That block was moved into the
+' callback's argument register and then never referenced again and never freed, so
+' forEach/transform/filter over a List OF String grew arena RSS by one block per
+' element per pass -- unbounded across repeated iteration.
+'
+' The leak itself is measured out-of-tree (RSS across iteration counts). What this
+' fixture pins is the thing that would break if the free were placed wrongly: every
+' member must still return CORRECT values. The first attempt at the fix segfaulted
+' here, because freeing before the callback's result was stored destroyed
+' RESULT_VALUE_REGISTER -- arena_free is a call, and a call clobbers every
+' caller-saved register.
+'
+' `reduce` is deliberately NOT freed: its reducer may return the item itself as the
+' new accumulator (pickLast below), so freeing would be a use-after-free. That case
+' is exercised here to keep it that way.
+IMPORT io
+IMPORT collections
+IMPORT strings
+
+SUB show(s AS String)
+  io::print("  item=" & s)
+END SUB
+
+FUNC upper(s AS String) AS String
+  RETURN strings::upper(s)
+END FUNC
+
+FUNC isLong(s AS String) AS Boolean
+  RETURN len(s) > 2
+END FUNC
+
+FUNC concat(acc AS String, x AS String) AS String
+  RETURN acc & x
+END FUNC
+
+FUNC pickLast(acc AS String, x AS String) AS String
+  RETURN x
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["ab", "cde", "fghi"]
+  io::print("forEach:")
+  collections::forEach(xs, show)
+  LET t AS List OF String = collections::transform(xs, upper)
+  io::print("transform=" & collections::get(t, 0) & "," & collections::get(t, 1) & "," & collections::get(t, 2))
+  LET f AS List OF String = collections::filter(xs, isLong)
+  io::print("filter n=" & toString(len(f)) & " [0]=" & collections::get(f, 0) & " [1]=" & collections::get(f, 1))
+  io::print("reduce=" & collections::reduce(xs, "", concat))
+  ' The reducer returns the item itself -- the aliasing case that makes freeing
+  ' reduce's loop item unsafe.
+  io::print("reduce-alias=" & collections::reduce(xs, "", pickLast))
+  ' Iterating repeatedly must keep producing the same answers, which it would not
+  ' if a freed block were reused.
+  MUT round AS Integer = 0
+  WHILE round < 50
+    collections::forEach(xs, show)
+    round = round + 1
+  WEND
+  io::print("stable after repeats")
+  RETURN 0
+END FUNC
