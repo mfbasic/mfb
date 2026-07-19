@@ -1454,6 +1454,23 @@ impl<'a> AbiSerializer<'a> {
                 Ok(())
             }
             8 => self.serialize_function_type(entry),
+            // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
+            // two type ids and must hash structurally like kinds 4/5/7. Under the
+            // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,
+            // which embeds table-position-dependent ids: an unrelated renumber
+            // changed the hash with no semantic change, and a change to the STATE
+            // record's own shape left the hash identical.
+            11 => {
+                self.put_str("state");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
+                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
+            }
+            // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
+            // two type ids and must hash structurally like kinds 4/5/7. Under the
+            // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,
+            // which embeds table-position-dependent ids: an unrelated renumber
+            // changed the hash with no semantic change, and a change to the STATE
+            // record's own shape left the hash identical.
             _ => {
                 self.put_str("opaque");
                 self.put_str(string_at(self.strings, entry.name)?);

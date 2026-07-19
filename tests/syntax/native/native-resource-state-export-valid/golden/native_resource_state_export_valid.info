@@ -16,8 +16,8 @@ Container:
   flags: 0x00000001
   signature type: unsigned
   signature length: 0
-  package binary hash: 8f2ed0822b6b57428605f1cc342734ead3c93ecc4907cd1f28598e1b43f92a92
-  content hash: e4ef5f79c3e2d49bd9afd21236d6f28f9a584bd833563d2bb0a08949229fb071
+  package binary hash: f060a36675293dd813d523e51960a933692157a8ee1a329d0f7a3f948a2a1545
+  content hash: 497a6de08239ff9ee9832483bd8fe6fd7926fbb5922d80f48d905b2afeb14a58
   binary representation length: 2368
 
 Manifest:
@@ -43,9 +43,9 @@ Binary Representation:
 
 Exports:
   FUNC openDb
-    sigHash: 757eedce5758400f8ad9ecaa6b29503319c7e6b629e4381c3aef0a0838e20bd8
+    sigHash: b8561a90998827e05538915412d22f9eddc3c0a6ba8c3ca810706e97ec77dc17
   FUNC exec
-    sigHash: d8018a629facaec2d8560a9ab8e3cb83fb1123536bf762259e67e3f6e7a5f8de
+    sigHash: bc8e8072bf1f9c670fc289a4a4207a0db54011437b27b859c1a3a5d955f86ce6
   TYPE DbInfo
     sigHash: 3204c637c7eec193feb5d442fff2917b3ff291d5d4adf5e32cd3fed1bbf4d63b
   TYPE Db

@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (ABI hashing)
 
-Status: Open
-Regression Test: src/binary_repr/tests.rs (new) — kind-11 sig hash is structural (stable under unrelated renumbering, changes when the STATE record changes)
+Status: Fixed
+Regression Test: src/binary_repr/tests.rs::abi_serializer_hashes_state_composites_structurally — kind-11 sig hash is structural (stable under unrelated renumbering, changes when the STATE record changes)
 
 The ABI signature hasher `AbiSerializer::serialize_type_inner` handles type kinds
 1–8 structurally but plan-52-D's kind 11 (`File STATE Cursor` composite) falls
@@ -106,3 +106,60 @@ wants the sweep.
 The cross-package stateful-resource feature's ABI hash is currently
 position-sensitive and structure-blind. A structural kind-11 arm fixes it; the
 risk is the coordinated hash-format version bump and golden regeneration.
+
+## Resolution
+
+`serialize_type_inner` grew an `11 =>` arm that mirrors kind 5: it emits the tag
+`"state"` followed by the structurally-serialized base type and state type. The
+kind-11 wire encoding is untouched — only what the ABI hasher reads out of it.
+
+`abi_serializer_hashes_state_composites_structurally` covers both halves of the
+report, and both were confirmed failing against the unfixed serializer:
+
+- interning an unrelated composite ahead of the STATE payload renumbers the type
+  table but no longer moves the hash (this is the assertion that fired first);
+- changing the state type's own shape (`List OF Integer` → `List OF String`) now
+  changes the hash;
+- plus a guard that a STATE composite never collides with its bare base type.
+
+### Deviation: ABI_FORMAT_VERSION was NOT bumped
+
+The report called for a coordinated bump. That was implemented, then reverted on
+evidence. The bump broke 14 tests across `audit`, `cli::pkg`, `manifest`,
+`monomorph`, `resolver` and `syntaxcheck` — every one of them a checked-in `.mfp`
+fixture rejected wholesale by the version gate in `read_abi_index`. Reverting only
+the bump, with the structural arm still in place, returned the whole suite to green
+— which proves none of those fixtures export a kind-11 type and therefore that not
+one of their hashes actually moved.
+
+That is the argument against the bump. The gate guards the ABI_INDEX *wire
+encoding*, which this change does not touch; bumping it rejects every package
+built to date, the vast majority of which have no `STATE` export and no changed
+hash. Meanwhile a package that genuinely does carry a stale kind-11 hash is
+already caught — more precisely, naming the specific symbol — by
+`validate_abi_index` recomputing the hash from the function table. The bump would
+have traded a per-symbol diagnostic for an all-or-nothing rejection and taken
+every unaffected package down with it. Rationale recorded at the constant in
+`src/binary_repr/mod.rs`.
+
+Spec `package/03_metadata-encoding.md` now documents the structural kind-11 row
+and the narrowed meaning of `abiFormatVersion`.
+
+### Golden and fixture churn
+
+The full acceptance run isolated the blast radius to exactly the stateful surface
+the report predicted, which is itself the confirmation that the arm is narrow:
+
+- `syntax/native/native-resource-state-export-valid` — `FUNC openDb` and
+  `FUNC exec` (the two signatures carrying `STATE`) changed hash; `TYPE DbInfo`
+  and `TYPE Db` in the same package did not. Goldens regenerated.
+- `rt-behavior/native/native-resource-state-import-rt` and
+  `rt-behavior/resources/resource-state-import-rt` did not merely drift — they
+  *failed*, with `validate_abi_index` naming `openDb` / `openTagged` and printing
+  both hashes. Their `packages/*.mfp` are copies of an exporter build from before
+  the fix, so this is the stale-hash rejection working as intended. Both fixtures
+  were rebuilt from their exporters and both tests pass.
+
+This is also the empirical case against the version bump: only the two genuinely
+stateful packages were rejected, each by symbol name. Every other `.mfp` fixture in
+the tree kept working, because none of their hashes moved.

@@ -51,6 +51,16 @@ const SECTION_BINARY_REPR: u16 = 16;
 /// structured Binary Representation payload — the reader rejects the old flat (v1) layout.
 const MFPC_MAJOR_VERSION: u16 = 2;
 
+/// ABI signature-hash input format.
+///
+/// bug-277 moved kind-11 (`STATE`) composites from opaque to structural hashing,
+/// which shifts the `sigHash` of a stateful export — but deliberately did NOT bump
+/// this. The gate in `read_abi_index` guards the section's *wire encoding*, which
+/// that change leaves untouched; bumping it would reject every previously-built
+/// `.mfp` wholesale, including the overwhelming majority that export no `STATE`
+/// type at all. A package that does carry a stale kind-11 hash is already rejected
+/// precisely, per symbol, by `validate_abi_index` recomputing it from the function
+/// table. Bump this only for an actual ABI_INDEX layout change.
 const ABI_FORMAT_VERSION: u16 = 1;
 const ABI_HASH_LEN: usize = 32;
 

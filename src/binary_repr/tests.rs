@@ -1598,6 +1598,63 @@ mod reader_tests {
     }
 
     #[test]
+    fn abi_serializer_hashes_state_composites_structurally() {
+        // bug-277: kind 11 (`<base> STATE <state>`) fell through to the opaque arm,
+        // which hashes the interned name `State#<baseId>#<stateId>`. Those ids are
+        // table positions, so the hash tracked position instead of shape. Both
+        // halves are asserted here: stable under an unrelated renumber, and
+        // sensitive to a change in the STATE payload's own type.
+        let state_hash = |lead: Option<&str>, state: &str| {
+            let mut strings = StringPool::new();
+            let mut types = TypeTable::new();
+            // An unrelated type interned first shifts every later table id.
+            if let Some(lead) = lead {
+                types.type_id(&mut strings, lead);
+            }
+            let id = types.type_id(&mut strings, &format!("File STATE {state}"));
+            let constants = ConstPool::new();
+            type_sig_hash(
+                id,
+                BinaryReprExportKind::Type,
+                &strings.values,
+                &types,
+                &constants,
+            )
+            .unwrap()
+        };
+
+        // (a) An unrelated type declared ahead of the STATE payload renumbers the
+        // table but changes nothing semantic — the hash must not move.
+        assert_eq!(
+            state_hash(None, "List OF Integer"),
+            state_hash(Some("Map OF String TO Integer"), "List OF Integer"),
+            "STATE sig hash must not track type-table position"
+        );
+
+        // (b) Changing the STATE payload's shape is a real ABI change.
+        assert_ne!(
+            state_hash(None, "List OF Integer"),
+            state_hash(None, "List OF String"),
+            "STATE sig hash must track the state type's structure"
+        );
+
+        // A STATE composite must not collide with its own bare base type.
+        let mut strings = StringPool::new();
+        let types = TypeTable::new();
+        let constants = ConstPool::new();
+        let bare = type_sig_hash(
+            TYPE_FILE_HANDLE,
+            BinaryReprExportKind::Type,
+            &strings.values,
+            &types,
+            &constants,
+        )
+        .unwrap();
+        let _ = &mut strings;
+        assert_ne!(bare, state_hash(None, "List OF Integer"));
+    }
+
+    #[test]
     fn abi_serializer_rejects_deep_acyclic_type_chain() {
         // bug-153: serialize_type must reject a deep-but-acyclic type graph via
         // the depth cap. `type_refs` only guards *cycles* (repeated ids), so a
