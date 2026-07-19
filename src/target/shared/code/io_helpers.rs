@@ -657,11 +657,13 @@ pub(super) fn lower_io_poll_input_helper(
     // pipe (no broadcast log), so it skips straight to `poll(fd 0)`.
     if !app_mode {
         emit_stdin_poll_ready_check(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             &poll_ready,
             &os_poll,
         )?;
