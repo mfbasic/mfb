@@ -129,8 +129,14 @@ fn load_data_address(
 /// Emit a write of a fixed escape-sequence byte string to stdout (fd 1). The
 /// write result is intentionally ignored: a failed escape write is not a program
 /// error (term setters are best-effort, plan §4.2.1 / §9.4).
-fn emit_write_const(ctx: &mut EmitCtx, from: &str, len: usize) -> Result<(), String> {
-    let symbol = ctx.symbol;
+fn emit_write_const(ctx: &mut EmitCtx, data_symbol: &str, len: usize) -> Result<(), String> {
+    // This helper's original parameters were (from, symbol): `from` is the
+    // emitting function (each relocation's source) and `symbol` is the constant
+    // being addressed. They are NOT the usual order, so name them explicitly —
+    // conflating them emits relocations sourced from the data symbol, which the
+    // linker rejects with "relocation source does not match function".
+    let from = ctx.symbol;
+    let symbol = data_symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
