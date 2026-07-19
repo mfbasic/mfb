@@ -86,6 +86,7 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn check_binding_shape(
         &mut self,
         file: &AstFile,

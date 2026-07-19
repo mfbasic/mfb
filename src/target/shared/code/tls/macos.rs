@@ -206,7 +206,6 @@ pub(super) fn data_objects(server: bool) -> Vec<CodeDataObject> {
 // block/ctx layout above. A macOS-x86 backend supplies its own.
 
 /// Emit a `dlsym(handle, name)` into `fnptr_off` (delegates to the parent).
-#[allow(clippy::too_many_arguments)]
 fn dlsym(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -242,7 +241,6 @@ fn dlsym(
 /// connection uses this so its teardown matches the success/close path
 /// (bug-317). `conn_off` is only reached once the slot holds a non-NULL
 /// connection, so no null guard is needed.
-#[allow(clippy::too_many_arguments)]
 fn emit_cancel_and_release_conn(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -282,7 +280,6 @@ fn emit_cancel_and_release_conn(
 /// Only for a queue this frame owns. An accepted socket shares the listener's
 /// serial queue (released by `closeListener`), so its failure exits must not
 /// call this or they would over-release a queue still in use.
-#[allow(clippy::too_many_arguments)]
 fn emit_release_queue(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -318,7 +315,6 @@ fn emit_release_queue(
 /// Build a 40-byte block literal at `sp + block_off` whose `invoke` is
 /// `invoke_symbol` and whose single captured variable is the ctx pointer at
 /// `sp + ctx_off`.
-#[allow(clippy::too_many_arguments)]
 fn emit_build_block(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -397,7 +393,6 @@ fn emit_build_block(
 /// libdispatch's "deallocated while in use" assertion. The slot is non-NULL
 /// from connect onward, but the store is null-guarded for defence in depth
 /// (`dispatch_release(NULL)` would crash).
-#[allow(clippy::too_many_arguments)]
 fn emit_fresh_sem(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -459,7 +454,6 @@ fn emit_fresh_sem(
 }
 
 /// Emit `dispatch_semaphore_wait(ctx->sem, FOREVER)`.
-#[allow(clippy::too_many_arguments)]
 fn emit_wait(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -1960,7 +1954,6 @@ fn emit_dlopen_libssl_macos(
 
 /// `dlopen` the framework named by the C-string data object `lib_symbol` into
 /// `sp + handle_off`; branch to `fail` when it does not load.
-#[allow(clippy::too_many_arguments)]
 fn emit_dlopen_at(
     ctx: &mut EmitCtx,
     lib_symbol: &str,
@@ -2000,12 +1993,12 @@ fn emit_dlopen_at(
 // (plan-06-tls-server.md §7)
 // ===========================================================================
 
+#[allow(clippy::too_many_arguments)]
 /// Read the whole file named by the MFBASIC `String` at `sp + path_off` into a
 /// fresh arena buffer: pointer at `sp + buf_off`, byte length at
 /// `sp + len_off`. `open_fail` is taken when the file cannot be opened (no fd
 /// yet); `read_fail_fd` when a seek/read fails or the file is empty (the open
 /// fd is at `sp + fd_off` for the caller to close).
-#[allow(clippy::too_many_arguments)]
 fn emit_read_whole_file(
     ctx: &mut EmitCtx,
     prefix: &str,
@@ -2098,10 +2091,10 @@ fn emit_read_whole_file(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Import one PEM item (a certificate or a private key) from the bytes at
 /// `sp + buf_off`/`len_off` via `CFDataCreate` + `SecItemImport`, leaving the
 /// first imported item (`SecCertificateRef`/`SecKeyRef`) at `sp + ref_off`.
-#[allow(clippy::too_many_arguments)]
 fn emit_import_pem_item(
     ctx: &mut EmitCtx,
     buf_off: usize,
@@ -2289,7 +2282,6 @@ fn emit_import_pem_item(
 /// The NULL guard and the clear are what let the error exits release
 /// unconditionally: an exit taken before the slot was filled, or after it was
 /// already released, does nothing rather than over-releasing.
-#[allow(clippy::too_many_arguments)]
 fn emit_cf_release_slot(
     ctx: &mut EmitCtx,
     cf_handle_off: usize,

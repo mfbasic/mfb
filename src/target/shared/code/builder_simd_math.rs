@@ -804,6 +804,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Lower `math::clamp(values AS T[], low AS T, high AS T)` — clamp each lane to
     /// `[low, high]` via `max(min(x, high), low)`. `low`/`high` are broadcast into
     /// both `.2d` lanes. Never errors.

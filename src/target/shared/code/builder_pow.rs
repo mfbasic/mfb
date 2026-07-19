@@ -506,10 +506,10 @@ impl CodeBuilder<'_> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Set `smask` (0 or the sign bit) per the negative-base rule, or jump to
     /// `ret_nan` (x<0, non-integer y). For x>=0 leaves smask as 0. `x`/`y` are the
     /// value homes holding the inputs.
-    #[allow(clippy::too_many_arguments)]
     fn emit_pow_yisint(
         &mut self,
         x: &str,

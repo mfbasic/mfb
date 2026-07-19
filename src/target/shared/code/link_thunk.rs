@@ -1718,6 +1718,7 @@ fn load_field(ctype: &str, dst: &str, off: usize) -> CodeInstruction {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Write the `BIND IN` fields into a struct slot's buffer before the call
 /// (plan-50-E §4.4).
 ///
@@ -1725,7 +1726,6 @@ fn load_field(ctype: &str, dst: &str, off: usize) -> CodeInstruction {
 /// other field is 0. Reads a wrapper PARAMETER (or an immediate) — there is no
 /// record on the input side, hence none of the register-lifetime hazard that
 /// `marshal_struct_out` has.
-#[allow(clippy::too_many_arguments)]
 fn marshal_struct_in(
     function: &IrLinkFunction,
     decl: &crate::ir::IrCStruct,
@@ -1834,6 +1834,7 @@ fn narrow_signed_bits(ctype: &str) -> Option<u32> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Build the wrapper's result record from a struct slot's post-call buffer
 /// (plan-50-E §4.5).
 ///
@@ -1848,8 +1849,6 @@ fn narrow_signed_bits(ctype: &str) -> Option<u32> {
 ///
 /// Reading fields into registers and *then* allocating would lose them all — the
 /// `copy-record-register-aliasing` bug in miniature.
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn marshal_struct_out(
     function: &IrLinkFunction,
     decl: &crate::ir::IrCStruct,

@@ -3600,6 +3600,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_copy_collection_entries(
         &mut self,
         source_entry: &str,
@@ -4228,6 +4229,7 @@ impl CodeBuilder<'_> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_copy_one_map_entry(
         &mut self,
         source_entry: &str,

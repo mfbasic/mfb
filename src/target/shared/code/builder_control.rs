@@ -937,6 +937,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_numeric_for(
         &mut self,
         name: &str,

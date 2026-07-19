@@ -105,7 +105,6 @@ fn append_const(buf: &str, bytes: &[u8], scratch: &str, instrs: &mut Vec<CodeIns
 /// are generated least-significant-first into the sp-relative scratch region
 /// `[tmp_start, tmp_end)` (no call happens, so the region is stable), then copied
 /// forward into the buffer. `tag` makes the loop labels unique.
-#[allow(clippy::too_many_arguments)]
 fn append_decimal(
     buf: &str,
     val: &str,
@@ -278,6 +277,7 @@ fn emit_scroll_back(
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Allocate the console grid header block on `term::on`. Sizes it to the current
 /// terminal (via the TIOCGWINSZ ioctl, defaulting to 24x80 when unavailable),
 /// arena-allocates `HDR + rows*cols*(2*CELL + OUTBUF_PER_CELL)` bytes, zero-fills
@@ -286,7 +286,6 @@ fn emit_scroll_back(
 /// failure it branches to `fail_label` (the caller emits the OOM result). Parks
 /// rows/cols in the caller's `rows_slot`/`cols_slot` sp locals across the arena
 /// call. `winsize_off` is the sp offset of the `winsize` scratch struct.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_grid_alloc(
     symbol: &str,
     term_state_offset: usize,
@@ -643,7 +642,6 @@ pub(super) fn emit_grid_write(
 /// not a tty), the size is unchanged, or a new allocation cannot be obtained.
 /// Uses sp locals `[8,56)` for the winsize struct + parked dims across the
 /// arena calls — disjoint in time from the present's decimal scratch (`[32,56)`).
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_grid_resize(
     symbol: &str,
     term_state_offset: usize,
@@ -846,12 +844,12 @@ pub(super) fn emit_grid_resize(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Console present (plan-35-C): diff the back buffer against the front buffer and
 /// emit only the changed cells (minimal CUP + coalesced SGR + glyphs) as one
 /// batched `write(2)` into fd 1, then copy back→front and restore the cursor.
 /// A set `dirty` flag forces a full repaint (first present after on/resize).
 /// Inlined into the `term::sync` helper; `term::off` reaches it via `bl`.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_grid_present(
     symbol: &str,
     term_state_offset: usize,

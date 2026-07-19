@@ -123,13 +123,13 @@ fn emit_hints(
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Build an `Address` record from a `sockaddr` whose pointer lives at
 /// `sp + sockaddr_off`. The observed port is read from `sockaddr + 2/3`.
 /// `len_off`, `dst_off`, and `host_off` are scratch stack slots. Leaves the
 /// `Address` pointer in `x1`, branches to `alloc_fail` on allocation failure or
 /// `addr_fail` when `inet_ntop` fails. Everything persists on the stack so no
 /// callee-saved registers are clobbered.
-#[allow(clippy::too_many_arguments)]
 fn emit_address_from_sockaddr(
     ctx: &mut EmitCtx,
     prefix: &str,

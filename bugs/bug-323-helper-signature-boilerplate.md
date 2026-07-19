@@ -5,21 +5,32 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Phase 2 done (2026-07-19) — `HelperBody` / `HelperResult` /
-`AppHookBody` added and applied at all 115 + 52 sites.
-`clippy::type_complexity` 119 -> **6**, exactly the out-of-scope set this
-document names. Proven type-position-only: the diff touches no line containing
-`Ok((`, `let (`, or a tuple-index access, and all five backends the 3-tuple
-alias reaches compile unconditionally (no cfg gating), so the host build
-exercised every site. The visibility defect the audit found was real —
-`AppHookBody` is `pub(crate)` with explicit imports in 6 files; `pub(super)`
-would not have compiled. The two bare-tuple sites clippy cannot see
-(`thread_is_cancelled_helper`, `pad_no_slots`) took `HelperBody`, not
-`HelperResult`. Phase 3 (`EmitCtx`) is **not** done and is deliberately
-deferred: bundling two `&mut Vec` into a struct forces callers to restructure
-borrows, so unlike Phase 2 it is not neutral by construction.
-Regression Test: `scripts/artifact-gate.sh` + `scripts/test-accept.sh` (byte-identical
-output gate; no new test — this change must produce no observable behavior)
+Status: Fixed (2026-07-19). Phase 2 and Phase 3 both complete.
+
+Phase 2: `HelperBody`/`HelperResult`/`AppHookBody` applied at all 115 + 52 sites;
+`clippy::type_complexity` 119 -> 6, exactly the out-of-scope set this document
+names.
+
+Phase 3: `EmitCtx` declared and adopted at **all 55** preamble carriers across
+14 files (the document's count of 43 was low). `too_many_arguments` warnings
+31 -> 0; suppressions 54 -> 49, i.e. strictly down as the phase requires — 46
+were deleted and only the 40 still needed were re-added. Every file was gated
+individually: `scripts/artifact-gate.sh` showed 1,189 goldens / 0 diffs at each
+of the 14 steps.
+
+The document deferred Phase 3 as "not neutral by construction" because bundling
+two `&mut Vec` forces callers to restructure borrows. That hazard is real but
+avoidable: the three shared refs are `&'a` fields, so reading them into locals at
+the top of a converted function is independent of the `&mut ctx` borrow. That
+keeps `{symbol}` format-string interpolation working (a naive field-access
+rewrite breaks it) and leaves only the two streams needing `ctx.`.
+
+Two things only reading the bodies caught, which the gate could not:
+`emit_write_string_object`'s parameter named `symbol` is the string DATA symbol
+(a relocation's `to`), not the emitter (`from`) — bundling it into `ctx.symbol`
+put the wrong value there while emitting identical output. And several helpers
+carried a `from`/`symbol` parameter that duplicated `ctx.symbol` exactly; those
+are deleted rather than threaded through twice.
 
 Every runtime-helper lowering function in `src/target/shared/code/` returns the same
 four-element tuple — frame, instructions, relocations, stack slots — and almost every

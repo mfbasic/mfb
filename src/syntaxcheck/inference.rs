@@ -910,6 +910,7 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// The exactness nudge (plan-29-F §4.6): warn when a `Money` is scaled
     /// (`*`/`/`) by a **bare, suffixless decimal literal**, which silently takes
     /// the inexact `Float` path (a bare decimal defaults to `Float`). It is

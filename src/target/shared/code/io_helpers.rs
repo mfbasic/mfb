@@ -800,7 +800,6 @@ pub(super) struct TerminalModeSlots {
 /// per-read toggle in the read helpers, or `ARENA_STATE_REGISTER` for
 /// `term::on`'s persistent console raw mode (bug-149), which parks the buffers
 /// in the term-state region rather than a read-scoped stack frame.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_configure_stdin_terminal(
     ctx: &mut EmitCtx,
     slots: &TerminalModeSlots,
@@ -1055,7 +1054,6 @@ fn emit_console_raw_line_mode(
 /// mid-sequence is a truncated sequence) fuses on every backend. Reads always go
 /// through libc, so the guard uses the `errno`-accessor convention (both read
 /// helpers already import it for the lead read).
-#[allow(clippy::too_many_arguments)]
 fn emit_continuation_read(
     ctx: &mut EmitCtx,
     app_mode: bool,
@@ -1095,7 +1093,6 @@ fn emit_continuation_read(
 /// pipe, not fd 0, so the log is not built — keep the direct per-byte
 /// `read(0,…,1)` + EINTR guard. Both paths push `retry_label` (the loop/retry head)
 /// and leave the `x0 vs 0` flags live for the caller's follow-on `branch_eq`.
-#[allow(clippy::too_many_arguments)]
 fn emit_stdin_byte_read(
     ctx: &mut EmitCtx,
     app_mode: bool,

@@ -330,7 +330,6 @@ pub(super) fn lower_term_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -460,7 +459,6 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_off(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -813,7 +811,6 @@ fn emit_get_attr(
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_terminal_size(
     ctx: &mut EmitCtx,
     term_state_offset: usize,

@@ -461,6 +461,7 @@ fn section_header(
     put_u64(bytes, entsize);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn program_header(
     bytes: &mut Vec<u8>,
     type_: u32,

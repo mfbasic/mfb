@@ -628,7 +628,6 @@ fn build_propaddr(selector: &str, scope: &str, instructions: &mut Vec<CodeInstru
 /// `AudioObjectGetPropertyData(object, &PROPADDR, 0, NULL, &SIZE, out_ptr)`.
 /// `object` is loaded from `object_off` (a stack slot). `SIZE` is preloaded with
 /// `size_val`. Leaves the `OSStatus` in the return register.
-#[allow(clippy::too_many_arguments)]
 fn call_get_property(
     ctx: &mut EmitCtx,
     object_off: usize,
@@ -668,7 +667,6 @@ fn call_get_property(
 /// Read the `CFStringRef` property `selector` of the device in `CURID_OFF`,
 /// convert it to an MFBASIC `String` at `out_off`, and `CFRelease` it. Branches
 /// to `dev_fail` on any Core Audio / CoreFoundation failure, `alloc_fail` on OOM.
-#[allow(clippy::too_many_arguments)]
 fn emit_cfstring_field(
     ctx: &mut EmitCtx,
     selector: &str,
@@ -776,7 +774,6 @@ fn emit_cfstring_field(
 /// Sum `mNumberChannels` across the device's stream configuration in `scope`,
 /// storing `1` (any channel) or `0` into `out_off`. A failed query means the
 /// direction is unsupported → `0`.
-#[allow(clippy::too_many_arguments)]
 fn emit_channel_flag(ctx: &mut EmitCtx, scope: &str, out_off: usize) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;

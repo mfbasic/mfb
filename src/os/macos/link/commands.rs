@@ -192,6 +192,7 @@ pub(super) fn note_command(bytes: &mut Vec<u8>, file_offset: usize, size: usize)
     put_u64(bytes, size as u64);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn segment(
     bytes: &mut Vec<u8>,
     name: &str,
@@ -216,6 +217,7 @@ pub(super) fn segment(
     put_u32(bytes, 0);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn section(
     bytes: &mut Vec<u8>,
     name: &str,
@@ -240,6 +242,7 @@ fn u32_field(what: &str, value: usize) -> u32 {
     u32::try_from(value).unwrap_or_else(|_| panic!("mach-o: {what} {value} exceeds u32"))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn section_with_segment(
     bytes: &mut Vec<u8>,
     name: &str,

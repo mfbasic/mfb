@@ -197,11 +197,11 @@ fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Marshal a MFBASIC `String*` held in `src` into a fresh NUL-terminated arena
 /// C-string, leaving its pointer in `out`. Both `src` and `out` are vregs so the
 /// allocator preserves them across the `arena_alloc` call. Branches to
 /// `alloc_fail` on OOM. `uniq` disambiguates the copy-loop labels.
-#[allow(clippy::too_many_arguments)]
 fn marshal_cstring(
     symbol: &str,
     src: &str,
@@ -253,7 +253,6 @@ fn marshal_cstring(
 /// Build an owned arena `String` from the NUL-terminated C-string in `cstr`,
 /// landing it in the result registers with the OK tag. Branches to `alloc_fail`
 /// on OOM. `cstr` is a vreg (preserved across `arena_alloc`).
-#[allow(clippy::too_many_arguments)]
 fn build_string_from_cstr(
     symbol: &str,
     cstr: &str,
@@ -970,10 +969,10 @@ fn lower_environ(
 pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
 pub(crate) const OS_ARGV_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argv";
 
+#[allow(clippy::too_many_arguments)]
 /// Build an owned arena `String` of exactly `len` bytes copied from `src`
 /// (which need NOT be NUL-terminated — used for `readlink`), landing it in the
 /// result registers with the OK tag. Branches to `alloc_fail` on OOM.
-#[allow(clippy::too_many_arguments)]
 fn build_string_from_len(
     symbol: &str,
     src: &str,
@@ -1767,10 +1766,10 @@ fn emit_reject_dot_component(
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Copy `len` bytes from `src_base[0..len]` to `dst`, advancing `dst` past the
 /// copied bytes (plan-55-B §4.4). `src_cursor`/`index`/`byte` are caller-owned
 /// scratch vregs; `uniq` disambiguates the loop labels.
-#[allow(clippy::too_many_arguments)]
 fn emit_copy_counted(
     src_base: &str,
     len: &str,

@@ -2283,6 +2283,7 @@ pub(super) fn lower_fs_eof_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Append `count` bytes from `src` to the growing line accumulator `temp`
 /// (plan-14-C `fs::readLine`). The accumulator is an arena block whose line bytes
 /// live at `temp+8` (an 8-byte slack header keeps the layout the result-build tail

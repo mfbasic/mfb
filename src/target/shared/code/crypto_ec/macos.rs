@@ -107,8 +107,8 @@ fn data_address(
     ]);
 }
 
-/// `dlopen(path, RTLD_NOW)` into `handle_off`; branch to `fail` if NULL.
 #[allow(clippy::too_many_arguments)]
+/// `dlopen(path, RTLD_NOW)` into `handle_off`; branch to `fail` if NULL.
 fn dlopen_one(
     symbol: &str,
     path_symbol: &str,
@@ -130,9 +130,9 @@ fn dlopen_one(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// `dlsym(handle, name)` into `dst_off`; branch to `fail` if NULL. The stored
 /// value is a function pointer or the *address* of a data constant.
-#[allow(clippy::too_many_arguments)]
 fn dlsym_into(
     symbol: &str,
     handle_off: usize,
@@ -159,9 +159,9 @@ fn dlsym_into(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Resolve a CFString constant (dlsym returns its address; dereference once) and
 /// store the CFStringRef value into `dst_off`. `scratch_off` holds the address.
-#[allow(clippy::too_many_arguments)]
 fn load_cf_const(
     symbol: &str,
     handle_off: usize,
@@ -270,10 +270,10 @@ fn zero_scratch_guarded(
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Build a 2-entry CFDictionary of CFString constants into `dict_off`. Uses six
 /// contiguous scratch slots at `scratch_off` (keys[0,8], vals[16,24],
 /// callbacks[32,40]) plus `const_scratch` for the per-constant address.
-#[allow(clippy::too_many_arguments)]
 fn build_dict2(
     symbol: &str,
     sec_off: usize,
@@ -1312,9 +1312,9 @@ fn emit_cfdata_create(
     ));
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Extract the bytes of the CFData at `data_off` into a fresh `List OF Byte` at
 /// `coll_off` (via CFDataGetBytePtr/CFDataGetLength).
-#[allow(clippy::too_many_arguments)]
 fn emit_cfdata_to_list(
     symbol: &str,
     cf_off: usize,

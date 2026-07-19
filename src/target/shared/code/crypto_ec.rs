@@ -121,6 +121,7 @@ pub(super) fn lower_crypto_ec_helper(
 // Shared List OF Byte marshalling
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 /// Read a `List OF Byte` (collection pointer already stored at `coll_off`) into a
 /// freshly arena-allocated contiguous buffer. Stores the buffer pointer at
 /// `buf_off` and the byte count at `len_off`. Uses only vreg scratch (no calls).
@@ -175,6 +176,7 @@ pub(super) fn emit_read_byte_list(
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Build a `List OF Byte` of `len_off` bytes copied from the contiguous buffer at
 /// `src_off`, storing the collection pointer at `coll_off`. Uses only vreg
 /// scratch. Branches to `alloc_fail` on allocation failure.

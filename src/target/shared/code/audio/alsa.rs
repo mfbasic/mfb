@@ -187,30 +187,28 @@ const AVAIL_FN_OFF: usize = 448; // cached snd_pcm_avail_update fn-ptr
 
 /// Resolve `libasound.so.2` (dlopen), storing the handle at `DL_HANDLE_OFF`;
 /// branch to `unavailable` if it does not load.
-fn emit_dlopen(
-    symbol: &str,
-    unavailable: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_dlopen(ctx: &mut EmitCtx, unavailable: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     emit_data_address(
         symbol,
         abi::return_register(),
         &lib_data_symbol(),
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+    ctx.instructions
+        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), DL_HANDLE_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(unavailable),
@@ -219,16 +217,12 @@ fn emit_dlopen(
 }
 
 /// `dlsym(handle, name)` into `FNPTR_OFF`; branch to `unavailable` if null.
-fn emit_dlsym(
-    symbol: &str,
-    name: &str,
-    unavailable: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    instructions.push(abi::load_u64(
+fn emit_dlsym(ctx: &mut EmitCtx, name: &str, unavailable: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    ctx.instructions.push(abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),
         DL_HANDLE_OFF,
@@ -237,11 +231,17 @@ fn emit_dlsym(
         symbol,
         abi::ARG[1],
         &sym_data_symbol(name),
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    platform.emit_libc_call("dlsym", symbol, platform_imports, instructions, relocations)?;
-    instructions.extend([
+    platform.emit_libc_call(
+        "dlsym",
+        symbol,
+        platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(unavailable),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FNPTR_OFF),
@@ -314,15 +314,10 @@ const TIMEOUT_MAX: &str = "86400000"; // 24h, matches the macOS timed-read bound
 
 /// dlsym `name` into `FNPTR_OFF`, stage the args via `stage`, call it, and leave
 /// the (sign-extended) result in the return register.
-#[allow(clippy::too_many_arguments)]
 fn emit_alsa_call(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     name: &str,
     unavailable: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
     // `returns_pointer` is true for a libasound call whose result is a `char*`
     // (only `snd_device_name_get_hint`): its return must not be sign-extended.
     returns_pointer: bool,
@@ -331,17 +326,23 @@ fn emit_alsa_call(
     // relocation instead of dropping it into a throwaway Vec (bug-206).
     stage: impl Fn(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>),
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         name,
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
     )?;
-    stage(instructions, relocations);
-    emit_call_fnptr(instructions, returns_pointer);
+    stage(ctx.instructions, ctx.relocations);
+    emit_call_fnptr(ctx.instructions, returns_pointer);
     Ok(())
 }
 
@@ -506,12 +507,14 @@ fn lower_open(
         abi::store_u64("%v9", "%v15", S_MAP_SIZE),
     ]);
     emit_dlopen(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // Device name: the id string, or "default".
     if device {
@@ -528,13 +531,15 @@ fn lower_open(
     }
     // snd_pcm_open(&state->osobject, name, stream, 0)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_open",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         false,
         |ins, _relocs| {
             ins.extend([
@@ -559,24 +564,28 @@ fn lower_open(
         abi::branch_lt(&dev_fail),
     ]);
     emit_configure_hw_params(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &unavailable,
         &dev_fail,
         input,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // snd_pcm_prepare(pcm)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_prepare",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         false,
         |ins, _relocs| {
             ins.extend([
@@ -613,12 +622,14 @@ fn lower_open(
     // since bug-180 but never freed the hw-params object.
     instructions.push(abi::label(&unavailable));
     emit_open_cleanup(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "unavail",
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_fail(
         symbol,
@@ -630,12 +641,14 @@ fn lower_open(
     );
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "dev",
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_fail(
         symbol,
@@ -669,30 +682,29 @@ fn lower_open(
 /// `tag` disambiguates the labels so both error exits can inline it. A `dlsym`
 /// miss inside the cleanup skips only that disposal and continues to the next —
 /// it must never branch back to an error exit, which would loop.
-fn emit_open_cleanup(
-    symbol: &str,
-    tag: &str,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let params_done = format!("{symbol}_{tag}_params_done");
     let cleanup_munmap = format!("{symbol}_{tag}_munmap");
     let cleanup_done = format!("{symbol}_{tag}_cleanup_done");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), PARAMS_OFF),
         abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&params_done),
     ]);
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_free",
         &params_done,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::load_u64(
@@ -702,7 +714,7 @@ fn emit_open_cleanup(
             ));
         },
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF),
         abi::label(&params_done),
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
@@ -713,13 +725,15 @@ fn emit_open_cleanup(
         abi::branch_eq(&cleanup_munmap),
     ]);
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_close",
         &cleanup_munmap,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             ins.extend([
@@ -728,7 +742,7 @@ fn emit_open_cleanup(
             ]);
         },
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&cleanup_munmap),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
@@ -737,10 +751,10 @@ fn emit_open_cleanup(
         "munmap",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
         abi::label(&cleanup_done),
     ]);
@@ -750,17 +764,16 @@ fn emit_open_cleanup(
 /// Configure and commit the hw params (§3.3): interleaved S16_LE at the
 /// requested channels/rate, buffer = bufferFrames*4. Verify the committed rate
 /// and channels match the request, else `ErrAudioDevice` (no silent resampling).
-#[allow(clippy::too_many_arguments)]
 fn emit_configure_hw_params(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     unavailable: &str,
     dev_fail: &str,
     _input: bool,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &HashMap<String, String>,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let pcm = |ins: &mut Vec<CodeInstruction>| {
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
@@ -778,13 +791,15 @@ fn emit_configure_hw_params(
     };
     // snd_pcm_hw_params_malloc(&params)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_malloc",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::add_immediate(
@@ -794,32 +809,36 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // any
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_any",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
             params(ins);
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // set_access(INTERLEAVED)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_set_access",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
@@ -831,16 +850,18 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // set_format(S16_LE)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_set_format",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
@@ -848,16 +869,18 @@ fn emit_configure_hw_params(
             ins.push(abi::move_immediate(abi::ARG[2], "Integer", FORMAT_S16_LE));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // set_channels(channels)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_set_channels",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
@@ -865,21 +888,23 @@ fn emit_configure_hw_params(
             ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), CH_OFF));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // set_rate_near(&rate, &dir)
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
         abi::store_u32("%v9", abi::stack_pointer(), RATE_OFF),
         abi::store_u32(abi::ZERO, abi::stack_pointer(), DIR_OFF),
     ]);
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_set_rate_near",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
@@ -896,21 +921,23 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // set_period_size_near(&period, &dir) — period = bufferFrames
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
         abi::store_u64("%v9", abi::stack_pointer(), PERIOD_OFF),
         abi::store_u32(abi::ZERO, abi::stack_pointer(), DIR_OFF),
     ]);
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_set_period_size_near",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
@@ -927,22 +954,24 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // set_buffer_size_near(&buffer) — buffer = bufferFrames * 4 (mirror macOS depth)
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
         abi::move_immediate("%v10", "Integer", "4"),
         abi::multiply_registers("%v9", "%v9", "%v10"),
         abi::store_u64("%v9", abi::stack_pointer(), BUFSZ_OFF),
     ]);
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_set_buffer_size_near",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
@@ -954,23 +983,25 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // commit
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             pcm(ins);
             params(ins);
         },
     )?;
-    check(instructions, dev_fail);
+    check(ctx.instructions, dev_fail);
     // get_rate(&rate) and get_channels(&chans); verify == request (§3.3).
     // The getters take `params` as their FIRST argument (unlike the setters, which
     // take `pcm` in ARG[0] and `params` in ARG[1]). Load `params` into ARG[0]
@@ -978,13 +1009,15 @@ fn emit_configure_hw_params(
     // ARG[1] with `&rate`/`&chans` left ARG[0] holding the leftover dlsym fn-ptr, so
     // the getter read garbage and open failed the rate/channel verification (bug-207).
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_get_rate",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::load_u64(
@@ -1005,13 +1038,15 @@ fn emit_configure_hw_params(
         },
     )?;
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_get_channels",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::load_u64(
@@ -1026,7 +1061,7 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u32("%v9", abi::stack_pointer(), RATE_OFF),
         abi::load_u64("%v10", abi::stack_pointer(), SR_OFF),
         abi::compare_registers("%v9", "%v10"),
@@ -1038,13 +1073,15 @@ fn emit_configure_hw_params(
     ]);
     // free the hw_params object.
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         "snd_pcm_hw_params_free",
         unavailable,
-        platform,
-        platform_imports,
-        instructions,
-        relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::load_u64(
@@ -1057,7 +1094,8 @@ fn emit_configure_hw_params(
     // Clear the slot: `lower_open` continues to prepare/start after this, and
     // those can still branch to `dev_fail`, whose cleanup frees a non-NULL
     // PARAMS_OFF — a stale pointer here would be a double free (bug-319).
-    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF));
+    ctx.instructions
+        .push(abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF));
     Ok(())
 }
 
@@ -1112,33 +1150,39 @@ fn lower_write(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), OFFSET_OFF),
     ]);
     emit_dlopen(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // cache writei and recover fn-ptrs
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_writei",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_recover",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // (recover fn-ptr stays in FNPTR_OFF)
     instructions.extend([
@@ -1362,35 +1406,41 @@ fn lower_read(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF), // frames read
     ]);
     emit_dlopen(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     if timeout {
         // Cache the poll fn-ptrs (dlsym clobbers FNPTR_OFF, which later holds the
         // recover fn-ptr, so resolve these first) and pin the absolute deadline.
         emit_dlsym(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "snd_pcm_wait",
             &unavailable,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
         instructions.push(abi::store_u64("%v9", abi::stack_pointer(), WAIT_FN_OFF));
         emit_dlsym(
-            symbol,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "snd_pcm_avail_update",
             &unavailable,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
         )?;
         instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
         instructions.push(abi::store_u64("%v9", abi::stack_pointer(), AVAIL_FN_OFF));
@@ -1420,24 +1470,28 @@ fn lower_read(
         ]);
     }
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_readi",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_recover",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::label(&loop_top),
@@ -1708,21 +1762,25 @@ fn lower_query(
         }
         Query::Available | Query::Poll => {
             emit_dlopen(
-                symbol,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 &unavailable,
-                platform,
-                platform_imports,
-                &mut instructions,
-                &mut relocations,
             )?;
             emit_alsa_call(
-                symbol,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "snd_pcm_avail_update",
                 &unavailable,
-                platform,
-                platform_imports,
-                &mut instructions,
-                &mut relocations,
                 false,
                 |ins, _relocs| {
                     ins.extend([
@@ -1754,21 +1812,25 @@ fn lower_query(
         }
         Query::PollTimeout => {
             emit_dlopen(
-                symbol,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 &unavailable,
-                platform,
-                platform_imports,
-                &mut instructions,
-                &mut relocations,
             )?;
             emit_alsa_call(
-                symbol,
+                &mut EmitCtx {
+                    symbol: symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "snd_pcm_wait",
                 &unavailable,
-                platform,
-                platform_imports,
-                &mut instructions,
-                &mut relocations,
                 false,
                 |ins, _relocs| {
                     ins.extend([
@@ -1834,27 +1896,31 @@ fn lower_close(
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
     ]);
     emit_dlopen(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // snd_pcm_drain (playback) / snd_pcm_drop (capture); failure is reported but
     // must not skip close.
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         if input {
             "snd_pcm_drop"
         } else {
             "snd_pcm_drain"
         },
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         false,
         |ins, _relocs| {
             ins.extend([
@@ -1864,13 +1930,15 @@ fn lower_close(
         },
     )?;
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_pcm_close",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         false,
         |ins, _relocs| {
             ins.extend([
@@ -1988,22 +2056,26 @@ fn lower_devices(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     emit_dlopen(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
     )?;
     // snd_device_name_hint(-1, "pcm", &hints)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_device_name_hint",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::bitwise_not(abi::return_register(), abi::ZERO)); // -1
@@ -2081,13 +2153,15 @@ fn lower_devices(
     ]);
     // id = get_hint(hint, "NAME")
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_device_name_get_hint",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         true,
         |ins, _relocs| {
             ins.push(abi::load_u64(
@@ -2128,13 +2202,15 @@ fn lower_devices(
     )?;
     // name = get_hint(hint, "DESC")
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_device_name_get_hint",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         true,
         |ins, _relocs| {
             // Reload the hint by dereferencing HINT_PTR_OFF rather than reading N_OFF:
@@ -2225,13 +2301,15 @@ fn lower_devices(
     ]);
     // snd_device_name_free_hint(hints)
     emit_alsa_call(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "snd_device_name_free_hint",
         &unavailable,
-        platform,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
         false,
         |ins, _relocs| {
             ins.push(abi::load_u64(

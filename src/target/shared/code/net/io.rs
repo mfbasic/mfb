@@ -30,7 +30,6 @@ const EINTR_ERRNO: &str = "4";
 /// A no-op when `RESTORE_FLAGS_OFFSET` is 0, i.e. on the unbounded path, which never
 /// went non-blocking. It also clears the flag, so a path crossing two restore sites
 /// only issues the syscall once.
-#[allow(clippy::too_many_arguments)]
 fn emit_listener_flags_restore(
     ctx: &mut EmitCtx,
     tag: &str,

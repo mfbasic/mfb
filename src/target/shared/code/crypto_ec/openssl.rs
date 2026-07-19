@@ -210,7 +210,6 @@ fn data_address(
     ]);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn dlopen_libcrypto(
     symbol: &str,
     handle_off: usize,
@@ -280,9 +279,9 @@ fn dlsym_into(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// dlsym into `dst_off`, branching to `absent` if NULL (for the optional
 /// `EVP_EC_gen`, present only on OpenSSL 3.x).
-#[allow(clippy::too_many_arguments)]
 fn dlsym_probe(
     symbol: &str,
     handle_off: usize,
@@ -316,9 +315,9 @@ fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Copy `n` bytes from `[src_ptr_off] + src_const + [src_runtime_off]` to
 /// `[dst_ptr_off] + dst_const`. Call-free (vreg scratch only).
-#[allow(clippy::too_many_arguments)]
 fn emit_copy(
     symbol: &str,
     tag: &str,
@@ -373,6 +372,7 @@ fn emit_len_check(len_off: usize, expected: usize, fail: &str, ins: &mut Vec<Cod
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Free the object at `obj_off` via `free_name` (`dlsym`d into `fn_off`) only when
 /// the slot is non-NULL. The slots are zero-initialised at entry, and an object
 /// is non-NULL only after libcrypto is loaded and the object created, so the
@@ -380,7 +380,6 @@ fn emit_len_check(len_off: usize, expected: usize, fail: &str, ins: &mut Vec<Cod
 /// failure routes to `raw_fail` (a terminal fail with no further cleanup) so the
 /// cleanup cannot re-enter itself. Used to make each error exit free exactly what
 /// the success exit frees (bug-55).
-#[allow(clippy::too_many_arguments)]
 fn free_guarded(
     symbol: &str,
     handle_off: usize,

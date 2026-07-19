@@ -249,6 +249,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
 ];
 
 impl<'a> SyntaxChecker<'a> {
+    #[allow(clippy::too_many_arguments)]
     /// Dispatch a builtin call to its package checker.
     ///
     /// Most packages share one body, so they are rows in `BUILTIN_PACKAGES` and

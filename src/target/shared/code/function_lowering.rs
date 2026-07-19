@@ -554,6 +554,7 @@ pub(super) fn scan_loop_locals(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
@@ -814,6 +815,7 @@ pub(super) fn lower_function(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_builtin_function_wrapper(
     name: &str,
     type_: &str,

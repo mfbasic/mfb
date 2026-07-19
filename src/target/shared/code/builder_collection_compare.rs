@@ -191,6 +191,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_collection_payload_match_branch(
         &mut self,
         type_: &str,
@@ -285,6 +286,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_collection_payload_matches_value_branch(
         &mut self,
         type_: &str,
@@ -384,6 +386,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_collection_payloads_match_branch(
         &mut self,
         type_: &str,
