@@ -1,11 +1,11 @@
 # bug-288: `PRIVATE RESOURCE` is accepted by the parser but half-mangled, making it unusable with cascading spurious errors
 
-Last updated: 2026-07-18
+Last updated: 2026-07-17
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness / Footgun
 
-Status: Fixed 2026-07-18
+Status: Open
 Regression Test: tests/ (new) — `PRIVATE RESOURCE` is rejected with a targeted diagnostic (or fully supported)
 
 The parser accepts `PRIVATE` on a `RESOURCE` declaration, but `scope_privates`
@@ -91,29 +91,48 @@ footgun that produces confusing errors.
 A parser/scope mismatch leaves `PRIVATE RESOURCE` broken; the low-risk fix is to
 reject it per spec. Full support is possible but larger and optional.
 
-## Resolution
+## Attempted fix, reverted 2026-07-18 — read this before trying again
 
-Took the report's preferred option: `parse_top_level_resource` rejects `PRIVATE`
-with a targeted `MFB_PARSE_UNEXPECTED_TOKEN` ("PRIVATE is not permitted on a
-RESOURCE declaration") and synchronizes, instead of letting the half-applied
-rename through.
+The report's **preferred option (reject `PRIVATE` at parse time) is wrong.** It was
+implemented, and reverted, because it deletes a feature the compiler deliberately
+models.
 
-Rejected rather than fully supported because spec 13's visibility-carrying items
-are LET/MUT/FUNC/SUB/TYPE/UNION/ENUM — RESOURCE is not among them, so a
-file-private resource type is not something the language offers.
+`src/ir/lower.rs:638` maps resource visibility across all three variants:
 
-**`EXPORT` is deliberately still accepted.** The report frames this as "RESOURCE
-is not in the list of visibility-carrying items, so the parser should not accept
-`PRIVATE` on it at all", which read literally would also forbid `EXPORT` — but
-`EXPORT` is meaningful and already honored (`collect_native_resources` reports
-`exported` from it, and the `native-resource-link-valid` fixture depends on it).
-Only `PRIVATE` is rejected.
+```rust
+visibility: match resource.visibility {
+    Visibility::Export => "export",
+    Visibility::Public => "public",
+    Visibility::Private => "private",
+}
+```
 
-No new diagnostic code was added; the existing parse code carries the specific
-message, matching how bug-292's fix was done.
+and two tests assert that arm on purpose:
 
-Verified: the repro previously failed with `RESOURCE_CLOSE_SIGNATURE` naming a
-mangled `#…$Db` plus repeated `SYMBOL_UNKNOWN_TYPE`, and now emits one diagnostic
-with the caret on `PRIVATE`. Fixture:
-`tests/syntax/resources/private-resource-invalid`. The 47 link/native fixtures and
-74 resource/trap fixtures still pass, confirming `EXPORT`/`PUBLIC` are unaffected.
+- `ir::tests::lower_pipeline_tests::lowers_native_link_functions_resources_and_aliases`
+  — its fixture comment says it exists to cover "arms of `native_resources`'
+  visibility mapping", pairing `PUBLIC RESOURCE Db` with `PRIVATE RESOURCE Cache`.
+- the `demoLink` pipeline test asserts
+  `r.name == "Stmt" && r.visibility == "private"`.
+
+`src/scope_privates.rs`'s own `BROAD` fixture also declares
+`PRIVATE RESOURCE Handle` and asserts it is mangled.
+
+So rejecting the spelling makes `visibility == "private"` unreachable and requires
+gutting three tests that cover it intentionally. The report's basis — that spec 13
+lists only LET/MUT/FUNC/SUB/TYPE/UNION/ENUM as visibility-carrying — does not
+account for RESOURCE visibility being modelled and lowered downstream. Either the
+spec list is incomplete or the IR support is vestigial, and **that question has to
+be settled before this bug can be fixed.**
+
+If the answer is "private resources are real", the fix is the report's
+*alternative*: make `scope_privates` fully support them (register the name in
+`private_types`, and rewrite type-string references, LINK block contents, and the
+resource's own `CLOSE BY` target) — or, more cheaply, stop renaming resource
+declarations altogether so the name stays consistent and `PRIVATE` carries only
+visibility. The latter needs a check that two files declaring the same private
+resource name cannot collide.
+
+What is definitely still true is the reported defect: today the declaration is
+renamed while every reference is not, which is a guaranteed build failure. Nothing
+about that has changed.

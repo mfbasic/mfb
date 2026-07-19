@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/syntax/resources/private-resource-invalid
-  15 | END LINK
-  16 | 
-  17 | PRIVATE RESOURCE Db CLOSE BY sql::closeDb
-     | ^^^^^^^
-tests/syntax/resources/private-resource-invalid/src/main.mfb:17 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
-               PRIVATE is not permitted on a RESOURCE declaration.
-[exit 1]
