@@ -620,6 +620,62 @@ pub(crate) fn lower_tls_connect_helper(
 
     // Error paths.
     instructions.push(abi::label(&tls_fail));
+    // Free the SSL session and per-connection SSL_CTX before closing the fd.
+    // tls_fail is branched to from SSL_new onward — SSL_set_fd, SSL_set1_host,
+    // the min-proto ctrl, SSL_connect and SSL_get_verify_result — at every one
+    // of which this frame owns both objects. It used to close only the fd, so a
+    // client reconnect loop against an expired- or untrusted-cert host leaked
+    // one SSL + one SSL_CTX (several KB of OpenSSL heap) per failure, while the
+    // sibling alloc_fail and the accept-side ssl_fail freed them (bug-317 T2).
+    // Slots are sentinel-initialised to 0, so both frees are null-guarded and a
+    // missing symbol falls through to tls_fail_raw, still reporting the TLS
+    // failure rather than masking it as a load error.
+    let tls_fail_raw = format!("{symbol}_tls_fail_raw");
+    let tf_skip_ssl = format!("{symbol}_tf_skip_ssl");
+    let tf_skip_ctx = format!("{symbol}_tf_skip_ctx");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&tf_skip_ssl),
+    ]);
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_free",
+        FNPTR_OFFSET,
+        &tls_fail_raw,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::label(&tf_skip_ssl),
+        abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&tf_skip_ctx),
+    ]);
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_free",
+        FNPTR_OFFSET,
+        &tls_fail_raw,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+    ]);
+    instructions.push(abi::label(&tf_skip_ctx));
+    instructions.push(abi::label(&tls_fail_raw));
     instructions.push(abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -2427,6 +2483,59 @@ mod error_path_release_tests {
         assert!(
             reloc_count(&rel, "sym_SSL_CTX_free") >= 1,
             "connect must free the SSL_CTX on OOM"
+        );
+    }
+
+    /// Whether `dlsym(<name>)` is emitted between labels `start` and `end`.
+    ///
+    /// `emit_dlsym` materialises the symbol's data address with an `adrp`
+    /// carrying `_mfb_tls_sym_<name>`, so a resolution is visible positionally.
+    /// A whole-function reloc count cannot substitute: `connect` already frees
+    /// SSL/SSL_CTX in `alloc_fail`, so only a windowed check proves `tls_fail`
+    /// frees them too.
+    fn resolves_between(
+        ins: &[CodeInstruction],
+        start: &str,
+        end: &str,
+        name: &str,
+    ) -> bool {
+        let at = |label: &str| {
+            ins.iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name") == Some(label))
+                .unwrap_or_else(|| panic!("missing label {label}"))
+        };
+        let (from, to) = (at(start), at(end));
+        assert!(from < to, "expected {start} to precede {end}");
+        let want = sym_data_symbol(name);
+        ins[from..to].iter().any(|i| i.get("symbol") == Some(&want))
+    }
+
+    // bug-317 T2: `tls_fail` is branched to from SSL_new onward — SSL_set_fd,
+    // SSL_set1_host, the min-proto ctrl, SSL_connect, SSL_get_verify_result — at
+    // every one of which this frame owns the SSL session and the per-connection
+    // SSL_CTX. It used to close only the fd, so a reconnect loop against an
+    // expired- or untrusted-cert host leaked several KB of OpenSSL heap per
+    // attempt, while the sibling alloc_fail and the accept-side ssl_fail freed
+    // both. The frees are null-guarded (slots are sentinel-initialised to 0).
+    #[test]
+    fn connect_tls_fail_frees_ssl_and_ctx() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
+        for label in ["c_tf_skip_ssl", "c_tf_skip_ctx", "c_tls_fail_raw"] {
+            assert!(
+                has_label(&ins, label),
+                "missing tls_fail cleanup label {label} (the frees must be null-guarded)"
+            );
+        }
+        assert!(
+            resolves_between(&ins, "c_tls_fail", "c_tls_fail_raw", "SSL_free"),
+            "a handshake failure must free the SSL session, not just close the fd"
+        );
+        assert!(
+            resolves_between(&ins, "c_tls_fail", "c_tls_fail_raw", "SSL_CTX_free"),
+            "a handshake failure must free the per-connection SSL_CTX"
         );
     }
 

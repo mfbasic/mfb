@@ -1,0 +1,25 @@
+IMPORT io
+IMPORT regex
+
+REM bug-316: the six POSIX classes [:alnum:] [:word:] [:xdigit:] [:blank:]
+REM [:graph:] [:print:] parsed as valid but silently matched nothing, because
+REM __regex_posixProp emitted "posix*" sentinels that __regex_propTest had no
+REM case for (they fell through to __regex_scriptTest -> FALSE). Each row proves
+REM the class both matches its own set and rejects a scalar outside it.
+
+SUB show(label AS String, yes AS Boolean, no AS Boolean)
+  io::print(label & " match=" & toString(yes) & " reject=" & toString(NOT no))
+END SUB
+
+FUNC main AS Integer
+  show("alnum", regex::match("a5Z", "^[[:alnum:]]+$"), regex::match("a!", "^[[:alnum:]]+$"))
+  show("word", regex::match("a_5", "^[[:word:]]+$"), regex::match("a!", "^[[:word:]]+$"))
+  show("xdigit", regex::match("fF09", "^[[:xdigit:]]+$"), regex::match("g", "^[[:xdigit:]]+$"))
+  show("blank", regex::match(" \t", "^[[:blank:]]+$"), regex::match("x", "^[[:blank:]]+$"))
+  show("graph", regex::match("a!", "^[[:graph:]]+$"), regex::match("a b", "^[[:graph:]]+$"))
+  show("print", regex::match("a b!", "^[[:print:]]+$"), regex::match("a\nb", "^[[:print:]]+$"))
+  REM The already-working classes must keep working, and negation must invert.
+  show("digit", regex::match("59", "^[[:digit:]]+$"), regex::match("a", "^[[:digit:]]+$"))
+  show("^alnum", regex::match("!?", "^[[:^alnum:]]+$"), regex::match("a", "^[[:^alnum:]]+$"))
+  RETURN 0
+END FUNC

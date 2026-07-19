@@ -493,6 +493,34 @@ FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
   IF name = "Alphabetic" THEN
     RETURN strings::startsWith(cat, "L") OR cat = "Nl"
   END IF
+  REM POSIX class sentinels emitted by __regex_posixProp.
+  IF name = "posixAlnum" THEN
+    RETURN strings::startsWith(cat, "L") OR cat = "Nl" OR cat = "Nd"
+  END IF
+  IF name = "posixWord" THEN
+    RETURN __regex_isWordCp(cp, cat)
+  END IF
+  IF name = "posixXdigit" THEN
+    IF cp >= 48 AND cp <= 57 THEN
+      RETURN TRUE
+    END IF
+    IF cp >= 65 AND cp <= 70 THEN
+      RETURN TRUE
+    END IF
+    RETURN cp >= 97 AND cp <= 102
+  END IF
+  IF name = "posixBlank" THEN
+    RETURN cp = 9 OR cat = "Zs"
+  END IF
+  IF name = "posixGraph" THEN
+    RETURN NOT __regex_isSpaceCp(cp, cat) AND NOT strings::startsWith(cat, "C")
+  END IF
+  IF name = "posixPrint" THEN
+    IF cat = "Zs" THEN
+      RETURN TRUE
+    END IF
+    RETURN NOT __regex_isSpaceCp(cp, cat) AND NOT strings::startsWith(cat, "C")
+  END IF
   IF __regex_isGcName(name) THEN
     RETURN cat = name
   END IF

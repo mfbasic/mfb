@@ -452,9 +452,13 @@ fn lower_open(
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), BF_OFF),
         ]);
     }
-    // Zero the state slot so the open-error cleanup can tell the page was not yet
-    // mapped (nothing to close/munmap before mmap and snd_pcm_open run).
-    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF));
+    // Zero the state and hw-params slots so the open-error cleanup can tell what
+    // has actually been acquired (nothing to close/munmap before mmap and
+    // snd_pcm_open run; no params object before hw_params_malloc).
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF),
+    ]);
     emit_validate_open(symbol, &invalid, &mut instructions);
     // bytesPerFrame, AudioHandle, mmap state.
     instructions.extend([
@@ -616,7 +620,22 @@ fn lower_open(
         &mut relocations,
         &done,
     );
+    // Both open-error exits release everything acquired so far. `unavailable` is
+    // reached from the dlopen and every dlsym miss, which on a host without
+    // libasound is *every* open — so before bug-319 each `audio::openOutput` on
+    // such a host leaked the 16 KiB state page (and, with a partial/wrong-ABI
+    // libasound where snd_pcm_open resolves but a later symbol does not, the
+    // open PCM handle and the hw-params object too). `dev_fail` had this cleanup
+    // since bug-180 but never freed the hw-params object.
     instructions.push(abi::label(&unavailable));
+    emit_open_cleanup(
+        symbol,
+        "unavail",
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_AUDIO_UNAVAILABLE_CODE,
@@ -626,50 +645,14 @@ fn lower_open(
         &done,
     );
     instructions.push(abi::label(&dev_fail));
-    // Open-error cleanup (bug-180): close the PCM (if opened) and munmap the state
-    // page (if mapped) before failing. `STATE_OFF` is zeroed at entry and mmap
-    // zero-fills `S_OSOBJECT`, so each disposal is guarded when reached early.
-    {
-        let cleanup_munmap = format!("{symbol}_dev_munmap");
-        let cleanup_done = format!("{symbol}_dev_cleanup_done");
-        instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-            abi::compare_immediate("%v10", "0"),
-            abi::branch_eq(&cleanup_done),
-            abi::load_u64("%v9", "%v10", S_OSOBJECT),
-            abi::compare_immediate("%v9", "0"),
-            abi::branch_eq(&cleanup_munmap),
-        ]);
-        emit_alsa_call(
-            symbol,
-            "snd_pcm_close",
-            &unavailable,
-            platform,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-            false,
-            |ins, _relocs| {
-                ins.extend([
-                    abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                    abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-                ]);
-            },
-        )?;
-        instructions.extend([
-            abi::label(&cleanup_munmap),
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
-            abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
-        ]);
-        platform.emit_libc_call(
-            "munmap",
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
-        instructions.push(abi::label(&cleanup_done));
-    }
+    emit_open_cleanup(
+        symbol,
+        "dev",
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     emit_fail(
         symbol,
         ERR_AUDIO_DEVICE_CODE,
@@ -691,6 +674,87 @@ fn lower_open(
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
     Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// Release everything `lower_open` may have acquired, in acquisition-reverse
+/// order: the `snd_pcm_hw_params_t`, the open PCM handle, and the mmap'd state
+/// page. Every disposal is guarded on its own slot, so this is correct at any
+/// point after entry — `STATE_OFF`/`PARAMS_OFF` are zeroed there and `mmap`
+/// zero-fills `S_OSOBJECT` (bug-180, bug-319).
+///
+/// `tag` disambiguates the labels so both error exits can inline it. A `dlsym`
+/// miss inside the cleanup skips only that disposal and continues to the next —
+/// it must never branch back to an error exit, which would loop.
+fn emit_open_cleanup(
+    symbol: &str,
+    tag: &str,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let params_done = format!("{symbol}_{tag}_params_done");
+    let cleanup_munmap = format!("{symbol}_{tag}_munmap");
+    let cleanup_done = format!("{symbol}_{tag}_cleanup_done");
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), PARAMS_OFF),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&params_done),
+    ]);
+    emit_alsa_call(
+        symbol,
+        "snd_pcm_hw_params_free",
+        &params_done,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+        false,
+        |ins, _relocs| {
+            ins.push(abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                PARAMS_OFF,
+            ));
+        },
+    )?;
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF),
+        abi::label(&params_done),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&cleanup_done),
+        abi::load_u64("%v9", "%v10", S_OSOBJECT),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&cleanup_munmap),
+    ]);
+    emit_alsa_call(
+        symbol,
+        "snd_pcm_close",
+        &cleanup_munmap,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+        false,
+        |ins, _relocs| {
+            ins.extend([
+                abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+            ]);
+        },
+    )?;
+    instructions.extend([
+        abi::label(&cleanup_munmap),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
+    ]);
+    platform.emit_libc_call("munmap", symbol, platform_imports, instructions, relocations)?;
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
+        abi::label(&cleanup_done),
+    ]);
+    Ok(())
 }
 
 /// Configure and commit the hw params (§3.3): interleaved S16_LE at the
@@ -1000,6 +1064,10 @@ fn emit_configure_hw_params(
             ));
         },
     )?;
+    // Clear the slot: `lower_open` continues to prepare/start after this, and
+    // those can still branch to `dev_fail`, whose cleanup frees a non-NULL
+    // PARAMS_OFF — a stale pointer here would be a double free (bug-319).
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF));
     Ok(())
 }
 
@@ -2250,4 +2318,87 @@ fn lower_devices(
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
     Ok((frame, instructions, relocations, stack_slots))
+}
+
+#[cfg(test)]
+mod open_error_cleanup_tests {
+    //! bug-319 regression guards. These paths are Linux-only and need a real
+    //! libasound to execute, so the assertions pin the emitted cleanup instead:
+    //! the two open-error exits must dispose of everything the open acquired.
+    use super::*;
+    use crate::target::shared::code::mir;
+    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+
+    fn open_ins(device: bool) -> Vec<CodeInstruction> {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_open("o", false, device, &imports, &TestPlatform).expect("lower open");
+        ins
+    }
+
+    /// Whether the window between labels `start` and `end` calls `name`.
+    ///
+    /// `emit_alsa_call` materialises the symbol's data address with an `adrp`
+    /// carrying `_mfb_audio_alsa_sym_<name>`, and `emit_libc_call` emits a `bl
+    /// _<name>`, so both are visible positionally. A whole-function scan cannot
+    /// substitute: the success path already closes and frees, so only a windowed
+    /// check proves the *error exits* clean up.
+    fn calls_between(ins: &[CodeInstruction], start: &str, end: &str, name: &str) -> bool {
+        let at = |label: &str| {
+            ins.iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name") == Some(label))
+                .unwrap_or_else(|| panic!("missing label {label}"))
+        };
+        let (from, to) = (at(start), at(end));
+        assert!(from < to, "expected {start} to precede {end}");
+        let dl = sym_data_symbol(name);
+        let libc = format!("_{name}");
+        ins[from..to]
+            .iter()
+            .any(|i| i.get("symbol") == Some(&dl) || i.get("target") == Some(&libc))
+    }
+
+    // The `unavailable` exit is reached from the dlopen and from every dlsym
+    // miss — i.e. from *every* open on a host without libasound. It used to
+    // `emit_fail` with no cleanup at all, leaking the 16 KiB state page each
+    // time (and the PCM handle on a partial libasound).
+    #[test]
+    fn unavailable_exit_releases_the_state_page_and_pcm() {
+        for device in [false, true] {
+            let ins = open_ins(device);
+            for name in ["snd_pcm_hw_params_free", "snd_pcm_close", "munmap"] {
+                assert!(
+                    calls_between(&ins, "o_unavailable", "o_dev_fail", name),
+                    "the unavailable exit must call {name} (device={device})"
+                );
+            }
+            // Each disposal is guarded on its own slot, so an exit reached
+            // before that resource existed skips it rather than acting on NULL.
+            for label in ["o_unavail_params_done", "o_unavail_munmap", "o_unavail_cleanup_done"] {
+                assert!(
+                    has_label(&ins, label),
+                    "missing guard label {label} (device={device})"
+                );
+            }
+        }
+    }
+
+    // dev_fail had the close+munmap since bug-180 but never freed the hw-params
+    // object, so a device that could not honour the requested rate/channels
+    // leaked one heap block per failed open.
+    #[test]
+    fn dev_fail_exit_frees_the_hw_params_object() {
+        let ins = open_ins(false);
+        assert!(
+            calls_between(&ins, "o_dev_fail", "o_alloc_fail", "snd_pcm_hw_params_free"),
+            "dev_fail must free the hw-params object, not just close and munmap"
+        );
+        for name in ["snd_pcm_close", "munmap"] {
+            assert!(
+                calls_between(&ins, "o_dev_fail", "o_alloc_fail", name),
+                "dev_fail must still {name} (bug-180)"
+            );
+        }
+    }
 }

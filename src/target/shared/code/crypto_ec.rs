@@ -46,6 +46,19 @@ impl Curve {
             Curve::P521 => "521",
         }
     }
+    /// Length in bytes of an uncompressed SEC1 public point (`04 || X || Y`).
+    ///
+    /// Both backends splice fixed-length keys, so both must reject a public key
+    /// of any other length up front. The OpenSSL backend carries this in its
+    /// `CurveParams`; it lives here so the macOS backend's parity check (bug-317
+    /// T4) cannot drift from it.
+    fn point_len(self) -> usize {
+        match self {
+            Curve::P256 => 65,
+            Curve::P384 => 97,
+            Curve::P521 => 133,
+        }
+    }
     /// The macOS `SecKeyAlgorithm` constant (a CFString) for ECDSA over a message.
     fn macos_algorithm(self) -> &'static str {
         match self {

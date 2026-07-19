@@ -1,0 +1,51 @@
+{
+  "project": "regex_posix_classes_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "regex", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 10,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 10 },
+      { "name": "yes", "type": "Boolean", "default": null, "line": 10 },
+      { "name": "no", "type": "Boolean", "default": null, "line": 10 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " match=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "yes" }] } }, "right": { "kind": "string", "value": " reject=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "unary", "operator": "NOT", "operand": { "kind": "identifier", "value": "no" } }] } }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "alnum" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a5Z" }, { "kind": "string", "value": "^[[:alnum:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a!" }, { "kind": "string", "value": "^[[:alnum:]]+$" }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "word" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a_5" }, { "kind": "string", "value": "^[[:word:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a!" }, { "kind": "string", "value": "^[[:word:]]+$" }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "xdigit" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "fF09" }, { "kind": "string", "value": "^[[:xdigit:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "g" }, { "kind": "string", "value": "^[[:xdigit:]]+$" }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "blank" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": " \t" }, { "kind": "string", "value": "^[[:blank:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "x" }, { "kind": "string", "value": "^[[:blank:]]+$" }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "graph" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a!" }, { "kind": "string", "value": "^[[:graph:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a b" }, { "kind": "string", "value": "^[[:graph:]]+$" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "print" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a b!" }, { "kind": "string", "value": "^[[:print:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a\nb" }, { "kind": "string", "value": "^[[:print:]]+$" }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "digit" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "59" }, { "kind": "string", "value": "^[[:digit:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "^[[:digit:]]+$" }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "^alnum" }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "!?" }, { "kind": "string", "value": "^[[:^alnum:]]+$" }] }, { "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "^[[:^alnum:]]+$" }] }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -231,6 +231,84 @@ fn dlsym(
     )
 }
 
+/// `nw_connection_cancel(conn)` then `nw_release(conn)` for the connection held
+/// at `sp + conn_off`.
+///
+/// Cancelling stops the connection's network activity but does not drop the
+/// caller's `+1` retain, so an error exit that only cancels leaks the
+/// `nw_connection` object. Every connect/accept failure exit that owns a
+/// connection uses this so its teardown matches the success/close path
+/// (bug-317). `conn_off` is only reached once the slot holds a non-NULL
+/// connection, so no null guard is needed.
+#[allow(clippy::too_many_arguments)]
+fn emit_cancel_and_release_conn(
+    symbol: &str,
+    handle_off: usize,
+    conn_off: usize,
+    fnptr_off: usize,
+    fail: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    for name in ["nw_connection_cancel", "nw_release"] {
+        dlsym(
+            symbol,
+            handle_off,
+            name,
+            fnptr_off,
+            fail,
+            platform_imports,
+            platform,
+            ins,
+            rel,
+        )?;
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), conn_off),
+            abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+            abi::branch_link_register("%v9"),
+        ]);
+    }
+    Ok(())
+}
+
+/// `dispatch_release(queue)` for the dispatch queue held at `sp + queue_off`.
+///
+/// Only for a queue this frame owns. An accepted socket shares the listener's
+/// serial queue (released by `closeListener`), so its failure exits must not
+/// call this or they would over-release a queue still in use.
+#[allow(clippy::too_many_arguments)]
+fn emit_release_queue(
+    symbol: &str,
+    handle_off: usize,
+    queue_off: usize,
+    fnptr_off: usize,
+    fail: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    dlsym(
+        symbol,
+        handle_off,
+        "dispatch_release",
+        fnptr_off,
+        fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), queue_off),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+    ]);
+    Ok(())
+}
+
 /// Build a 40-byte block literal at `sp + block_off` whose `invoke` is
 /// `invoke_symbol` and whose single captured variable is the ctx pointer at
 /// `sp + ctx_off`.
@@ -939,12 +1017,18 @@ pub(super) fn lower_tls_connect_macos(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
-    // conn_fail: cancel the connection, report a TLS failure.
+    // conn_fail / conn_timeout: cancel the connection, then release the two
+    // objects this failed connect still owns — the nw_connection (+1 from
+    // nw_connection_create) and its per-connection dispatch queue. Both labels
+    // are reached only after CONN and QUEUE are stored, and the success path
+    // hands them to the record for close to release; before bug-317 these exits
+    // only cancelled, so a client reconnect loop against an unreachable or
+    // untrusted host leaked one connection and one queue per attempt.
     ins.push(abi::label(&conn_fail));
-    dlsym(
+    emit_cancel_and_release_conn(
         symbol,
         HANDLE,
-        "nw_connection_cancel",
+        CONN,
         FNPTR,
         &load_fail,
         platform_imports,
@@ -952,11 +1036,17 @@ pub(super) fn lower_tls_connect_macos(
         &mut ins,
         &mut rel,
     )?;
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
-        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
-        abi::branch_link_register("%v9"),
-    ]);
+    emit_release_queue(
+        symbol,
+        HANDLE,
+        QUEUE,
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
@@ -968,10 +1058,10 @@ pub(super) fn lower_tls_connect_macos(
     // conn_timeout: the deadline elapsed; cancel the connection, report a
     // timeout.
     ins.push(abi::label(&conn_timeout));
-    dlsym(
+    emit_cancel_and_release_conn(
         symbol,
         HANDLE,
-        "nw_connection_cancel",
+        CONN,
         FNPTR,
         &load_fail,
         platform_imports,
@@ -979,11 +1069,17 @@ pub(super) fn lower_tls_connect_macos(
         &mut ins,
         &mut rel,
     )?;
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
-        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
-        abi::branch_link_register("%v9"),
-    ]);
+    emit_release_queue(
+        symbol,
+        HANDLE,
+        QUEUE,
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     emit_fail(
         symbol,
         ERR_TIMEOUT_CODE,
@@ -3250,12 +3346,17 @@ pub(super) fn lower_tls_accept_macos(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
-    // conn_fail / hs_timeout: cancel the accepted connection first.
+    // conn_fail / hs_timeout: cancel the accepted connection, then drop the
+    // reference `accept` owns. The new-connection trampoline `nw_retain`s the
+    // connection into the ring and the successful path releases it at close;
+    // cancelling alone tears down network activity but keeps the +1, so before
+    // bug-317 every handshake failure leaked one nw_connection — a remotely
+    // triggerable, unbounded server-side leak for a server looping on accept.
     ins.push(abi::label(&conn_fail));
-    dlsym(
+    emit_cancel_and_release_conn(
         symbol,
         NWH,
-        "nw_connection_cancel",
+        CONN,
         FNPTR,
         &load_fail,
         platform_imports,
@@ -3263,11 +3364,6 @@ pub(super) fn lower_tls_accept_macos(
         &mut ins,
         &mut rel,
     )?;
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
-        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
-        abi::branch_link_register("%v9"),
-    ]);
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
@@ -3277,10 +3373,10 @@ pub(super) fn lower_tls_accept_macos(
         &done,
     );
     ins.push(abi::label(&hs_timeout));
-    dlsym(
+    emit_cancel_and_release_conn(
         symbol,
         NWH,
-        "nw_connection_cancel",
+        CONN,
         FNPTR,
         &load_fail,
         platform_imports,
@@ -3288,11 +3384,6 @@ pub(super) fn lower_tls_accept_macos(
         &mut ins,
         &mut rel,
     )?;
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
-        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
-        abi::branch_link_register("%v9"),
-    ]);
     emit_fail(
         symbol,
         ERR_TIMEOUT_CODE,
@@ -3847,6 +3938,96 @@ mod encoding_error_release_tests {
     fn has_label(ins: &[CodeInstruction], name: &str) -> bool {
         ins.iter()
             .any(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+    }
+
+    /// The instructions from label `start` up to (not including) label `end`.
+    fn window<'a>(ins: &'a [CodeInstruction], start: &str, end: &str) -> &'a [CodeInstruction] {
+        let at = |name: &str| {
+            ins.iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+                .unwrap_or_else(|| panic!("missing label {name}"))
+        };
+        let (from, to) = (at(start), at(end));
+        assert!(from < to, "expected {start} to precede {end}");
+        &ins[from..to]
+    }
+
+    /// Whether `dlsym(<name>)` is emitted inside this instruction window.
+    ///
+    /// `emit_dlsym` materialises the symbol's data address with an `adrp`
+    /// carrying `_mfb_tls_sym_<name>`, so the resolution is visible positionally
+    /// in the instruction stream. A whole-function relocation scan cannot
+    /// substitute here: `accept` already resolves `nw_release` in its listener
+    /// drain loop, so only a windowed check proves the *error exits* release.
+    fn resolves_in(win: &[CodeInstruction], name: &str) -> bool {
+        let want = sym_data_symbol(name);
+        win.iter().any(|i| i.get("symbol") == Some(&want))
+    }
+
+    // bug-317 T1: `accept` owns a +1 on the popped connection (the
+    // new-connection trampoline retains it into the ring). Its handshake-failure
+    // exits used to only `nw_connection_cancel`, which stops network activity
+    // but keeps the retain — so a server looping on `tls::accept` leaked one
+    // nw_connection per handshake failure, an unbounded remote-triggerable DoS.
+    #[test]
+    fn accept_failure_exits_release_the_connection() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
+        // Each exit is checked against its own window (up to the next exit's
+        // label), so one exit's release cannot stand in for the other's.
+        for (exit, end) in [
+            ("t_a_conn_fail", "t_a_hs_timeout"),
+            ("t_a_hs_timeout", "t_a_accept_timeout"),
+        ] {
+            let win = window(&ins, exit, end);
+            assert!(
+                resolves_in(win, "nw_connection_cancel"),
+                "{exit} must cancel the accepted connection"
+            );
+            assert!(
+                resolves_in(win, "nw_release"),
+                "{exit} must nw_release the accepted connection, not just cancel it"
+            );
+            // The accepted socket shares the listener's serial queue, so these
+            // exits must NOT release it — that would over-release a queue still
+            // in use by the listener and every other accepted socket.
+            assert!(
+                !resolves_in(win, "dispatch_release"),
+                "{exit} must not release the shared listener queue"
+            );
+        }
+    }
+
+    // bug-317 T3: `connect`'s failure exits own both the nw_connection (+1 from
+    // nw_connection_create) and the per-connection dispatch queue; the success
+    // path hands both to the record for `close` to release. Cancelling alone
+    // leaked one connection and one queue per failed connect.
+    #[test]
+    fn connect_failure_exits_release_connection_and_queue() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, _r, _s) =
+            lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform).expect("lower");
+        for (exit, end) in [
+            ("t_c_conn_fail", "t_c_conn_timeout"),
+            ("t_c_conn_timeout", "t_c_net_fail"),
+        ] {
+            let win = window(&ins, exit, end);
+            assert!(
+                resolves_in(win, "nw_connection_cancel"),
+                "{exit} must cancel the connection"
+            );
+            assert!(
+                resolves_in(win, "nw_release"),
+                "{exit} must nw_release the connection, not just cancel it"
+            );
+            assert!(
+                resolves_in(win, "dispatch_release"),
+                "{exit} must dispatch_release the per-connection queue"
+            );
+        }
     }
 
     // bug-55: `emit_fresh_sem` used to store a brand-new dispatch_semaphore into

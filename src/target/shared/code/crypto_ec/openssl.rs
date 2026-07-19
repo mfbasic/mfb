@@ -82,7 +82,7 @@ fn params(curve: Curve) -> CurveParams {
     match curve {
         Curve::P256 => CurveParams {
             field_len: 32,
-            point_len: 65,
+            point_len: curve.point_len(),
             sec1_scalar_off: 7,
             pkcs8_len: 138,
             p8_scalar_off: 36,
@@ -95,7 +95,7 @@ fn params(curve: Curve) -> CurveParams {
         },
         Curve::P384 => CurveParams {
             field_len: 48,
-            point_len: 97,
+            point_len: curve.point_len(),
             sec1_scalar_off: 8,
             pkcs8_len: 185,
             p8_scalar_off: 35,
@@ -108,7 +108,7 @@ fn params(curve: Curve) -> CurveParams {
         },
         Curve::P521 => CurveParams {
             field_len: 66,
-            point_len: 133,
+            point_len: curve.point_len(),
             sec1_scalar_off: 8,
             pkcs8_len: 241,
             p8_scalar_off: 35,

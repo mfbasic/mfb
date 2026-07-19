@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "regex_from_string_rt",
+  "project": "regex_posix_classes_rt",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -469,59 +469,38 @@
   ],
   "functions": [
   {
-    "name": "render",
+    "name": "show",
     "line": 10,
     "visibility": "public",
-    "kind": "func",
+    "kind": "sub",
     "params": [
-    { "name": "hits", "line": 10, "type": "List OF Integer", "default": null }
+    { "name": "label", "line": 10, "type": "String", "default": null },
+    { "name": "yes", "line": 10, "type": "Boolean", "default": null },
+    { "name": "no", "line": 10, "type": "Boolean", "default": null }
     ],
-    "returns": "String",
+    "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 11, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "[" } },
-    { "op": "bind", "line": 12, "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-    {
-      "op": "forEach",
-      "line": 13,
-      "name": "h",
-      "type": "Integer",
-      "iterable": { "kind": "local", "name": "hits" },
-      "body": [
-      {
-        "op": "if",
-        "line": 14,
-        "condition": { "kind": "local", "name": "first" },
-        "then": [
-        { "op": "assign", "line": 15, "name": "first", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
-        ],
-        "else": [
-        { "op": "assign", "line": 17, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "," } } }
-        ]
-      },
-      { "op": "assign", "line": 19, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "h" }] } } }
-      ]
-    },
-    { "op": "return", "line": 21, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "]" } } }
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": " match=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "yes" }] } }, "right": { "kind": "const", "type": "String", "value": " reject=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "no" } }] } }] } }
     ]
   },
   {
     "name": "main",
-    "line": 24,
+    "line": 14,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 25, "mutable": false, "name": "pattern", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/regex/regex-from-string-rt/data/pattern.txt" }] } },
-    { "op": "bind", "line": 26, "mutable": false, "name": "value", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/regex/regex-from-string-rt/data/input.txt" }] } },
-    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pattern=" }, "right": { "kind": "local", "name": "pattern" } }] } },
-    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "value=" }, "right": { "kind": "local", "name": "value" } }] } },
-    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "match=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }] }] } }] } },
-    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "find=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#regex_find", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } }] } },
-    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "findAll=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "call", "type": "List OF Integer", "target": "#regex_findAll", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } }] } },
-    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "replace=" }, "right": { "kind": "call", "type": "String", "target": "#regex_replace", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }, { "kind": "const", "type": "String", "value": "$2:$1" }] } }] } },
-    { "op": "return", "line": 33, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "alnum" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a5Z" }, { "kind": "const", "type": "String", "value": "^[[:alnum:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a!" }, { "kind": "const", "type": "String", "value": "^[[:alnum:]]+$" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "word" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a_5" }, { "kind": "const", "type": "String", "value": "^[[:word:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a!" }, { "kind": "const", "type": "String", "value": "^[[:word:]]+$" }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "xdigit" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "fF09" }, { "kind": "const", "type": "String", "value": "^[[:xdigit:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "g" }, { "kind": "const", "type": "String", "value": "^[[:xdigit:]]+$" }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "blank" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": " \t" }, { "kind": "const", "type": "String", "value": "^[[:blank:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "String", "value": "^[[:blank:]]+$" }] }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "graph" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a!" }, { "kind": "const", "type": "String", "value": "^[[:graph:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a b" }, { "kind": "const", "type": "String", "value": "^[[:graph:]]+$" }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "print" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a b!" }, { "kind": "const", "type": "String", "value": "^[[:print:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a\nb" }, { "kind": "const", "type": "String", "value": "^[[:print:]]+$" }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "digit" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "59" }, { "kind": "const", "type": "String", "value": "^[[:digit:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "^[[:digit:]]+$" }] }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "^alnum" }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "!?" }, { "kind": "const", "type": "String", "value": "^[[:^alnum:]]+$" }] }, { "kind": "call", "type": "Boolean", "target": "#regex_match", "args": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "^[[:^alnum:]]+$" }] }] } },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

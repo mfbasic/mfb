@@ -1103,6 +1103,17 @@ fn verify(
         &mut ins,
         &mut rel,
     );
+    // Reject a public key that is not exactly one uncompressed SEC1 point.
+    // SecKeyCreateWithData validates the point too (a bad one yields NULL and
+    // routes to invalid_fail), so this is a parity guard rather than a fix for a
+    // live defect: the OpenSSL backend checks the length explicitly, and the two
+    // backends should reject identically instead of relying on one library's
+    // validation (bug-317 T4).
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
+        abi::compare_immediate("%v9", &curve.point_len().to_string()),
+        abi::branch_ne(&invalid_fail),
+    ]);
     emit_read_byte_list(
         symbol,
         "msg",
@@ -1469,5 +1480,29 @@ mod error_path_release_tests {
             has_label(&ins, "v_ivp_norel"),
             "invalid_fail must null-guard CFRelease(PUBDATA)"
         );
+    }
+
+    // bug-317 T4: the OpenSSL backend rejects a wrong-length public key with an
+    // explicit length check before splicing; this backend leaned on
+    // SecKeyCreateWithData to notice. Both now reject identically, per curve.
+    #[test]
+    fn verify_prechecks_public_key_length() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        for (curve, point_len) in [
+            (Curve::P256, "65"),
+            (Curve::P384, "97"),
+            (Curve::P521, "133"),
+        ] {
+            let (_f, ins, _r, _s) =
+                verify(curve, "v", &imports, &TestPlatform).expect("lower verify");
+            assert!(
+                // Register names are physical by this point (the body has been
+                // through allocation), so the immediate is the stable signal.
+                ins.iter()
+                    .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some(point_len)),
+                "verify must compare the public-key length against {point_len}"
+            );
+        }
     }
 }
