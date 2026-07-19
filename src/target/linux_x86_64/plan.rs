@@ -334,8 +334,15 @@ impl NativePlanPlatform for Platform {
                     .collect()
             }
             call if crate::builtins::net::is_net_call(call) => {
+                // bug-300 E10: on x86-64 `emit_write` is a raw SYS_WRITE syscall
+                // (the net write helper derives errno from the negated raw return,
+                // bug-109), so the libc `write` PLT symbol is never referenced and
+                // importing it leaves an unreferenced entry in the dynamic symbol
+                // table. The shared list is right for aarch64, where `emit_write`
+                // really is a libc call, so filter here rather than there.
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
+                    .filter(|base| **base != "write")
                     .map(|base| self.libc_import(base, spec.symbol))
                     .collect::<Vec<_>>();
                 imports.push(self.libc_import("__errno_location", spec.symbol));
@@ -508,6 +515,10 @@ mod tests {
             "fs.writeText",
             "fs.open",
             "fs.writeTextAtomic",
+            // bug-300 E10: these two were omitted, which is why the dead net
+            // `write` import survived this guard.
+            "net.write",
+            "net.writeText",
         ] {
             let spec = crate::target::shared::runtime::spec_for_call(call)
                 .unwrap_or_else(|| panic!("{call} spec"));

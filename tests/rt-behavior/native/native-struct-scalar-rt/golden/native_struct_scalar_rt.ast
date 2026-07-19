@@ -49,6 +49,7 @@
         "symbol": "clock_gettime",
         "returnResource": false,
         "returnType": "Instant",
+        "returnState": null,
         "line": 26,
         "params": [
         ],
@@ -63,6 +64,9 @@
         "consts": [
         { "slot": "clk", "value": { "kind": "number", "value": "0" }, "line": 29 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "ts" },
         "free": null
@@ -73,6 +77,7 @@
         "symbol": "nanosleep",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 37,
         "params": [
         { "name": "nanos", "type": "Integer", "default": null, "line": 37 }
@@ -88,6 +93,22 @@
         "consts": [
         { "slot": "rem", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 40 }
         ],
+        "bindIn": [
+        {
+          "kind": "bindIn",
+          "slot": "req",
+          "line": 41,
+          "fields": [
+          {
+            "kind": "bindInField",
+            "name": "nanoseconds",
+            "line": 42,
+            "value": { "kind": "identifier", "value": "nanos" }
+          }
+          ]
+        }
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "status" },
         "free": null

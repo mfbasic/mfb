@@ -125,6 +125,7 @@
         "symbol": "gmtime_r",
         "returnResource": false,
         "returnType": "TimeParts",
+        "returnState": null,
         "line": 62,
         "params": [
         { "name": "t", "type": "Integer", "default": null, "line": 62 }
@@ -139,6 +140,22 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        {
+          "kind": "bindIn",
+          "slot": "timep",
+          "line": 65,
+          "fields": [
+          {
+            "kind": "bindInField",
+            "name": "value",
+            "line": 66,
+            "value": { "kind": "identifier", "value": "t" }
+          }
+          ]
+        }
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "result" },
         "free": null

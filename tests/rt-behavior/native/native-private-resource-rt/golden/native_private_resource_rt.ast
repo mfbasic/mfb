@@ -32,6 +32,7 @@
         "symbol": "sqlite3_open",
         "returnResource": true,
         "returnType": "#c2515768f1aa7dc6$Db",
+        "returnState": "#c2515768f1aa7dc6$DbInfo",
         "line": 24,
         "params": [
         { "name": "path", "type": "String", "default": null, "line": 24 }
@@ -46,6 +47,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "db" },
         "free": null
@@ -56,6 +60,7 @@
         "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
+        "returnState": null,
         "line": 30,
         "params": [
         { "name": "db", "type": "#c2515768f1aa7dc6$Db", "resource": true, "state": "#c2515768f1aa7dc6$DbInfo", "default": null, "line": 30 }
@@ -69,6 +74,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": null,
         "free": null

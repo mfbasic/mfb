@@ -710,6 +710,13 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             reporter.phase("codegen+link", codegen_start.elapsed());
             println!("Wrote package to {}", package_path.display());
         } else {
+            // bug-300 E8 reported this arm as unreachable ("validate_project_manifest
+            // restricts kind to exactly executable|package") and proposed replacing
+            // it with `unreachable!()`. That is wrong, and doing so would have turned
+            // a live path into a panic: an unrecognized `kind` is a WARNING
+            // (`PROJECT_JSON_UNKNOWN_KIND`, "continuing validation"), not an error, so
+            // a project with e.g. `"kind": "program"` reaches here, builds nothing,
+            // and exits 0. Verified by building one.
             println!(
                 "Validated MFBASIC project at {}",
                 options.location.display()

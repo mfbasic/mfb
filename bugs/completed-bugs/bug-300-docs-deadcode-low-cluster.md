@@ -5,7 +5,7 @@ Effort: small (<1h across items)
 Severity: LOW
 Class: Docs / Dead-code / Correctness (dump-only)
 
-Status: Open
+Status: Fixed
 Regression Test: per-item (mostly doc/comment; serialize golden for D3)
 
 A cluster of LOW-severity documentation, dead-code, and dump-only-serialization
@@ -200,3 +200,101 @@ Each item is a single cited site across independent modules; land per item.
 
 Eight cross-module docs/dead/dump residuals; all cosmetic or dump-only, each a
 localized edit. Value is keeping the docs/dumps honest before MVP.
+
+## Resolution
+
+Fourteen items. Two of the report's claims turned out to be **wrong**, and in both
+cases following the report would have made things worse — those are recorded below
+rather than quietly skipped.
+
+**E1** — reworded to "targets whose backend lacks app mode" and noted that Linux app
+mode exists (`NativeBuildMode::LinuxApp`, GTK4).
+
+**E2** — the arch-neutral op layer no longer names aarch64 in its error.
+
+**E3** — `LinkFunction::to_json` now emits `returnState`, `bindIn` and `bindState`,
+with new serializers for `BindIn`, `BindInField` and `BindState`. 21 `.ast` goldens
+regenerated; the diff is **purely additive** (zero removed lines across all of them)
+and no non-`.ast` golden moved, confirming the change is dump-only as the non-goals
+require.
+
+**E4** — the three productions admitting a literal `return` now take a plain
+`ident`, verified against `parse_abi_slot_name`, which accepts only an identifier
+(plan-50-H deleted the special case). `abiSlot` gains `[ "IN" | "OUT" | "INOUT" ]`,
+verified against the parser's direction handling. The paren-less `FUNC f AS Integer`
+/ `SUB main` leniency is now written into `funcDecl`/`subDecl` rather than left
+undocumented.
+
+**E5** — `ZERO_REGISTER` deleted. Confirmed dead first: `select_x86` maps the legacy
+`x31` spelling to `abi::ZERO`, never to r14, and the only other references were the
+const's own tests and one stale comment. The `INT_ALLOCATABLE` header no longer
+claims r14 is a pinned zero register — it is allocatable, and x86 has no zero
+register at all (the token becomes an immediate zero), which is what freed it in
+plan-34-C. `abi.rs`'s matching claim is corrected too.
+
+**E6** — `RAND` dropped from `call_return_type_name`. The report's "shadowed
+everywhere" claim was **checked rather than trusted**: `ir::lower` returns early
+through `math::resolve_call` for every math call, so the fallback is unreachable
+there. The pre-existing table test asserted `Some("Integer")` and was updated only
+after building and running both overloads — `rand(1, 10)` and
+`rand(1.00m, 10.00m)` each still produce a correctly-typed in-range value with the
+entry gone.
+
+**E7** — `math::round`/`floor`/`ceil` man pages gain the `Money` overload in
+SYNOPSIS, OVERLOADS and PARAMETERS, describing it as the deliberate dimension exit
+and cross-referencing the `money::` sibling. Verified the overload is real by
+building `math::round(2.75m)`, which yields `3`.
+
+**E9** — `CodeFunction::validate` now resolves every label-targeting branch against
+the labels the function defines, failing at the layer that owns the invariant
+instead of at encode time. `bl`/`blr` (symbol targets, covered by the relocation
+checks) and `branch_self` are excluded.
+
+**E10** — `write` filtered out of the x86 net import list, since `emit_write` there
+is a raw `SYS_WRITE` syscall; the shared list stays correct for aarch64, where it
+really is a libc call. `net.write`/`net.writeText` added to
+`write_is_never_imported`, whose omission is why the dead import survived the guard.
+
+**E12** — loop bodies are analyzed under an **empty** constant map, mirroring
+codegen's `clear_local_constants()` exactly. The report suggested invalidating only
+the locals reassigned in the body; clearing outright is what codegen actually does,
+so the two now agree by construction rather than through a second, parallel
+invalidation rule that could drift.
+
+**E13** — each leading union-extract bind's value is validated against the locals
+accumulated so far, before its own name enters scope.
+
+**E14** — `lower_ops` walks `case.guard`, mirroring `plan/symbols.rs` (bug-118 fixed
+this exact omission there and overlooked this site).
+
+### E8 — the report is wrong: the arm is reachable, and `unreachable!()` would panic
+
+E8 called the final `else` in `build_project` unreachable "because
+`validate_project_manifest` restricts `kind` to exactly `executable | package`" and
+proposed replacing it with `unreachable!()`.
+
+It is reachable. An unrecognized `kind` is a **warning** (`PROJECT_JSON_UNKNOWN_KIND`
+— "continuing validation"), not an error. Building a project with
+`"kind": "program"` prints `Validated MFBASIC project at .` and exits 0 — verified
+by doing exactly that. Following the report would have converted a live path,
+reachable by a simple typo in `project.json`, into a compiler panic. The arm is kept
+and the reasoning recorded at the site.
+
+### E11 — the report is wrong: `al` is already set
+
+E11 said `emit_variadic_call` omits the SysV `al` variadic marker. The *comment*
+there was indeed wrong — copied verbatim from the aarch64 twin, describing an ABI
+x86 does not implement — but the code was not. The x86 `bl` encoder already emits
+`mov eax, 8` before every **external** call (8 being a safe superset, since the
+callee saves xmm0–7) and suppresses it only for internal `_mfb_*` targets, where rax
+carries a 7th argument. A libc call routed through `emit_variadic_call` is external,
+so `al` is set.
+
+The fix was implemented before this was noticed, and
+`shared_lowering_names_no_physical_register` rejected it immediately — adding the
+marker meant naming `rax` in shared helper lowering, a plan-34-D violation. So the
+invariant caught a change that was *also* redundant. Reverted; the misleading
+comment is replaced with an accurate one.
+
+Full `cargo test` green; artifact gate 0 diffs after the additive `.ast`
+regeneration; acceptance 1005/1005.

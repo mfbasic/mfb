@@ -261,6 +261,21 @@ fn collect_runtime_calls_from_ops(ops: &[NirOp], calls: &mut Vec<String>) {
     collect_runtime_calls_from_ops_with_constants(ops, calls, &mut constants);
 }
 
+/// The constant environment a loop body is analyzed under (bug-300 E12).
+///
+/// Empty, mirroring codegen: `builder_control` calls `clear_local_constants()`
+/// before every loop body, because a local can be reassigned inside the body and a
+/// loop-entry value therefore says nothing about later iterations. This pass used
+/// to clone the enclosing constants instead and never invalidate anything, so a
+/// call like `strings.upper(s)` folded away here while codegen emitted it for
+/// real -- validate could clear a capability gate for a call the binary actually
+/// makes. Clearing outright is exactly what codegen does, so the two now agree by
+/// construction rather than by a second, parallel invalidation rule that could
+/// drift.
+fn loop_body_constants() -> HashMap<String, NirValue> {
+    HashMap::new()
+}
+
 fn collect_runtime_calls_from_ops_with_constants(
     ops: &[NirOp],
     calls: &mut Vec<String>,
@@ -345,7 +360,7 @@ fn collect_runtime_calls_from_ops_with_constants(
                 condition, body, ..
             } => {
                 collect_runtime_calls_from_value(condition, calls, constants);
-                let mut body_constants = constants.clone();
+                let mut body_constants = loop_body_constants();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
             }
             NirOp::For {
@@ -358,17 +373,17 @@ fn collect_runtime_calls_from_ops_with_constants(
                 collect_runtime_calls_from_value(start, calls, constants);
                 collect_runtime_calls_from_value(end, calls, constants);
                 collect_runtime_calls_from_value(step, calls, constants);
-                let mut body_constants = constants.clone();
+                let mut body_constants = loop_body_constants();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
             }
             NirOp::DoUntil { body, condition } => {
-                let mut body_constants = constants.clone();
+                let mut body_constants = loop_body_constants();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
                 collect_runtime_calls_from_value(condition, calls, constants);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_runtime_calls_from_value(iterable, calls, constants);
-                let mut body_constants = constants.clone();
+                let mut body_constants = loop_body_constants();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
             }
             NirOp::Trap { body, .. } => {
@@ -1009,12 +1024,28 @@ fn validate_ops(
                         let NirOp::Bind {
                             name,
                             type_,
-                            value: Some(NirValue::UnionExtract { .. }),
+                            value: Some(extract @ NirValue::UnionExtract { .. }),
                             ..
                         } = op
                         else {
                             break;
                         };
+                        // bug-300 E13: these leading extract binds were added to
+                        // scope but their VALUES were never validated -- only
+                        // `case.body[body_start..]` is, and these sit before it. So
+                        // the one class of expression this backstop exists to catch
+                        // (hand-crafted or corrupted NIR) escaped it here. Validate
+                        // against the locals accumulated so far, before this bind's
+                        // own name enters scope.
+                        validate_value(
+                            extract,
+                            &guard_locals,
+                            function_names,
+                            global_names,
+                            import_names,
+                            type_value_names,
+                            used_helpers,
+                        )?;
                         guard_locals.insert(
                             name.clone(),
                             LocalBinding {

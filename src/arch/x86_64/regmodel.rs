@@ -25,10 +25,15 @@ const GPRS: &[&str] = &[
 /// Excludes: the SysV argument/return + implicit registers (`rax`/`rdx` —
 /// mul/div and return; `rcx` — variable shift/rotate count; `rsi`/`rdi`/`r8`/`r9`
 /// — argument registers placed physically by selection at ABI boundaries),
-/// `rsp` (stack), `rbp` (reserved frame register), `r15` (pinned `arena_base`),
-/// and `r14` (pinned **zero register** — AArch64 has `xzr`, x86 does not, so
-/// `select_x86` realizes `xzr`/`x31` as `r14`, which the entry zeroes once and
-/// every function preserves because it is callee-saved and never allocated).
+/// `rsp` (stack), `rbp` (reserved frame register), and `r15` (pinned
+/// `arena_base`).
+///
+/// bug-300 E5: this list used to also name `r14` as a pinned **zero register**,
+/// contradicting the pool one line below, which allocates it. x86-64 has no zero
+/// register at all: the neutral zero token is realized as an *immediate* zero
+/// (`store xzr` → `mov r/m, 0`), which is precisely what freed `r14` for
+/// allocation in plan-34-C.
+///
 /// Tight (4) versus AArch64's 19 — the linear-scan allocator spills under
 /// pressure; correctness-first for bring-up (plan-00-H §7 frees a register by
 /// moving arena_base to TLS).
@@ -41,12 +46,6 @@ const GPRS: &[&str] = &[
 // ([`X86_64RegisterModel::current_thread`]), the program-wide worker
 // current-thread register every function must preserve.
 const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "r12", "r14"];
-
-/// The register the legacy `"x31"` zero spelling realizes as. The neutral zero
-/// token (`abi::ZERO` = `xzr`) no longer needs it — `store xzr` encodes an
-/// immediate zero and `r14` is now allocatable — but the constant is retained for
-/// the residual-`x31` selection path (no shared producer emits `x31`).
-pub(crate) const ZERO_REGISTER: &str = "r14";
 
 /// The register the arena-state pointer is pinned in, program-wide and reserved
 /// from allocation. Named (rather than spelled inline) so shared code can identify
@@ -255,8 +254,6 @@ mod tests {
         assert_eq!(mv.get("src"), Some("r10"));
         assert_eq!(m.arena_base(), "r15");
         assert_eq!(m.math_pool_base(), None);
-        // ZERO_REGISTER constant.
-        assert_eq!(ZERO_REGISTER, "r14");
     }
 
     #[test]
@@ -320,6 +317,5 @@ mod tests {
         assert_eq!(m.arena_base(), "r15");
         assert_eq!(m.math_pool_base(), None);
         // The zero register realizes xzr as r14.
-        assert_eq!(ZERO_REGISTER, "r14");
     }
 }

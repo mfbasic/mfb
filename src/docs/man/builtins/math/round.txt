@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::round(value AS Float) AS Integer
   math::round(value AS Fixed) AS Integer
+  math::round(value AS Money) AS Integer
   math::round(values AS List OF Float) AS List OF Integer
   math::round(values AS List OF Fixed) AS List OF Integer
 
@@ -40,6 +41,13 @@ OVERLOADS
     identical across targets. Every Fixed value rounds to an Integer that fits
     in range, so this overload never overflows.
 
+  math::round(value AS Money) AS Integer
+    Rounds the Money amount to the nearest Integer, breaking ties away from
+    zero, yielding the dimensionless
+    count of whole currency units. This is a deliberate dimension exit:
+    the Money-ness is dropped, which is why the result is an Integer and
+    not a Money. See money::round for the amount-preserving operation.
+
   math::round(values AS List OF Float) AS List OF Integer
   math::round(values AS List OF Fixed) AS List OF Integer
     Applies round to each element of a numeric List using NEON SIMD and
@@ -51,8 +59,9 @@ OVERLOADS
     corresponding scalar result exactly.
 
 PARAMETERS
-  value AS Float | Fixed
-    The number to round to the nearest Integer. Any Float or Fixed is accepted.
+  value AS Float | Fixed | Money
+    The number to round to the nearest Integer. Any Float, Fixed or Money is
+    accepted.
     For the Float overload, a value whose rounded result falls outside Integer
     range cannot be represented and is reported as an overflow.
 

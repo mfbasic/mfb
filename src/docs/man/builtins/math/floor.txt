@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::floor(value AS Float) AS Integer
   math::floor(value AS Fixed) AS Integer
+  math::floor(value AS Money) AS Integer
   math::floor(values AS List OF Float) AS List OF Integer
   math::floor(values AS List OF Fixed) AS List OF Integer
 
@@ -39,6 +40,13 @@ OVERLOADS
     infinity using deterministic fixed-point arithmetic. Every Fixed value
     floors to an Integer that fits in range, so this overload never overflows.
 
+  math::floor(value AS Money) AS Integer
+    Rounds the Money amount down to the nearest Integer at or below it,
+    yielding the dimensionless
+    count of whole currency units. This is a deliberate dimension exit:
+    the Money-ness is dropped, which is why the result is an Integer and
+    not a Money. See money::floor for the amount-preserving operation.
+
   math::floor(values AS List OF Float) AS List OF Integer
   math::floor(values AS List OF Fixed) AS List OF Integer
     Applies floor to each element of a numeric List using NEON SIMD and
@@ -50,7 +58,7 @@ OVERLOADS
     corresponding scalar result exactly.
 
 PARAMETERS
-  value AS Float | Fixed
+  value AS Float | Fixed | Money
     The number to round down. Any Float or Fixed is accepted. For the Float
     overload, a value whose floor falls outside Integer range cannot be
     represented and is reported as an overflow.

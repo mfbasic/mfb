@@ -23,6 +23,7 @@
         "symbol": "sqlite3_open",
         "returnResource": true,
         "returnType": "Db",
+        "returnState": null,
         "line": 13,
         "params": [
         { "name": "path", "type": "String", "default": null, "line": 13 }
@@ -37,6 +38,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "db" },
         "free": null
@@ -47,6 +51,7 @@
         "symbol": "sqlite3_exec",
         "returnResource": false,
         "returnType": "Nothing",
+        "returnState": null,
         "line": 19,
         "params": [
         { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 19 },
@@ -68,6 +73,9 @@
         { "slot": "arg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 23 },
         { "slot": "errmsg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 24 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": null,
         "free": null
@@ -78,6 +86,7 @@
         "symbol": "sqlite3_prepare_v2",
         "returnResource": true,
         "returnType": "Stmt",
+        "returnState": null,
         "line": 27,
         "params": [
         { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 27 },
@@ -98,6 +107,9 @@
         { "slot": "nByte", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 30 },
         { "slot": "pzTail", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 31 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "stmt" },
         "free": null
@@ -108,6 +120,7 @@
         "symbol": "sqlite3_bind_text",
         "returnResource": false,
         "returnType": "Nothing",
+        "returnState": null,
         "line": 35,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 35 },
@@ -129,6 +142,9 @@
         { "slot": "nByte", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 38 },
         { "slot": "destructor", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 39 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": null,
         "free": null
@@ -139,6 +155,7 @@
         "symbol": "sqlite3_step",
         "returnResource": false,
         "returnType": "Boolean",
+        "returnState": null,
         "line": 42,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 42 }
@@ -152,6 +169,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "100" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "101" } } },
         "result": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "100" } },
         "free": null
@@ -162,6 +182,7 @@
         "symbol": "sqlite3_column_text",
         "returnResource": false,
         "returnType": "String",
+        "returnState": null,
         "line": 48,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 48 },
@@ -177,6 +198,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "text" },
         "free": null
@@ -187,6 +211,7 @@
         "symbol": "sqlite3_column_int",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 56,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 56 },
@@ -202,6 +227,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "value" },
         "free": null
@@ -212,6 +240,7 @@
         "symbol": "sqlite3_column_double",
         "returnResource": false,
         "returnType": "Float",
+        "returnState": null,
         "line": 61,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 61 },
@@ -227,6 +256,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "value" },
         "free": null
@@ -237,6 +269,7 @@
         "symbol": "sqlite3_finalize",
         "returnResource": false,
         "returnType": "Nothing",
+        "returnState": null,
         "line": 66,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 66 }
@@ -250,6 +283,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": null,
         "free": null
@@ -260,6 +296,7 @@
         "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
+        "returnState": null,
         "line": 71,
         "params": [
         { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 71 }
@@ -273,6 +310,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": null,
         "free": null

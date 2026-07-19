@@ -85,7 +85,11 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2 => None,
         FLOOR | CEIL | ROUND => Some("Integer"),
-        RAND => Some("Integer"),
+        // bug-300 E6: `rand` is argument-type dependent -- `resolve_call` gives
+        // `rand(Money, Money) AS Money` -- so a fixed answer here is a second,
+        // disagreeing return-type table. `None` is what the other arg-typed
+        // builtins (abs/min/max) already return, deferring to the resolver.
+        RAND => None,
         SEED => Some("Nothing"),
         _ => None,
     }
@@ -394,8 +398,20 @@ mod tests {
         assert_eq!(call_return_type_name(FLOOR), Some("Integer"));
         assert_eq!(call_return_type_name(CEIL), Some("Integer"));
         assert_eq!(call_return_type_name(ROUND), Some("Integer"));
-        assert_eq!(call_return_type_name(RAND), Some("Integer"));
         assert_eq!(call_return_type_name(SEED), Some("Nothing"));
+        // bug-300 E6: `rand` is argument-type DEPENDENT -- `resolve_call` gives
+        // `rand(Money, Money) AS Money` -- so an unconditional `Some("Integer")`
+        // here was a second return-type table disagreeing with the resolver, the
+        // one place the two could contradict each other. It now returns `None`
+        // like the other arg-typed builtins below, deferring to the resolver.
+        //
+        // This assertion previously read `Some("Integer")`. It was changed only
+        // after confirming the entry was genuinely shadowed: `ir::lower` returns
+        // early through `math::resolve_call` for every math call, so the fallback
+        // is unreachable there, and both overloads were built and run --
+        // `rand(1, 10)` and `rand(1.00m, 10.00m)` each produce a correctly-typed,
+        // in-range value with the entry removed.
+        assert_eq!(call_return_type_name(RAND), None);
         // scalar-carrying transcendentals depend on arg type -> None nominal
         assert_eq!(call_return_type_name(SQRT), None);
         assert_eq!(call_return_type_name(POW), None);

@@ -545,7 +545,10 @@ impl CodeOp {
             "rv.fcmp" => Ok(CodeOp::RvFcmp),
             "rv.slt" => Ok(CodeOp::Slt),
             "rv.sltu" => Ok(CodeOp::Sltu),
-            other => Err(format!("aarch64 code op '{other}' is not encodable")),
+            // This file is the arch-NEUTRAL op vocabulary for every backend
+            // (bug-82 moved it out of `aarch64/`), so the message must not name
+            // one -- a bad mnemonic on the x86 or riscv path misreported aarch64.
+            other => Err(format!("code op '{other}' is not encodable")),
         }
     }
 }

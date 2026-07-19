@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::ceil(value AS Float) AS Integer
   math::ceil(value AS Fixed) AS Integer
+  math::ceil(value AS Money) AS Integer
   math::ceil(values AS List OF Float) AS List OF Integer
   math::ceil(values AS List OF Fixed) AS List OF Integer
 
@@ -42,6 +43,13 @@ OVERLOADS
     infinity using deterministic fixed-point arithmetic. Every Fixed value
     ceils to an Integer that fits in range, so this overload never overflows.
 
+  math::ceil(value AS Money) AS Integer
+    Rounds the Money amount up to the nearest Integer at or above it,
+    yielding the dimensionless
+    count of whole currency units. This is a deliberate dimension exit:
+    the Money-ness is dropped, which is why the result is an Integer and
+    not a Money. See money::ceil for the amount-preserving operation.
+
   math::ceil(values AS List OF Float) AS List OF Integer
   math::ceil(values AS List OF Fixed) AS List OF Integer
     Applies ceil to each element of a numeric List using NEON SIMD and
@@ -53,7 +61,7 @@ OVERLOADS
     corresponding scalar result exactly.
 
 PARAMETERS
-  value AS Float | Fixed
+  value AS Float | Fixed | Money
     The number to round up. Any Float or Fixed is accepted. For the Float
     overload, a value whose ceiling falls outside Integer range cannot be
     represented and is reported as an overflow.

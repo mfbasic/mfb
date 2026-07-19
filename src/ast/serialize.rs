@@ -379,6 +379,80 @@ impl ToAstJson for CStructField {
     }
 }
 
+/// bug-300 E3: `BIND IN` blocks and their fields were absent from the `-ast` dump
+/// entirely, so a native FUNC carrying one dumped identically to one without.
+impl ToAstJson for BindIn {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"kind\": \"bindIn\",\n",
+                "{}  \"slot\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"fields\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            pad,
+            json_string(&self.slot),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.fields, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for BindInField {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"kind\": \"bindInField\",\n",
+                "{}  \"name\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"value\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            pad,
+            json_string(&self.name),
+            pad,
+            self.line,
+            pad,
+            self.value.to_json(indent + 2),
+            pad
+        )
+    }
+}
+
+impl BindState {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "{{\n",
+                "{}  \"kind\": \"bindState\",\n",
+                "{}  \"resourceSlot\": {},\n",
+                "{}  \"structSlot\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            json_string(&self.resource_slot),
+            pad,
+            json_string(&self.struct_slot),
+            pad
+        )
+    }
+}
+
 impl ToAstJson for LinkFunction {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
@@ -402,6 +476,20 @@ impl ToAstJson for LinkFunction {
             .as_ref()
             .map(|value| value.to_json(indent + 2))
             .unwrap_or_else(|| "null".to_string());
+        // bug-300 E3: these three were omitted, so a native
+        // `FUNC … AS RES SoundFile STATE FileInfo` with `BIND IN`/`BIND STATE`
+        // dumped identically to one without them. `Function::to_json` already
+        // emits `returnState`, so the LINK side was the asymmetric one.
+        let return_state = self
+            .return_state_type
+            .as_ref()
+            .map(|value| json_string(value))
+            .unwrap_or_else(|| "null".to_string());
+        let bind_state = self
+            .bind_state
+            .as_ref()
+            .map(|value| value.to_json(indent + 2))
+            .unwrap_or_else(|| "null".to_string());
         format!(
             concat!(
                 "\n{}{{\n",
@@ -410,10 +498,13 @@ impl ToAstJson for LinkFunction {
                 "{}  \"symbol\": {},\n",
                 "{}  \"returnResource\": {},\n",
                 "{}  \"returnType\": {},\n",
+                "{}  \"returnState\": {},\n",
                 "{}  \"line\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
                 "{}  \"abi\": {},\n",
                 "{}  \"consts\": [{}\n{}  ],\n",
+                "{}  \"bindIn\": [{}\n{}  ],\n",
+                "{}  \"bindState\": {},\n",
                 "{}  \"successOn\": {},\n",
                 "{}  \"result\": {},\n",
                 "{}  \"free\": {}\n",
@@ -430,6 +521,8 @@ impl ToAstJson for LinkFunction {
             pad,
             return_type,
             pad,
+            return_state,
+            pad,
             self.line,
             pad,
             join_indented(&self.params, indent + 2),
@@ -439,6 +532,11 @@ impl ToAstJson for LinkFunction {
             pad,
             join_indented(&self.consts, indent + 2),
             pad,
+            pad,
+            join_indented(&self.bind_in, indent + 2),
+            pad,
+            pad,
+            bind_state,
             pad,
             success_on,
             pad,

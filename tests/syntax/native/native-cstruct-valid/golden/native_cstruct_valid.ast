@@ -106,6 +106,7 @@
         "symbol": "demo_version",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 39,
         "params": [
         ],
@@ -118,6 +119,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "value" },
         "free": null

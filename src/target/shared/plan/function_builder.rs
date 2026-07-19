@@ -148,6 +148,15 @@ impl FunctionPlanBuilder<'_> {
                             case_label
                         ));
                         self.operations.push(format!("label {case_label}"));
+                        // bug-300 E14: the guard was never lowered, so a call or
+                        // string literal appearing only in a `WHEN` guard was
+                        // omitted from `PlannedFunction.calls`/`string_literals`.
+                        // Every sibling pass walks guards (`plan/symbols.rs`,
+                        // `code/data_objects.rs`); bug-118 fixed this exact
+                        // omission in `plan/symbols.rs` and overlooked this one.
+                        if let Some(guard) = &case.guard {
+                            self.lower_value(guard)?;
+                        }
                         self.lower_ops(&case.body)?;
                         self.operations.push(format!("branch -> {end_label}"));
                     }

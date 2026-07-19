@@ -122,7 +122,7 @@ allocator asks. [[src/arch/x86_64/regmodel.rs:X86_64RegisterModel]]
 - **Caller-saved (volatile):** `rax rcx rdx rsi rdi r8 r9 r10 r11`.
   **Callee-saved:** `rbx rbp r12 r13 r14 r15`.
 
-[[src/arch/x86_64/regmodel.rs:INT_ALLOCATABLE]] [[src/arch/x86_64/regmodel.rs:arena_base]] [[src/arch/x86_64/regmodel.rs:ZERO_REGISTER]]
+[[src/arch/x86_64/regmodel.rs:INT_ALLOCATABLE]] [[src/arch/x86_64/regmodel.rs:arena_base]]
 
 Floating point / SIMD uses `xmm0`–`xmm15`. `xmm0`–`xmm14` are allocatable; **`xmm15`
 is a reserved fixed FP scratch** (the SSE encoder needs one for the non-commutative

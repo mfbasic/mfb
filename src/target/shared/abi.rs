@@ -108,9 +108,13 @@ pub(crate) fn return_register() -> &'static str {
 
 /// The zero register as a register operand — the constant 0 readable as a source,
 /// a discard as a destination. AArch64 spells it `xzr`; RISC-V maps it to the
-/// hardware `zero`; x86-64 has none and either pins `r14` (`ZERO_REGISTER`, for a
-/// real store source) or treats it as a "no register" sentinel (negate / carry).
-/// Never `"x31"`. (plan-34-A)
+/// hardware `zero`; x86-64 has none at all and realizes the token as an
+/// *immediate* zero (`store xzr` → `mov r/m, 0`) or as a "no register" sentinel
+/// (negate / carry). Never `"x31"`. (plan-34-A)
+///
+/// bug-300 E5: this used to say x86 "pins `r14` (`ZERO_REGISTER`)". It does not —
+/// plan-34-C freed r14 for allocation, and `select_x86` maps the legacy `x31`
+/// spelling to this token, never to r14. `ZERO_REGISTER` was dead and is gone.
 pub(crate) const ZERO: &str = "xzr";
 
 /// The link register (return address). AArch64 `x30`, RISC-V `ra`; x86-64 has no

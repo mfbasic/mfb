@@ -21,6 +21,7 @@
         "symbol": "sqlite3_sleep",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 10,
         "params": [
         ],
@@ -34,6 +35,9 @@
         "consts": [
         { "slot": "ms", "value": { "kind": "number", "value": "5000000000" }, "line": 13 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "status" },
         "free": null

@@ -249,7 +249,10 @@ fn backend_for(target: &BuildTarget) -> Result<&'static dyn NativeBackend, Strin
 }
 
 /// Whether the resolved target supports `mfb build -app`. Used by the CLI to
-/// reject `-app` for non-macOS targets before any lowering happens.
+/// reject `-app` for targets whose backend lacks app mode, before any lowering
+/// happens. (Not "non-macOS": Linux app mode exists as `NativeBuildMode::LinuxApp`
+/// over GTK4. bug-93(3) corrected the same claim on the trait method and missed
+/// this one.)
 pub fn target_supports_app_mode(target: &BuildTarget) -> bool {
     backend_for(target)
         .map(|backend| backend.supports_app_mode())

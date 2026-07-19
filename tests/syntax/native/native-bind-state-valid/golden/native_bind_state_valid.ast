@@ -73,6 +73,7 @@
         "symbol": "sf_open",
         "returnResource": true,
         "returnType": "SoundFile",
+        "returnState": "FileInfo",
         "line": 30,
         "params": [
         { "name": "path", "type": "String", "default": null, "line": 30 }
@@ -89,6 +90,13 @@
         "consts": [
         { "slot": "mode", "value": { "kind": "number", "value": "16" }, "line": 33 }
         ],
+        "bindIn": [
+        ],
+        "bindState": {
+          "kind": "bindState",
+          "resourceSlot": "file",
+          "structSlot": "info"
+        },
         "successOn": { "kind": "unary", "operator": "NOT", "operand": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "file" }, "right": { "kind": "identifier", "value": "NOTHING" } } },
         "result": { "kind": "identifier", "value": "file" },
         "free": null
@@ -99,6 +107,7 @@
         "symbol": "sf_close",
         "returnResource": false,
         "returnType": "Nothing",
+        "returnState": null,
         "line": 39,
         "params": [
         { "name": "sndfile", "type": "SoundFile", "resource": true, "state": "FileInfo", "default": null, "line": 39 }
@@ -112,6 +121,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": null,
         "free": null

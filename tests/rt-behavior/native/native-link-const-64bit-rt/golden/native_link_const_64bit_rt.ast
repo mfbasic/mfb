@@ -21,6 +21,7 @@
         "symbol": "sqlite3_soft_heap_limit64",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 13,
         "params": [
         ],
@@ -34,6 +35,9 @@
         "consts": [
         { "slot": "n", "value": { "kind": "number", "value": "1234" }, "line": 16 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "previous" },
         "free": null
@@ -44,6 +48,7 @@
         "symbol": "sqlite3_soft_heap_limit64",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 19,
         "params": [
         ],
@@ -57,6 +62,9 @@
         "consts": [
         { "slot": "n", "value": { "kind": "number", "value": "18446744073709551615" }, "line": 22 }
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": null,
         "result": { "kind": "identifier", "value": "current" },
         "free": null

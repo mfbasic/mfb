@@ -20,6 +20,7 @@
         "symbol": "demo_ping",
         "returnResource": false,
         "returnType": "Integer",
+        "returnState": null,
         "line": 5,
         "params": [
         { "name": "value", "type": "Integer", "default": null, "line": 5 }
@@ -34,6 +35,9 @@
         },
         "consts": [
         ],
+        "bindIn": [
+        ],
+        "bindState": null,
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
         "result": { "kind": "identifier", "value": "value" },
         "free": null

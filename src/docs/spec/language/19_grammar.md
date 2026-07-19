@@ -41,16 +41,21 @@ bindIn         = "BIND" "IN" ident { ident "=" expr } "END" "BIND" ;
 bindState      = "BIND" "STATE" ident "=" ident ;
 (* In a FREE block both clauses may appear in any order; the deallocator's
    ABI return after `AS` is a bare nativeType (no slot name). *)
-nativeFree     = "FREE" ( ident | "return" )
+nativeFree     = "FREE" ident
                    { "SYMBOL" string
                    | "ABI" "(" abiSlot ")" "AS" nativeType }
                    "END" "FREE" ;
 abiSlotList    = abiSlot { "," abiSlot } ;
-abiSlot        = ( ident | "return" ) [ "OUT" ] nativeType ;
-(* The native-return slot (after `AS`) accepts NO `OUT` modifier — just a slot
-   name and a C type. An `OUT` return is instead an `abiSlot` named `return`
-   inside the slot list. *)
-abiReturn      = ( ident | "return" ) nativeType ;
+abiSlot        = ident [ "IN" | "OUT" | "INOUT" ] nativeType ;
+(* The native-return slot (after `AS`) accepts no direction modifier — just a
+   slot name and a C type. An `OUT` result is instead an `abiSlot` carrying the
+   `OUT` direction inside the slot list, surfaced by naming it in `RETURN`.
+   bug-300 E4: these three productions used to admit a literal `return` as a slot
+   name. plan-50-H deleted that special case — `return` lexes as `Keyword::Return`
+   and `parse_abi_slot_name` accepts only an identifier, so it is rejected in all
+   three positions — and `abiSlot` omitted the `IN`/`INOUT` directions plan-50-E
+   added alongside `OUT`. *)
+abiReturn      = ident nativeType ;
 (* The ABI slot type is lexed as a free identifier; only the names below are
    honored by the marshaling backend (§17). *)
 nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
@@ -68,9 +73,12 @@ funcIso        = [ "ISOLATED" ] ;
 topLetDecl     = declVis "LET" ident [ "AS" type ] "=" expr ;
 topMutDecl     = declVis "MUT" ident [ "AS" type ] [ "=" expr ] ;
 
-funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] "(" [ params ] ")" returnType
+(* bug-300 E4: the parameter list is OPTIONAL in the parser — `FUNC f AS Integer`
+   and `SUB main` (no parens) are both accepted — though the productions below
+   write it as required. *)
+funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] [ "(" [ params ] ")" ] returnType
                    block [ trap ] "END" "FUNC" ;
-subDecl        = declVis "SUB" ident [ templateParams ] "(" [ params ] ")"
+subDecl        = declVis "SUB" ident [ templateParams ] [ "(" [ params ] ")" ]
                    block [ trap ] "END" "SUB" ;
 trap           = "TRAP" [ "(" ident ")" ] block "END" "TRAP" ;
 (* The `(ident)` error binding is OPTIONAL. A bare `TRAP` runs the handler

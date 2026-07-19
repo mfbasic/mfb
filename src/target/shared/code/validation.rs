@@ -182,6 +182,49 @@ impl CodeFunction {
         for instruction in &self.instructions {
             instruction.validate()?;
         }
+        // bug-300 E9: `CodeInstruction::validate` only checks that a branch HAS a
+        // `target` field, never that the label it names exists. A codegen bug
+        // emitting a branch to an undefined label therefore passed
+        // `plan.validate()` and was caught only much later by the encoder ("branch
+        // target label does not resolve"). Resolving it here fails at the layer
+        // that owns the invariant, with the function named.
+        let defined_labels = self
+            .instructions
+            .iter()
+            .filter(|instruction| instruction.op == CodeOp::Label)
+            .filter_map(|instruction| instruction.get("name"))
+            .collect::<std::collections::HashSet<_>>();
+        for instruction in &self.instructions {
+            // Only label-targeting branches: `bl`/`blr` target a symbol (covered by
+            // the relocation checks above) and `branch_self` takes no target.
+            if !matches!(
+                instruction.op,
+                CodeOp::Branch
+                    | CodeOp::BranchEq
+                    | CodeOp::BranchNe
+                    | CodeOp::BranchGe
+                    | CodeOp::BranchGt
+                    | CodeOp::BranchLe
+                    | CodeOp::BranchLt
+                    | CodeOp::BranchHi
+                    | CodeOp::BranchLo
+                    | CodeOp::BranchLs
+                    | CodeOp::BranchMi
+                    | CodeOp::BranchVc
+                    | CodeOp::BranchVs
+            ) {
+                continue;
+            }
+            if let Some(target) = instruction.get("target") {
+                if !defined_labels.contains(target) {
+                    return Err(format!(
+                        "native code function '{}' branches to label '{target}', which it \
+                         does not define",
+                        self.name
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 }

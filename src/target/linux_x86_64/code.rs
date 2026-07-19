@@ -781,8 +781,17 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // The Linux AArch64 ABI passes variadic GP arguments in registers, so the
-        // trailing variadic argument in `x2` needs no special handling.
+        // bug-300 E11 reported that this omits the SysV `al` variadic marker,
+        // because the comment here was copied verbatim from the aarch64 twin and
+        // describes an ABI this file does not implement. The comment was indeed
+        // wrong; the CODE was not. The x86 `bl` encoder already emits
+        // `mov eax, 8` before every EXTERNAL call -- 8 being a safe superset of
+        // the vector-register count, since the callee saves xmm0-7 -- and
+        // suppresses it only for internal `_mfb_*` targets, where rax carries a
+        // 7th argument. A libc call routed through here is external, so `al` is
+        // set. Adding a second marker was both redundant and a plan-34-D
+        // violation (shared helper lowering may not name a physical register),
+        // which `zero_physical_register` caught immediately.
         self.emit_libc_call(base, from, platform_imports, instructions, relocations)
     }
 
