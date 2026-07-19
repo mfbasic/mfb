@@ -28,13 +28,7 @@ pub(super) fn lower_fs_exists_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
@@ -151,13 +145,7 @@ pub(super) fn lower_fs_kind_exists_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
@@ -287,13 +275,7 @@ pub(super) fn lower_fs_current_directory_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&temp_alloc_ok),
@@ -328,13 +310,7 @@ pub(super) fn lower_fs_current_directory_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     let src = vregs.next();
     let dst = vregs.next();
     let index = vregs.next();
@@ -411,13 +387,7 @@ pub(super) fn lower_fs_temp_directory_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&temp_alloc_ok),
@@ -441,13 +411,7 @@ pub(super) fn lower_fs_temp_directory_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     let src = vregs.next();
     let dst = vregs.next();
     let index = vregs.next();
@@ -527,13 +491,7 @@ pub(super) fn lower_fs_path_operation_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
@@ -662,13 +620,7 @@ pub(super) fn lower_fs_create_directories_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -910,21 +862,9 @@ pub(super) fn lower_fs_list_directory_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     let alloc_reloc = |relocations: &mut Vec<CodeRelocation>| {
-        relocations.push(CodeRelocation {
-            from: symbol.to_string(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     };
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
@@ -1289,13 +1229,7 @@ pub(super) fn lower_fs_canonical_path_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -1333,13 +1267,7 @@ pub(super) fn lower_fs_canonical_path_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&buffer_alloc_ok),
@@ -1373,13 +1301,7 @@ pub(super) fn lower_fs_canonical_path_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     let remaining = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
@@ -1504,21 +1426,9 @@ pub(super) fn lower_fs_is_within_helper(
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     let alloc_reloc = |relocations: &mut Vec<CodeRelocation>| {
-        relocations.push(CodeRelocation {
-            from: symbol.to_string(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     };
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
@@ -1784,13 +1694,7 @@ pub(super) fn lower_fs_path_join_helper(platform: &dyn CodegenPlatform) -> CodeF
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = vec![CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    }];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
     let data_base = vregs.next();
     let capacity = vregs.next();
     let lookup = vregs.next();

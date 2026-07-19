@@ -5,20 +5,27 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Partially fixed (2026-07-19). Landed: the three redundant
-`internal_reloc` copies deleted in favour of the pre-existing shared
-`internal_branch` (see the audit addendum — the document had this backwards),
-and `CodeBuilder::emit_arena_alloc_call` adopted at all **45** byte-identical
-sites across 11 files. `scripts/artifact-gate.sh`: 1,189 goldens, **0 diffs**,
-which is this bug's stated acceptance criterion. The load-bearing precondition
-the document asserted without evidence — that routing through
-`emit_symbol_call` is neutral only while no backend lists an arena symbol as a
-platform import — is now pinned by
-`arena_symbols_are_never_platform_imports`.
-Not done: the 79 near-variant alloc sites, the free-function dialect, and the
-107 error tails. Those need per-site judgement (the audit identified four that
-must NOT be converted) and should land incrementally behind the same gate.
-Regression Test: artifact gate + acceptance suite — `scripts/artifact-gate.sh` and `scripts/test-accept.sh`; **byte-identical generated output is the guarantee**, there is no new behavioral test.
+Status: Fixed (2026-07-19). Zero inline arena relocation literals remain in
+`src/target/shared/code/` (`grep -c 'ARENA_{ALLOC,FREE}_SYMBOL.to_string()'` -> 0).
+Landed: 3 `internal_reloc` + 5 `emit_alloc` copies deleted in favour of the
+pre-existing `internal_branch` / one shared `emit_alloc`; `emit_arena_alloc_call`
+and `emit_arena_free_call` added and adopted at every CodeBuilder site (45 exact
++ 5 indentation variants + 11 free/alloc); 33 remaining inline `CodeRelocation`
+literals routed through `internal_branch`. Gate: artifact-gate 1,189 goldens,
+0 diffs, at every step.
+
+Three sites are deliberately NOT folded into the alloc helper, and this is a
+finding rather than a deferral: `entry_and_arena.rs` `_mfb_simd_alloc_list`
+(:1386) and `_mfb_build_error_loc` (:1477) already share `internal_branch`, but
+their *failure tails* are genuinely different — the first uses a status-register
+protocol (tag to RET[1], zero x0, branch) and the second returns a null pointer
+because it IS the ErrorLoc builder, so giving it an error-return path would
+recurse. `fs_helpers_io.rs`'s `alloc_call` closure likewise already uses
+`internal_branch`; only its reloc/instruction push order differs, which is
+immaterial since the two vectors are independent.
+
+The "107 error tails" this document counts are not duplication: they are 107
+call sites of a single shared `emit_fail` (`tls/mod.rs:194`). Nothing to extract.
 
 The single largest duplication cluster in the codebase. Three independent
 reviewers (Agent 01 collection builders, Agent 02 string/conversion builders,

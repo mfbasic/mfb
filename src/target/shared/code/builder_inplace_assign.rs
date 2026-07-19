@@ -565,14 +565,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             oldsize_slot,
         ));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         // Install new buffer; spare = newcap_payload - newlen.
         self.emit(abi::load_u64(
             abi::RET[1],

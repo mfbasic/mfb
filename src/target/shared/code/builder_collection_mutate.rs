@@ -1076,14 +1076,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(abi::ARG[1], &scratch10, &scratch11));
         self.emit(abi::move_register(abi::return_register(), &scratch8));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         // Install the grown buffer; fall through to write the new element.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
@@ -1396,14 +1389,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s11, &s8, COLLECTION_OFFSET_DATA_CAPACITY));
         self.emit(abi::add_registers(abi::ARG[1], &s10, &s11));
         self.emit(abi::move_register(abi::return_register(), &s8));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));

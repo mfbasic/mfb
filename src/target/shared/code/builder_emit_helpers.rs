@@ -35,6 +35,16 @@ impl CodeBuilder<'_> {
         ));
     }
 
+    /// Call `_mfb_arena_free` (block pointer in `x0`, size in `x1`).
+    ///
+    /// The free twin of `emit_arena_alloc_call` (bug-322); it has no result to
+    /// compare, so there is no tag check. Same neutrality argument: an arena
+    /// symbol is never a platform import, pinned by
+    /// `arena_symbols_are_never_platform_imports`.
+    pub(super) fn emit_arena_free_call(&mut self) {
+        self.emit_symbol_call(ARENA_FREE_SYMBOL);
+    }
+
     fn emit_prepared_call_args(
         &mut self,
         args: &[NirValue],

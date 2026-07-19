@@ -199,13 +199,7 @@ fn os_arch(target: &str) -> &'static str {
 }
 
 fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
 }
 
 /// Marshal a MFBASIC `String*` held in `src` into a fresh NUL-terminated arena

@@ -1022,14 +1022,7 @@ impl CodeBuilder<'_> {
             ptr_slot,
         ));
         self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         Ok(())
     }
 
@@ -1671,14 +1664,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&skip));
         self.emit(abi::move_register(abi::return_register(), &block));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", size));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         // Reload: the call above destroyed every caller-saved register.
         let ptr_after = self.allocate_register()?;
         self.emit(abi::load_u64(
@@ -1716,14 +1702,7 @@ impl CodeBuilder<'_> {
             state_slot,
         ));
         self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         let ptr_after = self.allocate_register()?;
         self.emit(abi::load_u64(
             &ptr_after,
@@ -1985,14 +1964,7 @@ impl CodeBuilder<'_> {
             cleanup.stack_offset,
         ));
         self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
-        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_FREE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.emit_arena_free_call();
         self.emit(abi::label(&skip));
         Ok(())
     }
