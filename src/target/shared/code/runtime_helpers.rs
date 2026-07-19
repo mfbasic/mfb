@@ -181,7 +181,7 @@ pub(super) fn emit_thread_queue_alloc(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -198,7 +198,7 @@ pub(super) fn emit_thread_queue_alloc(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -215,7 +215,7 @@ pub(super) fn emit_thread_queue_alloc(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,

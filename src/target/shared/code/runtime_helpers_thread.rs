@@ -28,7 +28,7 @@ pub(super) fn emit_thread_deadline(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: instructions,
@@ -92,7 +92,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -108,7 +108,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -152,7 +152,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -174,7 +174,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -219,7 +219,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -233,7 +233,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -275,7 +275,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -315,7 +315,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -336,7 +336,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -351,7 +351,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -365,7 +365,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -381,7 +381,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -398,7 +398,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -413,7 +413,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -427,7 +427,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -470,7 +470,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -500,7 +500,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -525,7 +525,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -540,7 +540,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -555,7 +555,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -574,7 +574,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -595,7 +595,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -610,7 +610,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -624,7 +624,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -650,7 +650,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -693,7 +693,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -725,7 +725,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -782,7 +782,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -871,7 +871,7 @@ pub(super) fn thread_queue_write_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -919,7 +919,7 @@ pub(super) fn thread_queue_write_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -953,7 +953,7 @@ pub(super) fn thread_queue_write_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1048,7 +1048,7 @@ pub(super) fn thread_queue_write_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1171,7 +1171,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1243,7 +1243,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1261,7 +1261,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1293,7 +1293,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1377,7 +1377,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1453,7 +1453,7 @@ fn emit_close_resource_queues(
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: instructions,
@@ -1470,7 +1470,7 @@ fn emit_close_resource_queues(
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: instructions,
@@ -1485,7 +1485,7 @@ fn emit_close_resource_queues(
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: instructions,
@@ -1499,7 +1499,7 @@ fn emit_close_resource_queues(
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: instructions,

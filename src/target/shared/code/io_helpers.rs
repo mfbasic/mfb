@@ -64,7 +64,7 @@ pub(super) fn lower_stdout_drain(
     // for a drain, and `linux-x86_64`'s raw-`svc` write retries via its `-errno`.
     emit_eintr_retry_or_error(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -132,16 +132,16 @@ pub(super) fn lower_stdout_drain(
 /// emitted labels so the helper can append more than one chunk (e.g. a line plus
 /// its trailing newline). Uses vregs `%v20`..`%v29`.
 fn emit_append_to_stdout_buffer(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     src: &str,
     len: &str,
     tag: &str,
     write_error: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let cap = OUT_BUFFER_CAPACITY.to_string();
     let have_buf = format!("{symbol}_buf_{tag}_have");
     let alloc_failed = format!("{symbol}_buf_{tag}_alloc_failed");
@@ -152,7 +152,7 @@ fn emit_append_to_stdout_buffer(
     let byte_tail = format!("{symbol}_buf_{tag}_byte_tail");
     let copy_done = format!("{symbol}_buf_{tag}_copy_done");
     let appended = format!("{symbol}_buf_{tag}_appended");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v20", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
         abi::compare_immediate("%v20", "0"),
         abi::branch_ne(&have_buf),
@@ -161,8 +161,9 @@ fn emit_append_to_stdout_buffer(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_failed),
         abi::store_u64(abi::RET[1], ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
@@ -184,14 +185,14 @@ fn emit_append_to_stdout_buffer(
         abi::move_register(abi::string_data_register(), "%v40"),
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
-    platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_transfer_loop_tail(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
-            instructions: instructions,
-            relocations: relocations,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
         },
         abi::return_register(),
         write_uses_raw_syscall(platform),
@@ -200,7 +201,7 @@ fn emit_append_to_stdout_buffer(
         &alloc_failed_loop,
         write_error,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&have_buf),
         abi::load_u64("%v21", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::add_registers("%v22", "%v21", len),
@@ -210,8 +211,9 @@ fn emit_append_to_stdout_buffer(
         // filled + len would overflow the buffer: drain what is pending first.
         abi::branch_link(STDOUT_DRAIN_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(write_error),
         // After the drain OUT_FILLED is 0; reflect that locally.
@@ -233,14 +235,14 @@ fn emit_append_to_stdout_buffer(
         abi::move_register(abi::string_data_register(), "%v40"),
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
-    platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_transfer_loop_tail(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
-            instructions: instructions,
-            relocations: relocations,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
         },
         abi::return_register(),
         write_uses_raw_syscall(platform),
@@ -249,7 +251,7 @@ fn emit_append_to_stdout_buffer(
         &big_write_loop,
         write_error,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&fits),
         // Copy len bytes from src into OUT_PTR[filled..].
         abi::load_u64("%v20", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
@@ -339,11 +341,13 @@ pub(super) fn lower_io_write_helper(
             abi::add_immediate("%v17", abi::return_register(), 8),
         ]);
         emit_append_to_stdout_buffer(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             "%v17",
             "%v19",
             "line",
@@ -357,11 +361,13 @@ pub(super) fn lower_io_write_helper(
                 abi::move_immediate("%v19", "Integer", "1"),
             ]);
             emit_append_to_stdout_buffer(
-                symbol,
-                platform_imports,
-                platform,
-                &mut instructions,
-                &mut relocations,
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
                 "%v17",
                 "%v19",
                 "newline",
@@ -406,7 +412,7 @@ pub(super) fn lower_io_write_helper(
     )?;
     emit_transfer_loop_tail(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -445,7 +451,7 @@ pub(super) fn lower_io_write_helper(
         )?;
         emit_transfer_loop_tail(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -722,7 +728,7 @@ pub(super) fn lower_io_poll_input_helper(
     // re-arms the pollfd from scratch.
     emit_eintr_retry_or_error(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -796,19 +802,19 @@ pub(super) struct TerminalModeSlots {
 /// in the term-state region rather than a read-scoped stack frame.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_configure_stdin_terminal(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     slots: &TerminalModeSlots,
     base_register: &str,
     disable_echo: bool,
     disable_canonical: bool,
     error_label: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let skip = format!("{symbol}_terminal_mode_skip");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::ZERO, base_register, slots.active),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
     ]);
@@ -816,10 +822,10 @@ pub(super) fn emit_configure_stdin_terminal(
         "isatty",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&skip),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -829,10 +835,10 @@ pub(super) fn emit_configure_stdin_terminal(
         "tcgetattr",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(error_label),
         abi::move_immediate("%v9", "Integer", "1"),
@@ -840,7 +846,7 @@ pub(super) fn emit_configure_stdin_terminal(
     ]);
 
     for offset in (0..termios_storage_size(platform)).step_by(8) {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64("%v9", base_register, slots.original + offset),
             abi::store_u64("%v9", base_register, slots.modified + offset),
         ]);
@@ -856,25 +862,29 @@ pub(super) fn emit_configure_stdin_terminal(
     if clear_flags != 0 {
         let lflag_offset = slots.modified + platform.termios_lflag_offset();
         if platform.termios_lflag_width() == 4 {
-            instructions.push(abi::load_u32("%v9", base_register, lflag_offset));
+            ctx.instructions
+                .push(abi::load_u32("%v9", base_register, lflag_offset));
         } else {
-            instructions.push(abi::load_u64("%v9", base_register, lflag_offset));
+            ctx.instructions
+                .push(abi::load_u64("%v9", base_register, lflag_offset));
         }
-        instructions.extend([
+        ctx.instructions.extend([
             abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
             abi::bitwise_not("%v10", "%v10"),
             abi::and_registers("%v9", "%v9", "%v10"),
         ]);
         if platform.termios_lflag_width() == 4 {
-            instructions.push(abi::store_u32("%v9", base_register, lflag_offset));
+            ctx.instructions
+                .push(abi::store_u32("%v9", base_register, lflag_offset));
         } else {
-            instructions.push(abi::store_u64("%v9", base_register, lflag_offset));
+            ctx.instructions
+                .push(abi::store_u64("%v9", base_register, lflag_offset));
         }
     }
 
     if disable_canonical {
         let cc_offset = slots.modified + platform.termios_cc_offset();
-        instructions.extend([
+        ctx.instructions.extend([
             abi::move_immediate("%v9", "Integer", "1"),
             abi::store_u8(
                 "%v9",
@@ -889,7 +899,7 @@ pub(super) fn emit_configure_stdin_terminal(
         ]);
     }
 
-    instructions.extend([
+    ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::add_immediate(abi::ARG[2], base_register, slots.modified),
@@ -898,10 +908,10 @@ pub(super) fn emit_configure_stdin_terminal(
         "tcsetattr",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(error_label),
         abi::label(&skip),
@@ -909,17 +919,14 @@ pub(super) fn emit_configure_stdin_terminal(
     Ok(())
 }
 
-fn emit_restore_stdin_terminal(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    slots: &TerminalModeSlots,
-) -> Result<(), String> {
+fn emit_restore_stdin_terminal(ctx: &mut EmitCtx, slots: &TerminalModeSlots) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let restored = format!("{symbol}_terminal_mode_restored");
     let restore_failed = format!("{symbol}_terminal_mode_restore_failed");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.saved_tag),
         abi::store_u64(
             RESULT_VALUE_REGISTER,
@@ -942,10 +949,10 @@ fn emit_restore_stdin_terminal(
         "tcsetattr",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&restore_failed),
         abi::label(&restored),
@@ -965,8 +972,9 @@ fn emit_restore_stdin_terminal(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INPUT_SYMBOL, instructions, relocations);
-    instructions.push(abi::label(&format!("{symbol}_terminal_mode_restore_done")));
+    push_error_message_address(symbol, ERR_INPUT_SYMBOL, ctx.instructions, ctx.relocations);
+    ctx.instructions
+        .push(abi::label(&format!("{symbol}_terminal_mode_restore_done")));
     Ok(())
 }
 
@@ -982,15 +990,15 @@ fn emit_restore_stdin_terminal(
 /// set the `Result` registers are parked across the `tcsetattr` call (needed for
 /// the post-read re-apply, which runs after the read result is already staged).
 fn emit_console_raw_line_mode(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     term_state_offset: usize,
     line_mode: bool,
     preserve_result: bool,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let tag = if line_mode { "line" } else { "raw" };
     let skip = format!("{symbol}_console_{tag}_mode_skip");
     let buffer_offset = if line_mode {
@@ -998,7 +1006,7 @@ fn emit_console_raw_line_mode(
     } else {
         term_state_offset + TERM_STATE_RAW_TERMIOS_OFFSET
     };
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64(
             "%v9",
             ARENA_STATE_REGISTER,
@@ -1008,13 +1016,13 @@ fn emit_console_raw_line_mode(
         abi::branch_eq(&skip),
     ]);
     if preserve_result {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::move_register("%v20", RESULT_TAG_REGISTER),
             abi::move_register("%v21", RESULT_VALUE_REGISTER),
             abi::move_register("%v22", RESULT_ERROR_MESSAGE_REGISTER),
         ]);
     }
-    instructions.extend([
+    ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::add_immediate(abi::ARG[2], ARENA_STATE_REGISTER, buffer_offset),
@@ -1023,17 +1031,17 @@ fn emit_console_raw_line_mode(
         "tcsetattr",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
     if preserve_result {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::move_register(RESULT_TAG_REGISTER, "%v20"),
             abi::move_register(RESULT_VALUE_REGISTER, "%v21"),
             abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, "%v22"),
         ]);
     }
-    instructions.push(abi::label(&skip));
+    ctx.instructions.push(abi::label(&skip));
     Ok(())
 }
 
@@ -1049,27 +1057,29 @@ fn emit_console_raw_line_mode(
 /// helpers already import it for the lead read).
 #[allow(clippy::too_many_arguments)]
 fn emit_continuation_read(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     app_mode: bool,
     byte_offset: usize,
     retry_label: &str,
     resume_label: &str,
     input_error: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // plan-15: in console mode the continuation byte comes from the stdin broadcast
     // log (`_mfb_rt_stdin_next_byte`); in app mode it is a direct per-byte read of
     // the window pipe. A continuation byte from an unsubscribed thread is the same
     // ErrInvalidContext as the lead byte, routed to the helper's shared handler.
     emit_stdin_byte_read(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         app_mode,
         byte_offset,
         retry_label,
@@ -1087,11 +1097,7 @@ fn emit_continuation_read(
 /// and leave the `x0 vs 0` flags live for the caller's follow-on `branch_eq`.
 #[allow(clippy::too_many_arguments)]
 fn emit_stdin_byte_read(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     app_mode: bool,
     byte_offset: usize,
     retry_label: &str,
@@ -1099,37 +1105,42 @@ fn emit_stdin_byte_read(
     input_error: &str,
     invalid_context: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     if app_mode {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::label(retry_label),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), byte_offset),
             abi::move_immediate(abi::ARG[2], "Integer", "1"),
         ]);
-        platform.emit_read_file(symbol, platform_imports, instructions, relocations)?;
-        instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+        platform.emit_read_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+        ctx.instructions
+            .push(abi::compare_immediate(abi::return_register(), "0"));
         emit_single_op_eintr_guard(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
-                instructions: instructions,
-                relocations: relocations,
+                instructions: ctx.instructions,
+                relocations: ctx.relocations,
             },
             retry_label,
             resume_label,
             input_error,
         )?;
     } else {
-        instructions.push(abi::label(retry_label));
+        ctx.instructions.push(abi::label(retry_label));
         emit_stdin_next_byte(
             symbol,
             byte_offset,
             retry_label,
             input_error,
             invalid_context,
-            instructions,
-            relocations,
+            ctx.instructions,
+            ctx.relocations,
         );
     }
     Ok(())
@@ -1177,11 +1188,13 @@ pub(super) fn lower_io_read_byte_helper(
             })??;
     }
     emit_configure_stdin_terminal(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &terminal_slots,
         abi::stack_pointer(),
         true,
@@ -1191,11 +1204,13 @@ pub(super) fn lower_io_read_byte_helper(
     // plan-15: read the byte from the stdin broadcast log. EINTR/blocking are
     // handled inside `_mfb_rt_stdin_next_byte`; a 0-byte return is EOF.
     emit_stdin_byte_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTE_OFFSET,
         &read_retry,
@@ -1239,11 +1254,13 @@ pub(super) fn lower_io_read_byte_helper(
     );
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &terminal_slots,
     )?;
     instructions.push(abi::return_());
@@ -1343,11 +1360,13 @@ pub(super) fn lower_io_read_char_helper(
             })??;
     }
     emit_configure_stdin_terminal(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &terminal_slots,
         abi::stack_pointer(),
         true,
@@ -1357,11 +1376,13 @@ pub(super) fn lower_io_read_char_helper(
     // plan-15: read the lead byte from the stdin broadcast log; a 0-byte return is
     // EOF. EINTR/blocking are handled inside `_mfb_rt_stdin_next_byte`.
     emit_stdin_byte_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET,
         &read_retry,
@@ -1384,11 +1405,13 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_hi(&read_third),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont1_retry"),
@@ -1410,11 +1433,13 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_hi(&read_fourth),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont2_retry"),
@@ -1447,11 +1472,13 @@ pub(super) fn lower_io_read_char_helper(
         abi::label(&format!("{symbol}_three_second_ok")),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont3_retry"),
@@ -1475,11 +1502,13 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_hi(&encoding_error),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont4_retry"),
@@ -1512,11 +1541,13 @@ pub(super) fn lower_io_read_char_helper(
         abi::label(&format!("{symbol}_four_second_ok")),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont5_retry"),
@@ -1532,11 +1563,13 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_hi(&encoding_error),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 3,
         &format!("{symbol}_cont6_retry"),
@@ -1638,11 +1671,13 @@ pub(super) fn lower_io_read_char_helper(
     );
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &terminal_slots,
     )?;
     instructions.push(abi::return_());
@@ -1751,7 +1786,7 @@ pub(super) fn lower_io_read_line_helper(
         )?;
         emit_transfer_loop_tail(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1773,11 +1808,13 @@ pub(super) fn lower_io_read_line_helper(
     // the cooked flags.
     if let Some(term_state_offset) = console_term_state {
         emit_console_raw_line_mode(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             term_state_offset,
             true,
             false,
@@ -1785,11 +1822,13 @@ pub(super) fn lower_io_read_line_helper(
     }
     if !with_prompt {
         emit_configure_stdin_terminal(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             &terminal_slots,
             abi::stack_pointer(),
             true,
@@ -1818,11 +1857,13 @@ pub(super) fn lower_io_read_line_helper(
     // the helper); EINTR/blocking are handled inside the reader, and a 0-byte return
     // is EOF.
     emit_stdin_byte_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET,
         &read_loop,
@@ -1847,11 +1888,13 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_hi(&format!("{symbol}_line_read_third")),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont1_retry"),
@@ -1873,11 +1916,13 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_hi(&format!("{symbol}_line_read_fourth")),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont2_retry"),
@@ -1910,11 +1955,13 @@ pub(super) fn lower_io_read_line_helper(
         abi::label(&format!("{symbol}_line_three_second_ok")),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont3_retry"),
@@ -1938,11 +1985,13 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_hi(&encoding_error),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 1,
         &format!("{symbol}_cont4_retry"),
@@ -1975,11 +2024,13 @@ pub(super) fn lower_io_read_line_helper(
         abi::label(&format!("{symbol}_line_four_second_ok")),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 2,
         &format!("{symbol}_cont5_retry"),
@@ -1995,11 +2046,13 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_hi(&encoding_error),
     ]);
     emit_continuation_read(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         app_mode,
         BYTES_OFFSET + 3,
         &format!("{symbol}_cont6_retry"),
@@ -2222,11 +2275,13 @@ pub(super) fn lower_io_read_line_helper(
     instructions.push(abi::label(&done));
     if !with_prompt {
         emit_restore_stdin_terminal(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             &terminal_slots,
         )?;
     }
@@ -2236,11 +2291,13 @@ pub(super) fn lower_io_read_line_helper(
     // `tcsetattr` call. A no-op outside console TUI mode.
     if let Some(term_state_offset) = console_term_state {
         emit_console_raw_line_mode(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             term_state_offset,
             false,
             true,

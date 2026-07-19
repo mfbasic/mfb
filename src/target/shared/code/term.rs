@@ -410,11 +410,13 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
         modified: term_state_offset + TERM_STATE_RAW_TERMIOS_OFFSET,
     };
     emit_configure_stdin_terminal(
-        symbol,
-        platform_imports,
-        platform,
-        ctx.instructions,
-        ctx.relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         &raw_slots,
         ARENA_STATE_REGISTER,
         true,
