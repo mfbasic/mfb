@@ -507,11 +507,13 @@ pub(super) fn lower_fs_atomic_write_helper(
     // moved rather than treated as a hard ErrOutput (bug-62, matching the
     // File-based write loops in fs_helpers_io.rs).
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         &cursor,
@@ -936,11 +938,13 @@ pub(super) fn lower_fs_write_text_path_helper(
     // write_loop before any byte moved rather than treated as a hard ErrOutput
     // (bug-62, matching the File-based write loops in fs_helpers_io.rs).
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         &cursor,
@@ -1219,11 +1223,13 @@ pub(super) fn lower_fs_read_text_path_helper(
     // than treated as a hard ErrRead (bug-62; reads always go through libc, so
     // raw_return is false).
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         false,
         &cursor,
@@ -1445,11 +1451,13 @@ pub(super) fn lower_fs_write_bytes_path_helper(
     // write_loop before any byte moved rather than treated as a hard ErrOutput
     // (bug-62, matching the File-based write loops in fs_helpers_io.rs).
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         &cursor,

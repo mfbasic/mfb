@@ -63,11 +63,13 @@ pub(super) fn lower_stdout_drain(
     // program (drain alone) hard-errors the negative return instead — acceptable
     // for a drain, and `linux-x86_64`'s raw-`svc` write retries via its `-errno`.
     emit_eintr_retry_or_error(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "%v3",
         write_uses_raw_syscall(platform),
         &drain_loop,
@@ -184,11 +186,13 @@ fn emit_append_to_stdout_buffer(
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: instructions,
+            relocations: relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         "%v40",
@@ -231,11 +235,13 @@ fn emit_append_to_stdout_buffer(
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: instructions,
+            relocations: relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         "%v40",
@@ -399,11 +405,13 @@ pub(super) fn lower_io_write_helper(
         &mut relocations,
     )?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         "%v13",
@@ -436,11 +444,13 @@ pub(super) fn lower_io_write_helper(
             &mut relocations,
         )?;
         emit_transfer_loop_tail(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             abi::return_register(),
             write_uses_raw_syscall(platform),
             "%v13",
@@ -711,11 +721,13 @@ pub(super) fn lower_io_poll_input_helper(
     // spurious ErrInput instead of ready/not-ready. Retry at `os_poll`, which
     // re-arms the pollfd from scratch.
     emit_eintr_retry_or_error(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         false,
         &os_poll,
@@ -1097,11 +1109,13 @@ fn emit_stdin_byte_read(
         platform.emit_read_file(symbol, platform_imports, instructions, relocations)?;
         instructions.push(abi::compare_immediate(abi::return_register(), "0"));
         emit_single_op_eintr_guard(
-            symbol,
-            platform_imports,
-            platform,
-            instructions,
-            relocations,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: instructions,
+                relocations: relocations,
+            },
             retry_label,
             resume_label,
             input_error,
@@ -1736,11 +1750,13 @@ pub(super) fn lower_io_read_line_helper(
             &mut relocations,
         )?;
         emit_transfer_loop_tail(
-            symbol,
-            platform_imports,
-            platform,
-            &mut instructions,
-            &mut relocations,
+            &mut EmitCtx {
+                symbol: symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
             abi::return_register(),
             write_uses_raw_syscall(platform),
             "%v41",

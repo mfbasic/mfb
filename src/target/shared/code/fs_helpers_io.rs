@@ -59,16 +59,16 @@ pub(super) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
 /// call (see `.ai/compiler.md`, "Native Codegen Register Lifetimes"). `x9` is the
 /// established errno scratch and is dead on the negative-return path.
 pub(super) fn emit_eintr_retry_or_error(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     ret: &str,
     raw_return: bool,
     retry_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     // `ret` (the syscall return) is dead once we branch to retry/error here, so
     // reuse it as the errno scratch instead of naming a physical register
     // (plan-34-C): the retry edge reloads its cursor/remaining from spill slots.
@@ -78,7 +78,7 @@ pub(super) fn emit_eintr_retry_or_error(
     if raw_return {
         // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
         // `ret + EINTR == 0`.
-        instructions.extend([
+        ctx.instructions.extend([
             abi::add_immediate(ret, ret, eintr),
             abi::compare_immediate(ret, "0"),
             abi::branch_eq(retry_label),
@@ -86,14 +86,20 @@ pub(super) fn emit_eintr_retry_or_error(
         ]);
     } else if errno_accessor_available(platform_imports) {
         // `emit_errno` loads the current `errno` into `ret` (reused).
-        platform.emit_errno(symbol, ret, platform_imports, instructions, relocations)?;
-        instructions.extend([
+        platform.emit_errno(
+            symbol,
+            ret,
+            platform_imports,
+            ctx.instructions,
+            ctx.relocations,
+        )?;
+        ctx.instructions.extend([
             abi::compare_immediate(ret, EINTR_ERRNO),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
     } else {
-        instructions.push(abi::branch(error_label));
+        ctx.instructions.push(abi::branch(error_label));
     }
     Ok(())
 }
@@ -107,11 +113,7 @@ pub(super) fn emit_eintr_retry_or_error(
 /// `raw_return` selects the errno convention (see [`write_uses_raw_syscall`]);
 /// pass `false` for every `read` loop (reads always go through libc).
 pub(super) fn emit_transfer_loop_tail(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     ret: &str,
     raw_return: bool,
     cursor: &str,
@@ -119,24 +121,30 @@ pub(super) fn emit_transfer_loop_tail(
     loop_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let advance = format!("{loop_label}_advance");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::compare_immediate(ret, "0"),
         abi::branch_gt(&advance),
         abi::branch_eq(error_label),
     ]);
     emit_eintr_retry_or_error(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         ret,
         raw_return,
         loop_label,
         error_label,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&advance),
         abi::add_registers(cursor, cursor, ret),
         abi::subtract_registers(remaining, remaining, ret),
@@ -161,28 +169,30 @@ pub(super) fn emit_transfer_loop_tail(
 /// (the guard body is skipped), so the re-comparison is exact and the caller's
 /// branch fuses with it on every backend.
 pub(super) fn emit_single_op_eintr_guard(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     retry_label: &str,
     resume_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
-    instructions.push(abi::branch_ge(resume_label));
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    ctx.instructions.push(abi::branch_ge(resume_label));
     emit_eintr_retry_or_error(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         abi::return_register(),
         false,
         retry_label,
         error_label,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(resume_label),
         abi::compare_immediate(abi::return_register(), "0"),
     ]);
@@ -246,11 +256,13 @@ pub(super) fn lower_fs_file_drain(
     // A negative return is EINTR-retried (re-issue with the unchanged cursor and
     // remaining count) or is a genuine write failure (bug-62).
     emit_eintr_retry_or_error(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         "%v5",
         write_uses_raw_syscall(platform),
         &drain_loop,
@@ -316,17 +328,17 @@ pub(super) fn lower_fs_file_drain(
 /// the fd after the drain. Any underlying `write` failure branches to
 /// `write_error`. `tag` disambiguates the emitted labels. Uses vregs `%v30`..`%v39`.
 fn emit_append_to_file_buffer(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     file: &str,
     src: &str,
     len: &str,
     tag: &str,
     write_error: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let cap = FILE_BUFFER_CAPACITY.to_string();
     let have_buf = format!("{symbol}_fbuf_{tag}_have");
     let alloc_failed = format!("{symbol}_fbuf_{tag}_alloc_failed");
@@ -337,7 +349,7 @@ fn emit_append_to_file_buffer(
     let byte_tail = format!("{symbol}_fbuf_{tag}_byte_tail");
     let copy_done = format!("{symbol}_fbuf_{tag}_copy_done");
     let appended = format!("{symbol}_fbuf_{tag}_appended");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v30", file, FILE_OFFSET_BUF_PTR),
         abi::compare_immediate("%v30", "0"),
         abi::branch_ne(&have_buf),
@@ -346,8 +358,9 @@ fn emit_append_to_file_buffer(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_failed),
         abi::store_u64(abi::RET[1], file, FILE_OFFSET_BUF_PTR),
@@ -371,13 +384,15 @@ fn emit_append_to_file_buffer(
         abi::move_register(abi::string_data_register(), "%v40"),
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
-    platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         "%v40",
@@ -385,7 +400,7 @@ fn emit_append_to_file_buffer(
         &alloc_failed_loop,
         write_error,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&have_buf),
         abi::load_u64("%v32", file, FILE_OFFSET_BUF_FILLED),
         abi::add_registers("%v33", "%v32", len),
@@ -396,8 +411,9 @@ fn emit_append_to_file_buffer(
         abi::move_register(abi::return_register(), file),
         abi::branch_link(FILE_DRAIN_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, FILE_DRAIN_SYMBOL));
-    instructions.extend([
+    ctx.relocations
+        .push(internal_branch(symbol, FILE_DRAIN_SYMBOL));
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(write_error),
         abi::move_immediate("%v32", "Integer", "0"),
@@ -418,13 +434,15 @@ fn emit_append_to_file_buffer(
         abi::move_register(abi::string_data_register(), "%v40"),
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
-    platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         "%v40",
@@ -432,7 +450,7 @@ fn emit_append_to_file_buffer(
         &big_write_loop,
         write_error,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::label(&fits),
         abi::load_u64("%v30", file, FILE_OFFSET_BUF_PTR),
         abi::add_registers("%v35", "%v30", "%v32"),
@@ -1507,11 +1525,13 @@ pub(super) fn lower_fs_write_all_helper(
     // a write after fs::readLine must land at the true fd position, not the block
     // read-ahead. A no-op when nothing was read-buffered.
     emit_reconcile_read_buffer(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &file,
         "wa",
         &write_error,
@@ -1528,11 +1548,13 @@ pub(super) fn lower_fs_write_all_helper(
         abi::branch_eq(&loop_label),
     ]);
     emit_append_to_file_buffer(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &file,
         &cursor,
         &remaining,
@@ -1556,11 +1578,13 @@ pub(super) fn lower_fs_write_all_helper(
         &mut relocations,
     )?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         &cursor,
@@ -1637,11 +1661,13 @@ pub(super) fn lower_fs_read_all_helper(
     // Reconcile the read buffer (plan-14-C): a whole-file read after fs::readLine
     // must see the true fd position, not the block read-ahead.
     emit_reconcile_read_buffer(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &file,
         "readall",
         &seek_error,
@@ -1720,11 +1746,13 @@ pub(super) fn lower_fs_read_all_helper(
         &mut relocations,
     )?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         false,
         &cursor,
@@ -1824,11 +1852,13 @@ pub(super) fn lower_fs_write_all_bytes_helper(
     let mut relocations = Vec::new();
     // Reconcile the read buffer (plan-14-C) before writing (see fs::writeAll).
     emit_reconcile_read_buffer(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &file,
         "wab",
         &write_error,
@@ -1848,11 +1878,13 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         abi::branch_eq(&loop_label),
     ]);
     emit_append_to_file_buffer(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &file,
         &cursor,
         &remaining,
@@ -1876,11 +1908,13 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         &mut relocations,
     )?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         write_uses_raw_syscall(platform),
         &cursor,
@@ -1963,11 +1997,13 @@ pub(super) fn lower_fs_read_all_bytes_helper(
     // Reconcile the read buffer (plan-14-C): a whole-file read after fs::readLine
     // must see the true fd position, not the block read-ahead.
     emit_reconcile_read_buffer(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &file,
         "readall",
         &seek_error,
@@ -2083,11 +2119,13 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         &mut relocations,
     )?;
     emit_transfer_loop_tail(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         abi::return_register(),
         false,
         &cursor,
@@ -2338,17 +2376,17 @@ fn emit_append_to_line_accumulator(
 /// no-op when the buffer is empty (the common unbuffered path). `file` is the
 /// record vreg; internal scratch uses `%v60`..`%v62`; `tag` disambiguates labels.
 fn emit_reconcile_read_buffer(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
+    ctx: &mut EmitCtx,
     file: &str,
     tag: &str,
     seek_error_label: &str,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let reconciled = format!("{symbol}_reconcile_{tag}_done");
-    instructions.extend([
+    ctx.instructions.extend([
         abi::load_u64("%v60", file, FILE_OFFSET_READ_POS),
         abi::load_u64("%v61", file, FILE_OFFSET_READ_FILL),
         abi::subtract_registers("%v61", "%v61", "%v60"), // unconsumed = fill - pos
@@ -2360,8 +2398,8 @@ fn emit_reconcile_read_buffer(
         abi::subtract_registers(abi::ARG[1], abi::ZERO, "%v61"), // -unconsumed
         abi::move_immediate(abi::ARG[2], "Integer", "1"),        // SEEK_CUR
     ]);
-    platform.emit_seek_file(symbol, platform_imports, instructions, relocations)?;
-    instructions.extend([
+    platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.extend([
         // Surface a failed rewind instead of dropping the unconsumed read-ahead
         // (bug-62): on a non-seekable handle (a FIFO/socket/tty opened by path)
         // the `lseek` fails with `ESPIPE`, returning -1. Invalidating the buffer
@@ -2545,11 +2583,13 @@ pub(super) fn lower_fs_read_line_helper(
     // failure (bug-62). `refill_resume` keeps the `cmp x0, 0` flags live for the
     // `branch_eq set_eof` (0 bytes == EOF) below.
     emit_single_op_eintr_guard(
-        symbol,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         &refill,
         &refill_resume,
         &read_error,
