@@ -145,7 +145,15 @@ The op set is: [[src/fmt.rs:Op]]
 | `Pop` | `NEXT` / `WEND` / `LOOP`: closes the top loop block. | pop | depth after pop |
 
 `Block` variants: `Func`, `Sub`, `Type`, `Union`, `Enum`, `If`, `For`, `While`,
-`Do`, `Match`, `Trap`, `Case`. [[src/fmt.rs:Block]]
+`Do`, `Match`, `Trap`, `Case`, `Testing`, `Tgroup`, `Tcase`. [[src/fmt.rs:Block]]
+
+`TESTING` is a keyword and is classified from the keyword stream like any other
+opener. `TGROUP` and `TCASE` are **contextual identifiers** — they never scan as
+keywords — so they are recognized word-wise from the start of a line by
+`contextual_block_opener`; their `END TGROUP` / `END TCASE` closers reach the
+ordinary `END` handling. Before bug-348 none of the three was modelled, so nothing
+was pushed while the `END` lines still popped, and every line of every `TESTING`
+block printed at column 0.
 
 ### How a line's indent is chosen
 

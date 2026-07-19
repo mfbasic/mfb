@@ -80,7 +80,15 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
         i += 1;
 
         let base = stack.len();
-        let (first_structural, ops) = structural_ops(&sig);
+        let (mut first_structural, mut ops) = structural_ops(&sig);
+        // bug-348: a line-leading `TGROUP`/`TCASE` opens a block the keyword
+        // stream cannot see, since neither word is a keyword.
+        if ops.is_empty() {
+            if let Some(block) = contextual_block_opener(trimmed) {
+                ops.push(Op::Open(block));
+                first_structural = true;
+            }
+        }
         let line_indent = apply_ops(&ops, &mut stack, first_structural, base);
         let indent = indent_str(line_indent, indent_width);
 
@@ -346,6 +354,13 @@ enum Block {
     Match,
     Trap,
     Case,
+    /// bug-348: `TESTING`, and its contextual `TGROUP`/`TCASE` children. All
+    /// three open real, nestable blocks in the language, but none was modelled
+    /// here -- so nothing was pushed while the matching `END` lines *were*
+    /// classified as `Op::End` and popped, printing every body line at depth 0.
+    Testing,
+    Tgroup,
+    Tcase,
 }
 
 #[derive(Clone, Copy)]
@@ -457,7 +472,28 @@ fn classify(
         K::Enum => Some(Op::Open(Block::Enum)),
         K::Match => Some(Op::Open(Block::Match)),
         K::Trap => Some(Op::Open(Block::Trap)),
+        // bug-348: `TESTING` is a keyword and reaches here; `TGROUP`/`TCASE` are
+        // contextual identifiers that never scan as `Sig::Kw`, so they are opened
+        // word-wise by `contextual_block_opener` instead.
+        K::Testing => Some(Op::Open(Block::Testing)),
         _ => None,
+    }
+}
+
+/// The block a line-leading contextual word opens, if any (bug-348).
+///
+/// `TGROUP` and `TCASE` are contextual identifiers, not keywords, so they never
+/// scan as `Sig::Kw` and cannot be classified from the keyword stream at all.
+/// Their `END TGROUP` / `END TCASE` closers *do* reach `classify` (via `END`) and
+/// pop, so without this the stack was popped for frames that were never pushed.
+fn contextual_block_opener(trimmed: &str) -> Option<Block> {
+    let first = trimmed.split_whitespace().next().unwrap_or("");
+    if first.eq_ignore_ascii_case("TGROUP") {
+        Some(Block::Tgroup)
+    } else if first.eq_ignore_ascii_case("TCASE") {
+        Some(Block::Tcase)
+    } else {
+        None
     }
 }
 
@@ -848,6 +884,68 @@ mod tests {
         let input = "FUNC f() AS Integer\nIF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND\nRETURN 0\nEND FUNC\n";
         let expected = "FUNC f() AS Integer\n  IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND\n  RETURN 0\nEND FUNC\n";
         assert_eq!(fmt(input), expected);
+    }
+
+    /// bug-348: `TESTING`, `TGROUP` and `TCASE` open real, nestable blocks, but
+    /// `classify` had no arm for `TESTING` and the other two are contextual
+    /// identifiers that never scan as keywords -- so nothing was pushed while the
+    /// matching `END` lines *were* classified as `Op::End` and popped. Every line
+    /// of every `TESTING` block printed at column 0, which made `mfb fmt --check`
+    /// fail on 36 committed sources and meant running `mfb fmt` over the test tree
+    /// produced a large meaningless diff.
+    #[test]
+    fn testing_blocks_indent_and_are_a_fixed_point() {
+        // Flattened input is restored to the authored nesting.
+        let flat = concat!(
+            "TESTING
+",
+            "TGROUP \"outer\"\n",
+            "TGROUP \"inner\"\n",
+            "TCASE \"c\"\n",
+            "expectInteger(1, 1)\n",
+            "END TCASE\n",
+            "END TGROUP\n",
+            "END TGROUP\n",
+            "END TESTING\n",
+        );
+        let expected = concat!(
+            "TESTING
+",
+            "  TGROUP \"outer\"\n",
+            "    TGROUP \"inner\"\n",
+            "      TCASE \"c\"\n",
+            "        expectInteger(1, 1)\n",
+            "      END TCASE\n",
+            "    END TGROUP\n",
+            "  END TGROUP\n",
+            "END TESTING\n",
+        );
+        assert_eq!(fmt(flat), expected);
+        // ...and correctly-indented input is a fixed point.
+        assert_eq!(fmt(expected), expected);
+    }
+
+    /// The `END` lines popped a stack the openers never pushed, so a `TESTING`
+    /// block corrupted the indentation of everything that followed it.
+    #[test]
+    fn a_testing_block_does_not_disturb_the_code_after_it() {
+        let input = concat!(
+            "TESTING\n",
+            "  TGROUP \"g\"\n",
+            "    TCASE \"c\"\n",
+            "      expectInteger(1, 1)\n",
+            "    END TCASE\n",
+            "  END TGROUP\n",
+            "END TESTING\n",
+            "\n",
+            "FUNC helper() AS Integer\n",
+            "  IF 1 = 1 THEN\n",
+            "    RETURN 1\n",
+            "  END IF\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        );
+        assert_eq!(fmt(input), input);
     }
 
     #[test]

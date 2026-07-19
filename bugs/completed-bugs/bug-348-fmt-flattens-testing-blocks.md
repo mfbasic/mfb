@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (formatter destroys authored structure)
 
-Status: Open
+Status: Fixed
 Regression Test: tests/syntax/testing/testing-run-valid (or a new `tests/` fmt fixture) — a `TESTING` block round-trips through `mfb fmt` unchanged
 
 `mfb fmt` rewrites every line inside a `TESTING` block to column 0. `TESTING`,
@@ -358,3 +358,45 @@ identifiers that happen to share the spelling. The `K::Testing` arm and the thre
 `Block` variants are mechanical. The spec must be corrected in the same change,
 since `05_fmt.md:147-148` currently ratifies the bug. No committed source should
 move.
+
+## Resolution
+
+`Block` gained `Testing`, `Tgroup` and `Tcase`, and the two kinds of opener are
+recognized differently because the language treats them differently:
+
+- `TESTING` **is** a keyword, so it is classified from the keyword stream like every
+  other opener: `K::Testing => Some(Op::Open(Block::Testing))`.
+- `TGROUP` and `TCASE` are **contextual identifiers**. They never scan as
+  `Sig::Kw`, so they cannot be classified from the keyword stream at all — a new
+  `contextual_block_opener` recognizes them word-wise at the start of a line. Their
+  `END TGROUP` / `END TCASE` closers already reached the ordinary `END` handling,
+  which is precisely why the stack was being popped for frames nothing had pushed.
+
+### Measured, not asserted
+
+The report's claim that 35 committed sources fail `mfb fmt --check` was checked by
+sweeping every `.mfb` under `tests/`, `bindings/` and `examples/` that mentions
+`TESTING`: **36** failed before the fix, **2** after. Both survivors were then
+examined, and neither is an indentation flattening:
+
+- `tests/rt-error/parser_tgroup_depth/src/main.mfb` is a *deliberately malformed*
+  fixture — deeply nested unclosed `TGROUP`s that exist to exercise the parser's
+  depth cap. An unbalanced file is not a fixed point of any formatter, and it should
+  not become one.
+- `tests/acceptance/src/money.mfb` differs only by `true` → `TRUE` literal recasing,
+  which is fmt's normal and correct behaviour on a source that happens to spell them
+  lowercase. Its indentation is untouched.
+
+So the flattening is fully closed, and `--check` is now adoptable as a gate for
+everything except one intentionally-broken fixture.
+
+Both directions are covered by tests, which matters because they fail for different
+reasons: flattened input must be *restored* to the authored nesting, and correctly
+indented input must be a *fixed point*. A third test pins that a `TESTING` block no
+longer disturbs the indentation of the code following it — the concrete damage the
+unbalanced pops caused.
+
+`spec/tooling/05_fmt.md`'s `Block` variant list, which the report notes shared the
+hole verbatim, now lists all three and explains the keyword/contextual split.
+
+Full `cargo test` green; artifact gate 0 diffs.
