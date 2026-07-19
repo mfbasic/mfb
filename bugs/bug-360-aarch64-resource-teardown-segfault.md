@@ -1,4 +1,4 @@
-# bug-360: on aarch64 + glibc, resource-using programs print correct output and then SIGSEGV at teardown
+# bug-360: on aarch64, resource-using programs print correct output and then SIGSEGV at teardown
 
 Last updated: 2026-07-19
 Effort: medium
@@ -12,9 +12,19 @@ were simply never executed on this platform until now
 Found while validating bug-321 (which is a pure reorganization and is **not** the
 cause — see Not Caused By below). All ten `rt-behavior/resources/*` fixtures that
 these boxes run, plus `rt-behavior/trap/trap-function-inline-errors-rt`, run to
-completion on `linux-aarch64`+glibc, print byte-correct output, and then die with
+completion on `linux-aarch64`, print byte-correct output, and then die with
 `SIGSEGV` (exit 139) during teardown. All eleven **pass** on `linux-riscv64`/musl
 and `linux-x86_64`/musl, from the same sources.
+
+**This is an aarch64 bug, not a libc bug.** Both hypotheses this document
+entertained on the way here were wrong, and the record is kept deliberately so
+neither gets re-derived:
+
+1. *"glibc 2.42 regression"* — killed when 2222 (glibc **2.35**) segfaulted on the
+   same binary.
+2. *"aarch64 + glibc pairing"* — killed when 2224 (Alpine aarch64, **musl**)
+   segfaulted too. Every non-aarch64 box passes; every aarch64 box fails,
+   regardless of libc. The variable is the **ISA**.
 
 **Not a glibc-version regression.** The first draft of this document guessed it
 was 2.42-specific because 2223 (Kali, glibc 2.42) was the only box up. When 2222
@@ -130,35 +140,33 @@ and the repo commits zero Linux artifact goldens. Nothing in the tree executed a
 Linux binary on a Linux box until `scripts/linux-runtime-proof.sh` (added by
 bug-321). This is exactly the coverage hole that bug's Validation Plan describes.
 
-## Open question: is it the ISA or the libc?
-
-The evidence is **confounded** and this must not be glossed:
+## Platform matrix — ISA, not libc
 
 | box | arch | libc | result |
 | --- | --- | --- | --- |
 | 2222 Arch | aarch64 | glibc 2.35 | **SEGV** — 446 pass / 21 fail |
 | 2223 Kali | aarch64 | glibc 2.42 | **SEGV** — 446 pass / 21 fail |
+| 2224 Alpine | aarch64 | **musl** | **SEGV** |
 | 2229 Alpine | riscv64 | musl | pass |
 | 2227 Alpine | x86_64 | musl | pass |
 
 The two aarch64/glibc boxes fail the **identical set of 21 fixtures** (`diff` of
 the two failing-fixture lists is empty) despite seven years of glibc between
-them, which is the strongest single piece of evidence that the libc *version* is
-irrelevant here.
+them. 2224 then reproduced it on aarch64/**musl**, which removes libc from the
+picture entirely: aarch64 fails on both libcs, riscv64 and x86_64 pass on musl.
 
-Every failing box is aarch64 *and* glibc; every passing box is neither. The
-decisive experiment is **aarch64 + musl** (box 2224, Alpine aarch64), which was
-down. One run there splits the hypothesis cleanly:
-
-- fails on 2224 → an aarch64 codegen bug (teardown path), libc-independent;
-- passes on 2224 → a glibc-linkage bug, and the aarch64 glibc teardown/atexit
-  path is where to look.
-
-Do that before reading any code.
+So the fault is in something aarch64-specific. All three Linux backends share the
+same resource-drop lowering (`src/target/shared/`), so look at the aarch64
+encoder / ABI realization of that path rather than at the shared code — and note
+that `linux-aarch64` and `macos-aarch64` share `crate::arch::aarch64`, so macOS
+may be affected too and simply is not covered by these fixtures' goldens.
 
 ## Suggested next steps
 
-1. Run one resource fixture on 2224 (aarch64/musl) — see above.
+1. Check whether **macOS aarch64** reproduces — it shares `crate::arch::aarch64`
+   with the failing target, and `scripts/test-accept.sh` passes there today, which
+   would be informative either way (if macOS passes, the difference narrows to the
+   Linux entry/teardown sequence on the same ISA).
 2. Get a symbolized backtrace. 2222 has cores enabled and `coredumpctl`, but no
    `gdb`; installing gdb there is the cheapest path to a real frame list. The
    binaries carry no build-id, so symbolization needs the local `.ncode`/`.mir`
