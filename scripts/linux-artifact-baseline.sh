@@ -22,6 +22,11 @@
 #   scripts/linux-artifact-baseline.sh <mfb-exe> capture <manifest>
 #   scripts/linux-artifact-baseline.sh <mfb-exe> verify  <manifest>
 #   FILTER=<substring> ... restrict to fixtures whose path contains it
+#   JOBS=<n>            ... fixtures to build concurrently (default: CPU count)
+#
+# Use a RELEASE `mfb`. A debug build cross-compiles ~1000 fixtures x 3 targets at
+# roughly 6 manifest lines/minute here -- a multi-day run. Release plus the
+# per-fixture parallelism below brings a full capture into the tens of minutes.
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -31,6 +36,7 @@ MANIFEST=${3:?usage: linux-artifact-baseline.sh <mfb-exe> <capture|verify> <mani
 [ "$MODE" = capture ] || [ "$MODE" = verify ] || { echo "mode must be capture|verify" >&2; exit 2; }
 MFB=$(cd "$(dirname "$MFB")" && pwd)/$(basename "$MFB")
 FILTER=${FILTER:-}
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 
 TARGETS="linux-aarch64 linux-x86_64 linux-riscv64"
 # Every intermediate the backends can emit. `.mir`/`.nir` are captured per-target
@@ -42,38 +48,62 @@ trap 'rm -rf "$work"' EXIT
 tmp_manifest="$work/manifest"
 : > "$tmp_manifest"
 
-n=0
-while IFS= read -r project; do
+# One fixture per worker. Each worker owns a private scratch directory, so the
+# concurrent cross-builds cannot collide; results are written to per-fixture
+# files and concatenated at the end, keeping the manifest deterministic
+# regardless of completion order.
+emit_fixture() {
+  project=$1
+  slot=$2
   proj=$(dirname "$project")
   rel=${proj#"$ROOT"/tests/}
-  case "$rel" in *"$FILTER"*) ;; *) continue;; esac
   name=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$project" | head -1)
-  [ -n "$name" ] || continue
-  n=$((n+1))
+  [ -n "$name" ] || return 0
+  # Hash-suffixed so two distinct fixture paths can never share a part file.
+  out="$WORKDIR/parts/$(printf '%s' "$rel" | shasum -a 256 | cut -c1-32)"
+  : > "$out"
 
   for target in $TARGETS; do
     # Build a scratch copy so a cross-build cannot leave artifacts in the tree.
-    rm -rf "$work/p"; cp -R "$proj" "$work/p"; rm -rf "$work/p/build"
-    if "$MFB" build -q $DUMPS --target "$target" "$work/p" >"$work/log" 2>&1; then
+    scratch="$WORKDIR/w$slot"
+    rm -rf "$scratch"; cp -R "$proj" "$scratch"; rm -rf "$scratch/build"
+    if "$MFB" build -q $DUMPS --target "$target" "$scratch" >"$WORKDIR/log$slot" 2>&1; then
       status=ok
     else
       # A fixture that does not build for a target is still a baseline fact: if
       # the refactor changes which fixtures build, that must show up as a diff.
       status=build-failed
     fi
-    echo "$rel|$target|STATUS|$status" >> "$tmp_manifest"
+    echo "$rel|$target|STATUS|$status" >> "$out"
 
-    for f in "$work/p/$name".*; do
+    for f in "$scratch/$name".*; do
       [ -f "$f" ] || continue
       case "$f" in *.mfb|*.json) continue;; esac
-      echo "$rel|$target|$(basename "$f")|$(shasum -a 256 "$f" | awk '{print $1}')" >> "$tmp_manifest"
+      echo "$rel|$target|$(basename "$f")|$(shasum -a 256 "$f" | awk '{print $1}')" >> "$out"
     done
-    for exe in "$work/p/build/"*.out; do
+    for exe in "$scratch/build/"*.out; do
       [ -f "$exe" ] || continue
-      echo "$rel|$target|$(basename "$exe")|$(shasum -a 256 "$exe" | awk '{print $1}')" >> "$tmp_manifest"
+      echo "$rel|$target|$(basename "$exe")|$(shasum -a 256 "$exe" | awk '{print $1}')" >> "$out"
     done
   done
-done < <(find "$ROOT/tests" -name project.json | sort)
+}
+
+mkdir -p "$work/parts"
+export WORKDIR=$work MFB ROOT TARGETS DUMPS
+export -f emit_fixture 2>/dev/null || true
+
+> "$work/projects"
+find "$ROOT/tests" -name project.json | sort | while IFS= read -r project; do
+  rel=$(dirname "$project"); rel=${rel#"$ROOT"/tests/}
+  case "$rel" in
+    *"$FILTER"*) printf '%s\n' "$project" >> "$work/projects" ;;
+  esac
+done
+n=$(grep -c . < "$work/projects" || true)
+
+xargs -P "$JOBS" -I{} bash -c 'emit_fixture "$1" "$$"' _ {} < "$work/projects"
+
+cat "$work"/parts/* > "$tmp_manifest" 2>/dev/null || :
 
 sort "$tmp_manifest" -o "$tmp_manifest"
 

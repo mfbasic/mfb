@@ -2,9 +2,9 @@ use crate::arch;
 use crate::ir::IrProject;
 use crate::os;
 use crate::os::linux::flavor::LinuxFlavor;
+use crate::target::linux_common;
 use crate::target::shared::{lower, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend, NativeBuildMode};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod code;
@@ -33,162 +33,7 @@ impl NativeBackend for Backend {
             native_plan: true,
             native_object_plan: true,
             native_code_plan: true,
-            // The runtime-helper OS methods are wired via libc (mirroring
-            // AArch64), so the same call surface is supported — including
-            // thread.* (the shared pthread trampoline; alias-free x13/x14/x20
-            // scratch) and tls.* (the shared OpenSSL dlopen backend).
-            runtime_calls: &[
-                "crypto.randomBytes",
-                "crypto.generateP256Raw",
-                "crypto.generateP384Raw",
-                "crypto.generateP521Raw",
-                "crypto.p256Sign",
-                "crypto.p384Sign",
-                "crypto.p521Sign",
-                "crypto.p256Verify",
-                "crypto.p384Verify",
-                "crypto.p521Verify",
-                "datetime.nowNanos",
-                "datetime.monotonicNanos",
-                "datetime.localOffset",
-                "os.getEnv",
-                "os.getEnvOr",
-                "os.hasEnv",
-                "os.setEnv",
-                "os.unsetEnv",
-                "os.environ",
-                "os.args",
-                "os.pid",
-                "os.executablePath",
-                "os.resourcePath",
-                "os.name",
-                "os.arch",
-                "os.hostName",
-                "os.userName",
-                "os.cpuCount",
-                "io.print",
-                "io.write",
-                "io.printError",
-                "io.writeError",
-                "io.flush",
-                "io.isBuffered",
-                "io.setBuffered",
-                "io.input",
-                "io.readLine",
-                "io.readChar",
-                "io.readByte",
-                "io.pollInput",
-                "io.isInputTerminal",
-                "io.isOutputTerminal",
-                "io.isErrorTerminal",
-                "term.on",
-                "term.off",
-                "term.isOn",
-                "term.setForeground",
-                "term.setBackground",
-                "term.setBold",
-                "term.setUnderline",
-                "term.showCursor",
-                "term.hideCursor",
-                "term.clear",
-                "term.sync",
-                "term.moveTo",
-                "term.getForeground",
-                "term.getBackground",
-                "term.getBold",
-                "term.getUnderline",
-                "term.terminalSize",
-                "fs.fileExists",
-                "fs.directoryExists",
-                "fs.exists",
-                "fs.currentDirectory",
-                "fs.tempDirectory",
-                "fs.setCurrentDirectory",
-                "fs.deleteFile",
-                "fs.createDirectory",
-                "fs.createDirectories",
-                "fs.deleteDirectory",
-                "fs.listDirectory",
-                "fs.open",
-                "fs.openFile",
-                "fs.openFileNoFollow",
-                "fs.openWithin",
-                "fs.createTempFile",
-                "fs.close",
-                "fs.writeAll",
-                "fs.setBuffered",
-                "fs.isBuffered",
-                "fs.flush",
-                "fs.writeAllBytes",
-                "fs.readText",
-                "fs.readBytes",
-                "fs.writeText",
-                "fs.writeTextAtomic",
-                "fs.writeBytes",
-                "fs.writeBytesAtomic",
-                "fs.appendText",
-                "fs.appendBytes",
-                "fs.readLine",
-                "fs.readAll",
-                "fs.readAllBytes",
-                "fs.eof",
-                "fs.canonicalPath",
-                "fs.isWithin",
-                "net.lookup",
-                "net.connectTcp",
-                "net.listenTcp",
-                "net.accept",
-                "net.poll",
-                "net.read",
-                "net.readText",
-                "net.write",
-                "net.writeText",
-                "net.close",
-                "net.localAddress",
-                "net.remoteAddress",
-                "net.setReadTimeout",
-                "net.setWriteTimeout",
-                "net.bindUdp",
-                "net.receiveFrom",
-                "net.receiveTextFrom",
-                "net.sendTo",
-                "net.sendTextTo",
-                "tls.connect",
-                "tls.listen",
-                "tls.accept",
-                "tls.read",
-                "tls.readText",
-                "tls.write",
-                "tls.writeText",
-                "tls.close",
-                "tls.closeListener",
-                "audio.devices",
-                "audio.openInput",
-                "audio.openInputDevice",
-                "audio.openOutput",
-                "audio.openOutputDevice",
-                "audio.read",
-                "audio.readTimeout",
-                "audio.write",
-                "audio.poll",
-                "audio.pollTimeout",
-                "audio.available",
-                "audio.xruns",
-                "audio.closeInput",
-                "audio.closeOutput",
-                "thread.start",
-                "thread.isRunning",
-                "thread.waitFor",
-                "thread.cancel",
-                "thread.send",
-                "thread.poll",
-                "thread.receive",
-                "thread.transferResource",
-                "thread.acceptResource",
-                "thread.isCancelled",
-                "thread.openStdIn",
-                "thread.closeStdIn",
-            ],
+            runtime_calls: linux_common::RUNTIME_CALLS,
         }
     }
 
@@ -261,7 +106,14 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_nir(project_dir, ir, &self.target(), packages, build_mode)
+        linux_common::write_nir(
+            &DUMPS,
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            build_mode,
+        )
     }
 
     fn write_native_plan(
@@ -271,7 +123,14 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_plan(project_dir, ir, &self.target(), packages, build_mode)
+        linux_common::write_native_plan(
+            &DUMPS,
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            build_mode,
+        )
     }
 
     fn write_native_object_plan(
@@ -281,7 +140,14 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_object_plan(project_dir, ir, &self.target(), packages, build_mode)
+        linux_common::write_native_object_plan(
+            &DUMPS,
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            build_mode,
+        )
     }
 
     fn write_native_code_plan(
@@ -291,7 +157,14 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_code_plan(project_dir, ir, &self.target(), packages, build_mode)
+        linux_common::write_native_code_plan(
+            &DUMPS,
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            build_mode,
+        )
     }
 
     fn write_mir(
@@ -301,7 +174,14 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_mir(project_dir, ir, &self.target(), packages, build_mode)
+        linux_common::write_mir(
+            &DUMPS,
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            build_mode,
+        )
     }
 }
 
@@ -335,7 +215,7 @@ fn write_executable(
     let flavors: &[LinuxFlavor] = &LinuxFlavor::ALL;
     let mut paths = Vec::new();
     for &flavor in flavors {
-        let native_plan = plan_lower(&module, flavor)?;
+        let native_plan = plan::lower_module(&module, flavor)?;
         native_plan.validate()?;
         os::linux::validate_native_object_plan(&native_plan)?;
         let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
@@ -383,97 +263,15 @@ fn write_executable(
     Ok(paths)
 }
 
-fn write_nir(
-    project_dir: &Path,
-    ir: &IrProject,
-    target: &BuildTarget,
-    packages: &[PathBuf],
-    build_mode: NativeBuildMode,
-) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
-    let nir_path = project_dir.join(format!("{}.nir", ir.name));
-    fs::write(&nir_path, module.to_json())
-        .map_err(|err| format!("failed to write '{}': {err}", nir_path.display()))?;
-    Ok(nir_path)
-}
-
-fn write_native_plan(
-    project_dir: &Path,
-    ir: &IrProject,
-    target: &BuildTarget,
-    packages: &[PathBuf],
-    build_mode: NativeBuildMode,
-) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
-    // The single-flavor diagnostic dumps (.nplan/.nobj/.ncode/.mir) use the glibc
-    // flavor, matching linux-aarch64, so a cross-target dump diff stays consistent.
-    // `write_executable` still builds both flavors for the shipped binaries.
-    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
-    native_plan.validate()?;
-    let plan_path = project_dir.join(format!("{}.nplan", ir.name));
-    fs::write(&plan_path, native_plan.to_json())
-        .map_err(|err| format!("failed to write '{}': {err}", plan_path.display()))?;
-    Ok(plan_path)
-}
-
-fn write_native_object_plan(
-    project_dir: &Path,
-    ir: &IrProject,
-    target: &BuildTarget,
-    packages: &[PathBuf],
-    build_mode: NativeBuildMode,
-) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
-    native_plan.validate()?;
-    os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
-}
-
-fn write_native_code_plan(
-    project_dir: &Path,
-    ir: &IrProject,
-    target: &BuildTarget,
-    packages: &[PathBuf],
-    build_mode: NativeBuildMode,
-) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
-    native_plan.validate()?;
-    os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan, packages, LinuxFlavor::Glibc)?;
-    native_code.validate()?;
-    let code_path = project_dir.join(format!("{}.ncode", ir.name));
-    fs::write(&code_path, native_code.to_json())
-        .map_err(|err| format!("failed to write '{}': {err}", code_path.display()))?;
-    Ok(code_path)
-}
-
-fn write_mir(
-    project_dir: &Path,
-    ir: &IrProject,
-    target: &BuildTarget,
-    packages: &[PathBuf],
-    build_mode: NativeBuildMode,
-) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages, build_mode, None)?;
-    let native_plan = plan_lower(&module, LinuxFlavor::Glibc)?;
-    native_plan.validate()?;
-    os::linux::validate_native_object_plan(&native_plan)?;
-    let mir = code::lower_module_mir(&module, &native_plan, packages, LinuxFlavor::Glibc)?;
-    let mir_path = project_dir.join(format!("{}.mir", ir.name));
-    fs::write(&mir_path, mir.to_json())
-        .map_err(|err| format!("failed to write '{}': {err}", mir_path.display()))?;
-    Ok(mir_path)
-}
-
-/// The Linux native plan is ISA-independent (it is the object plan), so the
-/// x86-64 backend reuses the AArch64 backend's `plan` lowering verbatim.
-fn plan_lower(
-    module: &crate::target::shared::nir::NirModule,
-    flavor: LinuxFlavor,
-) -> Result<crate::target::shared::plan::NativePlan, String> {
-    plan::lower_module(module, flavor)
-}
+/// The five diagnostic dump writers are Linux-invariant (bug-321); only the
+/// lowering entry points differ, and `lower_validated_module` stays here because
+/// it carries this backend's build-mode policy.
+const DUMPS: linux_common::DumpHooks = linux_common::DumpHooks {
+    lower_validated_module,
+    lower_plan: plan::lower_module,
+    lower_code: code::lower_module,
+    lower_mir: code::lower_module_mir,
+};
 
 fn lower_validated_module(
     ir: &IrProject,
