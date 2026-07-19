@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/ (new) — `json::stringify(json::parse(x))` round-trips a full-precision Float
+Status: Fixed
+Regression Test: tests/rt-behavior/json/json-number-roundtrip-rt
 
 `__json_stringifyNumber` renders the integer form (`toString(value, 0)`) and
 round-trip-checks only that path; otherwise it falls back to a fixed
@@ -78,3 +78,44 @@ Rejected alternative: always emitting 17 digits — produces ugly non-minimal ou
 
 The fractional fallback caps at 9 digits with no round-trip check, losing precision.
 Growing precision to the shortest round-tripping decimal fixes it; low risk.
+
+## Resolution
+
+`__json_stringifyNumber` now searches for the **shortest** precision whose rendering
+parses back to the same Float, keeping the integer form as the first candidate so a
+whole number still renders `100` rather than `100.0`. If nothing round-trips it
+fails, because emitting a silently-lossy number is precisely the defect being fixed.
+
+### The obvious fix does not work, and finding out why produced a second bug
+
+The natural first attempt was to use the plain one-argument `toString(value)`,
+assuming it is the shortest-round-trip formatter (the in-tree
+`_mfb_rt_float_to_string`). Written that way, the new round-trip assertion **failed
+immediately** — which is the assertion doing its job.
+
+Investigating showed `toString(Float)`'s precision argument **defaults to 2 by
+documented design** (`toString(value AS Float, precision AS Byte = 2)`), so at
+runtime `toString(pi)` is `3.14`, `toString(0.1)` is `0.10`, and `toString(1.0/3.0)`
+is `0.33`. It is not a shortest-round-trip formatter at all.
+
+That also surfaced a genuine divergence worth its own report: a *constant-folded*
+`toString(3.141592653589793)` yields the full `3.141592653589793`, ignoring the
+documented default that the runtime honors — so the same value prints differently
+depending on whether the compiler could see it. Filed as **bug-358**. bug-304 does
+not depend on how that is resolved, because the search here is explicit rather than
+relying on any default.
+
+### Verification
+
+Seven cases round-trip exactly, chosen to cover both directions of the risk:
+`3.141592653589793`, `0.12345678901234`, `-2.718281828459045`, `0.1` and
+`0.000000000000123` are the precision-loss cases; `1.5` and `100` guard the opposite
+failure, that the search must return the *shortest* rendering and not pad short
+values with trailing digits.
+
+Three JSON `.ir` goldens moved, as they capture the lowered stdlib source. Runtime
+behaviour is unchanged and was verified rather than assumed: both `json-behavior`'s
+and `func_json_stringify_invalid_runtime`'s `build.log` — each embedding the
+program's complete output — are byte-identical.
+
+Full `cargo test` green; artifact gate 0 diffs.

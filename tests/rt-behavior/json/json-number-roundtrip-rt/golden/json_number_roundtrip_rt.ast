@@ -1,0 +1,68 @@
+{
+  "project": "json_number_roundtrip_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "json", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "rt",
+      "line": 13,
+      "params": [
+      { "name": "text", "type": "String", "default": null, "line": 13 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "out", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "text" }] }] }, "line": 14 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "identifier", "value": "text" } },
+        "line": 15,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok " }, "right": { "kind": "identifier", "value": "text" } }] }, "line": 16 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "DIFF " }, "right": { "kind": "identifier", "value": "text" } }, "right": { "kind": "string", "value": " -> " } }, "right": { "kind": "identifier", "value": "out" } }] }, "line": 18 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "3.141592653589793" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "0.12345678901234" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "-2.718281828459045" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "0.1" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "0.000000000000123" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "1.5" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "rt", "arguments": [{ "kind": "string", "value": "100" }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 34,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 36 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

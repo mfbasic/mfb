@@ -1,0 +1,38 @@
+' bug-304: __json_stringifyNumber round-trip-checked only the INTEGER rendering and
+' otherwise fell back to a fixed `toString(value, toByte(9))`. Nine decimal places
+' cannot represent a general binary64, so significant digits were silently dropped
+' and json::parse after json::stringify was not the identity on numbers --
+' 3.141592653589793 came back as 3.141592654.
+'
+' Note that the plain one-argument `toString(Float)` is NOT a shortest-round-trip
+' formatter: its precision argument defaults to 2 by documented design. So the fix
+' searches for the shortest precision that parses back to the same Float.
+IMPORT io
+IMPORT json
+
+FUNC rt(text AS String) AS Integer
+  LET out AS String = json::stringify(json::parse(text))
+  IF out = text THEN
+    io::print("ok " & text)
+  ELSE
+    io::print("DIFF " & text & " -> " & out)
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Integer = rt("3.141592653589793")
+  LET b AS Integer = rt("0.12345678901234")
+  LET c AS Integer = rt("-2.718281828459045")
+  LET d AS Integer = rt("0.1")
+  LET e AS Integer = rt("0.000000000000123")
+  ' Shorter renderings must stay short -- the search returns the SHORTEST that
+  ' round-trips, so these must not gain trailing digits.
+  LET f AS Integer = rt("1.5")
+  LET g AS Integer = rt("100")
+  RETURN 0
+  TRAP(err)
+    io::print("trapped: " & toString(err.code))
+    RETURN 1
+END TRAP
+END FUNC
