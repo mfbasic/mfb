@@ -219,15 +219,17 @@ fn dlsym(
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions,
+            relocations,
+        },
         handle_off,
         name,
         fnptr_off,
         fail,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
     )
 }
 

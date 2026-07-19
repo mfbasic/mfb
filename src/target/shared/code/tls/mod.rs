@@ -252,31 +252,32 @@ pub(super) fn emit_cstring(
 /// `dlopen` `libssl.so.3`, falling back to `libssl.so.1.1`; the handle is stored
 /// at `sp + handle_off`. Branches to `fail` when neither loads.
 pub(super) fn emit_dlopen_libssl(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     let loaded = format!("{symbol}_dlopen_done");
     emit_data_address(
         symbol,
         abi::return_register(),
         &lib_data_symbol(0),
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+    ctx.instructions
+        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&loaded),
@@ -285,18 +286,19 @@ pub(super) fn emit_dlopen_libssl(
         symbol,
         abi::return_register(),
         &lib_data_symbol(1),
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    instructions.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+    ctx.instructions
+        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
         platform_imports,
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     )?;
-    instructions.extend([
+    ctx.instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(fail),
@@ -307,17 +309,17 @@ pub(super) fn emit_dlopen_libssl(
 
 /// `dlsym(handle, name)` into `sp + fnptr_off`. Branches to `fail` if missing.
 pub(super) fn emit_dlsym(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     handle_off: usize,
     name: &str,
     fnptr_off: usize,
     fail: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    instructions.push(abi::load_u64(
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
+    ctx.instructions.push(abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),
         handle_off,
@@ -326,11 +328,17 @@ pub(super) fn emit_dlsym(
         symbol,
         abi::ARG[1],
         &sym_data_symbol(name),
-        instructions,
-        relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    platform.emit_libc_call("dlsym", symbol, platform_imports, instructions, relocations)?;
-    instructions.extend([
+    platform.emit_libc_call(
+        "dlsym",
+        symbol,
+        platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), fnptr_off),
@@ -344,16 +352,16 @@ pub(super) fn emit_dlsym(
 /// the bound afterwards so `read`/`write` stay unbounded). Best effort: a
 /// `setsockopt` failure is ignored — the handshake just falls back to blocking.
 pub(super) fn emit_set_sock_timeouts(
-    symbol: &str,
+    ctx: &mut EmitCtx,
     fd_off: usize,
     tv_off: usize,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+
     for opt in [platform.so_rcvtimeo(), platform.so_sndtimeo()] {
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
             abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
             abi::move_immediate(abi::ARG[2], "Integer", opt),
@@ -364,8 +372,8 @@ pub(super) fn emit_set_sock_timeouts(
             "setsockopt",
             symbol,
             platform_imports,
-            instructions,
-            relocations,
+            ctx.instructions,
+            ctx.relocations,
         )?;
     }
     Ok(())

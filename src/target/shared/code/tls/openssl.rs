@@ -317,13 +317,15 @@ pub(crate) fn lower_tls_connect_helper(
         abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
     emit_set_sock_timeouts(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         FD_OFFSET,
         TIMEVAL_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::label(&hs_timeout_set));
     // SNI/validation name = serverName if non-empty, else host.
@@ -357,25 +359,29 @@ pub(crate) fn lower_tls_connect_helper(
 
     // --- OpenSSL handshake (shared) ---
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     // method = TLS_client_method(); stash transiently in the CTX slot.
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "TLS_client_method",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
@@ -384,15 +390,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // ctx = SSL_CTX_new(method)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_new",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -404,15 +412,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // SSL_CTX_set_default_verify_paths(ctx) -- best effort, ignore result.
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_set_default_verify_paths",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -421,15 +431,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // ssl = SSL_new(ctx)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_new",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -441,15 +453,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // SSL_set_fd(ssl, fd)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_set_fd",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -461,15 +475,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_set_verify",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -485,15 +501,17 @@ pub(crate) fn lower_tls_connect_helper(
     // verification and closes rather than validating by IP. This fails *closed*
     // (over-strict), never open — there is no verification bypass (bug-177 C).
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_set1_host",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -505,15 +523,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, sniCstr) -- SNI
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_ctrl",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -537,15 +557,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // r = SSL_connect(ssl); require 1.
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_connect",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -556,15 +578,17 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     // v = SSL_get_verify_result(ssl); require X509_V_OK (0).
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_get_verify_result",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -582,13 +606,15 @@ pub(crate) fn lower_tls_connect_helper(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
     emit_set_sock_timeouts(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         FD_OFFSET,
         TIMEVAL_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::label(&hs_timeout_clear));
     // Build the TlsSocket record { fd, closed = 0, ssl, ctx }.
@@ -631,15 +657,17 @@ pub(crate) fn lower_tls_connect_helper(
         abi::branch_eq(&tf_skip_ssl),
     ]);
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_free",
         FNPTR_OFFSET,
         &tls_fail_raw,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -651,15 +679,17 @@ pub(crate) fn lower_tls_connect_helper(
         abi::branch_eq(&tf_skip_ctx),
     ]);
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_free",
         FNPTR_OFFSET,
         &tls_fail_raw,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -812,15 +842,17 @@ pub(crate) fn lower_tls_connect_helper(
         abi::branch_eq(&af_skip_ssl),
     ]);
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_free",
         FNPTR_OFFSET,
         &alloc_fail_raw,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -832,15 +864,17 @@ pub(crate) fn lower_tls_connect_helper(
         abi::branch_eq(&af_skip_ctx),
     ]);
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_free",
         FNPTR_OFFSET,
         &alloc_fail_raw,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1093,25 +1127,29 @@ pub(crate) fn lower_tls_listen_helper(
         &mut relocations,
     );
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &tls_fail_fd,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     // method = TLS_server_method(); stash transiently in the CTX slot.
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "TLS_server_method",
         FNPTR_OFFSET,
         &tls_fail_fd,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
@@ -1120,15 +1158,17 @@ pub(crate) fn lower_tls_listen_helper(
     ]);
     // ctx = SSL_CTX_new(method)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_new",
         FNPTR_OFFSET,
         &tls_fail_fd,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1140,15 +1180,17 @@ pub(crate) fn lower_tls_listen_helper(
     ]);
     // SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, NULL)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_ctrl",
         FNPTR_OFFSET,
         &ctx_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1166,15 +1208,17 @@ pub(crate) fn lower_tls_listen_helper(
     ]);
     // SSL_CTX_use_certificate_chain_file(ctx, certCstr) == 1
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_use_certificate_chain_file",
         FNPTR_OFFSET,
         &ctx_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1186,15 +1230,17 @@ pub(crate) fn lower_tls_listen_helper(
     ]);
     // SSL_CTX_use_PrivateKey_file(ctx, keyCstr, SSL_FILETYPE_PEM = 1) == 1
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_use_PrivateKey_file",
         FNPTR_OFFSET,
         &ctx_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1207,15 +1253,17 @@ pub(crate) fn lower_tls_listen_helper(
     ]);
     // SSL_CTX_check_private_key(ctx) == 1
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_check_private_key",
         FNPTR_OFFSET,
         &ctx_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1258,15 +1306,17 @@ pub(crate) fn lower_tls_listen_helper(
     // free the context, close the fd, and report ErrTlsFailed.
     instructions.push(abi::label(&ctx_fail));
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_free",
         FNPTR_OFFSET,
         &tls_fail_fd,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1343,15 +1393,17 @@ pub(crate) fn lower_tls_listen_helper(
     // (bug-236). A `dlsym` miss for SSL_CTX_free still reports the OOM.
     instructions.push(abi::label(&alloc_fail_ctx_fd));
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_free",
         FNPTR_OFFSET,
         &alloc_fail_fd,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1486,25 +1538,29 @@ pub(crate) fn lower_tls_accept_helper(
     ]);
     // --- Server-side handshake on the accepted fd ---
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &tls_fail_conn,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     // ssl = SSL_new(listener.ctx)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_new",
         FNPTR_OFFSET,
         &tls_fail_conn,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -1516,15 +1572,17 @@ pub(crate) fn lower_tls_accept_helper(
     ]);
     // SSL_set_fd(ssl, connfd)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_set_fd",
         FNPTR_OFFSET,
         &ssl_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -1554,26 +1612,30 @@ pub(crate) fn lower_tls_accept_helper(
         abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
     emit_set_sock_timeouts(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         CONNFD_OFFSET,
         TIMEVAL_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::label(&hs_timeout_set));
     // r = SSL_accept(ssl); require 1 (server handshake complete).
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_accept",
         FNPTR_OFFSET,
         &ssl_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -1591,13 +1653,15 @@ pub(crate) fn lower_tls_accept_helper(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
     emit_set_sock_timeouts(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         CONNFD_OFFSET,
         TIMEVAL_OFFSET,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.push(abi::label(&hs_timeout_cleared));
     // Build the TlsSocket record { fd, closed = 0, ssl, ctx = 0 } — the zero
@@ -1624,15 +1688,17 @@ pub(crate) fn lower_tls_accept_helper(
     // ssl_fail: free the session, then close the accepted fd.
     instructions.push(abi::label(&ssl_fail));
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_free",
         FNPTR_OFFSET,
         &tls_fail_conn,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -1694,15 +1760,17 @@ pub(crate) fn lower_tls_accept_helper(
     // Both are always set on the only path here. SSL_free's dlsym failure (only
     // if libssl vanished) routes to tls_fail_conn, which still closes the fd.
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_free",
         FNPTR_OFFSET,
         &tls_fail_conn,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -1791,24 +1859,28 @@ pub(crate) fn lower_tls_read_helper(
         BUF_OFFSET,
     ));
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_read",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     // n = SSL_read(ssl, buf, maxBytes)
     instructions.extend([
@@ -2044,24 +2116,28 @@ pub(crate) fn lower_tls_write_helper(
         ]);
     }
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_write",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::label(&write_loop),
@@ -2165,25 +2241,29 @@ pub(crate) fn lower_tls_close_helper(
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
     ]);
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     // SSL_shutdown(ssl)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_shutdown",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -2192,15 +2272,17 @@ pub(crate) fn lower_tls_close_helper(
     ]);
     // SSL_free(ssl)
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_free",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -2218,15 +2300,17 @@ pub(crate) fn lower_tls_close_helper(
         abi::branch_eq(&ctx_done),
     ]);
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_free",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -2318,26 +2402,30 @@ pub(crate) fn lower_tls_close_listener_helper(
         abi::store_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
     ]);
     emit_dlopen_libssl(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     // SSL_CTX_free(ctx) — the listener owns the shared server context and
     // frees it exactly once here; accepted sockets only borrow it.
     emit_dlsym(
-        symbol,
+        &mut EmitCtx {
+            symbol: symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
         HANDLE_OFFSET,
         "SSL_CTX_free",
         FNPTR_OFFSET,
         &load_fail,
-        platform_imports,
-        platform,
-        &mut instructions,
-        &mut relocations,
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
