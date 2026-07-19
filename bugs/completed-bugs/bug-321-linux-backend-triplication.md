@@ -528,13 +528,13 @@ the *verdict list is identical* under both compilers, so each box was run twice:
 | 2222 Arch | linux-aarch64 / glibc 2.35 | 446 pass, 21 fail | 446 pass, 21 fail | **identical** |
 | 2223 Kali | linux-aarch64 / glibc 2.42 | 446 pass, 21 fail | 446 pass, 21 fail | **identical** |
 | 2229 Alpine | linux-riscv64 / musl | 451 pass, 3 fail, 13 unbuilt | 451 pass, 3 fail, 13 unbuilt | **identical** |
-| 2227 Alpine | linux-x86_64 / musl | (A/B run) | 454 pass, 13 fail | see note |
+| 2227 Alpine | linux-x86_64 / musl | 454 pass, 13 fail | 454 pass, 13 fail | **identical** |
+| 2224 Alpine | linux-aarch64 / musl | — | 446 pass, 21 fail | (bug-360 only) |
 
-Note on 2227: the single-core box makes a full pass slow, and its A/B rerun was
-still in flight at the time of writing. It is a redundancy check, not the
-acceptance criterion — the x86_64 executables are already covered by the
-whole-corpus byte-identity result above, which is what actually proves this
-refactor. Three boxes across all three ISAs returned identical verdict lists.
+Four boxes run twice each, covering all three ISAs and both libc worlds:
+**every verdict list is identical between the two compilers**. 2224 was run once,
+with the refactored compiler only, to settle bug-360's ISA-vs-libc question
+rather than to prove this refactor.
 
 Spot-checked by hand to make the argument concrete:
 `rt-behavior/resources/resource-state-valid` on 2223 prints the correct `stated`
