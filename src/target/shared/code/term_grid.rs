@@ -894,6 +894,10 @@ pub(super) fn emit_grid_present(
     let tmp = "%v229";
     let rowp1 = "%v230";
     let colp1 = "%v231";
+    // bug-314 H3: the present-write loop's cursor / remaining / result.
+    let wcur = "%v232";
+    let wrem = "%v233";
+    let wres = "%v234";
 
     let done_ok = format!("{symbol}_pr_ok");
     let loop_top = format!("{symbol}_pr_loop");
@@ -1099,13 +1103,50 @@ pub(super) fn emit_grid_present(
     // Clear the dirty flag; the next present diffs from the now-synced front.
     instrs.push(abi::move_immediate(tmp, "Integer", "0"));
     instrs.push(abi::store_u64(tmp, gp, H_DIRTY));
-    // Single batched write(fd=1, outbuf, buf - outbuf).
+    // Batched write(fd=1, outbuf, buf - outbuf), looped until every byte lands.
+    //
+    // bug-314 H3: the result used to be discarded. That is uniquely damaging here
+    // because the diff loop copies each emitted cell back->front BEFORE this write:
+    // if the write went short or was interrupted after a partial transfer, the
+    // terminal showed only part of the frame while `front == back` claimed it was
+    // fully painted, so the next `term::sync` diffed to nothing and never repaired
+    // the missing cells. Not a dropped frame -- permanent corruption until
+    // something else happened to mark those cells dirty again.
+    //
+    // Looping to completion keeps the front buffer's claim true. The alternative
+    // (copy back->front only after a successful write) would need the emitted-cell
+    // list kept alive across the write, which the streaming diff does not retain.
+    let write_loop = format!("{symbol}_present_write_loop");
+    let write_done = format!("{symbol}_present_write_done");
+    let write_retry = format!("{symbol}_present_write_retry");
+    let cursor = wcur;
+    let remaining = wrem;
     instrs.extend([
-        abi::subtract_registers(abi::string_length_register(), buf, outbuf),
-        abi::move_register(abi::string_data_register(), outbuf),
+        abi::move_register(cursor, outbuf),
+        abi::subtract_registers(remaining, buf, outbuf),
+        abi::label(&write_loop),
+        // Nothing left: done.
+        abi::compare_immediate(remaining, "0"),
+        abi::branch_eq(&write_done),
+        abi::label(&write_retry),
+        abi::move_register(abi::string_length_register(), remaining),
+        abi::move_register(abi::string_data_register(), cursor),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
     ]);
     platform.emit_write(symbol, platform_imports, instrs, relocations)?;
+    instrs.extend([
+        abi::move_register(wres, abi::return_register()),
+        abi::compare_immediate(wres, "0"),
+        // A negative return is EINTR (retry) or a genuine failure. A 0 return for a
+        // nonzero-length write moved nothing, so treat it as failure rather than
+        // spinning (bug-62's lesson on this exact loop shape).
+        abi::branch_le(&write_done),
+        // Short write: advance and go again.
+        abi::add_registers(cursor, cursor, wres),
+        abi::subtract_registers(remaining, remaining, wres),
+        abi::branch(&write_loop),
+        abi::label(&write_done),
+    ]);
     instrs.push(abi::label(&done_ok));
     Ok(())
 }

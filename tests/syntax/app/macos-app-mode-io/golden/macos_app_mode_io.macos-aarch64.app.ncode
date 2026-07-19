@@ -12915,7 +12915,7 @@
     { "op": "mov_imm", "dst": "x1", "type": "Integer", "value": "1" },
     { "op": "bl", "target": "_poll" },
     { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
-    { "op": "b.lt", "target": "_mfb_rt_io_io_pollInput_poll_error" },
+    { "op": "b.lt", "target": "_mfb_rt_io_io_pollInput_poll_eintr" },
     { "op": "b.gt", "target": "_mfb_rt_io_io_pollInput_poll_ready" },
     { "op": "mov_imm", "dst": "x1", "type": "Boolean", "value": "0" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
@@ -12924,6 +12924,12 @@
     { "op": "mov_imm", "dst": "x1", "type": "Boolean", "value": "1" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "b", "target": "_mfb_rt_io_io_pollInput_done" },
+    { "op": "label", "name": "_mfb_rt_io_io_pollInput_poll_eintr" },
+    { "op": "bl", "target": "___error" },
+    { "op": "ldr_u32", "dst": "x0", "base": "x0", "offset": "0" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "4" },
+    { "op": "b.eq", "target": "_mfb_rt_io_io_pollInput_os_poll" },
+    { "op": "b", "target": "_mfb_rt_io_io_pollInput_poll_error" },
     { "op": "label", "name": "_mfb_rt_io_io_pollInput_poll_error" },
     { "op": "mov_imm", "dst": "x1", "type": "Integer", "value": "77020005" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
@@ -12936,6 +12942,7 @@
     ],
     "relocations": [
     { "from": "_mfb_rt_io_io_pollInput", "to": "_poll", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_io_pollInput", "to": "___error", "kind": "branch26", "binding": "external", "library": "libSystem" },
     { "from": "_mfb_rt_io_io_pollInput", "to": "_mfb_str_error_input", "kind": "page21", "binding": "data", "library": null },
     { "from": "_mfb_rt_io_io_pollInput", "to": "_mfb_str_error_input", "kind": "pageoff12", "binding": "data", "library": null }
     ]

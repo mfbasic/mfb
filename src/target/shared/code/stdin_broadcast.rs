@@ -411,6 +411,22 @@ pub(super) fn lower_stdin_next_byte(
         &mut relocations,
     )?;
     instructions.push(abi::move_register("%v81", abi::return_register()));
+    // bug-314 H4: capture errno HERE, immediately after the read, before the
+    // re-lock below. The EINTR classification at `read_neg` used to call
+    // `emit_errno` after `pthread_mutex_lock` had already run, so it was reading a
+    // value the lock was merely assumed not to have disturbed. glibc, musl (raw
+    // futex) and macOS all preserve it in practice, which is why this was correct
+    // -- but the correctness rested on an unstated guarantee about someone else's
+    // implementation, and any lock path that touched errno would misclassify a real
+    // read error as EINTR (a silent infinite retry) or the reverse. Reading it
+    // while it is still unambiguously the read's own errno removes the reliance.
+    platform.emit_errno(
+        symbol,
+        "%v82",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Re-lock.
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
     instructions.push(abi::move_register(abi::ARG[0], "%v78"));
@@ -485,15 +501,10 @@ pub(super) fn lower_stdin_next_byte(
 
     // n < 0: EINTR (retry, unless shutting down) or genuine error.
     instructions.push(abi::label(&l("read_neg")));
-    platform.emit_errno(
-        symbol,
-        "%v69",
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    // bug-314 H4: classify from the errno captured right after the read, not from
+    // a fresh fetch made after the intervening `pthread_mutex_lock`.
     instructions.extend([
-        abi::compare_immediate("%v69", STDIN_EINTR_ERRNO),
+        abi::compare_immediate("%v82", STDIN_EINTR_ERRNO),
         abi::branch_ne(&l("read_hard_err")),
         // EINTR: free the block; if shutting down, EOF; else broadcast + retry.
         abi::move_register(abi::ARG[0], "%v58"),

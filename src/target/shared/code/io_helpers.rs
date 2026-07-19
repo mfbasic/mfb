@@ -684,6 +684,7 @@ pub(super) fn lower_io_poll_input_helper(
     const TIMEOUT_OFFSET: usize = 32;
 
     let poll_error = format!("{symbol}_poll_error");
+    let poll_eintr_check = format!("{symbol}_poll_eintr");
     let poll_ready = format!("{symbol}_poll_ready");
     let os_poll = format!("{symbol}_os_poll");
     let done = format!("{symbol}_done");
@@ -735,7 +736,7 @@ pub(super) fn lower_io_poll_input_helper(
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&poll_error),
+        abi::branch_lt(&poll_eintr_check),
         abi::branch_gt(&poll_ready),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -744,6 +745,27 @@ pub(super) fn lower_io_poll_input_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
+        abi::label(&poll_eintr_check),
+    ]);
+    // bug-314 H1: a negative return used to go straight to ErrInput. Every other
+    // blocking primitive retries EINTR -- read/write/seek (bug-62) and net poll
+    // (bug-115) -- but fd-0 poll was left unwrapped, so any handled signal
+    // (SIGWINCH in a TUI, SIGCHLD, the console SIGINT/SIGTERM handler where the
+    // program continues) interrupting a blocked `io::pollInput()` surfaced as a
+    // spurious ErrInput instead of ready/not-ready. Retry at `os_poll`, which
+    // re-arms the pollfd from scratch.
+    emit_eintr_retry_or_error(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        abi::return_register(),
+        false,
+        &os_poll,
+        &poll_error,
+    )?;
+    instructions.extend([
         abi::label(&poll_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
