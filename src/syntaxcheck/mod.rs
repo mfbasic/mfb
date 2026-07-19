@@ -475,8 +475,6 @@ impl<'a> SyntaxChecker<'a> {
                 .map(|f| (f.name.clone(), f.ctype.clone()))
                 .collect();
             let view = crate::ir::StructSlotView {
-                slot: &slot.name,
-                direction: slot.direction,
                 cfields: &cfields,
                 record: &record,
                 cstruct_name: &decl.name,
@@ -683,14 +681,6 @@ impl<'a> SyntaxChecker<'a> {
                 self.report(fault.rule, &fault.message, file, line);
             }
         }
-    }
-
-    pub(super) fn check_link_function(
-        &mut self,
-        file: &AstFile,
-        function: &crate::ast::LinkFunction,
-    ) {
-        self.check_link_function_in(file, function, &[]);
     }
 
     /// `cstructs` is every `CSTRUCT` name declared in the owning `LINK` block; a

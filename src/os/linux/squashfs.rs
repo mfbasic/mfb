@@ -133,6 +133,11 @@ pub(crate) struct SquashTree {
 
 impl SquashNode {
     /// A new empty directory with `mode` permission bits.
+    ///
+    /// Only the tests build a tree node-by-node; the shipping path constructs
+    /// directories in `tree_from_dir` while walking the real AppDir, so this has
+    /// no non-test caller (bug-326-A29).
+    #[cfg(test)]
     pub(crate) fn dir(mode: u16) -> SquashNode {
         SquashNode::Dir {
             entries: BTreeMap::new(),

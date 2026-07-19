@@ -198,7 +198,7 @@ impl NativeBackend for Backend {
 
     fn supports_app_mode(&self) -> bool {
         // GTK4 app mode (plan-05-linux-app.md), shared with linux-aarch64 via
-        // `target::linux_gtk` — glibc-only, like the aarch64 flavor.
+        // `target::linux_gtk` — both libc worlds, like the aarch64 flavor.
         true
     }
 
@@ -236,12 +236,22 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         project_name: &str,
         keep_intermediate: bool,
-    ) -> Result<Option<PathBuf>, String> {
-        let path = os::linux::seal_appimage(project_dir, project_name, "x86_64")?;
-        if !keep_intermediate {
-            os::linux::remove_appdir(project_dir, project_name)?;
+    ) -> Result<Vec<PathBuf>, String> {
+        // One AppImage per libc flavor (plan-56-B §4.4), in the same order the
+        // AppDirs were written.
+        let mut sealed = Vec::new();
+        for &flavor in &LinuxFlavor::ALL {
+            sealed.push(os::linux::seal_appimage(
+                project_dir,
+                project_name,
+                flavor,
+                "x86_64",
+            )?);
+            if !keep_intermediate {
+                os::linux::remove_appdir(project_dir, project_name, flavor)?;
+            }
         }
-        Ok(Some(path))
+        Ok(sealed)
     }
 
     fn write_nir(
@@ -316,15 +326,13 @@ fn write_executable(
     // `Platform::libc()` names the library each import binds to); on x86-64 the
     // two worlds share every kernel struct layout the codegen bakes in
     // (stat/dirent/termios, pthread object sizes), so only the import library
-    // names and the interpreter differ. App mode (plan-05-linux-app.md §5.2) is
-    // glibc-only (GTK is a glibc-world dependency) and emits a single
-    // `<name>.out`, exactly like linux-aarch64.
+    // names and the interpreter differ.
     let app_mode = build_mode.is_app();
-    let flavors: &[LinuxFlavor] = if app_mode {
-        &[LinuxFlavor::Glibc]
-    } else {
-        &LinuxFlavor::ALL
-    };
+    // plan-56-B §4.1: app mode is no longer glibc-only. GTK4 exists in the musl
+    // world (Alpine's `gtk4.0`), and plan-56-A made the import surface
+    // flavor-correct, so `--app` emits one AppImage per libc exactly as the
+    // console build emits one `.out` per libc.
+    let flavors: &[LinuxFlavor] = &LinuxFlavor::ALL;
     let mut paths = Vec::new();
     for &flavor in flavors {
         let native_plan = plan_lower(&module, flavor)?;

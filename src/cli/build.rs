@@ -556,26 +556,66 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // plan-46-D §4.5: copy the resolved vendor libraries into the directory
             // the executable's RPATH points at, so `dlopen` of the bare filename
             // resolves from any working directory and survives moving `build/`.
-            if let Err(err) = copy_vendor_libraries(
-                &vendored,
-                &options.location,
-                &ir.name,
-                &vendor_output_dirs(output_dir, &ir.name, build_mode),
-            ) {
-                eprintln!("error: {err}");
-                return Err(());
+            // plan-56-B §4.3: `copy_vendor_libraries` copies EVERY library into
+            // EVERY directory it is given, so a Linux app build — which now
+            // resolves both libc worlds — must be routed per flavor. Handing it
+            // both AppDirs at once would put the glibc blob inside the musl
+            // image and vice versa: harmless at runtime (each binary `dlopen`s
+            // its own filename) but it doubles the payload and ships a library
+            // that can never load there.
+            let vendor_copies: Vec<(Vec<link_locator::ResolvedLibrary>, Vec<PathBuf>)> =
+                if build_mode == target::NativeBuildMode::LinuxApp {
+                    crate::os::linux::flavor::LinuxFlavor::ALL
+                        .iter()
+                        .map(|flavor| {
+                            let libc = flavor.libc();
+                            let for_flavor = vendored
+                                .iter()
+                                .filter(|library| {
+                                    // `libc: None` means the locator applies to
+                                    // every libc world, so it belongs in both.
+                                    library.locator.libc.is_none_or(|l| l == libc)
+                                })
+                                .cloned()
+                                .collect();
+                            let dir = output_dir
+                                .join(crate::os::BUILD_DIR)
+                                .join(crate::os::linux::appdir::appdir_name(
+                                    &ir.name,
+                                    flavor.suffix(),
+                                ))
+                                .join("usr")
+                                .join("lib");
+                            (for_flavor, vec![dir])
+                        })
+                        .collect()
+                } else {
+                    vec![(
+                        vendored.clone(),
+                        vendor_output_dirs(output_dir, &ir.name, build_mode),
+                    )]
+                };
+            for (libraries, dirs) in &vendor_copies {
+                if let Err(err) =
+                    copy_vendor_libraries(libraries, &options.location, &ir.name, dirs)
+                {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
             }
             // plan-55-A §4.3: copy manifest-declared `resources` into the build
             // output tree (beside the executable in console mode, into the bundle's
             // resource directory in `--app` mode), where `os::resourcePath`
             // (plan-55-B) resolves them at runtime.
-            if let Err(err) = copy_resources(
-                &options.location,
-                &crate::manifest::resource_entries(&manifest),
-                &resource_output_dir(output_dir, &ir.name, build_mode),
-            ) {
-                eprintln!("error: {err}");
-                return Err(());
+            for resource_dir in resource_output_dirs(output_dir, &ir.name, build_mode) {
+                if let Err(err) = copy_resources(
+                    &options.location,
+                    &crate::manifest::resource_entries(&manifest),
+                    &resource_dir,
+                ) {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
             }
             // plan-51-C §3.2: seal the Linux AppDir into `build/<name>.AppImage`.
             // Must run *after* vendoring and the resource copy — an AppImage is a
@@ -589,8 +629,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 build_mode,
                 options.app_debug,
             ) {
-                Ok(Some(path)) => vec![path],
-                Ok(None) => executable_paths,
+                Ok(sealed) if !sealed.is_empty() => sealed,
+                Ok(_) => executable_paths,
                 Err(err) => {
                     eprintln!("error: {err}");
                     return Err(());
@@ -1413,14 +1453,13 @@ fn assemble_native_library_table(
 /// caller-side mirror of their per-flavor loop.
 fn emitted_link_targets(
     target: &target::BuildTarget,
-    build_mode: target::NativeBuildMode,
+    _build_mode: target::NativeBuildMode,
 ) -> Vec<link_locator::LinkTarget> {
     if target.os == "linux" {
-        let flavors: &[Libc] = if build_mode.is_app() {
-            &[Libc::Glibc]
-        } else {
-            &[Libc::Glibc, Libc::Musl]
-        };
+        // plan-56-B §4.1: every Linux build — console AND app — emits both libc
+        // worlds, so vendor resolution must cover both. Leaving app mode on
+        // glibc-only here would put the glibc blob inside the musl AppImage.
+        let flavors: &[Libc] = &[Libc::Glibc, Libc::Musl];
         flavors
             .iter()
             .map(|libc| link_locator::LinkTarget {
@@ -1601,10 +1640,21 @@ fn vendor_output_dirs(
         // expects, and what `ELF_APPDIR_VENDOR_RPATH` (`$ORIGIN/../lib`) resolves
         // to. Created only when the build vendors something, so a non-vendoring
         // AppDir carries no empty `usr/lib/` (plan-51-A §4.4).
-        target::NativeBuildMode::LinuxApp => vec![build_dir
-            .join(format!("{project_name}.AppDir"))
-            .join("usr")
-            .join("lib")],
+        // One `usr/lib` per flavor's AppDir (plan-56-B §4.3). Both are returned
+        // so the caller can route each flavor's blob into its own image; see
+        // `vendor_output_dirs_for_flavor` for the per-flavor selection.
+        target::NativeBuildMode::LinuxApp => crate::os::linux::flavor::LinuxFlavor::ALL
+            .iter()
+            .map(|flavor| {
+                build_dir
+                    .join(crate::os::linux::appdir::appdir_name(
+                        project_name,
+                        flavor.suffix(),
+                    ))
+                    .join("usr")
+                    .join("lib")
+            })
+            .collect(),
         // Both Linux libc flavors live in the one `build/` directory and share the
         // one `vendor/`. That is sound only because vendor `source` filenames are
         // unique project-wide (plan-46-A §4.3), so a glibc blob and a musl blob
@@ -1630,23 +1680,34 @@ fn vendor_output_dirs(
 /// The `LinuxApp` arm depends on plan-51-A's AppDir existing; until then a Linux
 /// `--app` build never reaches this path (Linux app mode is unimplemented
 /// pre-51). It is written now so 51-A needs no change here.
-fn resource_output_dir(
+fn resource_output_dirs(
     output_dir: &Path,
     project_name: &str,
     build_mode: target::NativeBuildMode,
-) -> PathBuf {
+) -> Vec<PathBuf> {
     let build_dir = output_dir.join(crate::os::BUILD_DIR);
     match build_mode {
-        target::NativeBuildMode::MacApp => build_dir
+        target::NativeBuildMode::MacApp => vec![build_dir
             .join(format!("{project_name}.app"))
             .join("Contents")
-            .join(crate::os::MACOS_APP_RESOURCES_DIR),
-        target::NativeBuildMode::LinuxApp => build_dir
-            .join(format!("{project_name}.AppDir"))
-            .join("usr")
-            .join("share")
-            .join(project_name),
-        target::NativeBuildMode::Console => build_dir,
+            .join(crate::os::MACOS_APP_RESOURCES_DIR)],
+        // Resources are flavor-independent, so BOTH AppDirs get the same copy
+        // (plan-56-B §4.3). Broadcasting is correct here and wrong for vendored
+        // libraries, which is why the two do not share a helper.
+        target::NativeBuildMode::LinuxApp => crate::os::linux::flavor::LinuxFlavor::ALL
+            .iter()
+            .map(|flavor| {
+                build_dir
+                    .join(crate::os::linux::appdir::appdir_name(
+                        project_name,
+                        flavor.suffix(),
+                    ))
+                    .join("usr")
+                    .join("share")
+                    .join(project_name)
+            })
+            .collect(),
+        target::NativeBuildMode::Console => vec![build_dir],
     }
 }
 
@@ -2804,8 +2865,11 @@ mod tests {
         );
         assert_eq!(
             vendor_output_dirs(root, "app", target::NativeBuildMode::LinuxApp),
-            vec![PathBuf::from("/proj/build/app.AppDir/usr/lib")],
-            "linux --app: $ORIGIN/../lib -> the AppDir's usr/lib (plan-51-A §4.4)"
+            vec![
+                PathBuf::from("/proj/build/app-glibc.AppDir/usr/lib"),
+                PathBuf::from("/proj/build/app-musl.AppDir/usr/lib"),
+            ],
+            "linux --app: $ORIGIN/../lib -> each flavor's AppDir usr/lib"
         );
         // The two Linux shapes must differ: the console `.out` and the AppDir's
         // `usr/bin/<name>` sit at different depths, so a shared directory would
@@ -2827,19 +2891,22 @@ mod tests {
     fn resource_output_dir_per_build_shape() {
         let root = Path::new("/proj");
         assert_eq!(
-            resource_output_dir(root, "app", target::NativeBuildMode::Console),
-            PathBuf::from("/proj/build"),
+            resource_output_dirs(root, "app", target::NativeBuildMode::Console),
+            vec![PathBuf::from("/proj/build")],
             "console: resources beside the executable in build/"
         );
         assert_eq!(
-            resource_output_dir(root, "app", target::NativeBuildMode::MacApp),
-            PathBuf::from("/proj/build/app.app/Contents/Resources"),
+            resource_output_dirs(root, "app", target::NativeBuildMode::MacApp),
+            vec![PathBuf::from("/proj/build/app.app/Contents/Resources")],
             "macos -app: the bundle's Contents/Resources"
         );
         assert_eq!(
-            resource_output_dir(root, "app", target::NativeBuildMode::LinuxApp),
-            PathBuf::from("/proj/build/app.AppDir/usr/share/app"),
-            "linux -app: usr/share/<name> inside the AppDir"
+            resource_output_dirs(root, "app", target::NativeBuildMode::LinuxApp),
+            vec![
+                PathBuf::from("/proj/build/app-glibc.AppDir/usr/share/app"),
+                PathBuf::from("/proj/build/app-musl.AppDir/usr/share/app"),
+            ],
+            "linux --app: usr/share/<name> inside BOTH flavors' AppDirs"
         );
     }
 
@@ -2921,12 +2988,17 @@ mod tests {
             .collect();
         assert_eq!(console, vec!["linux/x86_64/glibc", "linux/x86_64/musl"]);
 
-        // plan-05-linux-app.md §5.2: app mode is glibc-only.
+        // plan-56-B §4.1: app mode is no longer glibc-only — it emits one
+        // AppImage per libc, so vendor resolution must cover both. Resolving
+        // only glibc here would put the glibc blob inside the musl image.
         let app: Vec<String> = emitted_link_targets(&linux, target::NativeBuildMode::LinuxApp)
             .iter()
             .map(|t| t.to_string())
             .collect();
-        assert_eq!(app, vec!["linux/x86_64/glibc"]);
+        assert_eq!(
+            app, console,
+            "app mode resolves the same libc set as console"
+        );
 
         // macOS has no libc axis in either mode.
         let macos = target::BuildTarget {

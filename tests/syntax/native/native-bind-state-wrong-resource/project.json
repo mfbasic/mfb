@@ -1,0 +1,13 @@
+{
+  "name": "native_bind_state_wrong_resource",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "libraries": {
+    "libsnd": [
+      { "os": "macos", "type": "system", "source": "libsndfile.dylib" },
+      { "os": "linux", "type": "system", "source": "libsndfile.so.1" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

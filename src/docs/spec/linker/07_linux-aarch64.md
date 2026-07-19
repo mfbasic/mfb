@@ -12,10 +12,10 @@ build/<project>-glibc.out
 build/<project>-musl.out
 ```
 
-An app-mode build (`mfb build --app`) emits a single glibc binary,
-`build/<project>.out`
-(the `app_mode` flag selects single-output, glibc-only). Each flavor is planned
-and linked independently from the same NIR, because the sonames it imports differ.
+An app-mode build (`mfb build --app`) emits one AppImage per libc world —
+`build/<project>-glibc.AppImage` and `build/<project>-musl.AppImage` — exactly as
+the console build emits one `.out` per world. Each flavor is planned and linked
+independently from the same NIR, because the sonames it imports differ.
 
 ## Container layout
 

@@ -12,10 +12,31 @@
 - ssh -p 2231 test@127.0.0.1 # Android aarch64
 - ssh -p 2232 test@127.0.0.1 # Debian riscv64 (libc)
 
-The two GTK boxes (2226, 2228) are the app-mode proof surface: they are the only
-ones with GTK4 and FUSE, and app mode is glibc-only so the musl boxes cannot run
-it at all. A Linux AppImage **cannot be tested under emulation** — its type-2
-magic at ELF offset 8 is ignored by a real kernel but rejected by qemu-user and
-Rosetta, so `scripts/test-appimage.sh` ships the artifact to a real box rather
-than running it in a container on the Mac.
+App-mode proof surface (plan-56-C §4.2.1) — **re-probe, do not assume**; three of
+these facts changed during plan-56 itself:
+
+| box  | arch    | libc  | GTK4 | /dev/fuse | suid fusermount3 | FUSE mount  |
+| ---- | ------- | ----- | ---- | --------- | ---------------- | ----------- |
+| 2228 | x86_64  | glibc | yes  | yes       | yes              | works       |
+| 2227 | x86_64  | musl  | yes  | yes       | yes              | works       |
+| 2224 | aarch64 | musl  | yes  | **no**    | yes              | unavailable |
+| 2226 | aarch64 | glibc | yes  | —         | —                | often down  |
+
+App mode builds for BOTH libc worlds (plan-56-B), so the Alpine boxes are proof
+surface, not out of scope. A FUSE mount needs `/dev/fuse` **and** a suid
+`fusermount3` and the two fail independently, so probe both and fall back to
+`--appimage-extract-and-run`.
+
+`gcompat` was deliberately REMOVED from both Alpines: it symlinks
+`/lib/libc.so.6` to `libgcompat.so.0` and would let a glibc-linked binary run,
+masking exactly the bug plan-56-A fixes.
+
+A Linux AppImage **cannot be tested under emulation** — its type-2 magic at ELF
+offset 8 is ignored by a real kernel but rejected by qemu-user and Rosetta, so
+`scripts/test-appimage.sh` ships the artifact to a real box rather than running
+it in a container on the Mac.
+
+2232 (Debian riscv64) has GTK4 and FUSE, but riscv64 app mode is still
+impossible: the GTK entry was never ported (bug-117.1) and upstream publishes no
+riscv64 AppImage runtime to seal with.
 

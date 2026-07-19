@@ -334,7 +334,9 @@ pub struct LinkFunction {
     pub bind_state: Option<BindState>,
     /// `SUCCESS_ON <expr>` gate, if any (the De Morgan complement of `ERROR_ON`).
     pub success_on: Option<Expression>,
-    /// `RESULT <expr>` value mapping, if any (plan-link-update.md §5b).
+    /// `RETURN <expr>` result clause, if any. A bare `RETURN db` names the
+    /// produced slot; `RETURN status = 100` is the computed form that used to
+    /// spell `RESULT` (plan-50-H).
     pub result: Option<Expression>,
     /// `FREE <slot> … END FREE` block releasing a caller-owned native return
     /// after it is copied out (mfbasic.md §17).
@@ -413,7 +415,9 @@ pub struct BindState {
     pub resource_slot: String,
     /// The `OUT` ABI slot whose filled `CSTRUCT … AS S` becomes the STATE.
     pub struct_slot: String,
-    pub line: usize,
+    // No `line`, unlike its `BindIn`/`ConstPin`/`AbiSlot` siblings: every
+    // BIND STATE diagnostic is `NATIVE_BIND_STATE_INVALID` from `ir::verify`,
+    // whose spans are function-level, so nothing could consume one.
 }
 
 /// A `CONST slot = value` pin (plan-link-update.md §5c).

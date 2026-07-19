@@ -14,6 +14,21 @@ use crate::os::icon::{render_png, HICOLOR_SIZES, ROOT_ICON_SIZE};
 use crate::os::BUILD_DIR;
 use crate::target::linux_gtk::gtk_app_id;
 
+/// The AppDir directory name for one libc flavor (plan-56-B §4.2):
+/// `<name>-<flavor>.AppDir`.
+///
+/// The suffix names the **container**, never its contents — the executable
+/// stays `usr/bin/<name>`, so `AppRun`, the `.desktop`, `StartupWMClass`, and
+/// `os::resourcePath`'s `strip "bin/<name>", append "share/<name>"` derivation
+/// are identical across flavors. This mirrors the console path, where
+/// `<name>-glibc.out` is a flavored *filename* wrapping an unflavored program.
+///
+/// One owner, shared by the writer and the seal, so the two cannot disagree
+/// about where the payload is.
+pub(crate) fn appdir_name(project_name: &str, flavor_suffix: &str) -> String {
+    format!("{project_name}-{flavor_suffix}.AppDir")
+}
+
 /// Write an app-mode AppDir (plan-51-A §4.1) into the project's `build/`
 /// directory:
 ///
@@ -42,13 +57,14 @@ use crate::target::linux_gtk::gtk_app_id;
 pub(crate) fn write_appdir(
     project_dir: &Path,
     project_name: &str,
+    flavor_suffix: &str,
     bytes: &[u8],
     app_icon: Option<&Path>,
     app_version: &str,
 ) -> Result<PathBuf, String> {
     let appdir = project_dir
         .join(BUILD_DIR)
-        .join(format!("{project_name}.AppDir"));
+        .join(appdir_name(project_name, flavor_suffix));
 
     let bin_dir = appdir.join("usr").join("bin");
     create_dir_all(&bin_dir)?;
@@ -247,11 +263,11 @@ mod tests {
     #[test]
     fn write_appdir_emits_the_full_layout() {
         let dir = tempfile::tempdir().unwrap();
-        let appdir = write_appdir(dir.path(), "hello", b"\x7fELF fake", None, "0.1.0")
+        let appdir = write_appdir(dir.path(), "hello", "glibc", b"\x7fELF fake", None, "0.1.0")
             .expect("write appdir");
         assert_eq!(
             appdir,
-            dir.path().join("build").join("hello.AppDir"),
+            dir.path().join("build").join("hello-glibc.AppDir"),
             "the AppDir lands in the project's build/ directory"
         );
 
@@ -323,9 +339,9 @@ mod tests {
         // The symlinks must survive a second build into the same directory, which
         // `symlink(2)` would otherwise reject with EEXIST.
         let dir = tempfile::tempdir().unwrap();
-        write_appdir(dir.path(), "hello", b"first", None, "0.1.0").expect("first build");
-        let appdir =
-            write_appdir(dir.path(), "hello", b"second", None, "0.2.0").expect("second build");
+        write_appdir(dir.path(), "hello", "glibc", b"first", None, "0.1.0").expect("first build");
+        let appdir = write_appdir(dir.path(), "hello", "glibc", b"second", None, "0.2.0")
+            .expect("second build");
         assert_eq!(
             std::fs::read(appdir.join("usr/bin/hello")).unwrap(),
             b"second"
@@ -346,7 +362,7 @@ mod tests {
         image::RgbaImage::from_pixel(64, 64, image::Rgba([1, 2, 3, 255]))
             .save(&icon)
             .unwrap();
-        let err = write_appdir(dir.path(), "hello", b"x", Some(&icon), "0.1.0")
+        let err = write_appdir(dir.path(), "hello", "glibc", b"x", Some(&icon), "0.1.0")
             .expect_err("a non-1024 icon must fail the build");
         assert!(err.contains("must be 1024×1024"), "{err}");
     }

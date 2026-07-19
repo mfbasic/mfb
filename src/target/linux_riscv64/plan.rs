@@ -398,9 +398,14 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn app_mode_imports(&self) -> Vec<PlatformImport> {
-        // Shared with linux-x86_64 (app mode is glibc-only on both):
-        // src/target/linux_gtk/mod.rs::app_mode_imports.
-        crate::target::linux_gtk::app_mode_imports()
+        // bug-117.1: app mode was never ported to rv64, and plan-51-A §3.3
+        // records why it is now permanently out — AppImage/type2-runtime
+        // publishes no riscv64 runtime, so an AppDir could never be sealed.
+        // `supports_app_mode()` is false and the backend rejects an app build
+        // before lowering, so reaching here is a bug; say so loudly rather than
+        // returning an empty import list that would yield a silently broken
+        // binary. Mirrors `linux_riscv64/code.rs::app_mode_data_objects`.
+        unimplemented!("rv64 app mode not ported (plan-05 is aarch64/x86-64 only)");
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {

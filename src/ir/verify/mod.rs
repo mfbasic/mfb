@@ -2823,8 +2823,6 @@ impl TypeEnv {
                     .map(|f| (f.name.clone(), f.type_.clone()))
                     .collect();
                 let view = crate::ir::StructSlotView {
-                    slot: &slot.name,
-                    direction: slot.direction,
                     cfields: &cfields,
                     record: &record,
                     cstruct_name: &decl.name,
@@ -2933,8 +2931,8 @@ impl TypeEnv {
         }
     }
 
-    /// Validate the merged LINK table (syntaxcheck's `check_link_function` on the
-    /// IR): C ABI types may not escape into wrapper signatures, every ABI slot
+    /// Validate the merged LINK table (syntaxcheck's `check_link_function_in` on
+    /// the IR): C ABI types may not escape into wrapper signatures, every ABI slot
     /// must bind to a parameter / CONST pin / the `return` result marker, every
     /// parameter and CONST pin must name a real slot, and a value-producing
     /// wrapper needs exactly one result marker. Package-path defense: a crafted
@@ -3205,6 +3203,33 @@ impl TypeEnv {
                                 function.name, cstruct.name, cstruct.maps_to
                             ),
                         );
+                    }
+                }
+                // bug-326-A10: the `<res>` half must name the slot the wrapper
+                // actually returns. Codegen ignores it (the STATE always attaches
+                // to the return), so an unchecked name made `BIND STATE typo =
+                // info` compile in silence while the STATE landed on the real
+                // return — mandatory syntax that meant nothing. `None` on the
+                // package path, where the name never rode the wire.
+                if let Some(named) = &function.bind_state_resource {
+                    // `RETURN <slot>` names the produced resource; a computed
+                    // `RETURN status = 100` names no slot, and the arm above
+                    // already rejects that shape for a stateful resource return.
+                    let produced = match &function.result {
+                        Some(crate::ir::IrLinkExpr::Var(slot)) => Some(slot.as_str()),
+                        Some(_) => None,
+                        None => Some(function.abi_return_name.as_str()),
+                    };
+                    if let Some(produced) = produced {
+                        if named != produced {
+                            self.emit(
+                                "NATIVE_BIND_STATE_INVALID",
+                                format!(
+                                    "Native function `{}` BIND STATE names resource slot `{named}`, but the wrapper returns `{produced}`; the STATE attaches to the returned slot.",
+                                    function.name
+                                ),
+                            );
+                        }
                     }
                 }
             }
