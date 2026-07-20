@@ -136,26 +136,43 @@ impl CodeBuilder<'_> {
             &collection_register,
             COLLECTION_OFFSET_COUNT,
         ));
+        // kind 2 walks the data region: `entry` carries a byte OFFSET from the
+        // data base rather than an entry pointer, and the span is derivable from
+        // the cursor and the constant payload size (plan-57-D).
+        let contains_payload = kind2_payload_size(&element_type);
         self.emit(abi::move_immediate(&index, "Integer", "0"));
-        self.emit(abi::add_immediate(
-            &entry,
-            &collection_register,
-            COLLECTION_HEADER_SIZE,
-        ));
+        if contains_payload.is_some() {
+            self.emit(abi::move_immediate(&entry, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(
+                &entry,
+                &collection_register,
+                COLLECTION_HEADER_SIZE,
+            ));
+        }
 
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(&index, &count));
         self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::load_u64(
-            &value_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &value_length,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if let Some(payload) = contains_payload {
+            self.emit(abi::move_register(&value_offset, &entry));
+            self.emit(abi::move_immediate(
+                &value_length,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &value_offset,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &value_length,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit_collection_payload_match_branch(
             &element_type,
             &collection_register,
@@ -171,7 +188,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &entry,
+            &entry,
+            contains_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
+        ));
         self.emit(abi::add_immediate(&index, &index, 1));
         self.emit(abi::branch(&loop_label));
 
@@ -1101,6 +1122,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&s12, abi::stack_pointer(), count_slot));
 
         // Length pass: sum value_lengths of entries [start, start+count').
+        // kind 2 has no entries and a constant payload, so the sum is
+        // `count * payloadSize` (plan-57-D).
+        let slice_payload = kind2_payload_size(&element_type);
+        let len_loop = self.label("slice_len_loop");
+        let len_done = self.label("slice_len_done");
+        if let Some(payload) = slice_payload {
+            self.emit(abi::move_immediate(&s14, "Integer", &payload.to_string()));
+            self.emit(abi::multiply_registers(&s13, &s12, &s14));
+            self.emit(abi::branch(&len_done));
+        }
         self.emit(abi::move_immediate(
             &s14,
             "Integer",
@@ -1111,8 +1142,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&s15, &s15, &s13));
         self.emit(abi::move_immediate(&s13, "Integer", "0"));
         self.emit(abi::move_immediate(&s17, "Integer", "0"));
-        let len_loop = self.label("slice_len_loop");
-        let len_done = self.label("slice_len_done");
         self.emit(abi::label(&len_loop));
         self.emit(abi::compare_registers(&s17, &s12));
         self.emit(abi::branch_ge(&len_done));
@@ -1137,7 +1166,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &s14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &slice_payload.map_or(COLLECTION_ENTRY_SIZE, |_| 0).to_string(),
         ));
         self.emit_checked_size_multiply(&s15, &s12, &s14, &size_overflow);
         self.emit_checked_size_add_immediate(
@@ -1253,6 +1282,25 @@ impl CodeBuilder<'_> {
         let copy_done = self.label("slice_copy_done");
         let copy_bytes = self.label("slice_copy_bytes");
         let copy_bytes_done = self.label("slice_copy_bytes_done");
+        // kind 2: the slice is one contiguous span of the data region and there
+        // are no entries to rebuild, so the whole per-element loop below reduces
+        // to a single block copy (plan-57-D).
+        if let Some(payload) = slice_payload {
+            self.emit(abi::load_u64(&s10, abi::stack_pointer(), start_slot));
+            self.emit(abi::load_u64(&s9, abi::stack_pointer(), count_slot));
+            self.emit(abi::move_immediate(&s14, "Integer", &payload.to_string()));
+            self.emit(abi::multiply_registers(&s13, &s10, &s14)); // start * payload
+            self.emit(abi::add_registers(&s24, &s20, &s13)); // src.data + start*p
+            self.emit(abi::load_u64(
+                abi::RET[1],
+                abi::stack_pointer(),
+                result_slot,
+            ));
+            self.emit(abi::add_immediate(&s25, abi::RET[1], COLLECTION_HEADER_SIZE));
+            self.emit(abi::multiply_registers(&s23, &s9, &s14)); // count * payload
+            self.emit_block_copy_advance(&s25, &s24, &s23, &s22, "slice_kind2");
+            self.emit(abi::branch(&copy_done));
+        }
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_registers(&s10, &s9));
         self.emit(abi::branch_ge(&copy_done));

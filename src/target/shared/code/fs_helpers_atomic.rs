@@ -488,7 +488,7 @@ pub(super) fn lower_fs_atomic_write_helper(
                 abi::load_u64(&remaining, &value, COLLECTION_OFFSET_DATA_LENGTH),
                 abi::add_immediate(&cursor, &value, COLLECTION_HEADER_SIZE),
                 abi::load_u64(&cap, &value, COLLECTION_OFFSET_CAPACITY),
-                abi::move_immediate(&byte, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+                abi::move_immediate(&byte, "Integer", &byte_list_entry_stride().to_string()),
                 abi::multiply_registers(&cap, &cap, &byte),
                 abi::add_registers(&cursor, &cursor, &cap),
             ]);
@@ -1437,7 +1437,7 @@ pub(super) fn lower_fs_write_bytes_path_helper(
         abi::load_u64(&remaining, &value, COLLECTION_OFFSET_DATA_LENGTH),
         abi::add_immediate(&cursor, &value, COLLECTION_HEADER_SIZE),
         abi::load_u64(&cap, &value, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate(&byte, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate(&byte, "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers(&cap, &cap, &byte),
         abi::add_registers(&cursor, &cursor, &cap),
         abi::label(&write_loop),

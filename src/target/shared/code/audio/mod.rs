@@ -145,7 +145,7 @@ fn emit_alloc_byte_list(
     let entry_done = format!("{symbol}_{tag}_bl_entry_done");
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), count_off),
-        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v12", "%v10", "%v11"),
         abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), "%v12", "%v10"), // + count payload bytes
@@ -174,14 +174,23 @@ fn emit_alloc_byte_list(
         abi::label(&entry_loop),
         abi::compare_registers("%v13", "%v10"),
         abi::branch_ge(&entry_done),
-        abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64("%v13", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate("%v14", "Integer", "1"),
-        abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+        // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
+        // zero stride would rewrite one entry over the data region `count`
+        // times and run past the block, so it is skipped outright.
+        ]);
+        if byte_list_entry_stride() != 0 {
+            instructions.extend([
+                abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64("%v13", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate("%v14", "Integer", "1"),
+                abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+                abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
+            ]);
+        }
+        instructions.extend([
         abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),

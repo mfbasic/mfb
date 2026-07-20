@@ -152,7 +152,7 @@ pub(super) fn emit_read_byte_list(
         // dataBase = coll + HEADER + capacity*ENTRY_SIZE
         abi::load_u64("%v9", abi::stack_pointer(), coll_off),
         abi::load_u64("%v11", "%v9", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v13", "%v11", "%v12"),
         abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v13", "%v9", "%v13"), // %v13 = dataBase
@@ -169,7 +169,7 @@ pub(super) fn emit_read_byte_list(
         abi::load_u8("%v17", "%v16", 0),
         abi::store_u8("%v17", "%v15", 0),
         abi::add_immediate("%v15", "%v15", 1),
-        abi::add_immediate("%v14", "%v14", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("%v14", "%v14", byte_list_entry_stride()),
         abi::add_immediate("%v9", "%v9", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
@@ -220,7 +220,7 @@ pub(super) fn emit_build_byte_list(
     // size = HEADER + count*ENTRY_SIZE + count(data)
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v12", "%v10", "%v11"),
         abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), "%v12", "%v10"),
@@ -248,7 +248,7 @@ pub(super) fn emit_build_byte_list(
         abi::store_u64("%v10", block, COLLECTION_OFFSET_DATA_LENGTH),
         abi::store_u64("%v10", block, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_immediate("%v11", block, COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v13", "%v10", "%v12"),
         abi::add_registers("%v14", "%v11", "%v13"), // data base
         abi::load_u64("%v15", abi::stack_pointer(), src_off),
@@ -256,18 +256,27 @@ pub(super) fn emit_build_byte_list(
         abi::label(entry_loop),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_eq(entry_done),
-        abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate("%v12", "Integer", "1"),
-        abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_registers("%v12", "%v14", "%v9"),
-        abi::load_u8("%v13", "%v15", 0),
-        abi::store_u8("%v13", "%v12", 0),
-        abi::add_immediate("%v15", "%v15", 1),
-        abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+        // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
+        // zero stride would rewrite one entry over the data region `count`
+        // times and run past the block, so it is skipped outright.
+        ]);
+        if byte_list_entry_stride() != 0 {
+            instructions.extend([
+                abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate("%v12", "Integer", "1"),
+                abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+                abi::add_registers("%v12", "%v14", "%v9"),
+                abi::load_u8("%v13", "%v15", 0),
+                abi::store_u8("%v13", "%v12", 0),
+                abi::add_immediate("%v15", "%v15", 1),
+                abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
+            ]);
+        }
+        instructions.extend([
         abi::add_immediate("%v9", "%v9", 1),
         abi::branch(entry_loop),
         abi::label(entry_done),

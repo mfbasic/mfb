@@ -1868,7 +1868,7 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         abi::load_u64(&remaining, &bytes, COLLECTION_OFFSET_DATA_LENGTH),
         abi::add_immediate(&cursor, &bytes, COLLECTION_HEADER_SIZE),
         abi::load_u64(&scratch, &bytes, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate(&entry_size, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate(&entry_size, "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers(&scratch, &scratch, &entry_size),
         abi::add_registers(&cursor, &cursor, &scratch),
         // Opt-in per-File buffering (plan-14-B): append into the handle's buffer
@@ -2054,7 +2054,7 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         abi::compare_registers(&end, &start),
         abi::branch_lt(&seek_error),
         abi::subtract_registers(&length, &end, &start),
-        abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate(&scratch, "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers(&scratch, &length, &scratch),
         abi::add_immediate(&scratch, &scratch, COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), &scratch, &length),
@@ -2081,25 +2081,34 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         abi::store_u64(&length, &collection, COLLECTION_OFFSET_DATA_LENGTH),
         abi::store_u64(&length, &collection, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_immediate(&entry_cursor, &collection, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate(&scratch, "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers(&scratch, &length, &scratch),
         abi::add_registers(&data_base, &entry_cursor, &scratch),
         abi::move_immediate(&idx, "Integer", "0"),
         abi::label(&entry_loop),
         abi::compare_registers(&idx, &length),
         abi::branch_eq(&entry_done),
-        abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64(&idx, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate(&scratch, "Integer", "1"),
-        abi::store_u64(
-            &scratch,
-            &entry_cursor,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ),
-        abi::add_immediate(&entry_cursor, &entry_cursor, COLLECTION_ENTRY_SIZE),
+        // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
+        // zero stride would rewrite one entry over the data region `count`
+        // times and run past the block, so it is skipped outright.
+        ]);
+        if byte_list_entry_stride() != 0 {
+            instructions.extend([
+                abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64(&idx, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate(&scratch, "Integer", "1"),
+                abi::store_u64(
+                    &scratch,
+                    &entry_cursor,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ),
+                abi::add_immediate(&entry_cursor, &entry_cursor, byte_list_entry_stride()),
+            ]);
+        }
+        instructions.extend([
         abi::add_immediate(&idx, &idx, 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),

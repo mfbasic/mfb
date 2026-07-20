@@ -303,33 +303,49 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&valid_start));
         self.emit(abi::compare_registers(&scratch11, &scratch10));
         self.emit(abi::branch_gt(&invalid_start));
+        // kind 2: scratch15 is a byte OFFSET into the data region, seeded at
+        // `start * payload`, and the span is derivable from it (plan-57-D).
+        let find_payload = kind2_payload_size(element_type);
         self.emit(abi::move_register(&scratch12, &scratch11));
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &find_payload.unwrap_or(COLLECTION_ENTRY_SIZE).to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch14, &scratch12, &scratch13));
-        self.emit(abi::add_immediate(
-            &scratch15,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&scratch15, &scratch15, &scratch14));
+        if find_payload.is_some() {
+            self.emit(abi::move_register(&scratch15, &scratch14));
+        } else {
+            self.emit(abi::add_immediate(
+                &scratch15,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::add_registers(&scratch15, &scratch15, &scratch14));
+        }
 
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(&scratch12, &scratch10));
         self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::load_u64(
-            &scratch16,
-            &scratch15,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch17,
-            &scratch15,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if let Some(payload) = find_payload {
+            self.emit(abi::move_register(&scratch16, &scratch15));
+            self.emit(abi::move_immediate(
+                &scratch17,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch16,
+                &scratch15,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &scratch17,
+                &scratch15,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit_collection_payload_matches_value_branch(
             element_type,
             &scratch8,
@@ -344,7 +360,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(
             &scratch15,
             &scratch15,
-            COLLECTION_ENTRY_SIZE,
+            find_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
         ));
         self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&loop_label));
@@ -814,6 +830,9 @@ impl CodeBuilder<'_> {
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
 
+        // Zero-stride for kind 2 throughout: `mid` neither reads nor writes a
+        // lookup table for a fixed-width list (plan-57-D).
+        let mid_payload = kind2_payload_size(element_type);
         let data_len_slot = self.allocate_stack_object("mid_list_data_len", 8);
         let disordered_slot = self.allocate_stack_object("mid_list_disordered", 8);
         let result_slot = self.allocate_stack_object("mid_list_result", 8);
@@ -863,7 +882,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &mid_payload.map_or(COLLECTION_ENTRY_SIZE, |_| 0).to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch15, &scratch9, &scratch14));
         self.emit(abi::add_immediate(
@@ -872,6 +891,31 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::add_registers(&scratch16, &scratch16, &scratch15)); // src entry[start]
+
+        // kind 2 needs neither the length loop nor the probe: `dataLength` is
+        // `count * payloadSize` and the slice is contiguous and in order by
+        // construction (plan-57-D). `scratch16` above is meaningless for it, and
+        // is not read on this path.
+        if let Some(payload) = mid_payload {
+            self.emit(abi::move_immediate(&scratch14, "Integer", "0"));
+            self.emit(abi::store_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                disordered_slot,
+            ));
+            self.emit(abi::move_immediate(
+                &scratch14,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch13, &scratch10, &scratch14));
+            self.emit(abi::store_u64(
+                &scratch13,
+                abi::stack_pointer(),
+                data_len_slot,
+            ));
+            self.emit(abi::branch(&length_done));
+        }
 
         // Order/tightness probe folded into the length loop: `expected` (scratch11)
         // tracks where the next payload should begin if the slice is a contiguous
@@ -937,7 +981,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &mid_payload.map_or(COLLECTION_ENTRY_SIZE, |_| 0).to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch15, &scratch10, &scratch14));
         self.emit(abi::load_u64(
@@ -1040,7 +1084,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &mid_payload.map_or(COLLECTION_ENTRY_SIZE, |_| 0).to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch15, &scratch9, &scratch14));
         self.emit(abi::add_immediate(
@@ -1071,11 +1115,24 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch13, "0"));
         self.emit(abi::branch_ne(&mid_unordered));
-        self.emit(abi::load_u64(
-            &scratch13,
-            &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        )); // srcBaseOffset
+        if let Some(payload) = mid_payload {
+            // kind 2: srcBaseOffset is `start * payloadSize`. Reload `start` from
+            // its slot — `_mfb_arena_alloc` above destroys every caller-saved
+            // register, so nothing held across it can be trusted.
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), start_slot));
+            self.emit(abi::move_immediate(
+                &scratch13,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch13));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch13,
+                &scratch16,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            )); // srcBaseOffset
+        }
         self.emit(abi::add_registers(&scratch20, &scratch20, &scratch13)); // src.data + srcBaseOffset
         self.emit(abi::load_u64(
             &scratch14,
@@ -1089,13 +1146,15 @@ impl CodeBuilder<'_> {
             &scratch22,
             "mid_list_data",
         );
-        self.emit_bulk_copy_entries_shift(
-            &scratch16,
-            &scratch17,
-            &scratch10,
-            Some((&scratch13, true)),
-            "mid_list_entries",
-        );
+        if mid_payload.is_none() {
+            self.emit_bulk_copy_entries_shift(
+                &scratch16,
+                &scratch17,
+                &scratch10,
+                Some((&scratch13, true)),
+                "mid_list_entries",
+            );
+        }
         self.emit(abi::branch(&copy_done));
 
         // Fallback: per-entry re-pack for an out-of-order / gappy source (scratch20

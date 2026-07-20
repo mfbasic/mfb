@@ -1972,7 +1972,7 @@ fn lower_read(
     instructions.extend([
         abi::load_u64("%v11", abi::stack_pointer(), LIST_PTR_OFF),
         abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
-        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v13", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v13", "%v9", "%v13"),
         abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v11", "%v11", "%v13"),
@@ -2165,7 +2165,7 @@ fn lower_read(
         // copy `got` bytes from the oversized payload into the final payload.
         abi::load_u64("%v9", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::load_u64("%v11", abi::stack_pointer(), FINAL_LIST_OFF),
-        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v13", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v13", "%v9", "%v13"),
         abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v11", "%v11", "%v13"), // final payload
@@ -2185,7 +2185,7 @@ fn lower_read(
         // `final` list is what we return, so the full `need`-byte block leaks
         // otherwise. size = need*ENTRY + HEADER + need (emit_alloc_byte_list).
         abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
-        abi::move_immediate("%v10", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::move_immediate("%v10", "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers("%v11", "%v9", "%v10"),
         abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v11", "%v11", "%v9"),

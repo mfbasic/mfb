@@ -253,14 +253,19 @@ impl CodeBuilder<'_> {
                 Ok(())
             }
             other if is_collection_type(other) => {
-                // header + capacity * entrySize + dataCapacity (+ a map's
+                // header + capacity * entryStride + dataCapacity (+ a map's
                 // bucket region).
+                //
+                // The stride MUST match what the allocator reserved. This is the
+                // size `arena_free` releases on scope drop, so a kind-0 stride on
+                // a kind-2 block frees `capacity * 40` bytes past the end and
+                // corrupts the free list — that is bug-02's exact failure mode,
+                // and plan-57-D names this function as the one edit whose
+                // mistake is heap corruption rather than a wrong value.
+                let element = list_element_type(other).unwrap_or_default();
+                let stride = list_entry_stride(&element);
                 self.emit(abi::load_u64(out_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY));
-                self.emit(abi::move_immediate(
-                    scratch,
-                    "Integer",
-                    &COLLECTION_ENTRY_SIZE.to_string(),
-                ));
+                self.emit(abi::move_immediate(scratch, "Integer", &stride.to_string()));
                 self.emit(abi::multiply_registers(out_reg, out_reg, scratch));
                 self.emit(abi::add_immediate(out_reg, out_reg, COLLECTION_HEADER_SIZE));
                 self.emit(abi::load_u64(
@@ -2236,5 +2241,12 @@ pub(super) fn kind2_payload_size(element_type: &str) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// The lookup-entry stride for a `List OF Byte`, for the runtime helpers that
+/// build or read one and know their element type statically. Zero once the
+/// entry-free representation is live (plan-57-D).
+pub(super) fn byte_list_entry_stride() -> usize {
+    list_entry_stride("Byte")
 }
 

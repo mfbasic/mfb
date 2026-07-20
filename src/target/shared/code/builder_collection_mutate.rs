@@ -802,11 +802,7 @@ impl CodeBuilder<'_> {
                     COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
                 ));
             }
-            self.emit(abi::add_immediate(
-                &scratch17,
-                &scratch17,
-                entry_stride,
-            ));
+            self.emit(abi::add_immediate(&scratch17, &scratch17, entry_stride));
             self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
             self.emit(abi::branch(&ident_loop));
             self.emit(abi::label(&ident_done));
@@ -1332,7 +1328,7 @@ impl CodeBuilder<'_> {
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             )); // valueLength = need
         }
-            // Copy the payload bytes to data base + dataLength.
+        // Copy the payload bytes to data base + dataLength.
         self.emit(abi::store_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -2203,11 +2199,7 @@ impl CodeBuilder<'_> {
                     COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
                 ));
             }
-            self.emit(abi::add_immediate(
-                &scratch17,
-                &scratch17,
-                entry_stride,
-            ));
+            self.emit(abi::add_immediate(&scratch17, &scratch17, entry_stride));
             self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
             self.emit(abi::branch(&ident_loop));
             self.emit(abi::label(&ident_done));
@@ -2232,11 +2224,7 @@ impl CodeBuilder<'_> {
                 COLLECTION_HEADER_SIZE,
             ));
             self.emit(abi::add_registers(&scratch11, &scratch12, &scratch11)); // src = entry[i]
-            self.emit(abi::add_immediate(
-                &scratch12,
-                &scratch11,
-                entry_stride,
-            )); // dst = entry[i+1]
+            self.emit(abi::add_immediate(&scratch12, &scratch11, entry_stride)); // dst = entry[i+1]
             for offset in [0usize, 8, 16, 24, 32] {
                 self.emit(abi::load_u64(&scratch13, &scratch11, offset));
                 self.emit(abi::store_u64(&scratch13, &scratch12, offset));
@@ -3552,12 +3540,23 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
-        self.emit(abi::load_u64(
-            &scratch15,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        self.emit(abi::subtract_registers(&scratch15, &scratch14, &scratch15));
+        if let Some(payload) = kind2_payload_size(element_type) {
+            // kind 2: the hole is exactly one payload wide and there is no entry
+            // to read its length from (plan-57-D).
+            self.emit(abi::move_immediate(
+                &scratch15,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::subtract_registers(&scratch15, &scratch14, &scratch15));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch15,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::subtract_registers(&scratch15, &scratch14, &scratch15));
+        }
         // `arena_alloc` clobbers x15 in its block-grow path; persist the data
         // length so the header write below does not store a stale pointer.
         self.emit(abi::store_u64(
@@ -3630,63 +3629,84 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch11));
         // scratch23 = holeOffset (removedValueOffset); scratch14 = holeLen.
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        // kind 2 derives both from the index — element `i` is at `i * payload`
+        // with a constant length, so there is nothing to load.
+        let kind2_payload = kind2_payload_size(element_type);
+        if let Some(payload) = kind2_payload {
+            self.emit(abi::move_immediate(
+                &scratch23,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch23, &scratch10, &scratch23));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch23,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
+        if let Some(payload) = kind2_payload {
+            self.emit(abi::move_immediate(
+                &scratch14,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch14,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
 
         // --- Entry table: two verbatim spans (no per-copy offset shift). ---
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        )); // src.entry[0]
-        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
-                                                                                // Prefix [0..index): index*ENTRY bytes. Advances scratch17 -> dst.entry[index]
-                                                                                // and scratch12 -> src.entry[index] (the removed entry).
-        self.emit(abi::multiply_registers(&scratch15, &scratch10, &scratch16));
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch12,
-            &scratch15,
-            &scratch22,
-            "list_remove_prefix_e",
-        );
-        // Suffix [index+1..count): skip the removed src entry, copy suffixCount*ENTRY.
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch12,
-            entry_stride,
-        )); // src.entry[index+1]
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch8,
-            COLLECTION_OFFSET_COUNT,
-        ));
-        self.emit(abi::subtract_registers(&scratch11, &scratch11, &scratch10));
-        self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1)); // suffixCount
-        self.emit(abi::multiply_registers(&scratch15, &scratch11, &scratch16));
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch12,
-            &scratch15,
-            &scratch22,
-            "list_remove_suffix_e",
-        );
+        // Skipped entirely for kind 2: there is no entry table to copy, and no
+        // surviving `valueOffset` to fix up, because element `i` is addressed
+        // from its index (plan-57-D).
+        if kind2_payload.is_none() {
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            )); // src.entry[0]
+            self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+            self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
+                                                                                    // Prefix [0..index): index*ENTRY bytes. Advances scratch17 -> dst.entry[index]
+                                                                                    // and scratch12 -> src.entry[index] (the removed entry).
+            self.emit(abi::multiply_registers(&scratch15, &scratch10, &scratch16));
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch12,
+                &scratch15,
+                &scratch22,
+                "list_remove_prefix_e",
+            );
+            // Suffix [index+1..count): skip the removed src entry, copy suffixCount*ENTRY.
+            self.emit(abi::add_immediate(&scratch12, &scratch12, entry_stride)); // src.entry[index+1]
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            self.emit(abi::subtract_registers(&scratch11, &scratch11, &scratch10));
+            self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1)); // suffixCount
+            self.emit(abi::multiply_registers(&scratch15, &scratch11, &scratch16));
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch12,
+                &scratch15,
+                &scratch22,
+                "list_remove_suffix_e",
+            );
+        }
 
         // --- Data region: two verbatim blocks around the hole. ---
         self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // src data base (capacity-based)
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit_collection_data_pointer_for(&scratch21, &nb, element_type); // dst data base (tight)
-                                                            // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
-                                                            // and scratch20 -> src.data[holeOffset].
+                                                                              // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
+                                                                              // and scratch20 -> src.data[holeOffset].
         self.emit(abi::move_register(&scratch15, &scratch23)); // holeOffset (copy consumes it)
         self.emit_block_copy_advance(
             &scratch21,
@@ -3714,21 +3734,23 @@ impl CodeBuilder<'_> {
         );
 
         // --- Fix up each surviving entry whose payload sat past the hole. ---
-        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch8,
-            COLLECTION_OFFSET_COUNT,
-        ));
-        self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1)); // survivor count
-        self.emit_offset_compaction_fixup(
-            &scratch17,
-            &scratch11,
-            &scratch23,
-            &scratch14,
-            "list_remove_fix",
-        );
+        if kind2_payload.is_none() {
+            self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+            self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst.entry[0]
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1)); // survivor count
+            self.emit_offset_compaction_fixup(
+                &scratch17,
+                &scratch11,
+                &scratch23,
+                &scratch14,
+                "list_remove_fix",
+            );
+        }
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
         self.emit_index_out_of_range_return()?;
