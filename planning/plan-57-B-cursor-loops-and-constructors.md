@@ -388,6 +388,45 @@ A general `emit_alloc_list` — parameterized on `element_type` rather than
 hardcoding `payloadSize = 1` — is **still to be built**, and is what plan-57-D
 needs (it is one of D's six edit sites, currently missing).
 
+### Track 2 reached its byte-identical limit at 3 of 7
+
+The seven `List OF Byte` constructors split as follows. Three folded; the other
+four **cannot** be folded without changing emitted code, and were left alone per
+§Non-goals rather than forced:
+
+| site | verdict |
+|---|---|
+| `audio/alsa.rs`, `audio/macos.rs` | **folded** into `audio/mod.rs::emit_alloc_byte_list` (label names only) |
+| `crypto::randomBytes` | **folded** into `crypto_ec::emit_build_byte_list` (label names only) |
+| `net/io.rs:630`, `net/io.rs:1560` | 25/34 ops identical — they hold the block pointer in `%v15`, not `abi::RET[1]`. Folding is a register substitution through the whole sequence. |
+| `tls/macos.rs:1397`, `tls/openssl.rs:1956` | 34/34 ops identical **from the KIND write onward**, but neither stores the block pointer to a stack slot, which the shared builder does first. Folding inserts a real `store_u64`. |
+
+The pattern across plan-57-A and -B is consistent and worth stating plainly:
+**these sequences are similar but each is tuned to its own frame conventions**,
+and the population that is *byte-identically* shareable is much smaller than the
+duplication count suggests. A/B collapsed 2 of 11 reads and 3 of 7 constructors.
+
+### The fork this creates for plan-57-D
+
+D needs `emit_alloc_list` to exist so the representation change is one edit. It
+can only exist over sites that route through it, and only 3 of 7 will do so
+under a byte-identity rule. So one of these has to be chosen, explicitly:
+
+1. **Relax the rule for the remaining sites** — allow a consolidation that
+   changes emitted code, verified by *behavior* (acceptance + the runtime
+   fixtures) rather than by byte-identity, and reviewed as a real diff. Note the
+   `.ncode` anchor and the executable-sha method make this checkable; what is
+   lost is the "any diff is a bug" signal.
+2. **Leave the four alone and let plan-57-D edit them individually.** D stays a
+   7-site change instead of a 1-site change, but each site keeps its current
+   shape and the byte-identity discipline holds everywhere it applies.
+
+Recommend **(2)**: D has to touch these sites' *semantics* anyway (they must stop
+writing an entry table), so consolidating them first buys a shared helper but not
+a smaller diff — while (1) spends the one guard that makes the rest of plan-57
+safe. This is a decision, not an implementation detail, and should be recorded
+before D starts.
+
 ### Track 1 (iteration): `element_type` threaded; `lower_for_each` cannot convert
 
 - `initialize_collection_loop_slots` and `advance_collection_loop` now take
