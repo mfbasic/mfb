@@ -70,6 +70,15 @@ or work around any part of plan-57. It waits.
 | A `pub(crate)` data-pointer helper exists | `rg -n 'fn emit_collection_data_pointer_into' src/` | **NOT MET** — no matches |
 | `kind = 2` is the **default** representation, ungated | `rg -n 'MFB_KIND2' src/` → no matches | **NOT MET** — gate live at `builder_collection_layout.rs:2191` |
 
+> **NOTE — the Status column is a 2026-07-20 snapshot; the Command column is the
+> truth.** Re-run all four and update the statuses before you continue, and again
+> before you decide to stop. plan-57 is actively being worked, so a row recorded
+> NOT MET may well have landed since this was written. Never act on a status you
+> did not just verify.
+>
+> **If you stop, report the status of all four rows**, not just the one that
+> blocked you — the reader needs to know how far off the gate is.
+
 **As of 2026-07-20 none of the four are met, so plan-58 is not startable.** If any
 row still fails when this plan is picked up, stop and finish plan-57. Do not
 start plan-58-A "because A is independent" — A is cheap, but landing a ctype the
