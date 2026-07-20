@@ -65,6 +65,25 @@ References (read before starting):
 - plan-54 / bug-257 (`planning/old-plans/`, `bugs/completed-bugs/`) — the thread
   resource plane + `STATE` model this must preserve exactly.
 
+## Prerequisites
+
+Per phase, matching the dependency split in the header:
+
+| Phase | Must be true | Command | Status 2026-07-20 |
+|---|---|---|---|
+| F1, F2 | Byte-identity goldens for all four existing targets | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **NOT MET — `linux-riscv64` has 0** |
+| F3 | plan-47-A has landed (shadow space + outgoing stack-arg tail) | `rg -n 'shadow_space_bytes' src/` | **NOT MET** |
+| F4 | plan-47-C has landed (a runnable `.exe` and import tables) | `ls src/target/win_x86_64/plan.rs` | **NOT MET** |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
+> every row before you continue and again before you decide to stop. Never act on a
+> status you did not just verify. **If you stop, report the status of every row**, not
+> only the one that blocked you.
+
+**F1 and F2 block on nothing but row 1** — they are inert shared refactors whose entire
+proof is a zero-byte diff, so a target with no goldens makes that proof vacuous.
+
+
 ## 1. Goal
 
 - Every `pthread_*` symbol emitted by shared thread/sync/stdin lowering is

@@ -48,6 +48,26 @@ References (read before implementing):
 - `AGENTS.md` (the STOP rule on tests/goldens; "a bug you find is a bug you fix")
   and `.ai/compiler.md` (register lifetimes, acceptance obligations).
 
+## Prerequisites
+
+See the master §Prerequisites for the feature-wide gate; and:
+
+| Must be true | Command | Status 2026-07-20 |
+|---|---|---|
+| plan-47-P has landed — registering the target without it gives Windows 29 silent POSIX arms | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
+| Byte-identity goldens exist for every target whose bytes must not change | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **PARTIAL — `linux-riscv64` has 0** |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
+> every row before you continue and again before you decide to stop. Never act on a
+> status you did not just verify. **If you stop, report the status of every row**, not
+> only the one that blocked you.
+
+**Row 1 is the one that matters.** This sub-plan's Phase 2 adds `windows-x86_64` to
+`NATIVE_BACKENDS`. The instant it does, 29 binary `platform.target()` branches in shared
+lowering become reachable and every one resolves to a POSIX arm with no compile error
+(master §3.2). Landing 47-P first turns those into 29 compile errors instead.
+
+
 ## 1. Goal
 
 - A `windows-x86_64` `BuildTarget` resolves through `backend_for`
@@ -661,3 +681,41 @@ thread trampoline.
 Untouched: every existing target's emitted bytes, `REGISTER_ARGUMENT_COUNT`, the
 SysV register model and constants, the x86-64 encoder, the NIR/plan/MIR
 pipeline, and the entire language layer.
+
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+- 2026-07-20 — **The `scripts/artifact-gate.sh` claim was false and load-bearing.** This
+  document said the gate "diffs goldens for the **host** target only" and prescribed a
+  manual per-target `-ncode -nobj` `cmp` workaround. The gate's own header
+  (`:7`–`:12`) says MULTI-TARGET in capitals; `ff163ddeb` (2026-07-20) made it so. The
+  workaround was redundant work built on a false premise and has been deleted. The real
+  gap is `linux-riscv64`, which has **zero** native goldens.
+- 2026-07-20 — **"a minimal `CodegenPlatform` … leave the trait's own defaults" does not
+  compile.** Only **11 of 65** methods have defaults; **54 are required** (master §2.1).
+  This sub-plan must author ~51 stubs, and the 8 `termios_*` plus the offset/constant
+  accessors return plain `usize`/`u64` — they cannot carry an "unimplemented" error, so
+  they must return fabricated values. 47-C §Phase 3 specifies those as **poison** values
+  that crash on use rather than plausible zeros. Give the stub wall its own phase (A2).
+- 2026-07-20 — **Effort `large` is over the sub-plan band**; split into A1 (ABI
+  realization) / A2 (the stub wall) / A3 (registration + manifest widening) before
+  starting.
+- 2026-07-20 — **This sub-plan now depends on 47-P.** Registration is what makes 29
+  silent POSIX arms reachable; 47-P converts them to compile errors first.
+- 2026-07-20 — **`mir::Backend` has 4 methods, not "exactly three interesting" ones.**
+  `is_aarch64()` (`mir.rs:541`) is an existing ISA-dispatch hook this document never
+  mentions, and it is exactly the kind of seam a new backend must answer.
+- 2026-07-20 — **`REGISTER_ARGUMENT_COUNT` is read at 7 shared-lowering sites, not 3**
+  (`builder_emit_helpers.rs:81,87,91`; `function_lowering.rs:577,580,661,674`). The
+  argument for not making it backend-dependent understates the blast radius it is about.
+- 2026-07-20 — **"~90% of `select_x86` is ISA, not ABI" is likely inverted.**
+  `select.rs` non-test is 780 lines, of which `remap_x86_abi` (`:107-621`) alone is 515 —
+  roughly **71% ABI-specific**. Re-derive before using it to argue the Win64 delta is
+  small.
+- 2026-07-20 — **The `supported_target_slots()` test enumeration is incomplete.** This
+  document names 3 tests (`libraries.rs:609`, `:656`, `:671`); there are **4 distinct
+  test fns across 5 call sites** — `:688`
+  (`a_wildcard_arch_locator_pinned_to_one_libc_covers_three_slots`) is missed, and `:644`
+  /`:656` are the same test. The Phase 2 checklist would skip one.

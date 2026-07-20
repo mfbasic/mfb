@@ -49,6 +49,24 @@ References:
 - `AGENTS.md` (the STOP rule on tests/goldens) and `.ai/compiler.md` (§spec sync:
   the embedded spec must be updated in the same change).
 
+## Prerequisites
+
+**B1 (Phases 1–3) has no prerequisites** — it is a new leaf under `src/os/windows/` and
+touches no shared code. That is why it can land in parallel with 47-P.
+
+**B2 (Phase 4)** additionally requires:
+
+| Must be true | Command | Status 2026-07-20 |
+|---|---|---|
+| plan-47-A has landed (a backend to wire the writer to) | `ls src/target/win_x86_64/` | **NOT MET** |
+| The Win11 box answers (to run the produced `.exe`) | `ssh -p 2230 test@127.0.0.1 true` | **UNVERIFIED — run it** |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
+> every row before you continue and again before you decide to stop. Never act on a
+> status you did not just verify. **If you stop, report the status of every row**, not
+> only the one that blocked you.
+
+
 ## 1. Goal
 
 - A `src/os/windows/` sibling of `src/os/{linux,macos}/`: `mod.rs` (the public
