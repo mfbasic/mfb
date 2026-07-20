@@ -79,11 +79,26 @@ it lands first, and everything else is gated behind it.
 | Existing app-mode infrastructure, Linux/GTK4 | **3417 LOC** | `wc -l src/target/linux_gtk/*.rs` (`mod` 1134, `bootstrap` 843, `term_draw` 817, `app_io` 623) |
 | Targets that support app mode (and therefore `app::`) | **3 of 5** | `src/target.rs:430-437` — macos-aarch64, linux-aarch64, linux-x86_64. riscv64 is explicitly **not** (`linux_riscv64/mod.rs:44`); Windows will not be (plan-47) |
 | Native→MFBASIC callback mechanisms in the tree | **0** | §2.4 |
+| **Files touched to register one builtin package** | **16** | `rg -l 'builtins::term\b\|builtins::net\b' -g '*.rs' src/ \| wc -l` |
+| Runtime helpers in the registry today | **124** | `rg -oh '_mfb_rt_[a-z0-9_]*' src/ \| sort -u \| wc -l` — `_mfb_rt_app_layout` would be #125 |
+| **Host-seam ops across the family** | **39** (A 26, B 5, C 8) × **3 backends** = **117 implementations** | counted from A §8, B §4.3, C §5.3 |
+| `app::` callables family-wide | **79** (A 32, B 25, C 22) | per-doc surface sections |
+| Occurrences of "AppImage" in the 2026-07-09 docs | **0** | `rg -c AppImage planning/plan-13-[ABC]-*.md` — see §2.5 |
 | Ways to mint a `RES` record outside a `LINK` block | **0** | §2.4 — **new compiler capability** |
 
-**32 functions with per-arity/per-type overload sets would make `app::` the largest
-builtin package in the tree by a wide margin** — more than double `audio.rs`. That, plus
-a solver larger than `term_grid.rs`, is why this cannot be three documents.
+**Three numbers nobody wrote down, and they are the cost drivers:**
+
+- **16 files** must change to register one builtin package. plan-13-A Phase 1 budgets a
+  single checkbox ("Register the `app::` builtin package") for all of it.
+- **117 seam implementations** — 39 `host_*` ops across three backends (macOS, GTK4,
+  headless). plan-13-A §8 says "keep the seam **small and stable**" about 26 of them and
+  never totals any of it.
+- **The runtime-helper registry is never mentioned.** `_mfb_rt_app_layout` would be the
+  **125th** `_mfb_rt_*` helper and needs a `RuntimeHelperSpec`, a catalog entry and usage
+  gating alongside the other 124. No plan-13 document names the registry at all.
+
+Plus: 32 functions with per-arity/per-type overload sets would make `app::` the largest
+builtin package in the tree by a wide margin — more than double `audio.rs`.
 
 ### 2.2 The three checkers the amendment touches
 
@@ -157,7 +172,36 @@ resources with close ops, which is right — but every existing resource-with-cl
 the tree comes from a `LINK` declaration, and `app::`'s come from an emitted runtime
 helper. That capability has to be built, and it belongs in 13-A.
 
-### 2.5 Verified properties
+### 2.5 What landed after 2026-07-09 that the docs do not know
+
+589 commits separate the plan date from today. Three of them change what plan-13 must do:
+
+**AppImage and libc flavors — the largest unrecorded change.** plan-51 landed
+(2026-07-18): `mfb build --app` now emits **one AppImage per libc world**
+(`<name>-glibc.AppImage`, `<name>-musl.AppImage`). plan-56 then made the GTK import
+surface **flavor-aware** (2026-07-19). **`rg -c AppImage planning/plan-13-[ABC]-*.md`
+returns zero.** Every new GTK symbol `app::` adds must now be declared flavor-correctly,
+and the Linux delivery shape the docs assume no longer exists. 13-G owns this.
+
+**The `STATE` model became real, and it helps.** plan-52 A–D landed 2026-07-16. On
+2026-07-09 `RES ok AS app::Button STATE RowRef` was speculative; it is now implemented,
+with a rule the docs could not have known: **`STATE` at parameter position erases**
+(`15_resource-management.md`), while bindings and returns must name it. Since
+`app::Widget` is deliberately parameter-only, that makes the design *more* sound than it
+knew. Claim the win explicitly rather than re-deriving it.
+
+**The spec tree was reorganized and source refs were purged** (2026-07-13). Two
+consequences:
+
+1. **The docs name the wrong destination.** plan-13-B and -C send `app::` documentation to
+   `mfb spec package` in five places. `src/docs/spec/package/` is the **binary container
+   format** (`01_container-format.md`, `02_binary-representation.md`, …). A package's
+   *surface* belongs in `src/docs/spec/stdlib/` (15 topics) and `src/docs/man/builtins/`.
+2. **Cite by symbol, not by line.** The reorg deliberately removed embedded `src/…:NNN`
+   refs from specs. §2.3 shows why: 8 of 10 "verified" line numbers rotted in eleven days.
+   Every citation in this rewrite pairs the symbol with the command that finds it.
+
+### 2.6 Verified properties
 
 | Claim | Verdict | How checked |
 |---|---|---|
@@ -337,6 +381,27 @@ broken binary.
   declared plan-13-B "a soft dependency (only the `addTextArea` table overload waits on
   it)". Soft dependencies are how two plans braid; C now ships without that overload and
   gains it when B lands (§Open Decisions 3).
+- 2026-07-20 — **Three cost drivers were never counted** (§2.1): registering a builtin
+  package touches **16 files** (budgeted as one checkbox); the host seam is **39 ops ×
+  3 backends = 117 implementations** (described as "small and stable"); and the
+  **runtime-helper registry is never mentioned** though `_mfb_rt_app_layout` would be the
+  125th helper needing a `RuntimeHelperSpec`, catalog entry and usage gating.
+- 2026-07-20 — **AppImage and libc flavors are entirely unaccounted for** (§2.5).
+  plan-51 (2026-07-18) made `--app` emit one AppImage per libc world and plan-56
+  (2026-07-19) made GTK imports flavor-aware; `rg -c AppImage` over the three docs returns
+  zero. 13-G owns it.
+- 2026-07-20 — **The docs send `app::` documentation to the wrong place** in five spots.
+  `src/docs/spec/package/` is the binary container format; a package surface belongs in
+  `src/docs/spec/stdlib/` + `src/docs/man/builtins/` (§2.5).
+- 2026-07-20 — **plan-13-C's re-entrancy requirement is a reverse dependency on A.** C
+  states that "'re-entrant on the main thread' is a hard constraint that *this plan, not
+  plan-13-A, is the reason for*" — its scroll handler is a third caller of the solver.
+  13-S must build a property whose only justification lives in 13-C; recorded in both.
+- 2026-07-20 — **A review pass claimed `TYPE_CALL_ARITY_MISMATCH` is "not raised from
+  `syntaxcheck/builtins.rs` at all" and called it a design error. That claim is false** —
+  it is emitted there at `:397` and `:446`, alongside `syntaxcheck/inference.rs:1295` and
+  `syntaxcheck/mod.rs:3113`/`:3131`. The 2026-07-09 draft was right. Checked before
+  acting on it.
 - 2026-07-20 — **`app::` and app *mode* are different things** and pre-2026-07-20 material
   blurs them. App mode exists and hosts console I/O in a window; it has no widget concept.
   Called out at the head of this document.
