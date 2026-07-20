@@ -2072,7 +2072,7 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
         abi::move_register(&collection, abi::RET[1]),
-        abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::move_immediate(&scratch, "Byte", &byte_list_block_kind().to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KEY_TYPE),

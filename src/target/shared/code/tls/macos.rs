@@ -1393,7 +1393,7 @@ pub(super) fn lower_tls_read_macos(
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.extend([
             abi::store_u64(abi::RET[1], abi::stack_pointer(), STR),
-            abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+            abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
             abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
             abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),

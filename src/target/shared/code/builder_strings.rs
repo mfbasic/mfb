@@ -732,11 +732,7 @@ impl CodeBuilder<'_> {
             &scratch16,
             rep_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
         ));
-        self.emit(abi::add_immediate(
-            &scratch17,
-            &scratch17,
-            rep_stride,
-        ));
+        self.emit(abi::add_immediate(&scratch17, &scratch17, rep_stride));
         self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));

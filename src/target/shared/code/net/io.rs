@@ -626,7 +626,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
             abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
-            abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+            abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
@@ -1573,7 +1573,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         instructions.extend([
             abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
-            abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+            abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),

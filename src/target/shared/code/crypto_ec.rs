@@ -234,14 +234,23 @@ pub(super) fn emit_build_byte_list(
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
-    if block != block {
-        instructions.push(abi::move_register(block, block));
-    }
+    // `block` names the register the freshly allocated block lives in, which is
+    // wherever `emit_alloc` left it. Parameterizing it (plan-57-B) left behind a
+    // `block != block` guard that was meant to move the pointer when a caller
+    // asked for a different register — always false, so it never emitted
+    // anything, and all four callers pass the allocation register anyway. State
+    // the contract instead of pretending to handle the other case: a caller that
+    // genuinely wants a different register has to emit that move deliberately.
+    debug_assert_eq!(
+        block,
+        abi::RET[1],
+        "emit_build_byte_list writes through the allocation's return register"
+    );
     if let Some(slot) = coll_off {
         instructions.push(abi::store_u64(block, abi::stack_pointer(), slot));
     }
     instructions.extend([
-        abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
         abi::store_u8("%v9", block, COLLECTION_OFFSET_KIND),
         abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
         abi::store_u8("%v9", block, COLLECTION_OFFSET_KEY_TYPE),

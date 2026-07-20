@@ -1226,14 +1226,12 @@ impl CodeBuilder<'_> {
         // `capacity * 40` bytes past its end, corrupting the arena free list —
         // bug-02's exact failure mode. Refine the type from the elements so every
         // consumer sees the one type the block was actually built to.
-        let refined_type;
-        let type_ = match (list_element_type(type_).as_deref(), slots.first()) {
-            (Some("Unknown"), Some(slot)) if slot.key.is_none() => {
-                refined_type = format!("List OF {}", slot.value.type_);
-                refined_type.as_str()
-            }
-            _ => type_,
-        };
+        let first_list_element = slots
+            .first()
+            .filter(|slot| slot.key.is_none())
+            .map(|slot| slot.value.type_.as_str());
+        let refined_type = refined_list_literal_type(type_, first_list_element);
+        let type_ = refined_type.as_deref().unwrap_or(type_);
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
         let count = slots.len();
@@ -2330,4 +2328,183 @@ pub(super) fn kind2_payload_size(element_type: &str) -> Option<usize> {
 /// entry-free representation is live (plan-57-D).
 pub(super) fn byte_list_entry_stride() -> usize {
     list_entry_stride("Byte")
+}
+
+/// The type a list literal should actually be laid out as, or `None` to keep the
+/// declared one.
+///
+/// `expression_type` falls back to `List OF Unknown` whenever it cannot type the
+/// first element — a call to a builtin like `toByte` is enough. That placeholder
+/// must not reach a layout decision: `lower_collection_values` sizes the entry
+/// array from the first slot's ACTUAL value type, while the layout, the header,
+/// and the scope-drop free size key off the declared type. Left unrefined the two
+/// disagree, and the block is allocated entry-free then freed as `capacity * 40`
+/// bytes past its end — bug-02's failure mode, reached from `[toByte(1)]`.
+///
+/// Only list literals with at least one element can be refined; an empty `[]` has
+/// nothing to learn from, and a map keeps its entries regardless.
+fn refined_list_literal_type(declared: &str, first_element_type: Option<&str>) -> Option<String> {
+    let element = first_element_type?;
+    match list_element_type(declared).as_deref() {
+        Some("Unknown") => Some(format!("List OF {element}")),
+        _ => None,
+    }
+}
+
+/// The `kind` byte for a `List OF Byte`, for those same runtime helpers.
+///
+/// Nothing reads this byte at runtime — every consumer dispatches statically on
+/// the source type — so stamping the wrong kind is invisible today. It is
+/// written truthfully anyway: a block whose header claims a lookup table it does
+/// not have is precisely the sort of latent disagreement that produced four
+/// separate corruption bugs in this sub-plan, and the next person to reach for
+/// the kind byte should be able to trust it.
+pub(super) fn byte_list_block_kind() -> usize {
+    list_block_kind("Byte")
+}
+
+#[cfg(test)]
+mod kind2_layout_tests {
+    use super::*;
+
+    /// Every element type the entry-free representation applies to, with its
+    /// payload width, and every one it must NOT apply to.
+    const FIXED_WIDTH: &[(&str, usize)] = &[
+        ("Boolean", 1),
+        ("Byte", 1),
+        ("Scalar", 4),
+        ("Integer", 8),
+        ("Float", 8),
+        ("Fixed", 8),
+        ("Money", 8),
+    ];
+    const VARIABLE_WIDTH: &[&str] = &[
+        "String",
+        "List OF Integer",
+        "List OF List OF Integer",
+        "Map OF Integer TO Integer",
+        "Unknown",
+        "",
+    ];
+
+    /// The three functions that select the representation must never disagree.
+    ///
+    /// They are consulted at different sites — `list_entry_stride` by the
+    /// allocator and by `emit_flat_block_size`, `list_block_kind` by the header
+    /// writers, `kind2_payload_size` by element access and iteration. A block
+    /// allocated under one answer and read or freed under another is bug-02: the
+    /// arena free list is corrupted rather than a wrong value returned. This is
+    /// the invariant that makes the "entry stride lever" safe.
+    #[test]
+    fn representation_selectors_agree() {
+        let every_type = FIXED_WIDTH
+            .iter()
+            .map(|(element, _)| *element)
+            .chain(VARIABLE_WIDTH.iter().copied());
+        for element in every_type {
+            let entry_free = list_entry_stride(element) == 0;
+            assert_eq!(
+                entry_free,
+                list_block_kind(element) == COLLECTION_KIND_LIST_FIXED,
+                "stride and kind disagree for {element:?}"
+            );
+            assert_eq!(
+                entry_free,
+                kind2_payload_size(element).is_some(),
+                "stride and payload size disagree for {element:?}"
+            );
+        }
+    }
+
+    /// The allocation size and the free size must agree, for the reason they can
+    /// actually disagree: they read the stride off DIFFERENT type strings.
+    ///
+    /// `lower_collection_values` allocates `HEADER + count*stride + dataLen`
+    /// using the first slot's ACTUAL element type; `emit_flat_block_size` frees
+    /// `HEADER + capacity*stride + dataCapacity` using the element type parsed
+    /// out of the collection's DECLARED type. When inference gives up and the
+    /// declared type is `List OF Unknown`, those two are different answers —
+    /// stride 0 versus stride 40 — and the free runs `capacity * 40` bytes past
+    /// the end of the block. That is bug-02's failure mode and it is reachable
+    /// from `[toByte(1), toByte(2)]`, so the placeholder is refined before it
+    /// reaches either side.
+    ///
+    /// Asserting `alloc == free` with both sides computed the same way would be a
+    /// tautology; this models each side from its own type string.
+    #[test]
+    fn alloc_size_matches_free_size() {
+        for &(element, width) in FIXED_WIDTH {
+            for declared in [format!("List OF {element}"), "List OF Unknown".to_string()] {
+                let laid_out =
+                    refined_list_literal_type(&declared, Some(element)).unwrap_or(declared.clone());
+                for count in [0usize, 1, 2, 7, 1000] {
+                    // Allocation: stride from the element's own type.
+                    let allocated =
+                        COLLECTION_HEADER_SIZE + count * list_entry_stride(element) + count * width;
+                    // Free: stride from the type the block was laid out as.
+                    let free_element = list_element_type(&laid_out).unwrap_or_default();
+                    let freed = COLLECTION_HEADER_SIZE
+                        + count * list_entry_stride(&free_element)
+                        + count * width;
+                    assert_eq!(
+                        allocated, freed,
+                        "alloc/free disagree for {count} x {element} declared as {declared}"
+                    );
+                    // And the entry-free size really is the payoff being claimed:
+                    // 40 + N*width, not 40 + N*(40 + width).
+                    assert_eq!(
+                        allocated,
+                        COLLECTION_HEADER_SIZE + count * width,
+                        "{element} x{count} is not entry-free"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The refinement fires only where it is needed: a declared element type that
+    /// inference actually produced is never second-guessed, and an empty literal
+    /// or a map has nothing to refine from.
+    #[test]
+    fn literal_type_refinement_is_narrow() {
+        assert_eq!(
+            refined_list_literal_type("List OF Unknown", Some("Byte")).as_deref(),
+            Some("List OF Byte")
+        );
+        assert_eq!(refined_list_literal_type("List OF Unknown", None), None);
+        assert_eq!(
+            refined_list_literal_type("List OF Byte", Some("Byte")),
+            None
+        );
+        assert_eq!(
+            refined_list_literal_type("List OF String", Some("String")),
+            None
+        );
+        assert_eq!(
+            refined_list_literal_type("Map OF Integer TO Integer", Some("Integer")),
+            None
+        );
+    }
+
+    /// A nested list keeps its lookup table: `List OF List OF Integer` is a list
+    /// whose *elements* are variable-length blocks, so only the inner lists go
+    /// entry-free. §3 flagged this as a risk concentration.
+    #[test]
+    fn nested_list_outer_keeps_entries() {
+        assert_eq!(
+            list_entry_stride("List OF List OF Integer"),
+            COLLECTION_ENTRY_SIZE
+        );
+        assert_eq!(list_entry_stride("List OF Integer"), COLLECTION_ENTRY_SIZE);
+        assert_eq!(list_entry_stride("Integer"), 0);
+        assert_eq!(list_block_kind("List OF Integer"), COLLECTION_KIND_LIST);
+    }
+
+    /// A `RES` element marker is an ownership axis, not part of the value type,
+    /// and a resource borrow is never a fixed-width payload.
+    #[test]
+    fn resource_elements_keep_entries() {
+        assert_eq!(list_entry_stride("File"), COLLECTION_ENTRY_SIZE);
+        assert_eq!(list_entry_stride("RES File"), COLLECTION_ENTRY_SIZE);
+    }
 }
