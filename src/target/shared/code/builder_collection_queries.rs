@@ -615,7 +615,7 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
@@ -897,9 +897,13 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             COLLECTION_HEADER_SIZE,
         ));
-        // s20 = a blob base, s21 = b blob base, s22 = result blob base.
-        self.emit_collection_data_pointer(&s20, &s8);
-        self.emit_collection_data_pointer(&s21, &s10);
+        // s20 = a blob base, s21 = b blob base, s22 = result blob base. The two
+        // inputs are separate lists with their own element types, so each takes
+        // its own stride (plan-57-D).
+        let a_element = list_element_type(&a.type_).unwrap_or_default();
+        let b_element = list_element_type(&b.type_).unwrap_or_default();
+        self.emit_collection_data_pointer_for(&s20, &s8, &a_element);
+        self.emit_collection_data_pointer_for(&s21, &s10, &b_element);
         self.emit(abi::move_immediate(
             &s16,
             "Integer",
@@ -1240,7 +1244,7 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&s20, &s8);
+        self.emit_collection_data_pointer_for(&s20, &s8, element_type);
         self.emit(abi::multiply_registers(&s21, &s9, &s14));
         self.emit(abi::add_registers(&s21, &s17, &s21));
         self.emit(abi::move_immediate(&s11, "Integer", "0"));
@@ -1376,7 +1380,7 @@ impl CodeBuilder<'_> {
             &scratch11,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit_collection_data_pointer(&scratch15, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch15, &scratch8, &element_type);
         self.emit(abi::add_registers(&scratch15, &scratch15, &scratch12));
         match element_type.as_str() {
             "Integer" => {

@@ -506,7 +506,10 @@ impl CollectionTypeLayout {
     pub(super) fn from_type(type_: &str) -> Option<Self> {
         if let Some(value_type) = type_.strip_prefix("List OF ") {
             return Some(Self {
-                kind: COLLECTION_KIND_LIST,
+                // The single point that chooses a list's block representation
+                // (plan-57-D). Every header writer takes `layout.kind` from
+                // here, so the `kind` byte and the layout cannot disagree.
+                kind: list_block_kind(value_type),
                 key_type_code: COLLECTION_TYPE_NONE,
                 value_type_code: collection_type_code(value_type)?,
             });

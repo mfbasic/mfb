@@ -474,9 +474,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit_collection_data_pointer(&scratch17, &block_base);
+        let element = list_element_type(type_).unwrap_or_default();
+        self.emit_collection_data_pointer_for(&scratch17, &block_base, &element);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -1854,7 +1855,14 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer(dst, collection);
     }
 
-    pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
+    /// The kind-0 data base. **Private on purpose**: every caller must go
+    /// through [`Self::emit_collection_data_pointer_for`] and state its element
+    /// type, because a site that silently kept the kind-0 stride would read a
+    /// fixed-width list at the wrong base once plan-57-D flips the
+    /// representation — and the gate cannot catch that, since both are correct
+    /// today. Making the untyped form unreachable is what turns "did I convert
+    /// every site?" from a question into a compile error.
+    fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
         // Scratch as vregs. Pinning these collides with the x86-64 ABI argument
         // registers and yields garbage element addresses.
         let capacity_v = self.temporary_vreg();
@@ -1891,7 +1899,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(offset_input, offset));
         self.emit(abi::move_register(length_input, length));
         let data = self.allocate_register()?;
-        self.emit_collection_data_pointer(&data, collection_input);
+        self.emit_collection_data_pointer_for(&data, collection_input, type_);
         self.emit(abi::add_registers(&data, &data, offset_input));
         match type_ {
             "Boolean" | "Byte" => {

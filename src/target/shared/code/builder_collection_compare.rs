@@ -204,7 +204,7 @@ impl CodeBuilder<'_> {
         not_equal_label: &str,
     ) -> Result<(), String> {
         let data = self.allocate_register()?;
-        self.emit_collection_data_pointer(&data, collection);
+        self.emit_collection_data_pointer_for(&data, collection, type_);
         self.emit(abi::add_registers(&data, &data, offset));
         match type_ {
             "Boolean" | "Byte" => {
@@ -313,7 +313,7 @@ impl CodeBuilder<'_> {
         let vbyte = vbyte_v.as_str();
         self.emit(abi::move_register(cur, collection));
         self.emit(abi::move_register(tmp, offset));
-        self.emit_collection_data_pointer(cur, cur);
+        self.emit_collection_data_pointer_for(cur, cur, type_);
         self.emit(abi::add_registers(cur, cur, tmp));
         match type_ {
             "Boolean" | "Byte" => {
@@ -417,9 +417,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(loff, left_offset));
         self.emit(abi::move_register(rcur, right_collection));
         self.emit(abi::move_register(roff, right_offset));
-        self.emit_collection_data_pointer(lcur, lcur);
+        self.emit_collection_data_pointer_for(lcur, lcur, type_);
         self.emit(abi::add_registers(lcur, lcur, loff));
-        self.emit_collection_data_pointer(rcur, rcur);
+        self.emit_collection_data_pointer_for(rcur, rcur, type_);
         self.emit(abi::add_registers(rcur, rcur, roff));
         match type_ {
             "Boolean" | "Byte" => {

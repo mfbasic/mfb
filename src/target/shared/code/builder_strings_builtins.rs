@@ -148,7 +148,7 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch21, abi::RET[1]);
+        self.emit_collection_data_pointer_for(&scratch21, abi::RET[1], "String");
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch24, "Integer", "0"));
         self.emit_utf8_decode_next(&scratch14, &scratch10, &scratch11);
@@ -1439,7 +1439,7 @@ impl CodeBuilder<'_> {
         let out_ptr = out_ptr_v.as_str();
         self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch13, out_ptr, 8));
-        self.emit_collection_data_pointer(&scratch14, &scratch16);
+        self.emit_collection_data_pointer_for(&scratch14, &scratch16, "String");
         self.emit(abi::add_immediate(
             &scratch15,
             &scratch16,
@@ -1695,7 +1695,7 @@ impl CodeBuilder<'_> {
             list_ptr,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch21, list_ptr);
+        self.emit_collection_data_pointer_for(&scratch21, list_ptr, "String");
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch24, "Integer", "0"));
@@ -1805,7 +1805,7 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch21, &scratch17);
+        self.emit_collection_data_pointer_for(&scratch21, &scratch17, "String");
         self.emit(abi::move_immediate(&scratch20, "Integer", "0"));
 
         self.emit(abi::label(&outer_loop));
@@ -2661,7 +2661,7 @@ impl CodeBuilder<'_> {
             &scratch12,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit_collection_data_pointer(&scratch15, &scratch16);
+        self.emit_collection_data_pointer_for(&scratch15, &scratch16, "String");
         self.emit(abi::add_registers(&scratch15, &scratch15, &scratch13));
         self.emit(abi::store_u64(&scratch15, abi::stack_pointer(), ptr_slot));
         self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), len_slot));

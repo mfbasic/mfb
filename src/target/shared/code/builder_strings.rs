@@ -537,7 +537,7 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
@@ -999,7 +999,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(list, abi::stack_pointer(), list_slot));
         self.emit(abi::load_u64(length, list, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
-        self.emit_collection_data_pointer(offset, list);
+        self.emit_collection_data_pointer_for(offset, list, "Byte");
         self.emit(abi::store_u64(offset, abi::stack_pointer(), data_slot));
         self.emit(abi::move_immediate(index, "Integer", "0"));
 

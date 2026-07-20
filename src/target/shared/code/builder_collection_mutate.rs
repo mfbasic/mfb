@@ -695,9 +695,9 @@ impl CodeBuilder<'_> {
             let payload_text = payload.to_string();
 
             // --- Data region, in index order: A[0..i), then B, then A[i..n). ---
-            self.emit_collection_data_pointer(&scratch17, &nb); // dst data cursor
+            self.emit_collection_data_pointer_for(&scratch17, &nb, element_type); // dst data cursor
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit_collection_data_pointer(&scratch20, &scratch8); // A data cursor
+            self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // A data cursor
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
             self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
             self.emit(abi::multiply_registers(&scratch14, &scratch10, &scratch16)); // i * p
@@ -711,7 +711,7 @@ impl CodeBuilder<'_> {
                 "list_insert_ord_head",
             );
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-            self.emit_collection_data_pointer(&scratch12, &scratch9); // B data base
+            self.emit_collection_data_pointer_for(&scratch12, &scratch9, element_type); // B data base
             self.emit(abi::load_u64(
                 &scratch15,
                 &scratch9,
@@ -799,9 +799,9 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&ident_done));
         } else {
             // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
-            self.emit_collection_data_pointer(&scratch17, &nb); // dst data base
+            self.emit_collection_data_pointer_for(&scratch17, &nb, element_type); // dst data base
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
+            self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // A data base
             self.emit(abi::load_u64(
                 &scratch14,
                 &scratch8,
@@ -815,7 +815,7 @@ impl CodeBuilder<'_> {
                 "list_insert_dataA",
             );
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-            self.emit_collection_data_pointer(&scratch20, &scratch9); // B data base
+            self.emit_collection_data_pointer_for(&scratch20, &scratch9, element_type); // B data base
             self.emit(abi::load_u64(
                 &scratch15,
                 &scratch9,
@@ -1170,9 +1170,9 @@ impl CodeBuilder<'_> {
 
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, &nb);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, element_type);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -1593,9 +1593,9 @@ impl CodeBuilder<'_> {
 
         // Copy self's data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, &nb);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, element_type);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -1669,7 +1669,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&write));
         // dst.data + dataLength(self) <- rhs.data (dataLength(rhs) bytes).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer(&scratch17, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch17, &scratch8, element_type);
         self.emit(abi::load_u64(
             &scratch9,
             &scratch8,
@@ -1684,7 +1684,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_registers(&scratch17, &scratch17, &scratch9));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch10);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch10, element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch10,
@@ -2000,9 +2000,9 @@ impl CodeBuilder<'_> {
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, &nb);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, element_type);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -2072,7 +2072,7 @@ impl CodeBuilder<'_> {
             // source and destination overlap for any count above one.
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-            self.emit_collection_data_pointer(&scratch17, &scratch8); // data base
+            self.emit_collection_data_pointer_for(&scratch17, &scratch8, element_type); // data base
             self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
             self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16)); // n * p
             self.emit(abi::add_registers(&scratch12, &scratch17, &scratch11)); // src end
@@ -2898,9 +2898,9 @@ impl CodeBuilder<'_> {
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, &nb);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, "");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -3208,9 +3208,9 @@ impl CodeBuilder<'_> {
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer(&scratch17, &nb);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, "");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -3622,9 +3622,9 @@ impl CodeBuilder<'_> {
         );
 
         // --- Data region: two verbatim blocks around the hole. ---
-        self.emit_collection_data_pointer(&scratch20, &scratch8); // src data base (capacity-based)
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // src data base (capacity-based)
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer(&scratch21, &nb); // dst data base (tight)
+        self.emit_collection_data_pointer_for(&scratch21, &nb, element_type); // dst data base (tight)
                                                             // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
                                                             // and scratch20 -> src.data[holeOffset].
         self.emit(abi::move_register(&scratch15, &scratch23)); // holeOffset (copy consumes it)
@@ -4282,10 +4282,10 @@ impl CodeBuilder<'_> {
 
         // --- Data region: A verbatim at base, B verbatim at align(dataLen_A). ---
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer(&scratch17, &nb); // x17 = dst data base (stable)
+        self.emit_collection_data_pointer_for(&scratch17, &nb, ""); // x17 = dst data base (stable)
         self.emit(abi::move_register(&scratch23, &scratch17)); // moving copy dst
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, ""); // A data base
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -4307,7 +4307,7 @@ impl CodeBuilder<'_> {
         self.emit_align_offset_register(&scratch13, map_max_align, &scratch22); // alignedA
         self.emit(abi::add_registers(&scratch23, &scratch17, &scratch13)); // B dest = base + alignedA
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), right_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch9); // B data base
+        self.emit_collection_data_pointer_for(&scratch20, &scratch9, ""); // B data base
         self.emit(abi::load_u64(
             &scratch15,
             &scratch9,
@@ -4620,7 +4620,7 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
         self.emit(abi::load_u64(&scratch14, &nb, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,

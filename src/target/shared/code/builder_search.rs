@@ -1054,7 +1054,7 @@ impl CodeBuilder<'_> {
             abi::RET[1],
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
         self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch14));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
         // Fast path — an in-order, gap-free slice (the probe found no disorder) is

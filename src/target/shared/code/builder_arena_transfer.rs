@@ -736,7 +736,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&next_label));
 
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit_collection_data_pointer(&scratch10, &scratch9);
+        // Kind-0 stride, deliberately: this walks the ENTRY table, so it only
+        // runs for a block that has one. `payload_type` must NOT be used here —
+        // for a `Map OF String TO Integer` it is `Integer`, which would select
+        // the entry-free stride for a map, and maps keep their entries forever.
+        // A fixed-width LIST never reaches this path at all
+        // (`collection_needs_transfer_fix` is false for pointer-free payloads).
+        self.emit_collection_data_pointer_for(&scratch10, &scratch9, "");
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -750,7 +756,7 @@ impl CodeBuilder<'_> {
             source_payload_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer(&scratch10, &scratch9);
+        self.emit_collection_data_pointer_for(&scratch10, &scratch9, "");
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
