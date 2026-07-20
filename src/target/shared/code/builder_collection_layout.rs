@@ -1215,6 +1215,25 @@ impl CodeBuilder<'_> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         self.reset_temporary_registers();
+        // A list literal whose *declared* element type is `Unknown` must not be
+        // laid out from that placeholder. `expression_type` falls back to
+        // `List OF Unknown` whenever it cannot type the first element — a call to
+        // a builtin like `toByte` is enough (`[toByte(1), toByte(2)]`) — but the
+        // allocation below sizes the entry array from the first slot's ACTUAL
+        // value type. Layout, header, and the scope-drop free size all key off
+        // `type_`, so leaving the placeholder in place makes them disagree with
+        // what was reserved: the block is allocated entry-free and later freed as
+        // `capacity * 40` bytes past its end, corrupting the arena free list —
+        // bug-02's exact failure mode. Refine the type from the elements so every
+        // consumer sees the one type the block was actually built to.
+        let refined_type;
+        let type_ = match (list_element_type(type_).as_deref(), slots.first()) {
+            (Some("Unknown"), Some(slot)) if slot.key.is_none() => {
+                refined_type = format!("List OF {}", slot.value.type_);
+                refined_type.as_str()
+            }
+            _ => type_,
+        };
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
         let count = slots.len();
