@@ -1660,18 +1660,23 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch8,
-            COLLECTION_OFFSET_CAPACITY,
-        ));
-        self.emit(abi::move_immediate(
-            &scratch12,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch12));
-        self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
+        // The data base uses this element type's entry stride, which is zero for
+        // a kind-2 list — the payload write and every reader must agree on where
+        // the data region starts (plan-57-D).
+        if list_entry_stride(&payload.type_) != 0 {
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch8,
+                COLLECTION_OFFSET_CAPACITY,
+            ));
+            self.emit(abi::move_immediate(
+                &scratch12,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch12));
+            self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
+        }
         self.emit(abi::add_registers(&scratch10, &scratch10, &scratch9));
 
         match payload.type_.as_str() {
@@ -1824,8 +1829,20 @@ impl CodeBuilder<'_> {
         index: &str,
         scratch_offset: &str,
         scratch_entry: &str,
-        _element_type: &str,
+        element_type: &str,
     ) {
+        // kind 2: element `i` lives at `i * payloadSize` with a fixed length and
+        // no entry to load (plan-57-D). Two instructions instead of six, and two
+        // dependent loads removed from every indexed read.
+        if let Some(payload) = kind2_payload_size(element_type) {
+            self.emit(abi::move_immediate(
+                dst_length,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(dst_offset, index, dst_length));
+            return;
+        }
         self.emit(abi::move_immediate(
             scratch_offset,
             "Integer",
@@ -2208,6 +2225,16 @@ pub(super) fn list_block_kind(element_type: &str) -> usize {
         COLLECTION_KIND_LIST_FIXED
     } else {
         COLLECTION_KIND_LIST
+    }
+}
+
+/// The payload size of `element_type` when it uses the entry-free
+/// representation, or `None` when it keeps a lookup table.
+pub(super) fn kind2_payload_size(element_type: &str) -> Option<usize> {
+    if kind2_enabled() {
+        list_element_is_fixed_width(element_type)
+    } else {
+        None
     }
 }
 

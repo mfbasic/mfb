@@ -1375,13 +1375,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(&scratch10, &scratch9));
         self.emit(abi::branch_ge(&done));
-        self.emit(abi::load_u64(
-            &scratch12,
-            &scratch11,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit_collection_data_pointer_for(&scratch15, &scratch8, &element_type);
-        self.emit(abi::add_registers(&scratch15, &scratch15, &scratch12));
+        // kind 2: the cursor (scratch11) already walks the data region, so it IS
+        // the payload address — there is no entry to indirect through.
+        if kind2_payload_size(&element_type).is_some() {
+            self.emit(abi::move_register(&scratch15, &scratch11));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch12,
+                &scratch11,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit_collection_data_pointer_for(&scratch15, &scratch8, &element_type);
+            self.emit(abi::add_registers(&scratch15, &scratch15, &scratch12));
+        }
         match element_type.as_str() {
             "Integer" => {
                 self.emit(abi::load_u64(&scratch16, &scratch15, 0));
@@ -1407,7 +1413,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(
             &scratch11,
             &scratch11,
-            COLLECTION_ENTRY_SIZE,
+            kind2_payload_size(&element_type).unwrap_or(COLLECTION_ENTRY_SIZE),
         ));
         self.emit(abi::add_immediate(&scratch10, &scratch10, 1));
         self.emit(abi::branch(&loop_label));
@@ -2013,7 +2019,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         cursor_slot: usize,
         remaining_slot: usize,
-        _element_type: &str,
+        element_type: &str,
     ) {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -2024,11 +2030,19 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::add_immediate(
-            &scratch10,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
+        // kind 2 has no entry table to walk, so the cursor carries a byte OFFSET
+        // from the data base instead of an entry pointer (plan-57-D). That keeps
+        // `emit_load_collection_payload`'s `(collection, offset, length)` shape
+        // usable unchanged for both representations.
+        if kind2_payload_size(element_type).is_some() {
+            self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(
+                &scratch10,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+        }
         self.emit(abi::store_u64(
             &scratch10,
             abi::stack_pointer(),
@@ -2052,6 +2066,24 @@ impl CodeBuilder<'_> {
         let scratch11 = self.temporary_vreg();
         let scratch12 = self.temporary_vreg();
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
+        if let Some(payload) = kind2_payload_size(element_type) {
+            self.emit(abi::move_immediate(
+                &scratch12,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::load_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            return self.emit_load_collection_payload(
+                element_type,
+                &scratch8,
+                &scratch10,
+                &scratch12,
+            );
+        }
         self.emit(abi::load_u64(
             &scratch11,
             &scratch10,
@@ -2124,16 +2156,13 @@ impl CodeBuilder<'_> {
         cursor_slot: usize,
         remaining_slot: usize,
         loop_label: &str,
-        _element_type: &str,
+        element_type: &str,
     ) {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
+        let stride = kind2_payload_size(element_type).unwrap_or(COLLECTION_ENTRY_SIZE);
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
-        self.emit(abi::add_immediate(
-            &scratch10,
-            &scratch10,
-            COLLECTION_ENTRY_SIZE,
-        ));
+        self.emit(abi::add_immediate(&scratch10, &scratch10, stride));
         self.emit(abi::store_u64(
             &scratch10,
             abi::stack_pointer(),

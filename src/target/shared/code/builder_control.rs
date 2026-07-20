@@ -1264,11 +1264,19 @@ impl CodeBuilder<'_> {
             &collection,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::add_immediate(
-            &cursor,
-            &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
+        // A kind-2 list has no entry table: the cursor carries a byte OFFSET from
+        // the data base instead of an entry pointer, and strides by payloadSize
+        // (plan-57-D). The Map arm below is unaffected — maps keep their entries.
+        let list_payload = item_value_type.and_then(kind2_payload_size);
+        if list_payload.is_some() {
+            self.emit(abi::move_immediate(&cursor, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(
+                &cursor,
+                &collection,
+                COLLECTION_HEADER_SIZE,
+            ));
+        }
         self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
         self.emit(abi::store_u64(
             &remaining,
@@ -1360,16 +1368,25 @@ impl CodeBuilder<'_> {
                     iterable_value.type_
                 )
             })?;
-            self.emit(abi::load_u64(
-                &payload_off,
-                &cursor,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
-            self.emit(abi::load_u64(
-                &payload_len,
-                &cursor,
-                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-            ));
+            if let Some(payload) = list_payload {
+                self.emit(abi::move_register(&payload_off, &cursor));
+                self.emit(abi::move_immediate(
+                    &payload_len,
+                    "Integer",
+                    &payload.to_string(),
+                ));
+            } else {
+                self.emit(abi::load_u64(
+                    &payload_off,
+                    &cursor,
+                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+                ));
+                self.emit(abi::load_u64(
+                    &payload_len,
+                    &cursor,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ));
+            }
             self.emit(abi::load_u64(
                 &collection,
                 abi::stack_pointer(),
@@ -1388,7 +1405,11 @@ impl CodeBuilder<'_> {
             ));
         }
         self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
-        self.emit(abi::add_immediate(&cursor, &cursor, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &cursor,
+            &cursor,
+            list_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
+        ));
         self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
         self.emit(abi::load_u64(
             &remaining,
