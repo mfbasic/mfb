@@ -504,3 +504,35 @@ highest site count at the lowest risk, which builds confidence in the process
 before Phase 2 touches allocation.
 
 Untouched: maps, the block layout, every constant, and all behavior.
+
+## Closure (2026-07-20): partially done, remainder handed to bug-333
+
+**What landed:** `element_type` threaded through the loop trio; three byte-list
+constructors folded into `audio/mod.rs::emit_alloc_byte_list`; `crypto::randomBytes`
+routed through `crypto_ec::emit_build_byte_list`; and the codegen guard this
+sub-plan needed (`list-ops-codegen-rt`'s `.ncode` golden, later joined by the
+`codegen-cover/*` sha goldens).
+
+**What did not, and why it is not being resumed as written:** the remaining ~20
+cursor loops and the open-coded header/entry writers were to be *consolidated*
+first so plan-57-D could change one place instead of ninety.
+
+That ordering was abandoned when plan-57-D was unblocked and run against the
+un-consolidated sites directly. The outcome argues it was the right call:
+
+- The feared ninety-site sweep was **three** readers (`collections::forEach`,
+  `collections::zip`, and `net`'s two byte-list builders plus the shared
+  `push_collection_data_base_from_capacity`).
+- The site-by-site pass is what *found* five corruption-class defects. A
+  consolidation-first order would have moved that code without reading it in the
+  one context — an actual representation change — that made the bugs visible.
+
+**The duplication itself remains real and is now worse**, because every one of
+those sites carries a second arm. That is tracked where it belongs, with a
+2026-07-20 update recording the new shape: `bugs/bug-333-string-collection-builder-duplication.md`,
+items C2–C5 and S6. It is a cleanup task, not a prerequisite for anything, and
+`emit_entry_scan` (C5) is the highest-value piece.
+
+**Do not resume this document.** Its Phase 2/3 acceptance criterion —
+byte-identity — no longer holds, since the baseline it was written against is the
+pre-kind-2 encoding.
