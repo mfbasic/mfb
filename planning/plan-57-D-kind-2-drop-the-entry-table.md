@@ -273,13 +273,24 @@ had gone stale).
 
 ## Phases
 
-### Phase 1 — the constant, the size, and the spec
+### Phase 1 — the constant, the size, and the spec — **IN PROGRESS**
+
+Approach changed from §3's six independent edits to a single lever: the layout
+formulas are all `HEADER + capacity * <stride>`, so `list_entry_stride` returning
+**0** for a fixed-width element collapses every one of them to the kind-2 layout
+without the formula changing shape — and makes it impossible for the alloc size,
+the free size and the data base to disagree (which is bug-02's failure mode).
+
+`KIND2_ENABLED = false` gates it while every site is threaded onto the two
+predicates; the flip is then one commit. Done so far: the constant, the two
+predicates, `emit_collection_data_pointer_for`, and the 19 SIMD/pow sites.
+
 
 No representation is produced yet; this teaches the size path to describe one.
 
-- [ ] Add `COLLECTION_KIND_LIST_FIXED = 2` (`error_constants.rs`) with the doc
+- [x] Add `COLLECTION_KIND_LIST_FIXED = 2` (`error_constants.rs`) with the doc
       comment from §4.1.
-- [ ] Teach `emit_flat_block_size` (`builder_collection_layout.rs:197-249`) the
+- [~] Teach `emit_flat_block_size` (`builder_collection_layout.rs:197-249`) the
       kind-2 arm.
 - [ ] Amend `src/docs/spec/memory/05_collections.md`: the kind table, the kind-2
       layout block, the `:52-55` entry-size statement, and a note that the choice
@@ -300,7 +311,7 @@ The single behavioral commit. Small, because plan-57-A/B did the fan-out.
 
 - [ ] `emit_element_value_offset`: fixed-width arm returns `index * payloadSize`
       and the constant `payloadSize`, no entry load.
-- [ ] `emit_collection_data_pointer{,_into}`: fixed-width arm returns
+- [~] `emit_collection_data_pointer{,_into}`: fixed-width arm returns
       `block + HEADER`.
 - [ ] `emit_alloc_list`: fixed-width arm sizes `HEADER + count * payloadSize`,
       writes `kind = 2`, skips the entry region and the entry-fill loop.

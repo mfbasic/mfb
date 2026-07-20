@@ -305,14 +305,20 @@ Nothing changes. No layout, format, rule, spec, or diagnostic change.
 
 ## Phases
 
-### Phase 1 — data-base consolidation (lowest risk, highest site count)
+### Phase 1 — data-base consolidation (lowest risk, highest site count) — **DONE**
 
-- [ ] Add `emit_collection_data_pointer_into`; make
+Landed as two shapes rather than one function (`push_collection_data_pointer_into`
+and `push_collection_data_base_from_capacity`); 6 sites carried the second shape,
+not 32 — the rest were already routed or were constructors. Byte-identical on
+macos-aarch64 / linux-aarch64 / linux-x86_64.
+
+
+- [x] Add `emit_collection_data_pointer_into`; make
       `emit_collection_data_pointer` (`builder_collection_layout.rs:1725`)
       delegate to it.
-- [ ] Convert all 32 open-coded sites, one commit per area (`os`/`fs`, `net`/`tls`,
+- [x] Convert all 32 open-coded sites, one commit per area (`os`/`fs`, `net`/`tls`,
       `audio`/`crypto`, `entry_and_arena`/`builder_*`).
-- [ ] Append the linear-reader audit findings to
+- [x] Append the linear-reader audit findings to
       `bugs/bug-365-linear-data-region-readers-ignore-entry-order.md` §Scope,
       converting its unverified table into confirmed/cleared entries.
 
@@ -320,17 +326,27 @@ Acceptance: `artifact-gate` byte-identical after each commit; bug-365's worklist
 has no unverified rows left.
 Commit: —
 
-### Phase 2 — constructor consolidation
+### Phase 2 — constructor consolidation — **PARTIAL (3 of 7)**
 
-- [ ] Add `emit_alloc_list` (§4.2), generalized over `element_type`.
+`emit_build_byte_list` is now the shared constructor, parameterized on block
+register, optional spill slot and label names, and used by crypto + crypto_ec +
+(separately) both audio backends. The remaining four — `net/io` x2 and
+`tls/{macos,openssl}` — are NOT convertible: measured, they grow the frame
+176 -> 192 bytes with an extra spill because the constructor sits mid-literal and
+splitting it perturbs register allocation. They stay inline and plan-57-D edits
+them directly. `emit_alloc_list` generalized over `element_type` is therefore not
+built; the byte-list form is what exists.
+
+
+- [~] Add `emit_alloc_list` (§4.2), generalized over `element_type`.
 - [ ] Convert `lower_simd_alloc_list` (`entry_and_arena.rs:1387`) **first** — it
       is the smallest self-contained constructor and exercises the free-function
       form (§4.5). Fix its stale `_mfb_arena_alloc` clobber comment
       (`:1382-1384`) in the same commit.
-- [ ] Repoint `audio/alsa.rs:1273`, `audio/macos.rs:1546`, `crypto_ec.rs:183`;
+- [x] Repoint `audio/alsa.rs:1273`, `audio/macos.rs:1546`, `crypto_ec.rs:183`;
       delete the duplicates.
-- [ ] Convert the ~30 open-coded header+entry writers, one commit per area.
-- [ ] For each, verify the spill discipline around `_mfb_arena_alloc` matches
+- [~] Convert the ~30 open-coded header+entry writers, one commit per area.
+- [x] For each, verify the spill discipline around `_mfb_arena_alloc` matches
       what the site did before (`.ai/compiler.md`). A differing spill is a
       byte-diff — treat it as a finding, not a nuisance.
 
@@ -338,7 +354,14 @@ Acceptance: `artifact-gate` byte-identical after each commit; `emit_alloc_byte_l
 exists once; `scripts/test-accept.sh` green with zero churn.
 Commit: —
 
-### Phase 3 — iteration consolidation
+### Phase 3 — iteration consolidation — **PARTIAL**
+
+`element_type` threaded through the existing trio
+(`initialize_collection_loop_slots` / `load_collection_loop_item` /
+`advance_collection_loop`). `lower_for_each` is NOT convertible byte-identically
+— it holds cursor/remaining in allocated registers where the trio uses stack
+slots — and is deferred to plan-57-D, where codegen changes deliberately.
+
 
 - [ ] Add the `emit_list_iteration_*` trio (§4.1), lifted from the existing
       `transform`/`filter`/`reduce` helpers.
