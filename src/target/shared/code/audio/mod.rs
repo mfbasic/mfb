@@ -114,3 +114,76 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
 pub(in crate::target::shared::code) fn alsa_data_objects() -> Vec<CodeDataObject> {
     alsa::data_objects()
 }
+
+/// Allocate a `List OF Byte` of `count_off` elements: size the block, write the
+/// header, and fill the lookup table with the identity mapping
+/// (`valueOffset = i`, `valueLength = 1`). The payload bytes are left
+/// uninitialized for the caller to fill.
+///
+/// One copy, shared by both audio backends (plan-57-B). It existed verbatim in
+/// `alsa.rs` and `macos.rs` — the two differed only in label names and
+/// comments. A third near-variant that also copies from a source buffer lives at
+/// `crypto_ec::emit_build_byte_list`.
+///
+/// Sharing it is what makes plan-57-D a small edit rather than a sweep: this is
+/// one of the places that must stop writing a lookup table once a fixed-width
+/// list no longer has one.
+///
+/// A free function rather than a `CodeBuilder` method because both callers are
+/// standalone `CodeFunction` emitters with no builder in scope (plan-57-A §Open
+/// Decisions).
+fn emit_alloc_byte_list(
+    symbol: &str,
+    tag: &str,
+    count_off: usize,
+    list_off: usize,
+    alloc_fail: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let entry_loop = format!("{symbol}_{tag}_bl_entry");
+    let entry_done = format!("{symbol}_{tag}_bl_entry_done");
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), count_off),
+        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("%v12", "%v10", "%v11"),
+        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), "%v12", "%v10"), // + count payload bytes
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    emit_alloc(symbol, instructions, relocations, alloc_fail);
+    instructions.extend([
+        abi::move_register("%v15", abi::RET[1]),
+        abi::store_u64("%v15", abi::stack_pointer(), list_off),
+        abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
+        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate("%v9", "Byte", "1"),
+        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64("%v10", abi::stack_pointer(), count_off),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
+        // entry array: entry[i] = { USED, value_offset=i, value_length=1 }
+        abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE), // entry cursor
+        abi::move_immediate("%v13", "Integer", "0"),                // i
+        abi::label(&entry_loop),
+        abi::compare_registers("%v13", "%v10"),
+        abi::branch_ge(&entry_done),
+        abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64("%v13", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate("%v14", "Integer", "1"),
+        abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("%v13", "%v13", 1),
+        abi::branch(&entry_loop),
+        abi::label(&entry_done),
+    ]);
+}
