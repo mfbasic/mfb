@@ -57,6 +57,10 @@ impl NirModule {
     }
 }
 
+trait ToNirJson {
+    fn to_json(&self, indent: usize) -> String;
+}
+
 impl ToNirJson for NirGlobal {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
@@ -79,10 +83,6 @@ impl ToNirJson for NirGlobal {
             value
         )
     }
-}
-
-trait ToNirJson {
-    fn to_json(&self, indent: usize) -> String;
 }
 
 impl ToNirJson for NirEntryPoint {

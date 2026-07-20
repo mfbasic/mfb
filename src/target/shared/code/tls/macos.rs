@@ -1226,7 +1226,7 @@ pub(super) fn lower_tls_read_macos(
         abi::compare_immediate("%v10", "0"),
         abi::branch_le(&invalid),
     ]);
-    emit_dlopen_libssl_macos(
+    emit_dlopen_maclib(
         &mut EmitCtx {
             symbol: symbol,
             platform_imports,
@@ -1615,7 +1615,7 @@ pub(super) fn lower_tls_write_macos(
         abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&empty),
     ]);
-    emit_dlopen_libssl_macos(
+    emit_dlopen_maclib(
         &mut EmitCtx {
             symbol: symbol,
             platform_imports,
@@ -1814,7 +1814,7 @@ pub(super) fn lower_tls_close_macos(
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&already),
     ]);
-    emit_dlopen_libssl_macos(
+    emit_dlopen_maclib(
         &mut EmitCtx {
             symbol: symbol,
             platform_imports,
@@ -1929,11 +1929,7 @@ pub(super) fn lower_tls_close_macos(
     }
 }
 
-fn emit_dlopen_libssl_macos(
-    ctx: &mut EmitCtx,
-    handle_off: usize,
-    fail: &str,
-) -> Result<(), String> {
+fn emit_dlopen_maclib(ctx: &mut EmitCtx, handle_off: usize, fail: &str) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -3257,7 +3253,7 @@ pub(super) fn lower_tls_accept_macos(
         abi::load_u64("%v9", abi::return_register(), REC_QUEUE),
         abi::store_u64("%v9", abi::stack_pointer(), QUEUE),
     ]);
-    emit_dlopen_libssl_macos(
+    emit_dlopen_maclib(
         &mut EmitCtx {
             symbol: symbol,
             platform_imports,
@@ -3649,7 +3645,7 @@ pub(super) fn lower_tls_close_listener_macos(
         abi::load_u64("%v9", abi::return_register(), REC_CTX),
         abi::store_u64("%v9", abi::stack_pointer(), LCTX),
     ]);
-    emit_dlopen_libssl_macos(
+    emit_dlopen_maclib(
         &mut EmitCtx {
             symbol: symbol,
             platform_imports,

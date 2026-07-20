@@ -151,8 +151,8 @@ impl CodeBuilder<'_> {
         let loop_label = self.label("strings_chars_set_loop");
         let cmp_loop = self.label("strings_chars_set_cmp_loop");
         let next = self.label("strings_chars_set_next");
-        // Scratch as vregs (was out-of-pool x2-x7 plus x0/x1, which are x86 ABI
-        // argument/return registers).
+        // Scratch as vregs: the registers this loop needs are x86-64 ABI
+        // argument/return registers, so none of them may be pinned here.
         let chars_ptr_v = self.temporary_vreg();
         let chars_len_v = self.temporary_vreg();
         let cursor_v = self.temporary_vreg();
@@ -363,12 +363,6 @@ impl CodeBuilder<'_> {
         } else {
             Err(format!("{label} must be String, got {}", value.type_))
         }
-    }
-
-    pub(super) fn store_string_pointer(&mut self, label: &str, register: &str) -> usize {
-        let slot = self.allocate_stack_object(label, 8);
-        self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
-        slot
     }
 
     pub(super) fn emit_case_map_lookup(

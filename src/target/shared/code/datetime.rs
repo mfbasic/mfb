@@ -18,12 +18,13 @@ use std::collections::HashMap;
 use super::*;
 use crate::target::shared::abi;
 
-// Frame layout (16-aligned). The saved link register sits at the top, clear of
-// the libc scratch buffers below it.
+// Frame layout (16-aligned). `LOCALS_SIZE` is the size of this locals region,
+// which `finalize_vreg_body_with_locals` rounds to 16 and reserves; the vreg
+// frame owns saving the link register, not a slot named here.
 const TIMESPEC_OFFSET: usize = 0; // struct timespec { tv_sec; tv_nsec } (16 bytes)
 const TIME_T_OFFSET: usize = 0; // time_t input to localtime_r (reuses the low slot)
 const TM_OFFSET: usize = 16; // struct tm output (>= 56 bytes)
-const LR_OFFSET: usize = 88;
+const LOCALS_SIZE: usize = 88;
 
 // `CLOCK_REALTIME` is 0 on both Linux and macOS. `CLOCK_MONOTONIC` diverges:
 // Linux uses 1, macOS (Darwin) uses 6.
@@ -154,6 +155,6 @@ pub(super) fn lower_datetime_helper(
         instructions.push(abi::return_());
     }
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCALS_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }

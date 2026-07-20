@@ -11,7 +11,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
-
 pub struct IrProject {
     pub(crate) name: String,
     pub(crate) entry: Option<EntryPoint>,
@@ -117,7 +116,6 @@ pub(crate) struct EntryPoint {
 }
 
 #[derive(Clone)]
-
 pub(crate) struct IrFunction {
     pub(crate) name: String,
     pub(crate) visibility: String,

@@ -1,7 +1,6 @@
 use super::*;
 
 #[derive(Clone)]
-
 pub(crate) struct IrType {
     pub(crate) kind: String,
     pub(crate) visibility: String,
@@ -51,13 +50,11 @@ pub(crate) struct IrVariant {
     pub(crate) loc: IrSourceLoc,
 }
 #[derive(Clone)]
-
 pub(crate) struct IrEnumMember {
     pub(crate) name: String,
 }
 
 #[derive(Clone)]
-
 pub(crate) struct IrParam {
     pub(crate) name: String,
     pub(crate) type_: String,

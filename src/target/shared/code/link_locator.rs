@@ -5,10 +5,9 @@
 //! Pure: no I/O, no diagnostics — the caller renders the error and does the
 //! vendor hash verify.
 //!
-//! This replaces `link_thunk`'s old `library_filename()` soname guess
-//! (`lib{logical}.so.0` / `lib{logical}.dylib`), which never consulted the
-//! manifest and missed every unversioned `.so`, `.so.3`, non-`lib`-prefixed, or
-//! per-arch/libc variant.
+//! A `dlopen` filename is always the binding author's declared `source`, never a
+//! soname synthesized from the logical name — see `link_thunk`'s note at the
+//! filename data objects for why synthesis is not an acceptable fallback.
 
 use crate::binary_repr::{NativeLibraryLocator, NativeLibraryTable};
 use crate::manifest::libraries::{LibType, Libc};

@@ -161,7 +161,7 @@ const PERIOD_OFF: usize = 112; // snd_pcm_uframes_t period
 const BUFSZ_OFF: usize = 120; // snd_pcm_uframes_t buffer
 const FRAMES_OFF: usize = 128;
 const NEED_OFF: usize = 136;
-const GOT_OFF: usize = 144;
+const FRAMES_GOT_OFF: usize = 144;
 const LIST_OFF: usize = 152;
 const SRC_OFF: usize = 160; // byte payload src / dst
 const TOTAL_OFF: usize = 168;
@@ -1401,7 +1401,7 @@ fn lower_read(
         abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v11", "%v11", "%v13"),
         abi::store_u64("%v11", abi::stack_pointer(), SRC_OFF), // payload base
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF), // frames read
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), FRAMES_GOT_OFF), // frames read
     ]);
     emit_dlopen(
         &mut EmitCtx {
@@ -1493,7 +1493,7 @@ fn lower_read(
     )?;
     instructions.extend([
         abi::label(&loop_top),
-        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_ge(&loop_done),
@@ -1551,7 +1551,7 @@ fn lower_read(
             abi::branch_lt(&recover), // avail error -> recover
             // want = min(frames - got, avail); a zero avail re-arms the wait.
             abi::move_register("%v14", abi::return_register()), // avail frames
-            abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
             abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
             abi::subtract_registers("%v10", "%v10", "%v9"), // remaining frames
             abi::compare_registers("%v14", "%v10"),
@@ -1561,7 +1561,7 @@ fn lower_read(
             abi::compare_immediate("%v10", "0"),
             abi::branch_eq(&loop_top),
             abi::store_u64("%v10", abi::stack_pointer(), WANT_OFF),
-            abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF), // reload for readi math
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF), // reload for readi math
         ]);
     }
     instructions.extend([
@@ -1591,10 +1591,10 @@ fn lower_read(
         abi::branch_eq(&loop_top),
         abi::branch(&recover),
         abi::label(&ok_frames),
-        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::load_u64("%v10", abi::stack_pointer(), N_OFF),
         abi::add_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::store_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::branch(&loop_top),
         abi::label(&recover),
         abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
@@ -1619,7 +1619,7 @@ fn lower_read(
         let fin_loop = format!("{symbol}_fin");
         let fin_done = format!("{symbol}_fin_done");
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
             abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
             abi::compare_registers("%v9", "%v10"),
             abi::branch_ge(&ret_full),

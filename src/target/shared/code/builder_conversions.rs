@@ -173,9 +173,8 @@ impl CodeBuilder<'_> {
         source_register: &str,
     ) -> Result<ValueResult, String> {
         // Pure integer parse with no call ABI: every working register is scratch,
-        // minted as a vreg so the allocator colors it per-ISA (was hand-pinned
-        // x8-x17 + an out-of-pool x6). `xzr`
-        // below stays — it is the architectural zero register, not scratch.
+        // minted as a vreg so the allocator colors it per-ISA. `xzr` below stays
+        // — it is the architectural zero register, not scratch.
         let string_v = self.temporary_vreg();
         let length_v = self.temporary_vreg();
         let index_v = self.temporary_vreg();
@@ -309,8 +308,8 @@ impl CodeBuilder<'_> {
         base_slot: usize,
     ) -> Result<ValueResult, String> {
         // All working registers are scratch (no call ABI); mint as vregs so the
-        // allocator colors them per-ISA (was x8-x17 + out-of-pool x6/x7). `xzr`
-        // below stays. AArch64 unaffected.
+        // allocator colors them per-ISA. `xzr` below stays — it is the
+        // architectural zero register, not scratch.
         let string_v = self.temporary_vreg();
         let length_v = self.temporary_vreg();
         let index_v = self.temporary_vreg();

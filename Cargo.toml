@@ -17,6 +17,12 @@ unicode-segmentation = "1.12"
 image = { version = "0.25", default-features = false, features = ["png"] }
 icns = "0.3"
 
+# bug-345-C2: production items stranded below an inline `mod tests` (the tests
+# read as the end of the file, so the code under them is easy to miss). Five
+# such sites were cleaned up; deny keeps them from coming back.
+[lints.clippy]
+items_after_test_module = "deny"
+
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"

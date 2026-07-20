@@ -742,9 +742,10 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(from, "fsync", platform_imports, instructions, relocations)?;
-        // The C `int` return is narrowed to a signed 64-bit value at the shared
-        // comparison seam (`normalize_c_int_result` in fs_helpers_atomic.rs), the
-        // single owner of that invariant across all backends (bug-04, bug-44).
+        // The C `int` return is narrowed to a signed 64-bit value by the caller,
+        // at the comparison seam (`normalize_c_int_result` in
+        // fs_helpers_atomic.rs, or an inline `sign_extend_word` — see that
+        // helper's doc; it is a spelling, not a choke point) (bug-04, bug-44).
         // riscv64's lp64d ABI already sign-extends `int` returns, so the seam op
         // is a no-op there — kept for uniformity.
         Ok(())

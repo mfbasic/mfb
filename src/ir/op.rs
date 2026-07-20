@@ -1,7 +1,6 @@
 use super::*;
 
 #[derive(Clone)]
-
 pub(crate) enum IrOp {
     Bind {
         mutable: bool,

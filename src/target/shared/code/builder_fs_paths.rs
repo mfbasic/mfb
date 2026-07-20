@@ -33,7 +33,7 @@ impl CodeBuilder<'_> {
                 parts.type_
             ));
         }
-        let parts_slot = self.store_string_pointer("fs_path_join_parts", &parts.location);
+        let parts_slot = self.spill_to_slot("fs_path_join_parts", &parts.location);
         let alloc_ok = self.label("fs_path_join_alloc_ok");
         self.emit(abi::load_u64(
             abi::return_register(),
@@ -64,7 +64,7 @@ impl CodeBuilder<'_> {
     fn lower_fs_path_base_name(&mut self, path: &NirValue) -> Result<ValueResult, String> {
         let path = self.lower_value(path)?;
         self.require_string("fs.pathBaseName path", &path)?;
-        let path_slot = self.store_string_pointer("fs_path_base_name_path", &path.location);
+        let path_slot = self.spill_to_slot("fs_path_base_name_path", &path.location);
         let whole_root = self.label("fs_path_base_name_whole_root");
         let trim_loop = self.label("fs_path_base_name_trim_loop");
         let trim_done = self.label("fs_path_base_name_trim_done");
@@ -139,7 +139,7 @@ impl CodeBuilder<'_> {
     fn lower_fs_path_dir_name(&mut self, path: &NirValue) -> Result<ValueResult, String> {
         let path = self.lower_value(path)?;
         self.require_string("fs.pathDirName path", &path)?;
-        let path_slot = self.store_string_pointer("fs_path_dir_name_path", &path.location);
+        let path_slot = self.spill_to_slot("fs_path_dir_name_path", &path.location);
         let dot = self.label("fs_path_dir_name_dot");
         let root = self.label("fs_path_dir_name_root");
         let trim_loop = self.label("fs_path_dir_name_trim_loop");
@@ -233,7 +233,7 @@ impl CodeBuilder<'_> {
     fn lower_fs_path_extension(&mut self, path: &NirValue) -> Result<ValueResult, String> {
         let path = self.lower_value(path)?;
         self.require_string("fs.pathExtension path", &path)?;
-        let path_slot = self.store_string_pointer("fs_path_extension_path", &path.location);
+        let path_slot = self.spill_to_slot("fs_path_extension_path", &path.location);
         let empty = self.label("fs_path_extension_empty");
         let trim_loop = self.label("fs_path_extension_trim_loop");
         let trim_done = self.label("fs_path_extension_trim_done");
@@ -296,7 +296,7 @@ impl CodeBuilder<'_> {
     fn lower_fs_path_normalize(&mut self, path: &NirValue) -> Result<ValueResult, String> {
         let path = self.lower_value(path)?;
         self.require_string("fs.pathNormalize path", &path)?;
-        let path_slot = self.store_string_pointer("fs_path_normalize_path", &path.location);
+        let path_slot = self.spill_to_slot("fs_path_normalize_path", &path.location);
         let result_slot = self.allocate_stack_object("fs_path_normalize_result", 8);
         let out_len_slot = self.allocate_stack_object("fs_path_normalize_out_len", 8);
         let input_index_slot = self.allocate_stack_object("fs_path_normalize_input_index", 8);

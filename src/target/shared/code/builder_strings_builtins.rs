@@ -26,7 +26,7 @@ impl CodeBuilder<'_> {
         let scratch28 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.graphemes value", &value)?;
-        let value_slot = self.store_string_pointer("strings_graphemes_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_graphemes_value", &value.location);
         let count_slot = self.allocate_stack_object("strings_graphemes_count", 8);
         let state_bc_slot = self.allocate_stack_object("strings_graphemes_state_bc", 8);
         let state_icb_slot = self.allocate_stack_object("strings_graphemes_state_icb", 8);
@@ -281,7 +281,7 @@ impl CodeBuilder<'_> {
         let scratch28 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.toBytes value", &value)?;
-        let value_slot = self.store_string_pointer("strings_to_bytes_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_to_bytes_value", &value.location);
         let count_slot = self.allocate_stack_object("strings_to_bytes_count", 8);
         let result_slot = self.allocate_stack_object("strings_to_bytes_result", 8);
         let layout = CollectionTypeLayout::from_type("List OF Byte").ok_or_else(|| {
@@ -466,7 +466,7 @@ impl CodeBuilder<'_> {
         let scratch28 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string(map.label(), &value)?;
-        let value_slot = self.store_string_pointer(map.slot_prefix(), &value.location);
+        let value_slot = self.spill_to_slot(map.slot_prefix(), &value.location);
         let length_slot = self.allocate_stack_object("strings_case_map_length", 8);
         let width_slot = self.allocate_stack_object("strings_case_map_width", 8);
         let result_slot = self.allocate_stack_object("strings_case_map_result", 8);
@@ -646,7 +646,7 @@ impl CodeBuilder<'_> {
         let scratch8 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.normalizeNfc value", &value)?;
-        let value_slot = self.store_string_pointer("strings_normalize_nfc_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_normalize_nfc_value", &value.location);
         let scalar_count_slot = self.allocate_stack_object("strings_normalize_nfc_scalar_count", 8);
         let temp_slot = self.allocate_stack_object("strings_normalize_nfc_temp", 8);
         let composed_count_slot =
@@ -1111,7 +1111,7 @@ impl CodeBuilder<'_> {
         let scratch15 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.trim value", &value)?;
-        let value_slot = self.store_string_pointer("strings_trim_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_trim_value", &value.location);
         let start_slot = self.allocate_stack_object("strings_trim_start", 8);
         let end_slot = self.allocate_stack_object("strings_trim_end", 8);
         let done_start = self.label("strings_trim_start_done");
@@ -1220,10 +1220,10 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
         self.require_string("strings.startsWith value", &value)?;
-        let value_slot = self.store_string_pointer("strings_starts_with_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_starts_with_value", &value.location);
         let prefix = self.lower_value(prefix)?;
         self.require_string("strings.startsWith prefix", &prefix)?;
-        let prefix_slot = self.store_string_pointer("strings_starts_with_prefix", &prefix.location);
+        let prefix_slot = self.spill_to_slot("strings_starts_with_prefix", &prefix.location);
         self.lower_string_prefix_predicate("strings.startsWith", value_slot, prefix_slot, false)
     }
 
@@ -1234,10 +1234,10 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
         self.require_string("strings.endsWith value", &value)?;
-        let value_slot = self.store_string_pointer("strings_ends_with_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_ends_with_value", &value.location);
         let suffix = self.lower_value(suffix)?;
         self.require_string("strings.endsWith suffix", &suffix)?;
-        let suffix_slot = self.store_string_pointer("strings_ends_with_suffix", &suffix.location);
+        let suffix_slot = self.spill_to_slot("strings_ends_with_suffix", &suffix.location);
         self.lower_string_prefix_predicate("strings.endsWith", value_slot, suffix_slot, true)
     }
 
@@ -1257,10 +1257,10 @@ impl CodeBuilder<'_> {
         let scratch15 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.contains value", &value)?;
-        let value_slot = self.store_string_pointer("strings_contains_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_contains_value", &value.location);
         let needle = self.lower_value(needle)?;
         self.require_string("strings.contains needle", &needle)?;
-        let needle_slot = self.store_string_pointer("strings_contains_needle", &needle.location);
+        let needle_slot = self.spill_to_slot("strings_contains_needle", &needle.location);
 
         let result_slot = self.allocate_stack_object("strings_contains_result", 8);
         let true_label = self.label("strings_contains_true");
@@ -1320,11 +1320,10 @@ impl CodeBuilder<'_> {
                 parts.type_
             ));
         }
-        let parts_slot = self.store_string_pointer("strings_join_parts", &parts.location);
+        let parts_slot = self.spill_to_slot("strings_join_parts", &parts.location);
         let delimiter = self.lower_value(delimiter)?;
         self.require_string("strings.join delimiter", &delimiter)?;
-        let delimiter_slot =
-            self.store_string_pointer("strings_join_delimiter", &delimiter.location);
+        let delimiter_slot = self.spill_to_slot("strings_join_delimiter", &delimiter.location);
         let output_len_slot = self.allocate_stack_object("strings_join_output_len", 8);
         let result_slot = self.allocate_stack_object("strings_join_result", 8);
         let length_loop = self.label("strings_join_length_loop");
@@ -1340,8 +1339,9 @@ impl CodeBuilder<'_> {
         let value_done = self.label("strings_join_value_done");
         let copy_done = self.label("strings_join_copy_done");
 
-        // Copy-loop scratch as vregs (was out-of-pool x2/x3/x4, which fall back to
-        // rax via the Ret-role default on x86 and collide). AArch64 unaffected.
+        // Copy-loop scratch as vregs, so the allocator colors them per-ISA. They
+        // must not be pinned to a role: a Ret- or argument-role register is a
+        // distinct physical register per backend and collides on x86-64.
         let cursor_v = self.temporary_vreg();
         let remaining_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
@@ -1525,11 +1525,10 @@ impl CodeBuilder<'_> {
         let scratch24 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.split value", &value)?;
-        let value_slot = self.store_string_pointer("strings_split_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_split_value", &value.location);
         let delimiter = self.lower_value(delimiter)?;
         self.require_string("strings.split delimiter", &delimiter)?;
-        let delimiter_slot =
-            self.store_string_pointer("strings_split_delimiter", &delimiter.location);
+        let delimiter_slot = self.spill_to_slot("strings_split_delimiter", &delimiter.location);
         let count_slot = self.allocate_stack_object("strings_split_count", 8);
         let data_len_slot = self.allocate_stack_object("strings_split_data_len", 8);
         let result_slot = self.allocate_stack_object("strings_split_result", 8);
@@ -1552,8 +1551,8 @@ impl CodeBuilder<'_> {
         let write_done = self.label("strings_split_write_done");
         let done = self.label("strings_split_done");
 
-        // Inner delimiter-scan scratch as vregs (was out-of-pool x2-x6, which
-        // collide with x86 ABI argument registers).
+        // Inner delimiter-scan scratch as vregs, so the allocator colors them
+        // per-ISA rather than colliding with the x86-64 ABI argument registers.
         let scan_i_v = self.temporary_vreg();
         let scan_ptr_v = self.temporary_vreg();
         let delim_ptr_v = self.temporary_vreg();
@@ -1772,7 +1771,7 @@ impl CodeBuilder<'_> {
         let scratch13 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.withAny value", &value)?;
-        let value_slot = self.store_string_pointer("strings_with_any_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_with_any_value", &value.location);
         let parts = self.lower_value(parts)?;
         if list_element_type(&parts.type_).as_deref() != Some("String") {
             return Err(format!(
@@ -1780,7 +1779,7 @@ impl CodeBuilder<'_> {
                 parts.type_
             ));
         }
-        let parts_slot = self.store_string_pointer("strings_with_any_parts", &parts.location);
+        let parts_slot = self.spill_to_slot("strings_with_any_parts", &parts.location);
         let result_slot = self.allocate_stack_object("strings_with_any_result", 8);
 
         let true_label = self.label("strings_with_any_true");
@@ -1877,10 +1876,10 @@ impl CodeBuilder<'_> {
         let scratch13 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.strip value", &value)?;
-        let value_slot = self.store_string_pointer("strings_strip_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_strip_value", &value.location);
         let part = self.lower_value(part)?;
         self.require_string("strings.strip part", &part)?;
-        let part_slot = self.store_string_pointer("strings_strip_part", &part.location);
+        let part_slot = self.spill_to_slot("strings_strip_part", &part.location);
         let ptr_slot = self.allocate_stack_object("strings_strip_ptr", 8);
         let len_slot = self.allocate_stack_object("strings_strip_len", 8);
 
@@ -1970,10 +1969,10 @@ impl CodeBuilder<'_> {
         let scratch15 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.count value", &value)?;
-        let value_slot = self.store_string_pointer("strings_count_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_count_value", &value.location);
         let needle = self.lower_value(needle)?;
         self.require_string("strings.count needle", &needle)?;
-        let needle_slot = self.store_string_pointer("strings_count_needle", &needle.location);
+        let needle_slot = self.spill_to_slot("strings_count_needle", &needle.location);
         let count_slot = self.allocate_stack_object("strings_count_result", 8);
 
         let invalid = self.label("strings_count_invalid");
@@ -2054,7 +2053,7 @@ impl CodeBuilder<'_> {
         let scratch13 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.left/right value", &value)?;
-        let value_slot = self.store_string_pointer("strings_lr_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_lr_value", &value.location);
         let count = self.lower_value(count)?;
         if count.type_ != "Integer" {
             return Err(format!(
@@ -2062,7 +2061,7 @@ impl CodeBuilder<'_> {
                 count.type_
             ));
         }
-        let count_slot = self.store_string_pointer("strings_lr_count", &count.location);
+        let count_slot = self.spill_to_slot("strings_lr_count", &count.location);
         let ptr_slot = self.allocate_stack_object("strings_lr_ptr", 8);
         let len_slot = self.allocate_stack_object("strings_lr_len", 8);
 
@@ -2176,7 +2175,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
         self.require_string("strings.repeat value", &value)?;
-        let value_slot = self.store_string_pointer("strings_repeat_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_repeat_value", &value.location);
         let times = self.lower_value(times)?;
         if times.type_ != "Integer" {
             return Err(format!(
@@ -2184,7 +2183,7 @@ impl CodeBuilder<'_> {
                 times.type_
             ));
         }
-        let times_slot = self.store_string_pointer("strings_repeat_times", &times.location);
+        let times_slot = self.spill_to_slot("strings_repeat_times", &times.location);
         let total_slot = self.allocate_stack_object("strings_repeat_total", 8);
         let result_slot = self.allocate_stack_object("strings_repeat_result", 8);
 
@@ -2195,11 +2194,11 @@ impl CodeBuilder<'_> {
         let inner_done = self.label("strings_repeat_inner_done");
         let outer_done = self.label("strings_repeat_outer_done");
 
-        // Scratch as vregs (was hand-pinned x9/x10/x11/x13/x14/x16 + out-of-pool
-        // x2/x3/x4). x1 stays physical only as the arena_alloc ABI arg/result;
-        // the allocation pointer is then carried in a neutral vreg across the
-        // copy loops, since a held physical result register is fragile on ISAs
-        // whose result/argument registers differ (x86-64).
+        // Scratch as vregs. The arena_alloc ABI arg/result register stays
+        // physical only across that call; the allocation pointer is then carried
+        // in a neutral vreg across the copy loops, since a held physical result
+        // register is fragile on ISAs whose result/argument registers differ
+        // (x86-64).
         let val_ptr_v = self.temporary_vreg();
         let times_rem_v = self.temporary_vreg();
         let len_v = self.temporary_vreg();
@@ -2309,7 +2308,7 @@ impl CodeBuilder<'_> {
         let scratch15 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
         self.require_string("strings.pad value", &value)?;
-        let value_slot = self.store_string_pointer("strings_pad_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_pad_value", &value.location);
         let width = self.lower_value(&args[1])?;
         if width.type_ != "Integer" {
             return Err(format!(
@@ -2317,11 +2316,11 @@ impl CodeBuilder<'_> {
                 width.type_
             ));
         }
-        let width_slot = self.store_string_pointer("strings_pad_width", &width.location);
+        let width_slot = self.spill_to_slot("strings_pad_width", &width.location);
         let pad_slot = if args.len() == 3 {
             let pad = self.lower_value(&args[2])?;
             self.require_string("strings.pad padChar", &pad)?;
-            self.store_string_pointer("strings_pad_char", &pad.location)
+            self.spill_to_slot("strings_pad_char", &pad.location)
         } else {
             // Default padChar is a single space " ". Materialize a one-byte String
             // (0x20) so the downstream code path is uniform.
@@ -2335,7 +2334,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::move_immediate(&scratch12, "Integer", "1"));
             let space = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
-            self.store_string_pointer("strings_pad_char", &space)
+            self.spill_to_slot("strings_pad_char", &space)
         };
         // Number of pad chars to prepend/append.
         let pad_count_slot = self.allocate_stack_object("strings_pad_count", 8);
@@ -2480,9 +2479,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), total_slot));
         self.emit(abi::store_u64(&scratch11, abi::RET[1], 0));
 
-        // Write the output. x13 = dst cursor. Carry the result ptr in a vreg,
-        // not physical x1 (concat/split pattern). Copy-loop scratch as vregs too
-        // (was out-of-pool x2/x3/x4).
+        // Write the output. Carry the result pointer in a vreg rather than
+        // holding the arena_alloc result register across the copy (the
+        // concat/split pattern). Copy-loop scratch is minted as vregs too.
         let out_ptr_v = self.temporary_vreg();
         let out_ptr = out_ptr_v.as_str();
         let pad_src_v = self.temporary_vreg();
@@ -2585,7 +2584,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let scratch16 = self.temporary_vreg();
         let list = self.lower_strings_graphemes(value)?;
-        let list_slot = self.store_string_pointer("strings_graphemes_count_list", &list.location);
+        let list_slot = self.spill_to_slot("strings_graphemes_count_list", &list.location);
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), list_slot));
         self.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
@@ -2618,9 +2617,9 @@ impl CodeBuilder<'_> {
                 index.type_
             ));
         }
-        let index_slot = self.store_string_pointer("strings_grapheme_at_index", &index.location);
+        let index_slot = self.spill_to_slot("strings_grapheme_at_index", &index.location);
         let list = self.lower_strings_graphemes(value)?;
-        let list_slot = self.store_string_pointer("strings_grapheme_at_list", &list.location);
+        let list_slot = self.spill_to_slot("strings_grapheme_at_list", &list.location);
         let ptr_slot = self.allocate_stack_object("strings_grapheme_at_ptr", 8);
         let len_slot = self.allocate_stack_object("strings_grapheme_at_len", 8);
 
@@ -2699,10 +2698,10 @@ impl CodeBuilder<'_> {
         let scratch23 = self.temporary_vreg();
         let value = self.lower_value(value)?;
         self.require_string("strings.trimChars value", &value)?;
-        let value_slot = self.store_string_pointer("strings_trim_chars_value", &value.location);
+        let value_slot = self.spill_to_slot("strings_trim_chars_value", &value.location);
         let chars = self.lower_value(chars)?;
         self.require_string("strings.trimChars chars", &chars)?;
-        let chars_slot = self.store_string_pointer("strings_trim_chars_chars", &chars.location);
+        let chars_slot = self.spill_to_slot("strings_trim_chars_chars", &chars.location);
         let start_slot = self.allocate_stack_object("strings_trim_chars_start", 8);
         let end_slot = self.allocate_stack_object("strings_trim_chars_end", 8);
 

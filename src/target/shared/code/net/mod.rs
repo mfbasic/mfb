@@ -8,6 +8,18 @@
 //! by `getaddrinfo` so the helpers never hand-build a `sockaddr_in`; the only
 //! field written directly is `sin_port` at offset 2, which is consistent across
 //! platforms for `AF_INET`.
+//!
+//! Visibility here is spelled `pub(in crate::target::shared::code)` in full,
+//! matching `io.rs` and `poll.rs`, rather than the shorter `pub(super)`. In this
+//! file the two happen to mean the same thing; in the child modules they do not
+//! (`pub(super)` there would mean `pub(in ...::net)`), so the long form is the
+//! only spelling that is correct in all three and can be copied between them.
+
+mod io;
+mod poll;
+
+pub(in crate::target::shared::code) use io::*;
+pub(in crate::target::shared::code) use poll::*;
 
 use std::collections::HashMap;
 
@@ -784,7 +796,7 @@ fn lower_net_endpoint_helper(
     }
 }
 
-pub(super) fn lower_net_connect_tcp_helper(
+pub(in crate::target::shared::code) fn lower_net_connect_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -792,7 +804,7 @@ pub(super) fn lower_net_connect_tcp_helper(
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, false)
 }
 
-pub(super) fn lower_net_connect_tcp_addr_helper(
+pub(in crate::target::shared::code) fn lower_net_connect_tcp_addr_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -800,16 +812,10 @@ pub(super) fn lower_net_connect_tcp_addr_helper(
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, true)
 }
 
-pub(super) fn lower_net_listen_tcp_helper(
+pub(in crate::target::shared::code) fn lower_net_listen_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     lower_net_endpoint_helper(symbol, platform_imports, platform, true, false)
 }
-
-mod io;
-mod poll;
-
-pub(super) use io::*;
-pub(super) use poll::*;

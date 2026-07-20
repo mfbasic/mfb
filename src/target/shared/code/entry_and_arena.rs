@@ -40,10 +40,10 @@ pub(crate) fn lower_program_entry(
     let args_in_registers = platform.entry_args_in_registers() || entry_called_as_function;
     // Capture argc/argv into the `os::args` globals before the frame is carved
     // (plan-31-B), while the OS-supplied values are still at their entry
-    // positions: macOS delivers them in x0/x1; a raw Linux ELF entry has argc at
-    // `[sp,0]` and argv (the `char**`) at `sp+8`. Uses `SCRATCH[0]`/`SCRATCH[1]`
-    // (AArch64 `x9`/`x10`) scratch only, so
-    // x0/x1 stay live for the arg-materialization path below. Gated on os.args
+    // positions: macOS delivers them in `ARG[0]`/`ARG[1]`; a raw Linux ELF entry
+    // has argc at `[sp,0]` and argv (the `char**`) at `sp+8`. Uses
+    // `SCRATCH[0]`/`SCRATCH[1]` only, so `ARG[0]`/`ARG[1]` stay live for the
+    // arg-materialization path below. Gated on os.args
     // usage, so a program that never calls it keeps a byte-identical entry.
     if capture_args {
         if args_in_registers {
@@ -85,10 +85,11 @@ pub(crate) fn lower_program_entry(
         }
     }
     // A raw Linux ELF entry is jumped to with `argc` at `[sp]` / `argv` at
-    // `[sp+8]` and undefined argument registers; load them into the `x0`/`x1`
-    // the rest of the entry expects BEFORE the frame is carved (the entry does
-    // not pass through `finalize_frame`, so `[sp,0]` here is the true initial
-    // stack). macOS delivers them in `x0`/`x1` (libSystem calls `main`).
+    // `[sp+8]` and undefined argument registers; load them into the
+    // `ARG[0]`/`ARG[1]` the rest of the entry expects BEFORE the frame is carved
+    // (the entry does not pass through `finalize_frame`, so `[sp,0]` here is the
+    // true initial stack). macOS delivers them in `ARG[0]`/`ARG[1]` already
+    // (libSystem calls `main`).
     //
     // Skipped when the entry is CALLED (app mode): the worker thread's `[sp]`
     // holds no kernel argv layout, so this would load garbage over the real
@@ -131,7 +132,8 @@ pub(crate) fn lower_program_entry(
         // (`runtime_helpers.rs` `lower_thread_start_helper`) — both zero
         // exactly `ARENA_STATE_SIZE`, so growing the state (e.g. quick bins)
         // can never leave a field as garbage in one path but not the other.
-        // `x9`/`x10` are free scratch here; `x0`/`x1` (argc/argv) are live.
+        // `SCRATCH[0]`/`SCRATCH[1]` are free scratch here; `ARG[0]`/`ARG[1]`
+        // (argc/argv) are live.
         abi::move_register(abi::SCRATCH[0], ARENA_STATE_REGISTER),
         abi::add_immediate(abi::SCRATCH[1], ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
         abi::label("entry_arena_state_zero"),
@@ -647,7 +649,7 @@ fn emit_entry_args_list_materialization(
             abi::RET[1],
             COLLECTION_OFFSET_DATA_CAPACITY,
         ),
-        // x11 = entry cursor, x12 = data write cursor (= entries end).
+        // SCRATCH[2] = entry cursor, SCRATCH[3] = data write cursor (= entries end).
         abi::add_immediate(abi::SCRATCH[2], abi::RET[1], COLLECTION_HEADER_SIZE),
         abi::move_immediate(
             abi::SCRATCH[8],
@@ -656,14 +658,15 @@ fn emit_entry_args_list_materialization(
         ),
         abi::multiply_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[8]),
         abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[2], abi::SCRATCH[3]),
-        // x13 = value-offset accumulator, x14 = index, x10 = argv cursor.
+        // SCRATCH[4] = value-offset accumulator, SCRATCH[5] = index,
+        // SCRATCH[1] = argv cursor.
         abi::move_immediate(abi::SCRATCH[4], "Integer", "0"),
         abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), args_base + 8),
         abi::move_immediate(abi::SCRATCH[5], "Integer", "0"),
         abi::label("entry_args_fill_loop"),
         abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[0]),
         abi::branch_eq("entry_args_fill_done"),
-        abi::load_u64(abi::SCRATCH[6], abi::SCRATCH[1], 0), // x15 = argv[i] (NUL-terminated source)
+        abi::load_u64(abi::SCRATCH[6], abi::SCRATCH[1], 0), // SCRATCH[6] = argv[i] (NUL-terminated source)
         abi::move_immediate(
             abi::SCRATCH[8],
             "Byte",

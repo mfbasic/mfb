@@ -672,6 +672,41 @@ pub(crate) fn read_lock(project_dir: &Path) -> Result<Option<Lock>, String> {
     }))
 }
 
+fn print_lock_diff(previous: Option<&Lock>, next: &Lock) {
+    let old: BTreeMap<&str, &LockedPackage> = previous
+        .map(|lock| {
+            lock.packages
+                .iter()
+                .map(|p| (p.ident.as_str(), p))
+                .collect()
+        })
+        .unwrap_or_default();
+    println!("Resolution:");
+    for package in &next.packages {
+        match old.get(package.ident.as_str()) {
+            None => println!(
+                "  + {} {} ({})",
+                package.name, package.selected, package.state
+            ),
+            Some(before) if before.selected != package.selected => println!(
+                "  ~ {} {} -> {} ({})",
+                package.name, before.selected, package.selected, package.state
+            ),
+            Some(_) => println!(
+                "    {} {} ({})",
+                package.name, package.selected, package.state
+            ),
+        }
+    }
+    if let Some(previous) = previous {
+        for package in &previous.packages {
+            if !next.packages.iter().any(|p| p.ident == package.ident) {
+                println!("  - {} {}", package.name, package.selected);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1027,40 +1062,5 @@ mod tests {
         assert_eq!(reread.packages.len(), 2);
         assert_eq!(reread.checkpoint_size, 7);
         std::fs::remove_dir_all(&temp).ok();
-    }
-}
-
-fn print_lock_diff(previous: Option<&Lock>, next: &Lock) {
-    let old: BTreeMap<&str, &LockedPackage> = previous
-        .map(|lock| {
-            lock.packages
-                .iter()
-                .map(|p| (p.ident.as_str(), p))
-                .collect()
-        })
-        .unwrap_or_default();
-    println!("Resolution:");
-    for package in &next.packages {
-        match old.get(package.ident.as_str()) {
-            None => println!(
-                "  + {} {} ({})",
-                package.name, package.selected, package.state
-            ),
-            Some(before) if before.selected != package.selected => println!(
-                "  ~ {} {} -> {} ({})",
-                package.name, before.selected, package.selected, package.state
-            ),
-            Some(_) => println!(
-                "    {} {} ({})",
-                package.name, package.selected, package.state
-            ),
-        }
-    }
-    if let Some(previous) = previous {
-        for package in &previous.packages {
-            if !next.packages.iter().any(|p| p.ident == package.ident) {
-                println!("  - {} {}", package.name, package.selected);
-            }
-        }
     }
 }

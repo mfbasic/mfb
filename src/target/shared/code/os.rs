@@ -1,10 +1,21 @@
-//! Native code generation for the `os::` environment helpers (plan-31-A). Each
-//! is a small runtime helper wrapping a libc primitive:
+//! Native code generation for the `os::` environment and introspection helpers
+//! (plan-31-A/B). Most are a small runtime helper wrapping a libc primitive; the
+//! exceptions are called out below. Every arm of `lower_os_call` is listed:
 //!
 //! - `os.getEnv` / `os.getEnvOr` / `os.hasEnv` — `getenv`.
 //! - `os.setEnv` — `setenv(name, value, 1)`.
 //! - `os.unsetEnv` — `unsetenv(name)`.
 //! - `os.environ` — walk the live `char **environ` and build a `Map OF String`.
+//! - `os.name` / `os.arch` — **no libc call**: compile-time constants folded from
+//!   the target triple (`os_family`/`os_arch`) and emitted as a const `String`.
+//! - `os.pid` — `getpid`.
+//! - `os.cpuCount` — `sysconf(_SC_NPROCESSORS_ONLN)`.
+//! - `os.hostName` — `gethostname`.
+//! - `os.userName` — `getpwuid`/`getuid`.
+//! - `os.executablePath` — the platform's own executable-path primitive.
+//! - `os.resourcePath` — **build-mode dependent** (plan-55-B): resolves against
+//!   the app bundle/AppDir layout or the build output directory, not a libc call.
+//! - `os.args` — reads the `os::args` globals captured at entry (plan-31-B).
 //!
 //! String arguments are marshalled into NUL-terminated C buffers with the same
 //! arena-copy idiom the `fs` path helpers use; results are the standard owned

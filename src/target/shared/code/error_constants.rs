@@ -271,15 +271,15 @@ pub(crate) const CLOSURE_DESC_INIT_SYMBOL: &str = "_mfb_closure_desc_init";
 // Program-entry frame & process lifecycle
 // ===========================================================================
 
+/// One in-frame scratch word between the arena state (0..`ARENA_STATE_SIZE`)
+/// and the globals (`ENTRY_STACK_SIZE`..): the RNG-seed block's `getentropy`
+/// buffer.
+pub(crate) const ENTRY_SEED_SCRATCH_OFFSET: usize = ARENA_STATE_SIZE;
 /// Entry-frame prefix: the arena state plus the one seed-scratch word after it.
 /// Derived from `ARENA_STATE_SIZE` so the frame tracks arena-state growth
 /// (e.g. the allocator-01 quick bins) automatically.
 pub(crate) const ENTRY_STACK_SIZE: usize = ENTRY_SEED_SCRATCH_OFFSET + 8;
 pub(crate) const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
-/// One in-frame scratch word between the arena state (0..`ARENA_STATE_SIZE`)
-/// and the globals (`ENTRY_STACK_SIZE`..): the RNG-seed block's `getentropy`
-/// buffer.
-pub(crate) const ENTRY_SEED_SCRATCH_OFFSET: usize = ARENA_STATE_SIZE;
 /// Size of the args region appended to the entry frame for an arg-accepting
 /// entry: five 8-byte slots (argc, argv, args list, data length, saved count),
 /// rounded up to the 16-byte frame granule. The region sits ABOVE the globals

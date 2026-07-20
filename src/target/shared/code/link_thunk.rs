@@ -119,10 +119,10 @@ pub(super) fn emit_link_support(
     }
     // plan-46-C: the `dlopen` filename is the binding author's declared `source`
     // for this build's exact (os, arch, libc) — resolved from the imported
-    // binding's section-10 table, never synthesized. The old `library_filename`
-    // guess (`lib{logical}.so.0` / `lib{logical}.dylib`) is gone: it never
-    // consulted the manifest and missed every unversioned `.so`, `.so.3`,
-    // non-`lib`-prefixed, or per-arch/libc variant.
+    // binding's section-10 table, never synthesized. Synthesizing a soname from
+    // the logical name (`lib{logical}.so.0` / `lib{logical}.dylib`) does not
+    // consult the manifest and misses every unversioned `.so`, `.so.3`,
+    // non-`lib`-prefixed, or per-arch/libc variant — do not reintroduce it.
     for (index, library) in library_index.iter().enumerate() {
         let resolved = libraries.get(library)?;
         data_objects.push(cstring_object(&lib_symbol(index), &resolved.dlopen_name));
@@ -1514,185 +1514,6 @@ fn emit_link_bool(
     dst
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ir::{
-        abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrLinkFunction,
-    };
-
-    /// bug-296: a LINK thunk calls a real C function, so its arguments follow the
-    /// target's EXTERNAL C ABI. SysV x86-64 passes six integer arguments in
-    /// registers; the backend's `CALL_ARGS` extends the list with rax/rbp for
-    /// arguments 7 and 8, which is sound for the compiler's own calls but hands an
-    /// external callee two registers it never reads -- it takes those from the
-    /// stack, so a >=7-integer-slot native function was called with garbage
-    /// trailing arguments, silently and with no diagnostic. aarch64 and riscv64
-    /// have 8 real argument registers and are unaffected.
-    #[test]
-    fn seven_integer_slots_are_rejected_on_x86_and_accepted_on_aarch64() {
-        let seven_int_slots = |count: usize| IrLinkFunction {
-            alias: "lib".to_string(),
-            name: "seven".to_string(),
-            library: "demo".to_string(),
-            symbol: "demo_seven".to_string(),
-            // Each ABI slot is sourced from a wrapper parameter of the same name.
-            params: (0..count)
-                .map(|i| (format!("a{i}"), "Integer".to_string()))
-                .collect(),
-            return_type: "Integer".to_string(),
-            return_resource: false,
-            return_state_type: None,
-            abi_slots: (0..count)
-                .map(|i| IrAbiSlot {
-                    name: format!("a{i}"),
-                    ctype: "CInt64".to_string(),
-                    direction: crate::ir::AbiDirection::In,
-                })
-                .collect(),
-            abi_return_name: "return".to_string(),
-            abi_return_ctype: "CInt64".to_string(),
-            consts: vec![],
-            bind_in: vec![],
-            bind_state: None,
-            bind_state_resource: None,
-            success_on: None,
-            result: None,
-            free: None,
-        };
-        let lower = |count: usize| {
-            lower_link_thunk(
-                &seven_int_slots(count),
-                &[],
-                &HashMap::new(),
-                0,
-                0,
-                None,
-                &HashSet::new(),
-            )
-        };
-
-        // x86-64: six is the SysV limit, so six lowers and seven is refused rather
-        // than emitting a call that passes arguments the callee never reads.
-        mir::set_backend(&crate::arch::x86_64::backend::X86_64_BACKEND);
-        assert!(
-            lower(6).is_ok(),
-            "six integer slots must still lower on x86"
-        );
-        let err = match lower(7) {
-            Ok(_) => panic!("seven integer slots must be refused on x86"),
-            Err(err) => err,
-        };
-        assert!(
-            err.contains("integer ABI slots") && err.contains("seven"),
-            "unexpected error: {err}"
-        );
-
-        // aarch64 has eight real argument registers, so the same function is fine.
-        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
-        assert!(
-            lower(7).is_ok(),
-            "seven integer slots are within AAPCS64's eight argument registers"
-        );
-        assert!(lower(8).is_ok(), "eight is AAPCS64's limit");
-    }
-
-    /// Every ctype the allow-list accepts must reach a real marshaling arm.
-    ///
-    /// plan-50-A closed the slot-ctype namespace and turned `emit_return_passthrough`'s
-    /// default arm into an `Err`. The allow-list is hand-written (Rust cannot
-    /// enumerate match arms), so this walks every accepted name through
-    /// `lower_link_thunk` and asserts none of them lands on that arm. Without it,
-    /// adding a ctype to the list without a marshaling arm would only fail at the
-    /// first binding that used it.
-    #[test]
-    fn every_known_ctype_lowers() {
-        // Lowering reads the active backend for register/instruction shapes; the
-        // ctype set under test is backend-independent, so any backend serves.
-        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
-
-        // The full accepted set. `ir::link::tests::ctype_list_is_exhaustive` holds
-        // this in sync with `abi_slot_ctype_is_known`, so a name added to the
-        // authority without an arm here fails there first.
-        const CTYPES: &[&str] = &[
-            "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
-            "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
-        ];
-
-        // Every ctype valid as an ABI *return* must reach a return arm. This is the
-        // arm that can `Err`, and it is how the guard caught `CString` having no
-        // return meaning at all (a `char *` return is `CPtr` + a `String` wrapper).
-        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_return(c)) {
-            let returns_value = *ctype != "CVoid";
-            let function = IrLinkFunction {
-                alias: "lib".to_string(),
-                name: format!("ret_{ctype}"),
-                library: "demo".to_string(),
-                symbol: "demo_f".to_string(),
-                params: vec![],
-                // A `CPtr` return with an `Integer` wrapper takes the raw path; the
-                // `String` copy-out path is covered by the sqlite3 runtime tests.
-                return_type: if returns_value { "Integer" } else { "Nothing" }.to_string(),
-                return_resource: false,
-                return_state_type: None,
-                abi_slots: vec![],
-                abi_return_name: if returns_value { "return" } else { "status" }.to_string(),
-                abi_return_ctype: (*ctype).to_string(),
-                consts: vec![],
-                bind_in: vec![],
-                bind_state: None,
-                bind_state_resource: None,
-                success_on: None,
-                result: None,
-                free: None,
-            };
-            let lowered =
-                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
-            assert!(
-                lowered.is_ok(),
-                "accepted return ctype {ctype} does not lower: {:?}",
-                lowered.err()
-            );
-        }
-
-        // Every ctype valid as an ABI *argument* must stage without error. Pinned
-        // with CONST so the slot needs no wrapper parameter.
-        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_argument(c)) {
-            let function = IrLinkFunction {
-                alias: "lib".to_string(),
-                name: format!("arg_{ctype}"),
-                library: "demo".to_string(),
-                symbol: "demo_f".to_string(),
-                params: vec![],
-                return_type: "Nothing".to_string(),
-                return_resource: false,
-                return_state_type: None,
-                abi_slots: vec![IrAbiSlot {
-                    name: "pinned".to_string(),
-                    ctype: (*ctype).to_string(),
-                    direction: crate::ir::AbiDirection::In,
-                }],
-                abi_return_name: "status".to_string(),
-                abi_return_ctype: "CInt32".to_string(),
-                consts: vec![("pinned".to_string(), 0)],
-                bind_in: vec![],
-                bind_state: None,
-                bind_state_resource: None,
-                success_on: None,
-                result: None,
-                free: None,
-            };
-            let lowered =
-                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
-            assert!(
-                lowered.is_ok(),
-                "accepted argument ctype {ctype} does not lower: {:?}",
-                lowered.err()
-            );
-        }
-    }
-}
-
 /// Emit the sized store for a struct field of `ctype` at `[sp + off]` from `src`
 /// (plan-50-E §4.4).
 fn store_field(ctype: &str, src: &str, off: usize) -> CodeInstruction {
@@ -2083,4 +1904,183 @@ fn marshal_struct_out(
         REC_OFF,
     ));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{
+        abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrLinkFunction,
+    };
+
+    /// bug-296: a LINK thunk calls a real C function, so its arguments follow the
+    /// target's EXTERNAL C ABI. SysV x86-64 passes six integer arguments in
+    /// registers; the backend's `CALL_ARGS` extends the list with rax/rbp for
+    /// arguments 7 and 8, which is sound for the compiler's own calls but hands an
+    /// external callee two registers it never reads -- it takes those from the
+    /// stack, so a >=7-integer-slot native function was called with garbage
+    /// trailing arguments, silently and with no diagnostic. aarch64 and riscv64
+    /// have 8 real argument registers and are unaffected.
+    #[test]
+    fn seven_integer_slots_are_rejected_on_x86_and_accepted_on_aarch64() {
+        let seven_int_slots = |count: usize| IrLinkFunction {
+            alias: "lib".to_string(),
+            name: "seven".to_string(),
+            library: "demo".to_string(),
+            symbol: "demo_seven".to_string(),
+            // Each ABI slot is sourced from a wrapper parameter of the same name.
+            params: (0..count)
+                .map(|i| (format!("a{i}"), "Integer".to_string()))
+                .collect(),
+            return_type: "Integer".to_string(),
+            return_resource: false,
+            return_state_type: None,
+            abi_slots: (0..count)
+                .map(|i| IrAbiSlot {
+                    name: format!("a{i}"),
+                    ctype: "CInt64".to_string(),
+                    direction: crate::ir::AbiDirection::In,
+                })
+                .collect(),
+            abi_return_name: "return".to_string(),
+            abi_return_ctype: "CInt64".to_string(),
+            consts: vec![],
+            bind_in: vec![],
+            bind_state: None,
+            bind_state_resource: None,
+            success_on: None,
+            result: None,
+            free: None,
+        };
+        let lower = |count: usize| {
+            lower_link_thunk(
+                &seven_int_slots(count),
+                &[],
+                &HashMap::new(),
+                0,
+                0,
+                None,
+                &HashSet::new(),
+            )
+        };
+
+        // x86-64: six is the SysV limit, so six lowers and seven is refused rather
+        // than emitting a call that passes arguments the callee never reads.
+        mir::set_backend(&crate::arch::x86_64::backend::X86_64_BACKEND);
+        assert!(
+            lower(6).is_ok(),
+            "six integer slots must still lower on x86"
+        );
+        let err = match lower(7) {
+            Ok(_) => panic!("seven integer slots must be refused on x86"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("integer ABI slots") && err.contains("seven"),
+            "unexpected error: {err}"
+        );
+
+        // aarch64 has eight real argument registers, so the same function is fine.
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        assert!(
+            lower(7).is_ok(),
+            "seven integer slots are within AAPCS64's eight argument registers"
+        );
+        assert!(lower(8).is_ok(), "eight is AAPCS64's limit");
+    }
+
+    /// Every ctype the allow-list accepts must reach a real marshaling arm.
+    ///
+    /// plan-50-A closed the slot-ctype namespace and turned `emit_return_passthrough`'s
+    /// default arm into an `Err`. The allow-list is hand-written (Rust cannot
+    /// enumerate match arms), so this walks every accepted name through
+    /// `lower_link_thunk` and asserts none of them lands on that arm. Without it,
+    /// adding a ctype to the list without a marshaling arm would only fail at the
+    /// first binding that used it.
+    #[test]
+    fn every_known_ctype_lowers() {
+        // Lowering reads the active backend for register/instruction shapes; the
+        // ctype set under test is backend-independent, so any backend serves.
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+
+        // The full accepted set. `ir::link::tests::ctype_list_is_exhaustive` holds
+        // this in sync with `abi_slot_ctype_is_known`, so a name added to the
+        // authority without an arm here fails there first.
+        const CTYPES: &[&str] = &[
+            "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
+            "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
+        ];
+
+        // Every ctype valid as an ABI *return* must reach a return arm. This is the
+        // arm that can `Err`, and it is how the guard caught `CString` having no
+        // return meaning at all (a `char *` return is `CPtr` + a `String` wrapper).
+        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_return(c)) {
+            let returns_value = *ctype != "CVoid";
+            let function = IrLinkFunction {
+                alias: "lib".to_string(),
+                name: format!("ret_{ctype}"),
+                library: "demo".to_string(),
+                symbol: "demo_f".to_string(),
+                params: vec![],
+                // A `CPtr` return with an `Integer` wrapper takes the raw path; the
+                // `String` copy-out path is covered by the sqlite3 runtime tests.
+                return_type: if returns_value { "Integer" } else { "Nothing" }.to_string(),
+                return_resource: false,
+                return_state_type: None,
+                abi_slots: vec![],
+                abi_return_name: if returns_value { "return" } else { "status" }.to_string(),
+                abi_return_ctype: (*ctype).to_string(),
+                consts: vec![],
+                bind_in: vec![],
+                bind_state: None,
+                bind_state_resource: None,
+                success_on: None,
+                result: None,
+                free: None,
+            };
+            let lowered =
+                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
+            assert!(
+                lowered.is_ok(),
+                "accepted return ctype {ctype} does not lower: {:?}",
+                lowered.err()
+            );
+        }
+
+        // Every ctype valid as an ABI *argument* must stage without error. Pinned
+        // with CONST so the slot needs no wrapper parameter.
+        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_argument(c)) {
+            let function = IrLinkFunction {
+                alias: "lib".to_string(),
+                name: format!("arg_{ctype}"),
+                library: "demo".to_string(),
+                symbol: "demo_f".to_string(),
+                params: vec![],
+                return_type: "Nothing".to_string(),
+                return_resource: false,
+                return_state_type: None,
+                abi_slots: vec![IrAbiSlot {
+                    name: "pinned".to_string(),
+                    ctype: (*ctype).to_string(),
+                    direction: crate::ir::AbiDirection::In,
+                }],
+                abi_return_name: "status".to_string(),
+                abi_return_ctype: "CInt32".to_string(),
+                consts: vec![("pinned".to_string(), 0)],
+                bind_in: vec![],
+                bind_state: None,
+                bind_state_resource: None,
+                success_on: None,
+                result: None,
+                free: None,
+            };
+            let lowered =
+                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
+            assert!(
+                lowered.is_ok(),
+                "accepted argument ctype {ctype} does not lower: {:?}",
+                lowered.err()
+            );
+        }
+    }
 }

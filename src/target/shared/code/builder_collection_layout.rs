@@ -1722,8 +1722,8 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
-        // Scratch as vregs (was out-of-pool x6/x7, which collide with x86 ABI
-        // argument registers and produced garbage element addresses).
+        // Scratch as vregs. Pinning these collides with the x86-64 ABI argument
+        // registers and yields garbage element addresses.
         let capacity_v = self.temporary_vreg();
         let entry_size_v = self.temporary_vreg();
         let capacity = capacity_v.as_str();
@@ -1751,7 +1751,8 @@ impl CodeBuilder<'_> {
         offset: &str,
         length: &str,
     ) -> Result<String, String> {
-        // Inputs held in vregs (was out-of-pool x3/x4/x5 — x86 ABI arg registers).
+        // Inputs held in vregs, never in registers that are x86-64 ABI argument
+        // registers on one backend and free scratch on another.
         let collection_input_v = self.temporary_vreg();
         let offset_input_v = self.temporary_vreg();
         let length_input_v = self.temporary_vreg();

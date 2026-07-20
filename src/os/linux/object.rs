@@ -13,7 +13,7 @@ pub(crate) struct NativeObjectPlan {
     entry: String,
     image_base: u64,
     dylibs: Vec<String>,
-    load_commands: Vec<LoadCommandPlan>,
+    load_commands: Vec<ProgramHeaderPlan>,
     segments: Vec<SegmentPlan>,
     sections: Vec<SectionPlan>,
     code_units: Vec<CodeUnitPlan>,
@@ -26,7 +26,11 @@ pub(crate) struct NativeObjectPlan {
     relocations: Vec<ObjectRelocation>,
 }
 
-struct LoadCommandPlan {
+/// One ELF **program header**. ELF has no Mach-O-style load commands; the field
+/// and JSON key below stay spelled `load_commands`/`loadCommands` only because
+/// that key is frozen into the committed `.nobj` goldens, and `SectionPlan`
+/// already speaks ELF (`segment` holds `"PT_LOAD"`).
+struct ProgramHeaderPlan {
     kind: String,
     name: Option<String>,
 }
@@ -148,7 +152,7 @@ pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> 
         entry,
         image_base: IMAGE_BASE,
         dylibs: Vec::new(),
-        load_commands: vec![LoadCommandPlan {
+        load_commands: vec![ProgramHeaderPlan {
             kind: "PT_LOAD".to_string(),
             name: Some("load-rx".to_string()),
         }],
@@ -555,7 +559,7 @@ trait ToObjectJson {
     fn to_json(&self, indent: usize) -> String;
 }
 
-impl ToObjectJson for LoadCommandPlan {
+impl ToObjectJson for ProgramHeaderPlan {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let name = self

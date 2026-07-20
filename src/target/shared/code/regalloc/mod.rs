@@ -16,6 +16,9 @@
 //! alongside the trait rather than behind it and is called directly, so the
 //! trait is the oracle seam rather than the dispatch mechanism (bug-326-B5).
 
+mod analysis;
+mod linear_scan;
+
 use std::sync::OnceLock;
 
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
@@ -371,9 +374,6 @@ fn rewrite(
         }
     }
 }
-
-mod analysis;
-mod linear_scan;
 
 /// Thin wrappers exposing integer liveness to the FP-shuttle peephole
 /// (`super::peephole`), which proves a GPR carrying only a float's bit pattern is

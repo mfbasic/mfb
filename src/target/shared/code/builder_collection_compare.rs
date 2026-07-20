@@ -10,10 +10,10 @@ impl CodeBuilder<'_> {
         not_equal_label: &str,
         prefix: &str,
     ) {
-        // Scratch as vregs (was out-of-pool x5/x6/x7). bug-175 D: the byte loop
-        // advances private scratch copies of the left/right pointers, not the
-        // caller's registers — a non-first-entry map-key compare must leave the
-        // caller's key pointer untouched.
+        // Scratch as vregs. bug-175 D: the byte loop advances private scratch
+        // copies of the left/right pointers, not the caller's registers — a
+        // non-first-entry map-key compare must leave the caller's key pointer
+        // untouched.
         let remaining_v = self.temporary_vreg();
         let lbyte_v = self.temporary_vreg();
         let rbyte_v = self.temporary_vreg();
@@ -70,7 +70,8 @@ impl CodeBuilder<'_> {
         equal_label: &str,
         not_equal_label: &str,
     ) -> Result<(), String> {
-        // Scratch as vregs (was out-of-pool x2-x7); d0/d1 stay (FP compare).
+        // Scratch as vregs. No FP register is held here: bug-147 made the `Float`
+        // arm a bitwise integer compare (see the note on that arm below).
         let lcur_v = self.temporary_vreg();
         let tmp_v = self.temporary_vreg();
         let rcur_v = self.temporary_vreg();
@@ -297,7 +298,7 @@ impl CodeBuilder<'_> {
         equal_label: &str,
         not_equal_label: &str,
     ) -> Result<(), String> {
-        // Scratch as vregs (was out-of-pool x2-x7).
+        // Scratch as vregs.
         let cur_v = self.temporary_vreg();
         let tmp_v = self.temporary_vreg();
         let vcur_v = self.temporary_vreg();
@@ -399,7 +400,7 @@ impl CodeBuilder<'_> {
         equal_label: &str,
         not_equal_label: &str,
     ) -> Result<(), String> {
-        // Scratch as vregs (was out-of-pool x2-x7).
+        // Scratch as vregs.
         let lcur_v = self.temporary_vreg();
         let loff_v = self.temporary_vreg();
         let rcur_v = self.temporary_vreg();

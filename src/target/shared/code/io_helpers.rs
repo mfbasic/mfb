@@ -4,10 +4,13 @@ use super::*;
 /// buffer to fd 1. A no-op when buffering is off (`OUT_ENABLED == 0`) or nothing
 /// is pending; otherwise a `write(1, OUT_PTR, OUT_FILLED)` loop that empties the
 /// buffer and resets `OUT_FILLED = 0`. Returns `x0 = 0` on success (including the
-/// no-op cases) and `x0 = 1` on a write failure — on failure the advanced window
-/// is written back (`OUT_PTR`/`OUT_FILLED` point past the bytes already sent) so a
-/// later flush resumes without re-sending the prefix (bug-97). Reads the
-/// arena state through the pinned arena register (`x19`); shared by `io::flush`,
+/// no-op cases) and `x0 = 1` on a write failure. On failure the unflushed window
+/// is preserved so a later flush resumes without re-sending the prefix (bug-97),
+/// but `OUT_PTR` is deliberately NOT advanced: bug-208 slides the unflushed tail
+/// back down to the buffer base and stores `OUT_PTR = base`, because the append
+/// path treats `OUT_PTR` as the fixed 4 KiB base and would overrun a mid-buffer
+/// pointer. `OUT_FILLED` is the remaining byte count. Reads the
+/// arena state through the pinned arena register; shared by `io::flush`,
 /// the buffered-write overflow path, `io::setBuffered(FALSE)`, every stdin read,
 /// and `_mfb_shutdown`.
 pub(super) fn lower_stdout_drain(

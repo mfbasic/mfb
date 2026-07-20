@@ -1,15 +1,14 @@
 //! Linux GTK4 app-mode codegen (plan-05-linux-app.md Phases 3-6).
 //!
-//! This is the Linux counterpart of `macos_aarch64/app.rs`. It emits the GTK4
+//! This is the Linux counterpart of `macos_aarch64/app/mod.rs`. It emits the GTK4
 //! `_main` bootstrap, the language worker thread, the transcript/input widgets,
 //! and the app-mode `io::*` helper bodies. Every GTK/GObject/GLib/GIO call is an
 //! ordinary imported C function (no `objc_msgSend` layer), so the emitted code is
-//! plain `bl <symbol>` against the imports declared in
-//! `linux_aarch64/plan.rs::app_mode_imports`.
+//! plain `bl <symbol>` against the imports declared in `app_mode_imports` below.
 //!
-//! SCAFFOLD STATUS (plan-05): the structure below mirrors the macOS backend and is
-//! code-plan-valid + ELF-encodable. It is exercised on Linux+GTK (Debian/Ubuntu
-//! GTK VMs); the notes below describe the **implemented** main-thread contract:
+//! The structure mirrors the macOS backend and is exercised on Linux+GTK
+//! (Debian/Ubuntu GTK VMs). The notes below are the implemented main-thread
+//! contract:
 //!   * output `io::print`/`io::write` marshal every transcript write onto the main
 //!     loop: the worker copies the bytes into a malloc'd chunk and posts it via
 //!     `g_idle_add(APPEND_IDLE)`, so the `GtkTextBuffer` is only touched on the main
@@ -21,6 +20,14 @@
 //!     stays open (§6.7); it `_exit`s only headless. `io::terminalSize` and
 //!     interactive resize are wired — the grid reflows on the drawing area's
 //!     `resize` signal (plan-35-E).
+
+mod app_io;
+mod bootstrap;
+mod term_draw;
+
+pub(crate) use app_io::*;
+use bootstrap::*;
+use term_draw::*;
 
 use std::collections::HashMap;
 
@@ -51,7 +58,7 @@ pub(crate) const FINISH_SYMBOL: &str = "_mfb_gtkapp_finish";
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
-/// register preservation (plan-05-linux-app.md §6.2, simplified for the scaffold).
+/// register preservation (plan-05-linux-app.md §6.2).
 const STATE_SYMBOL: &str = "_mfb_gtkapp_state";
 const ST_APPLICATION: usize = 0;
 const ST_WINDOW: usize = 8;
@@ -163,7 +170,7 @@ const TERM_RESIZE_SYMBOL: &str = "_mfb_gtkapp_term_resize";
 /// x19 holds the arena base; the shared console term-state lives at tso + field).
 const ARENA_REG: &str = "x19";
 
-// Input modes (mirror macOS app.rs INPUT_MODE_*): line-buffered without echo is the
+// Input modes (mirror macOS `app/mod.rs` INPUT_MODE_*): line-buffered without echo is the
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
 // each keystroke's bytes to the pipe immediately (`io::readChar`/`readByte`).
 /// Default mode: line-buffered, no echo (the zero-initialized state value).
@@ -202,11 +209,11 @@ const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-press
 /// `GtkDrawingArea::resize` signal name (plan-35-E grid reflow on window resize).
 const STR_RESIZE: (&str, &str) = ("_mfb_gtkapp_str_resize", "resize");
 /// Completion status line appended to the transcript when the program ends
-/// (matches macOS app.rs STR_EXIT_PREFIX): leading newline + "...code " + N + "\n".
+/// (matches macOS `app/mod.rs` STR_EXIT_PREFIX): leading newline + "...code " + N + "\n".
 const STR_EXIT_PREFIX: (&str, &str) =
     ("_mfb_gtkapp_str_exit_prefix", "\nProgram exited with code ");
 /// Marker prepended to `printError`/`writeError` transcript runs (matches macOS
-/// app.rs STR_STDERR_PREFIX), visually distinguishing stderr (plan-05 §5.4).
+/// `app/mod.rs` STR_STDERR_PREFIX), visually distinguishing stderr (plan-05 §5.4).
 const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_gtkapp_str_stderr_prefix", "[stderr] ");
 /// Cairo font family for the term:: grid.
 const STR_MONOSPACE: (&str, &str) = ("_mfb_gtkapp_str_monospace", "monospace");
@@ -792,14 +799,6 @@ pub(crate) fn app_mode_imports(
         })
         .collect()
 }
-
-mod app_io;
-mod bootstrap;
-mod term_draw;
-
-pub(crate) use app_io::*;
-use bootstrap::*;
-use term_draw::*;
 
 /// Read-only C-string data symbols + the writable runtime-state global.
 pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {

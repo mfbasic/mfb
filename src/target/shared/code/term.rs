@@ -13,11 +13,13 @@ use std::collections::HashMap;
 use super::*;
 use crate::target::shared::abi;
 
-// Frame layout. The saved link register lives at the top of the frame. The
+// Frame layout. `LOCALS_SIZE` is the size of this locals region, which
+// `finalize_vreg_body_with_locals` rounds to 16 and reserves; the vreg frame
+// owns saving the link register, not a slot named here. The
 // Darwin variadic `ioctl` spill is handled by the macOS `emit_terminal_size`
 // hook, which brackets its own `sub_sp`/`str x2, [sp]`/`add_sp` around the call
 // rather than borrowing a fixed slot here.
-const LR_OFFSET: usize = 64;
+const LOCALS_SIZE: usize = 64;
 const ARG0_OFFSET: usize = 8;
 const ARG1_OFFSET: usize = 16;
 /// Scratch buffer for runtime decimal formatting and the `winsize` struct.
@@ -297,7 +299,7 @@ pub(super) fn lower_term_helper(
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCALS_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 

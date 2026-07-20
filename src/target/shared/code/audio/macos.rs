@@ -1528,7 +1528,7 @@ const DEADLINE_OFF: usize = 56; // absolute deadline (ns)
 const PAYLOAD_OFF: usize = 64; // byte-list payload cursor
 const NEED_OFF: usize = 72; // requested bytes
 const LIST_PTR_OFF: usize = 80; // result list ptr
-const GOT_OFF: usize = 88; // bytes accumulated so far
+const BYTES_GOT_OFF: usize = 88; // bytes accumulated so far
 const FRAMES_OFF: usize = 96; // requested frames
 const TIMEOUT_OFF: usize = 104; // timeoutMs
                                 // openInput-only scratch (device path uses UID buffers; default path uses these).
@@ -2031,7 +2031,7 @@ fn lower_read(
         abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v11", "%v11", "%v13"),
         abi::store_u64("%v11", abi::stack_pointer(), PAYLOAD_OFF), // payload base
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), GOT_OFF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), BYTES_GOT_OFF),
     ]);
     emit_pthread1(
         &mut EmitCtx {
@@ -2073,7 +2073,7 @@ fn lower_read(
     }
     instructions.extend([
         abi::label(&drain_loop),
-        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::load_u64("%v11", abi::stack_pointer(), NEED_OFF),
         abi::compare_registers("%v9", "%v11"),
         abi::branch_ge(&drain_done),
@@ -2147,7 +2147,7 @@ fn lower_read(
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64("%v13", "%v10", S_RING_FILL),
         abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
-        abi::load_u64("%v11", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::subtract_registers("%v9", "%v9", "%v11"), // remaining = need-got
         abi::compare_registers("%v9", "%v13"),
         abi::branch_le(&chunk_ok),
@@ -2180,9 +2180,9 @@ fn lower_read(
         abi::load_u64("%v13", "%v10", S_RING_FILL),
         abi::subtract_registers("%v13", "%v13", "%v9"),
         abi::store_u64("%v13", "%v10", S_RING_FILL),
-        abi::load_u64("%v11", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::add_registers("%v11", "%v11", "%v9"),
-        abi::store_u64("%v11", abi::stack_pointer(), GOT_OFF),
+        abi::store_u64("%v11", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::branch(&drain_loop),
         abi::label(&drain_done),
     ]);
@@ -2201,7 +2201,7 @@ fn lower_read(
     // If we filled the request, return the pre-allocated result; otherwise (timed
     // partial) build a right-sized list of `got` bytes.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::load_u64("%v11", abi::stack_pointer(), NEED_OFF),
         abi::compare_registers("%v9", "%v11"),
         abi::branch_ge(&ret_full),
@@ -2209,7 +2209,7 @@ fn lower_read(
     emit_alloc_byte_list(
         symbol,
         "final",
-        GOT_OFF,
+        BYTES_GOT_OFF,
         FINAL_LIST_OFF,
         &alloc_fail,
         &mut instructions,
@@ -2217,7 +2217,7 @@ fn lower_read(
     );
     instructions.extend([
         // copy `got` bytes from the oversized payload into the final payload.
-        abi::load_u64("%v9", abi::stack_pointer(), GOT_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), BYTES_GOT_OFF),
         abi::load_u64("%v11", abi::stack_pointer(), FINAL_LIST_OFF),
         abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
         abi::multiply_registers("%v13", "%v9", "%v13"),

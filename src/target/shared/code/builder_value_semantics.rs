@@ -396,8 +396,8 @@ impl CodeBuilder<'_> {
         let right_done = self.label("string_concat_right_done");
 
         // Copy-loop scratch: one vreg per logical value, colored per-ISA by the
-        // allocator (was hand-pinned x8-x16). x1 stays physical — it is the
-        // arena_alloc ABI argument/result — and result_ptr is already a vreg.
+        // allocator. The arena_alloc ABI argument/result register stays physical
+        // across that call only; result_ptr is already a vreg.
         let left_len_v = self.temporary_vreg();
         let right_len_v = self.temporary_vreg();
         let total_len_v = self.temporary_vreg();

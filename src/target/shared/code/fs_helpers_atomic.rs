@@ -8,9 +8,15 @@ use super::*;
 /// (EIO/EBADF/ENOSPC) reads as `+4294967295`, `branch_lt` is not taken, and an
 /// `fsync`/`close` durability failure is silently swallowed (bug-04, bug-44).
 ///
-/// This is the single owner of the invariant: it lives at the comparison seam
-/// so a newly added `int`-returning platform wrapper cannot reintroduce the
-/// class. `sign_extend_word` lowers per-backend (`sxtw` on aarch64, `sext.w`
+/// This is the named seam for the `fs` atomic helpers, NOT a tree-wide choke
+/// point: it is one spelling of the invariant, and the same
+/// `sign_extend_word(return_register(), return_register())` pair is written
+/// inline at ~50 other `int`-returning wrapper sites (elsewhere in this file and
+/// across `fs_helpers_io.rs`, `link_thunk.rs`, `net/`, `tls/`, `audio/`). A new
+/// `int`-returning wrapper must therefore apply the extension deliberately —
+/// calling this helper will not do it for you.
+///
+/// `sign_extend_word` lowers per-backend (`sxtw` on aarch64, `sext.w`
 /// on riscv64, `movsxd` on x86-64); on riscv64's lp64d ABI the extension is
 /// already guaranteed, making the op a semantic no-op there — kept for
 /// uniformity so the next backend need not remember it.

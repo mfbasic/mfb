@@ -1,9 +1,17 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// Mint an integer virtual register. The physical register is assigned after
+    /// the whole function is lowered (`regalloc::allocate`).
+    ///
+    /// This is the **fallible** spelling: under `-regalloc bump` the eager
+    /// physical pool can be exhausted, and that `Err` is returned to the caller
+    /// to bubble. [`Self::temporary_vreg`] is the same allocation with the error
+    /// *recorded* on the builder instead of returned, for the many lowerings
+    /// that build an instruction list and have no `Result` to bubble through
+    /// (bug-70). Neither is more correct — pick by whether the call site can
+    /// propagate an error. Under linear-scan (the default) both are infallible.
     pub(super) fn allocate_register(&mut self) -> Result<String, String> {
-        // Mint a virtual register. The physical register is assigned after the
-        // whole function is lowered (`regalloc::allocate`).
         let vreg = self.next_vreg;
         self.next_vreg += 1;
         debug_assert_eq!(self.vreg_eager.len(), vreg as usize);
@@ -251,6 +259,17 @@ impl CodeBuilder<'_> {
             offset: offset as i32,
         });
         offset
+    }
+
+    /// Spill `register` to a fresh 8-byte stack slot named `label`, returning the
+    /// slot offset. Type-agnostic: the value may be a pointer, an Integer, a
+    /// length — anything that fits a word. (It was `spill_to_slot`, a name
+    /// that asserted a `String` type this helper never checked and that ~4 of its
+    /// call sites did not hold.)
+    pub(super) fn spill_to_slot(&mut self, label: &str, register: &str) -> usize {
+        let slot = self.allocate_stack_object(label, 8);
+        self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
+        slot
     }
 
     pub(super) fn label(&mut self, prefix: &str) -> String {

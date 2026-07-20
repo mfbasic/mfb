@@ -1,7 +1,6 @@
 use super::*;
 
 #[derive(Clone)]
-
 pub(crate) struct IrMatchCase {
     pub(crate) pattern: IrMatchPattern,
     pub(crate) guard: Option<IrValue>,
@@ -10,7 +9,6 @@ pub(crate) struct IrMatchCase {
     pub(crate) loc: IrSourceLoc,
 }
 #[derive(Clone)]
-
 pub(crate) enum IrMatchPattern {
     Else,
     Value(IrValue),

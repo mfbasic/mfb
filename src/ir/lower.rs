@@ -160,6 +160,45 @@ fn normalize_types(types: &[String]) -> Vec<String> {
     types.iter().map(|t| crate::ast::normalize_ws(t)).collect()
 }
 
+struct LowerContext<'a> {
+    function_returns: &'a HashMap<String, String>,
+    function_types: &'a HashMap<String, String>,
+    function_params: &'a HashMap<String, Vec<CallParam>>,
+    binding_types: HashMap<String, String>,
+    bindings: Vec<IrBinding>,
+    type_index: &'a TypeIndex,
+    current_imports: HashMap<String, String>,
+    /// Project-relative path of the source file currently being lowered, used to
+    /// populate `IrFunction::file` and `ErrorLoc.filename` for generated errors.
+    current_file: String,
+    lambdas: Vec<IrFunction>,
+    next_lambda_id: usize,
+    next_temp_id: usize,
+    /// Declared return type of the function currently being lowered, used to
+    /// implicitly wrap a `RETURN`ed member constructor into its union (so the
+    /// wrap is explicit in the IR rather than re-derived during codegen).
+    current_return_type: Option<String>,
+    /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
+    /// is the local slot a `RECOVER` value should be stored into and its type,
+    /// or `None` when the trapped value is discarded (bare-statement form).
+    recover_targets: Vec<RecoverTarget>,
+    /// Names of `MUT` local bindings in scope. A lambda in a non-escaping
+    /// callback position captures these by slot-borrow rather than by value.
+    /// Not scope-precise — only ever consulted
+    /// for capture classification, where a stale non-`MUT` entry is impossible
+    /// (only `MUT` binds are inserted) and a borrow is memory-safe regardless.
+    mutable_locals: HashSet<String>,
+    /// Set true only while lowering the argument in a compiler-known
+    /// non-escaping callback position (e.g. `forEach`'s action). The lambda
+    /// lowering consumes it to license `MUT` slot-borrow captures.
+    nonescaping_callback: bool,
+    /// Source location of the statement (or match case / declaration) currently
+    /// being lowered. Stamped onto every `IrOp` so relocated diagnostics report
+    /// at the same line the AST checker did (plan-20-A). Column is always 1,
+    /// matching `show_diagnostic`'s statement-level reporting.
+    current_loc: IrSourceLoc,
+}
+
 pub fn lower_project_with_external_functions(
     ast: &AstProject,
     entry: Option<EntryPoint>,
@@ -654,13 +693,6 @@ fn native_resources(ast: &AstProject) -> Vec<IrNativeResource> {
     resources
 }
 
-pub fn write_ir(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
-    let ir_path = project_dir.join(format!("{}.ir", ir.name));
-    fs::write(&ir_path, ir.to_json())
-        .map_err(|err| format!("failed to write '{}': {err}", ir_path.display()))?;
-    Ok(ir_path)
-}
-
 fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex, file: &str) -> IrType {
     let kind = match type_decl.kind {
         TypeDeclKind::Type => "type",
@@ -893,45 +925,6 @@ fn lower_param(
             column: 1,
         },
     }
-}
-
-struct LowerContext<'a> {
-    function_returns: &'a HashMap<String, String>,
-    function_types: &'a HashMap<String, String>,
-    function_params: &'a HashMap<String, Vec<CallParam>>,
-    binding_types: HashMap<String, String>,
-    bindings: Vec<IrBinding>,
-    type_index: &'a TypeIndex,
-    current_imports: HashMap<String, String>,
-    /// Project-relative path of the source file currently being lowered, used to
-    /// populate `IrFunction::file` and `ErrorLoc.filename` for generated errors.
-    current_file: String,
-    lambdas: Vec<IrFunction>,
-    next_lambda_id: usize,
-    next_temp_id: usize,
-    /// Declared return type of the function currently being lowered, used to
-    /// implicitly wrap a `RETURN`ed member constructor into its union (so the
-    /// wrap is explicit in the IR rather than re-derived during codegen).
-    current_return_type: Option<String>,
-    /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
-    /// is the local slot a `RECOVER` value should be stored into and its type,
-    /// or `None` when the trapped value is discarded (bare-statement form).
-    recover_targets: Vec<RecoverTarget>,
-    /// Names of `MUT` local bindings in scope. A lambda in a non-escaping
-    /// callback position captures these by slot-borrow rather than by value.
-    /// Not scope-precise — only ever consulted
-    /// for capture classification, where a stale non-`MUT` entry is impossible
-    /// (only `MUT` binds are inserted) and a borrow is memory-safe regardless.
-    mutable_locals: HashSet<String>,
-    /// Set true only while lowering the argument in a compiler-known
-    /// non-escaping callback position (e.g. `forEach`'s action). The lambda
-    /// lowering consumes it to license `MUT` slot-borrow captures.
-    nonescaping_callback: bool,
-    /// Source location of the statement (or match case / declaration) currently
-    /// being lowered. Stamped onto every `IrOp` so relocated diagnostics report
-    /// at the same line the AST checker did (plan-20-A). Column is always 1,
-    /// matching `show_diagnostic`'s statement-level reporting.
-    current_loc: IrSourceLoc,
 }
 
 /// The source line of a statement, as `IrSourceLoc` (column 1 — diagnostics
@@ -4057,4 +4050,11 @@ fn expanded_union_variants<'a>(
     variants.extend(type_decl.variants.iter());
     visiting.remove(&type_decl.name);
     variants
+}
+
+pub fn write_ir(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
+    let ir_path = project_dir.join(format!("{}.ir", ir.name));
+    fs::write(&ir_path, ir.to_json())
+        .map_err(|err| format!("failed to write '{}': {err}", ir_path.display()))?;
+    Ok(ir_path)
 }

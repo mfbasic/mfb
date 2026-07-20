@@ -12,6 +12,14 @@
 //! `_OBJC_CLASS_$_*` data symbols through the GOT (which also force-loads
 //! AppKit/Foundation). No private API is used (plan §4.4).
 
+mod app_io;
+mod bootstrap;
+mod term_view;
+
+pub(crate) use app_io::*;
+use bootstrap::*;
+use term_view::*;
+
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
@@ -223,8 +231,7 @@ const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) = (
 /// The arena allocator (`lower_arena_alloc`): size in x0, align in x1; returns a
 /// result tag in x0 and the block pointer in x1.
 // Consumed by the app-mode terminal-size / TermView helpers
-// (`emit_app_terminal_size`, `app_io.rs`); bug-176 E dropped the stale
-// `#[allow(dead_code)]` and the "unused until Phase 5" note.
+// (`emit_app_terminal_size`, `app_io.rs`).
 const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 /// `ERR_UNSUPPORTED` (`ERR_UNSUPPORTED_CODE` / `ERR_UNSUPPORTED_SYMBOL` in
 /// src/target/shared/code/mod.rs): returned by the app terminal-size helper when
@@ -363,8 +370,7 @@ const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 /// bold/underline flags. Mirrors the reference `.m` cell (plan §6.3).
 const CELL_SIZE: usize = 16;
 // Cell field offsets, consumed by the TermView write/render path
-// (`term_view.rs`); bug-176 E dropped the stale `#[allow(dead_code)]` and the
-// "Phase 5 / unused" notes.
+// (`term_view.rs`).
 const CELL_GLYPH_OFFSET: usize = 0; // u32 unichar (0 / space = blank)
 const CELL_FG_OFFSET: usize = 4; // u32 packed r|g<<8|b<<16
 const CELL_BG_OFFSET: usize = 8; // u32 packed r|g<<8|b<<16
@@ -555,14 +561,6 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
     ])
 }
 
-mod app_io;
-mod bootstrap;
-mod term_view;
-
-pub(crate) use app_io::*;
-use bootstrap::*;
-use term_view::*;
-
 /// Build `[NSString stringWithUTF8String:<cstr>]` into `x0`. `class_tmp` is a
 /// callee-saved scratch register (free at the call site) used for the class.
 fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str) {
@@ -725,7 +723,8 @@ fn hex_cstring(text: &str) -> String {
 }
 
 #[cfg(test)]
-mod bug53_release_tests {
+/// The `-release` send path (originally filed as bug-53).
+mod release_tests {
     use super::*;
 
     /// A `-release` send is emitted by `load_selector(SEL_RELEASE)`, which lays
