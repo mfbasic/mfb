@@ -314,27 +314,42 @@ fixed-width key and still keeps its entries. That is now an explicit
 `stride_type` parameter (`""` for a map) on the payload loader, the three compare
 helpers and the payload copier.
 
-**The one remaining failure: cumulative arena exhaustion in the TESTING app.**
-`tests/acceptance` reaches 149 of its cases and then fails with
-`Allocation failed` — reported at `encoding`, but that is a SYMPTOM, not the
-site. Every one of those operations is correct and leak-free in isolation:
-`base64Encode`/`base32Encode`/`base64UrlEncode`, `json::parse`, and 20k-iteration
-loops of sort / distinct / mid / replace / math::abs / append / prepend / insert /
-removeAt / toBytes / map keys / values / set / split / join / csv::parse /
-regex::findAll all pass under the flag. So something allocates more than it frees
-across a long-running program, and it is not any single operation probed so far.
+**The one remaining failure, now reduced to three lines.** Under `MFB_KIND2=1`:
 
-`lower_reserved_list` (which `transform` and `filter` allocate their output
-through, so it sees every element type) LOOKS like the culprit: it reserves
-`HEADER + count*40 + data` while the kind-2 free releases `HEADER + data`, which
-leaks 40 bytes per element per call. But giving it the kind-2 stride makes the
-app fail EARLIER — 90 cases instead of 149 — so the reservation is load-bearing
-in a way the current implementation depends on, and the change is reverted. That
-contradiction is the thread to pull next: something fills a reserved list
-assuming the entry array is there.
+```basic
+FUNC probe() AS String
+  LET s AS String = encoding::hexEncode([toByte(1), toByte(2)])
+  RETURN s
+END FUNC
+```
 
-Do not "fix" this by re-applying the stride without explaining the regression;
-the suite is saying the change is wrong.
+fails with `Allocation failed` (77010001). Every neighbouring variant works:
+
+| variant | result |
+|---|---|
+| `LET b = [toByte(1), toByte(2)]` then `hexEncode(b)` | works |
+| `RETURN encoding::hexEncode([...])` (no owned local) | works |
+| the same shape calling a LOCALLY-DEFINED `FUNC` | works |
+| the same shape with `List OF Integer` / `List OF String` | works |
+| the whole thing called from `main` rather than a `FUNC` | works |
+
+So the trigger is narrow: a `List OF Byte` **literal passed inline** to a
+**bundled-package** function (`encoding::hexEncode`, `base64Encode`,
+`uleb128Decode` all reproduce), where the result is bound to an **owned local**.
+The literal is an argument temporary, and the package boundary copies it, so the
+suspicion is the temp's free size on that path — but `free_intermediate_collection`
+-> `emit_owned_value_drop` -> `emit_inlined_block_size_from_ptr_slot` ->
+`emit_flat_block_size` is stride-aware and looks correct. Not yet root-caused;
+the next step is to diff the `-ncode` for the working and failing variants.
+
+This is a CORRUPTION, not a leak, which also explains why the acceptance app
+behaves erratically after `encoding` and why its pass count moves around
+(90 vs 149) for changes that should only reduce allocation.
+
+Fixed along the way and confirmed by measurement: `lower_reserved_list`
+reserved `HEADER + count*40 + data` for a kind-2 output while the free released
+`HEADER + data`, leaking 40 bytes per element on every `transform`/`filter`.
+20 000 iterations of `transform` died before the fix and pass after it.
 
 **Also outstanding:** the spec amendment, the golden re-baseline, and Phase 3's
 proofs (the memory win, nested `List OF List OF Integer`, thread transfer).

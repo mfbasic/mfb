@@ -4093,7 +4093,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch11,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &reserved_stride.to_string(),
         ));
         // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
         // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
