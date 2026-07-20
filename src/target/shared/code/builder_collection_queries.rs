@@ -1166,7 +1166,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &s14,
             "Integer",
-            &slice_payload.map_or(COLLECTION_ENTRY_SIZE, |_| 0).to_string(),
+            &slice_payload
+                .map_or(COLLECTION_ENTRY_SIZE, |_| 0)
+                .to_string(),
         ));
         self.emit_checked_size_multiply(&s15, &s12, &s14, &size_overflow);
         self.emit_checked_size_add_immediate(
@@ -1296,7 +1298,11 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 result_slot,
             ));
-            self.emit(abi::add_immediate(&s25, abi::RET[1], COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_immediate(
+                &s25,
+                abi::RET[1],
+                COLLECTION_HEADER_SIZE,
+            ));
             self.emit(abi::multiply_registers(&s23, &s9, &s14)); // count * payload
             self.emit_block_copy_advance(&s25, &s24, &s23, &s22, "slice_kind2");
             self.emit(abi::branch(&copy_done));

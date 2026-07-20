@@ -305,7 +305,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
-            &(COLLECTION_ENTRY_SIZE + 1).to_string(),
+            &(byte_list_entry_stride() + 1).to_string(),
         ));
         self.emit_checked_size_multiply(&scratch13, &scratch9, &scratch13, &size_overflow);
         self.emit_checked_size_add_immediate(
@@ -339,7 +339,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &byte_list_entry_stride().to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch13));
         self.emit(abi::add_immediate(
@@ -361,7 +361,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch25,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &byte_list_entry_stride().to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch25, &scratch23, &scratch25));
         self.emit(abi::add_immediate(
@@ -376,33 +376,43 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &scratch26,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
-        self.emit(abi::store_u64(
-            abi::ZERO,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            abi::ZERO,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+        if byte_list_entry_stride() != 0 {
+            self.emit(abi::store_u8(
+                &scratch26,
+                &scratch24,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+        }
+        if byte_list_entry_stride() != 0 {
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                &scratch24,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+        }
+        if byte_list_entry_stride() != 0 {
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                &scratch24,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+        }
         // value offset = i; value length = 1.
-        self.emit(abi::store_u64(
-            &scratch23,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
+        if byte_list_entry_stride() != 0 {
+            self.emit(abi::store_u64(
+                &scratch23,
+                &scratch24,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
         self.emit(abi::move_immediate(&scratch26, "Integer", "1"));
-        self.emit(abi::store_u64(
-            &scratch26,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if byte_list_entry_stride() != 0 {
+            self.emit(abi::store_u64(
+                &scratch26,
+                &scratch24,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         // payload[i] = string byte[i].
         self.emit(abi::add_registers(&scratch27, &scratch22, &scratch23));
         self.emit(abi::load_u8(&scratch26, &scratch27, 0));

@@ -177,20 +177,20 @@ fn emit_alloc_byte_list(
         // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
         // zero stride would rewrite one entry over the data region `count`
         // times and run past the block, so it is skipped outright.
-        ]);
-        if byte_list_entry_stride() != 0 {
-            instructions.extend([
-                abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64("%v13", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate("%v14", "Integer", "1"),
-                abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-                abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
-            ]);
-        }
+    ]);
+    if byte_list_entry_stride() != 0 {
         instructions.extend([
+            abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64("%v13", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate("%v14", "Integer", "1"),
+            abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
+        ]);
+    }
+    instructions.extend([
         abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),

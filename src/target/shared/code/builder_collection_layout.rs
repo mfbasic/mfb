@@ -2249,4 +2249,3 @@ pub(super) fn kind2_payload_size(element_type: &str) -> Option<usize> {
 pub(super) fn byte_list_entry_stride() -> usize {
     list_entry_stride("Byte")
 }
-

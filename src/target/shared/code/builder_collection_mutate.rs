@@ -1724,49 +1724,54 @@ impl CodeBuilder<'_> {
         );
 
         // dst.table[count(self)..] <- rhs entries, each valueOffset += dataLength(self).
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::add_immediate(
-            &scratch17,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(
-            &scratch16,
-            "Integer",
-            &entry_stride.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16));
-        self.emit(abi::add_registers(&scratch17, &scratch17, &scratch11)); // dst entry[count(self)]
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
-        self.emit(abi::add_immediate(
-            &scratch20,
-            &scratch10,
-            COLLECTION_HEADER_SIZE,
-        )); // rhs entry base
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch10,
-            COLLECTION_OFFSET_COUNT,
-        )); // count(rhs)
-        self.emit(abi::load_u64(
-            &scratch12,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        )); // shift = dataLength(self)
-            // bug-175 E: shift rhs valueOffsets by the padded self data length to match
-            // the aligned destination of rhs's copied data region above.
-        if value_alignment > 1 {
-            let align_scratch = self.temporary_vreg();
-            self.emit_align_offset_register(&scratch12, value_alignment, &align_scratch);
+        // Skipped for kind 2: there is no destination entry table, and emitting
+        // this would copy `count(rhs)` 40-byte entry records straight over the
+        // data region that was just written above (plan-57-D).
+        if entry_stride != 0 {
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::add_immediate(
+                &scratch17,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &entry_stride.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16));
+            self.emit(abi::add_registers(&scratch17, &scratch17, &scratch11)); // dst entry[count(self)]
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
+            self.emit(abi::add_immediate(
+                &scratch20,
+                &scratch10,
+                COLLECTION_HEADER_SIZE,
+            )); // rhs entry base
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch10,
+                COLLECTION_OFFSET_COUNT,
+            )); // count(rhs)
+            self.emit(abi::load_u64(
+                &scratch12,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )); // shift = dataLength(self)
+                // bug-175 E: shift rhs valueOffsets by the padded self data length to match
+                // the aligned destination of rhs's copied data region above.
+            if value_alignment > 1 {
+                let align_scratch = self.temporary_vreg();
+                self.emit_align_offset_register(&scratch12, value_alignment, &align_scratch);
+            }
+            self.emit_bulk_copy_entries_shift(
+                &scratch20,
+                &scratch17,
+                &scratch11,
+                Some((&scratch12, false)),
+                "bulk_append_entries",
+            );
         }
-        self.emit_bulk_copy_entries_shift(
-            &scratch20,
-            &scratch17,
-            &scratch11,
-            Some((&scratch12, false)),
-            "bulk_append_entries",
-        );
 
         // Bump count += count(rhs); dataLength += dataLength(rhs).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
