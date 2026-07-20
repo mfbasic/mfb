@@ -1603,7 +1603,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_slot,
         ));
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, &element_type);
+        self.initialize_collection_loop_slots(
+            collection_slot,
+            cursor_slot,
+            remaining_slot,
+            &element_type,
+        );
 
         let loop_label = self.label("transform_call_loop");
         let ok_label = self.label("transform_call_ok");
@@ -1708,7 +1713,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_slot,
         ));
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, &element_type);
+        self.initialize_collection_loop_slots(
+            collection_slot,
+            cursor_slot,
+            remaining_slot,
+            &element_type,
+        );
 
         let loop_label = self.label("filter_call_loop");
         let ok_label = self.label("filter_call_ok");
@@ -1807,7 +1817,12 @@ impl CodeBuilder<'_> {
         ));
         let cursor_slot = self.allocate_stack_object("reduce_cursor", 8);
         let remaining_slot = self.allocate_stack_object("reduce_remaining", 8);
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, &element_type);
+        self.initialize_collection_loop_slots(
+            collection_slot,
+            cursor_slot,
+            remaining_slot,
+            &element_type,
+        );
 
         let loop_label = self.label("reduce_call_loop");
         let ok_label = self.label("reduce_call_ok");

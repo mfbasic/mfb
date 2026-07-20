@@ -1878,7 +1878,12 @@ impl CodeBuilder<'_> {
         let cursor_slot = self.allocate_stack_object("adopt_cursor", 8);
         let remaining_slot = self.allocate_stack_object("adopt_remaining", 8);
         let elem_slot = self.allocate_stack_object("adopt_elem", 8);
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, element_type);
+        self.initialize_collection_loop_slots(
+            collection_slot,
+            cursor_slot,
+            remaining_slot,
+            element_type,
+        );
         let loop_label = self.label("owned_list_seed_loop");
         let done_label = self.label("owned_list_seed_done");
         let scratch9 = self.temporary_vreg();
