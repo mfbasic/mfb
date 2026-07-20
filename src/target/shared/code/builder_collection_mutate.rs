@@ -317,6 +317,43 @@ impl CodeBuilder<'_> {
             }
             // Materialize a `d`-native float before the payload spill (plan-01).
             let item = self.materialize_value(item)?;
+            // bug-365: for a fixed-width element the replacement payload is the
+            // same size as the one it replaces, by definition. So copy the block
+            // and overwrite the payload in place rather than degrading to
+            // `removeAt` + `insert` — that pair appended the new payload to the
+            // data tail and spliced the lookup table, leaving the data region
+            // permuted relative to index order for any `i < count-1`, which every
+            // linear data-region reader (the `math::` SIMD kernels, the `fs` byte
+            // writers) then read back in the wrong order.
+            //
+            // `copy_collection_tight` copies entries and data verbatim, so an
+            // ordered source stays ordered; `lower_list_set_in_place` then writes
+            // through the stored `valueOffset`. Its rebuild branch is unreachable
+            // here — it fires only on a size change, and these payloads cannot
+            // change size — so the write is always the in-place overwrite. It also
+            // range-checks the index itself, so the bounds behavior below is
+            // preserved. Cheaper too: one allocation and one block copy replace
+            // two of each.
+            if list_element_is_fixed_width(&element_type).is_some() {
+                let item_slot = self.allocate_stack_object("set_value_item", 8);
+                self.emit(abi::store_u64(
+                    &item.location,
+                    abi::stack_pointer(),
+                    item_slot,
+                ));
+                let source = self.allocate_register()?;
+                self.emit(abi::load_u64(&source, abi::stack_pointer(), list_slot));
+                let copy = self.copy_collection_tight(&collection.type_, &source)?;
+                let copy_slot = self.allocate_stack_object("set_value_copy", 8);
+                self.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
+                return self.lower_list_set_in_place(
+                    copy_slot,
+                    index_slot,
+                    item_slot,
+                    &collection.type_,
+                    &element_type,
+                );
+            }
             // Do the fallible `removeAt` (which range-checks the index) BEFORE
             // materializing the singleton, so an out-of-range index — the failure
             // an inline `TRAP`'d or auto-propagating `set` hits — routes to the
@@ -634,133 +671,261 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch15, &scratch14, &scratch15));
         self.emit_write_list_header_from_registers(&layout, &nb, &scratch13, &scratch15);
 
-        // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
-        self.emit_collection_data_pointer(&scratch17, &nb); // dst data base
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch20,
-            &scratch14,
-            &scratch22,
-            "list_insert_dataA",
-        );
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-        self.emit_collection_data_pointer(&scratch20, &scratch9); // B data base
-        self.emit(abi::load_u64(
-            &scratch15,
-            &scratch9,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
-        // bug-175 E: round the dst data cursor (data base + dataLen_A) up to the
-        // element alignment before copying B's region. The data base is 8-aligned
-        // (HEADER and ENTRY are multiples of 8, block alloc is 8-aligned), so this
-        // is exactly `base + align(dataLen_A)` — the same padded dataLen_A the size,
-        // header, and entry-offset shift use.
-        if value_alignment > 1 {
-            let align_scratch = self.temporary_vreg();
-            self.emit_align_offset_register(&scratch17, value_alignment, &align_scratch);
+        // bug-365: for a fixed-width element type the data region is laid out in
+        // INDEX order, not in the offset-stable order below. The result block is
+        // fresh, so ordering it costs one extra block copy — A's head, then B,
+        // then A's tail — instead of A-verbatim-then-B-verbatim plus an entry
+        // splice. The lookup entries then degrade to the identity mapping.
+        //
+        // The offset-stable scheme (plan-01 §4.1) exists to avoid moving payload
+        // bytes, but for these types the payload is SMALLER than the 40-byte
+        // entry record it moves instead — 5x smaller for an `Integer`, 40x for a
+        // `Byte`. So this is strictly less memory traffic as well as correct.
+        //
+        // Correctness rests on an induction: A's and B's own data regions are
+        // already in index order. Every producer of a fixed-width list maintains
+        // that — literals and `append` build in order, `removeAt`/`sort`/grow and
+        // `copy_collection_tight` preserve it, `mid`/`slice`/`transform`/`filter`
+        // rebuild in order, and this function and `lower_list_prepend_in_place`
+        // and `lower_collection_set` are the three that used to break it.
+        if let Some(payload) = list_element_is_fixed_width(element_type) {
+            // `list_element_padding_alignment` is 1 for every fixed-width scalar,
+            // so there is no inter-element pad to reserve and every `emit_align_*`
+            // in the variable-width path below would be elided anyway.
+            let payload_text = payload.to_string();
+
+            // --- Data region, in index order: A[0..i), then B, then A[i..n). ---
+            self.emit_collection_data_pointer(&scratch17, &nb); // dst data cursor
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit_collection_data_pointer(&scratch20, &scratch8); // A data cursor
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
+            self.emit(abi::multiply_registers(&scratch14, &scratch10, &scratch16)); // i * p
+                                                                                    // Advances BOTH cursors, so `scratch20` is left at A's element `i` —
+                                                                                    // exactly where the tail copy below must resume.
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch14,
+                &scratch22,
+                "list_insert_ord_head",
+            );
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
+            self.emit_collection_data_pointer(&scratch12, &scratch9); // B data base
+            self.emit(abi::load_u64(
+                &scratch15,
+                &scratch9,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )); // m * p
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch12,
+                &scratch15,
+                &scratch22,
+                "list_insert_ord_mid",
+            );
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(
+                &scratch13,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            self.emit(abi::subtract_registers(&scratch13, &scratch13, &scratch10)); // n - i
+            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
+            self.emit(abi::multiply_registers(&scratch13, &scratch13, &scratch16));
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch13,
+                &scratch22,
+                "list_insert_ord_tail",
+            );
+
+            // --- Lookup table: the identity mapping over all n + m entries. ---
+            // Written rather than spliced. Still O(n) entry writes, exactly as the
+            // three-way splice below is, and every entry is now derivable from its
+            // index — which is what lets a linear reader be correct.
+            let ident_loop = self.label("list_insert_ident_loop");
+            let ident_done = self.label("list_insert_ident_done");
+            self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+            self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
+            self.emit(abi::load_u64(&scratch13, &nb, COLLECTION_OFFSET_COUNT)); // n + m
+            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // k
+            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
+            self.emit(abi::label(&ident_loop));
+            self.emit(abi::compare_registers(&scratch14, &scratch13));
+            self.emit(abi::branch_ge(&ident_done));
+            self.emit(abi::move_immediate(
+                &scratch15,
+                "Integer",
+                &COLLECTION_ENTRY_FLAG_USED.to_string(),
+            ));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+            // A list entry carries no key.
+            self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16)); // k * p
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &scratch16,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::add_immediate(
+                &scratch17,
+                &scratch17,
+                COLLECTION_ENTRY_SIZE,
+            ));
+            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
+            self.emit(abi::branch(&ident_loop));
+            self.emit(abi::label(&ident_done));
+        } else {
+            // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
+            self.emit_collection_data_pointer(&scratch17, &nb); // dst data base
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
+            self.emit(abi::load_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch14,
+                &scratch22,
+                "list_insert_dataA",
+            );
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
+            self.emit_collection_data_pointer(&scratch20, &scratch9); // B data base
+            self.emit(abi::load_u64(
+                &scratch15,
+                &scratch9,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            // bug-175 E: round the dst data cursor (data base + dataLen_A) up to the
+            // element alignment before copying B's region. The data base is 8-aligned
+            // (HEADER and ENTRY are multiples of 8, block alloc is 8-aligned), so this
+            // is exactly `base + align(dataLen_A)` — the same padded dataLen_A the size,
+            // header, and entry-offset shift use.
+            if value_alignment > 1 {
+                let align_scratch = self.temporary_vreg();
+                self.emit_align_offset_register(&scratch17, value_alignment, &align_scratch);
+            }
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch15,
+                &scratch22,
+                "list_insert_dataB",
+            );
+
+            // --- Lookup table splice. ---
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            // Head: dst.table[0..i) <- A.table[0..i) verbatim.
+            self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+            self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst table cursor
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::add_immediate(
+                &scratch20,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            )); // A table cursor
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch16)); // i * ENTRY
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch21,
+                &scratch22,
+                "list_insert_head",
+            );
+
+            // Inserted: dst.table[i..i+count_B) <- B entries, valueOffset += dataLen_A.
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch9,
+                COLLECTION_HEADER_SIZE,
+            )); // B table cursor
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch9,
+                COLLECTION_OFFSET_COUNT,
+            )); // remaining B entries
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )); // dataLen_A shift
+                // Bulk-copy the `count_B` inserted entries verbatim, then shift each
+                // valueOffset up by dataLen_A — their payloads now sit after A's data
+                // region (plan-25-B B2). Copying B's entries and B's data region both
+                // verbatim (a single uniform offset shift) preserves B's internal layout
+                // even when B is not packed in entry order, unlike a per-entry re-pack.
+                // The copy advances `scratch17` to dst.table[i+count_B], where the tail
+                // copy below resumes.
+                // bug-175 E: shift B's valueOffsets by the padded A data length so they
+                // match the aligned destination of B's copied data region above.
+            if value_alignment > 1 {
+                let align_scratch = self.temporary_vreg();
+                self.emit_align_offset_register(&scratch14, value_alignment, &align_scratch);
+            }
+            self.emit_bulk_copy_entries_shift(
+                &scratch12,
+                &scratch17,
+                &scratch11,
+                Some((&scratch14, false)),
+                "list_insert_b",
+            );
+
+            // Tail: dst.table[i+count_B..] <- A.table[i..) verbatim. x20 already points
+            // at A entry i (advanced past the head copy).
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(
+                &scratch13,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            self.emit(abi::subtract_registers(&scratch13, &scratch13, &scratch10)); // count_A - i
+            self.emit(abi::multiply_registers(&scratch21, &scratch13, &scratch16));
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch21,
+                &scratch22,
+                "list_insert_tail",
+            );
         }
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch20,
-            &scratch15,
-            &scratch22,
-            "list_insert_dataB",
-        );
-
-        // --- Lookup table splice. ---
-        self.emit(abi::move_immediate(
-            &scratch16,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        // Head: dst.table[0..i) <- A.table[0..i) verbatim.
-        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE)); // dst table cursor
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::add_immediate(
-            &scratch20,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        )); // A table cursor
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch16)); // i * ENTRY
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch20,
-            &scratch21,
-            &scratch22,
-            "list_insert_head",
-        );
-
-        // Inserted: dst.table[i..i+count_B) <- B entries, valueOffset += dataLen_A.
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch9,
-            COLLECTION_HEADER_SIZE,
-        )); // B table cursor
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch9,
-            COLLECTION_OFFSET_COUNT,
-        )); // remaining B entries
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        )); // dataLen_A shift
-            // Bulk-copy the `count_B` inserted entries verbatim, then shift each
-            // valueOffset up by dataLen_A — their payloads now sit after A's data
-            // region (plan-25-B B2). Copying B's entries and B's data region both
-            // verbatim (a single uniform offset shift) preserves B's internal layout
-            // even when B is not packed in entry order, unlike a per-entry re-pack.
-            // The copy advances `scratch17` to dst.table[i+count_B], where the tail
-            // copy below resumes.
-            // bug-175 E: shift B's valueOffsets by the padded A data length so they
-            // match the aligned destination of B's copied data region above.
-        if value_alignment > 1 {
-            let align_scratch = self.temporary_vreg();
-            self.emit_align_offset_register(&scratch14, value_alignment, &align_scratch);
-        }
-        self.emit_bulk_copy_entries_shift(
-            &scratch12,
-            &scratch17,
-            &scratch11,
-            Some((&scratch14, false)),
-            "list_insert_b",
-        );
-
-        // Tail: dst.table[i+count_B..] <- A.table[i..) verbatim. x20 already points
-        // at A entry i (advanced past the head copy).
-        self.emit(abi::move_immediate(
-            &scratch16,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::load_u64(
-            &scratch13,
-            &scratch8,
-            COLLECTION_OFFSET_COUNT,
-        ));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::subtract_registers(&scratch13, &scratch13, &scratch10)); // count_A - i
-        self.emit(abi::multiply_registers(&scratch21, &scratch13, &scratch16));
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch20,
-            &scratch21,
-            &scratch22,
-            "list_insert_tail",
-        );
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
         self.emit_index_out_of_range_return()?;
@@ -1883,122 +2048,245 @@ impl CodeBuilder<'_> {
 
         // --- Write: shift entries right by one, new entry at slot[0]. ---
         self.emit(abi::label(&write));
-        // Shift lookup entries [0..count) → [1..count+1), backward to avoid overlap.
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::subtract_immediate(&scratch10, &scratch9, 1)); // i = count - 1
-        self.emit(abi::label(&shift_loop));
-        self.emit(abi::compare_immediate(&scratch10, "0"));
-        self.emit(abi::branch_lt(&shift_done));
-        // src = buffer + HEADER + i*ENTRY ; dst = src + ENTRY (x8 = buffer, live).
-        self.emit(abi::move_immediate(
-            &scratch16,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&scratch11, &scratch10, &scratch16));
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&scratch11, &scratch12, &scratch11)); // src = entry[i]
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch11,
-            COLLECTION_ENTRY_SIZE,
-        )); // dst = entry[i+1]
-        for offset in [0usize, 8, 16, 24, 32] {
-            self.emit(abi::load_u64(&scratch13, &scratch11, offset));
-            self.emit(abi::store_u64(&scratch13, &scratch12, offset));
+        // bug-365: for a fixed-width element type the payload goes to the FRONT
+        // of the data region, not to the spare tail. The data region shifts up by
+        // one element and the lookup entries become the identity mapping, so a
+        // reader walking the data region linearly sees index order.
+        //
+        // The old scheme wrote the new payload at `dataLength` and shifted only
+        // the 40-byte entry records, which is why `prepend` was the single most
+        // common way to arm bug-365. It moved MORE bytes than this does: 40 per
+        // element rather than `payload` (1 for a `Byte`, 8 for an `Integer`).
+        //
+        // The grow path above is untouched — it copies data and entries verbatim,
+        // so an ordered buffer stays ordered — but note it may have reallocated,
+        // so every bound below is re-derived from `buffer_slot` rather than held
+        // in a register across `_mfb_arena_alloc` (which destroys all
+        // caller-saved registers).
+        if let Some(payload) = list_element_is_fixed_width(element_type) {
+            let payload_text = payload.to_string();
+            let ident_loop = self.label("prepend_inplace_ident_loop");
+            let ident_done = self.label("prepend_inplace_ident_done");
+
+            // Shift the whole live data region up by one payload, backwards —
+            // source and destination overlap for any count above one.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit_collection_data_pointer(&scratch17, &scratch8); // data base
+            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
+            self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16)); // n * p
+            self.emit(abi::add_registers(&scratch12, &scratch17, &scratch11)); // src end
+            self.emit(abi::add_immediate(&scratch13, &scratch12, payload)); // dst end
+            self.emit_block_copy_backward(
+                &scratch13,
+                &scratch12,
+                &scratch11,
+                &scratch22,
+                "prepend_inplace_shift_data",
+            );
+
+            // The new payload now occupies offset 0.
+            self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
+            self.emit(abi::store_u64(
+                &scratch13,
+                abi::stack_pointer(),
+                data_offset_slot,
+            ));
+            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
+
+            // Bump count and dataLength before writing entries, so the identity
+            // loop covers the new element too.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
+            self.emit(abi::store_u64(
+                &scratch9,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            self.emit(abi::load_u64(
+                &scratch10,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::add_immediate(&scratch10, &scratch10, payload));
+            self.emit(abi::store_u64(
+                &scratch10,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+
+            // Entries 0..count as the identity mapping. This replaces the
+            // right-shift loop entirely: every entry is now derivable from its
+            // index, so there is nothing to preserve from the old table.
+            self.emit(abi::add_immediate(
+                &scratch17,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // k
+            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
+            self.emit(abi::label(&ident_loop));
+            self.emit(abi::compare_registers(&scratch14, &scratch9));
+            self.emit(abi::branch_ge(&ident_done));
+            self.emit(abi::move_immediate(
+                &scratch15,
+                "Integer",
+                &COLLECTION_ENTRY_FLAG_USED.to_string(),
+            ));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+            self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16));
+            self.emit(abi::store_u64(
+                &scratch15,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &scratch16,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::add_immediate(
+                &scratch17,
+                &scratch17,
+                COLLECTION_ENTRY_SIZE,
+            ));
+            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
+            self.emit(abi::branch(&ident_loop));
+            self.emit(abi::label(&ident_done));
+        } else {
+            // Shift lookup entries [0..count) → [1..count+1), backward to avoid overlap.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::subtract_immediate(&scratch10, &scratch9, 1)); // i = count - 1
+            self.emit(abi::label(&shift_loop));
+            self.emit(abi::compare_immediate(&scratch10, "0"));
+            self.emit(abi::branch_lt(&shift_done));
+            // src = buffer + HEADER + i*ENTRY ; dst = src + ENTRY (x8 = buffer, live).
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch11, &scratch10, &scratch16));
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::add_registers(&scratch11, &scratch12, &scratch11)); // src = entry[i]
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch11,
+                COLLECTION_ENTRY_SIZE,
+            )); // dst = entry[i+1]
+            for offset in [0usize, 8, 16, 24, 32] {
+                self.emit(abi::load_u64(&scratch13, &scratch11, offset));
+                self.emit(abi::store_u64(&scratch13, &scratch12, offset));
+            }
+            self.emit(abi::subtract_immediate(&scratch10, &scratch10, 1));
+            self.emit(abi::branch(&shift_loop));
+            self.emit(abi::label(&shift_done));
+            // New entry at slot[0]: payload at dataLength, valueOffset = dataLength.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            // bug-175 E: the new payload starts at the aligned dataLength; this
+            // scratch11 feeds both the entry valueOffset and the data-copy offset.
+            if value_alignment > 1 {
+                let align_scratch = self.temporary_vreg();
+                self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
+            }
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            )); // entry[0]
+            self.emit(abi::move_immediate(
+                &scratch13,
+                "Byte",
+                &COLLECTION_ENTRY_FLAG_USED.to_string(),
+            ));
+            self.emit(abi::store_u8(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+            self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::store_u64(
+                &scratch11,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            // Copy the payload bytes to data base + dataLength.
+            self.emit(abi::store_u64(
+                &scratch11,
+                abi::stack_pointer(),
+                data_offset_slot,
+            ));
+            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
+            // Bump count and dataLength.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
+            self.emit(abi::store_u64(
+                &scratch9,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            self.emit(abi::load_u64(
+                &scratch9,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            // bug-175 E: the new dataLength is align(old)+need so it accounts for the
+            // pad the payload was written past (keeps the next element aligned too).
+            if value_alignment > 1 {
+                let align_scratch = self.temporary_vreg();
+                self.emit_align_offset_register(&scratch9, value_alignment, &align_scratch);
+            }
+            self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
+            self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
+            self.emit(abi::store_u64(
+                &scratch9,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
         }
-        self.emit(abi::subtract_immediate(&scratch10, &scratch10, 1));
-        self.emit(abi::branch(&shift_loop));
-        self.emit(abi::label(&shift_done));
-        // New entry at slot[0]: payload at dataLength, valueOffset = dataLength.
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
-        // bug-175 E: the new payload starts at the aligned dataLength; this
-        // scratch11 feeds both the entry valueOffset and the data-copy offset.
-        if value_alignment > 1 {
-            let align_scratch = self.temporary_vreg();
-            self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
-        }
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        )); // entry[0]
-        self.emit(abi::move_immediate(
-            &scratch13,
-            "Byte",
-            &COLLECTION_ENTRY_FLAG_USED.to_string(),
-        ));
-        self.emit(abi::store_u8(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
-        self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        self.emit(abi::store_u64(
-            &scratch11,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        // Copy the payload bytes to data base + dataLength.
-        self.emit(abi::store_u64(
-            &scratch11,
-            abi::stack_pointer(),
-            data_offset_slot,
-        ));
-        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
-        // Bump count and dataLength.
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
-        self.emit(abi::store_u64(
-            &scratch9,
-            &scratch8,
-            COLLECTION_OFFSET_COUNT,
-        ));
-        self.emit(abi::load_u64(
-            &scratch9,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
-        // bug-175 E: the new dataLength is align(old)+need so it accounts for the
-        // pad the payload was written past (keeps the next element aligned too).
-        if value_alignment > 1 {
-            let align_scratch = self.temporary_vreg();
-            self.emit_align_offset_register(&scratch9, value_alignment, &align_scratch);
-        }
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
-        self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
-        self.emit(abi::store_u64(
-            &scratch9,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
 
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));

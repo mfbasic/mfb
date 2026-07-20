@@ -1,0 +1,4 @@
+prepend n=4  : ok
+prepend n=101: ok
+insert@50    : ok
+ok

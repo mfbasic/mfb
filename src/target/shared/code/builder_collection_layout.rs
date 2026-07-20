@@ -184,6 +184,50 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
     }
 
+    /// Copy `remaining` bytes **backwards**, from `src_end`/`dst_end` (each one
+    /// past the last byte of its range) down toward the start. Both cursors are
+    /// left at the *start* of their ranges and `remaining` at zero, mirroring
+    /// [`Self::emit_block_copy_advance`]'s forward contract.
+    ///
+    /// Backwards is the whole point: this exists to shift a list's data region
+    /// **up** by one element (bug-365's ordered `prepend`), where source and
+    /// destination overlap and a forward copy would smear the first element over
+    /// the whole region. The overlap only bites when the shift distance is less
+    /// than the region length — that is, at element counts above one — so a
+    /// forward copy here would look correct on the 1–2 element lists a small test
+    /// uses and corrupt every real one.
+    pub(super) fn emit_block_copy_backward(
+        &mut self,
+        dst_end: &str,
+        src_end: &str,
+        remaining: &str,
+        scratch: &str,
+        prefix: &str,
+    ) {
+        let word_loop = self.label(&format!("{prefix}_bwloop"));
+        let byte_tail = self.label(&format!("{prefix}_bbtail"));
+        let done_label = self.label(&format!("{prefix}_bdone"));
+        self.emit(abi::label(&word_loop));
+        self.emit(abi::compare_immediate(remaining, "8"));
+        self.emit(abi::branch_lo(&byte_tail));
+        self.emit(abi::subtract_immediate(src_end, src_end, 8));
+        self.emit(abi::subtract_immediate(dst_end, dst_end, 8));
+        self.emit(abi::load_u64(scratch, src_end, 0));
+        self.emit(abi::store_u64(scratch, dst_end, 0));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
+        self.emit(abi::branch(&word_loop));
+        self.emit(abi::label(&byte_tail));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&done_label));
+        self.emit(abi::subtract_immediate(src_end, src_end, 1));
+        self.emit(abi::subtract_immediate(dst_end, dst_end, 1));
+        self.emit(abi::load_u8(scratch, src_end, 0));
+        self.emit(abi::store_u8(scratch, dst_end, 0));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&byte_tail));
+        self.emit(abi::label(&done_label));
+    }
+
     /// Emit code computing the **total byte size** of an already-flat block of
     /// `type_` located at `ptr_reg`, into `out_reg` (`scratch` is clobbered).
     /// plan-02 §4.1: a flat block is self-describing, so copy and free can be
@@ -1870,5 +1914,37 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
+    }
+}
+
+/// The payload size, in bytes, of a list element type whose payloads are
+/// fixed-width — and which therefore may be addressed as `dataBase + i * size`.
+///
+/// A `Some` here is a promise that bug-365's ordering invariant holds: for such
+/// a list `entry[i].valueOffset == i * size` after **every** operation, so
+/// walking the data region linearly visits elements in index order.
+/// `lower_list_insert_collection`, `lower_list_prepend_in_place` and
+/// `lower_collection_set` are what maintain it; every other list operation
+/// either preserves order or rebuilds in order. The per-operation table lives in
+/// `src/docs/spec/memory/05_collections.md`, *Payload Order*.
+///
+/// `None` covers the variable-width types — `String`, records, unions, nested
+/// collections — which keep the offset-stable scheme (plan-01 §4.1) and must be
+/// read through `entry[i].valueOffset`. A linear stride is not even expressible
+/// for them, which is why no reader got those wrong.
+///
+/// Deliberately excludes function values and pointer payloads: both are 8-byte
+/// fixed, but they carry ownership that the drop and thread-transfer paths
+/// reason about per entry.
+///
+/// Must agree with `CodeBuilder::collection_payload_alignment` for every arm;
+/// `fixed_width_agrees_with_payload_alignment` asserts that so the two cannot
+/// drift.
+pub(super) fn list_element_is_fixed_width(element_type: &str) -> Option<usize> {
+    match element_type {
+        "Boolean" | "Byte" => Some(1),
+        "Scalar" => Some(4),
+        "Integer" | "Float" | "Fixed" | "Money" => Some(8),
+        _ => None,
     }
 }

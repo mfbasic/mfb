@@ -197,6 +197,52 @@ Headroom is a property of a **mutable working buffer, never of a value**:
   across a thread boundary, and the "one contiguous `memcpy`" property holds over
   the used prefix.
 
+### Payload Order
+
+The lookup table, not the data region, defines the sequence. Element `i`'s
+payload is located by `entry[i].valueOffset` and `entry[i].valueLength`, relative
+to the capacity-derived data base.
+
+For a **fixed-width element type** — `Boolean`, `Byte`, `Scalar`, `Integer`,
+`Float`, `Fixed`, `Money` — payloads are additionally packed in **index order**:
+`entry[i].valueOffset == i * payloadSize` after every operation. So walking the
+data region linearly visits the elements in index order, and a vectorized kernel
+or a `memcpy` to a native API may take the data base and stride it. That is what
+makes the `math::` array overloads and the `fs`/`net`/`audio` byte-list writers
+correct. `prepend` and `insert` move payload bytes to maintain this, which for
+these types is *cheaper* than the alternative: the payload is 1–8 bytes where the
+lookup entry it would otherwise splice is 40.
+
+For a **variable-width element type** — `String`, records, unions, nested
+collections — payloads are densely packed but **not necessarily in index order**.
+A reader **must not** assume element `i` begins at `dataBase + i * payloadSize`,
+and must not assume a linear walk visits elements in index order. The permutation
+is a deliberate consequence of the offset-stable scheme (plan-01 §4.1): splicing
+the lookup table and appending the new payload to the data tail avoids
+recomputing every offset, which for a variable-width payload is the expensive
+part. `collections::sort` on a `List OF String` relies on this directly — it
+swaps the fixed-size entry records and leaves the data region untouched.
+
+Order is a property of the **value**, not of a moment: it survives every copy.
+A value copy copies the entry table and the data region as two verbatim block
+copies, so a permuted list stays permuted across assignment, argument passing,
+record embedding, and thread transfer. Nothing in the value-copy path normalizes
+it.
+
+A consumer that requires a densely-ordered buffer of a variable-width type must
+therefore **establish** that order rather than assume it, by one of the two
+idioms already in the tree: **probe and repack** — scan the entries against a
+running expected offset and take a normalizing fallback when they diverge, as
+`collections::mid` does; or **rebuild** — construct a fresh list by appending in
+index order, which normalizes as a side effect, as `transform`, `filter` and the
+range-index `slice` do.
+
+Note that `list_element_padding_alignment` returning 1 guarantees there are no
+*gaps* between payloads, not that they are in *order*. The two are independent,
+and conflating them is what made every linear reader wrong for permuted lists
+before this rule was written down (bug-365).
+[[src/target/shared/code/builder_collection_layout.rs:list_element_is_fixed_width]]
+
 ## List Examples
 
 `List OF Integer = [10, 20]`:

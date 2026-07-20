@@ -1,3 +1,4 @@
+use super::builder_collection_layout::list_element_is_fixed_width;
 use super::*;
 
 #[test]
@@ -222,4 +223,50 @@ fn binding_leaves_already_resolved_and_none_relocations_alone() {
         Some("libSystem.B.dylib")
     );
     assert_eq!(functions[1].relocations[0].library, None);
+}
+
+/// bug-365: `list_element_is_fixed_width` promises `entry[i].valueOffset ==
+/// i * size`, so its `size` must be the payload alignment the rest of the
+/// collection machinery packs to. If the two ever disagree, a list would be
+/// packed at one stride and read at another — silent data corruption with no
+/// diagnostic, which is exactly the class of defect bug-365 was.
+///
+/// `collection_payload_alignment_for_code` is the code-keyed mirror of
+/// `CodeBuilder::collection_payload_alignment` (which needs a whole builder to
+/// call), so asserting against it pins the same numbers.
+#[test]
+fn fixed_width_agrees_with_payload_alignment() {
+    for type_ in [
+        "Boolean", "Byte", "Scalar", "Integer", "Float", "Fixed", "Money",
+    ] {
+        let size = list_element_is_fixed_width(type_)
+            .unwrap_or_else(|| panic!("{type_} must be fixed-width"));
+        let code = collection_type_code(type_)
+            .unwrap_or_else(|| panic!("{type_} must have a collection type code"));
+        assert_eq!(
+            size,
+            collection_payload_alignment_for_code(code),
+            "{type_}: fixed-width stride and payload alignment disagree"
+        );
+    }
+}
+
+/// The variable-width types must stay out, or the three mutation sites would
+/// index them at a constant stride they do not have. `String` is the live one —
+/// `lower_sort_string_list_helper` deliberately permutes a string list's entries
+/// without moving its data, so a `String` list is legitimately out of order.
+#[test]
+fn variable_width_element_types_are_not_fixed_width() {
+    for type_ in [
+        "String",
+        "List OF Integer",
+        "Map OF String TO Integer",
+        "SomeRecord",
+    ] {
+        assert_eq!(
+            list_element_is_fixed_width(type_),
+            None,
+            "{type_} must not claim a fixed stride"
+        );
+    }
 }

@@ -1,0 +1,162 @@
+' bug-365: a fixed-width list's payloads must sit in INDEX order, so that a
+' reader walking the data region linearly and a reader walking the lookup table
+' see the same sequence.
+'
+' `prepend`, mid-list `insert` and the value-path `set` used to leave the data
+' region permuted — the offset-stable scheme (plan-01 4.1), which splices the
+' 40-byte entry records instead of moving payload bytes. Every consumer that
+' takes the data base and strides it by element width then returned the elements
+' in the wrong order: the whole `math::` SIMD family, and `fs`'s byte writers,
+' which wrote the wrong bytes to disk.
+'
+' The probe below is the equivalence itself. `FOR EACH` reads
+' `entry[i].valueOffset`; `math::abs` takes the data base and strides it. They
+' must agree. Before the fix, `abs` on a list built with one `prepend` returned
+' the elements rotated.
+'
+' Element counts are deliberately large (64+). The ordered `prepend` shifts the
+' data region up by one payload, so source and destination OVERLAP and the copy
+' must run backwards — and the overlap only bites above one element. A 1-3
+' element test passes either way.
+IMPORT io
+IMPORT math
+IMPORT collections
+
+' `expected` applies abs elementwise through the ENTRY table; `kernel` is the
+' vectorized overload reading the DATA region. Equality is the invariant.
+FUNC agreeInt(label AS String, xs AS List OF Integer) AS Nothing
+  MUT kernel AS String = ""
+  FOR EACH v IN math::abs(xs)
+    kernel = kernel & toString(v) & ","
+  NEXT
+  MUT expected AS String = ""
+  FOR EACH v IN xs
+    expected = expected & toString(math::abs(v)) & ","
+  NEXT
+  IF kernel = expected THEN
+    io::print(label & ": ok")
+  ELSE
+    io::print(label & ": MISMATCH kernel=" & kernel & " expected=" & expected)
+  END IF
+END FUNC
+
+FUNC agreeFloat(label AS String, xs AS List OF Float) AS Nothing
+  MUT kernel AS String = ""
+  FOR EACH v IN math::abs(xs)
+    kernel = kernel & toString(v) & ","
+  NEXT
+  MUT expected AS String = ""
+  FOR EACH v IN xs
+    expected = expected & toString(math::abs(v)) & ","
+  NEXT
+  IF kernel = expected THEN
+    io::print(label & ": ok")
+  ELSE
+    io::print(label & ": MISMATCH kernel=" & kernel & " expected=" & expected)
+  END IF
+END FUNC
+
+FUNC agreeFixed(label AS String, xs AS List OF Fixed) AS Nothing
+  MUT kernel AS String = ""
+  FOR EACH v IN math::abs(xs)
+    kernel = kernel & toString(v) & ","
+  NEXT
+  MUT expected AS String = ""
+  FOR EACH v IN xs
+    expected = expected & toString(math::abs(v)) & ","
+  NEXT
+  IF kernel = expected THEN
+    io::print(label & ": ok")
+  ELSE
+    io::print(label & ": MISMATCH kernel=" & kernel & " expected=" & expected)
+  END IF
+END FUNC
+
+' Taking the list as a parameter defeats the in-place `set` fast path, so this
+' reaches `lower_collection_set`'s value path — the one that used to degrade to
+' `removeAt` + `insert` and permute for any index below `count - 1`.
+FUNC valueSet(xs AS List OF Integer, at AS Integer, v AS Integer) AS List OF Integer
+  RETURN collections::set(xs, at, v)
+END FUNC
+
+FUNC main() AS Integer
+  MUT base AS List OF Integer = []
+  FOR i = 1 TO 64
+    base = collections::append(base, -i)
+  NEXT
+
+  ' prepend, at a length where the data shift overlaps itself
+  agreeInt("prepend n=65 ", collections::prepend(base, -999))
+
+  ' repeated prepend: the shift runs at every length from 0 to 69
+  MUT repeated AS List OF Integer = []
+  FOR i = 1 TO 70
+    repeated = collections::prepend(repeated, -i)
+  NEXT
+  agreeInt("prepend x70  ", repeated)
+
+  ' insert at the first, a middle, and the last position
+  agreeInt("insert@0     ", collections::insert(base, 0, -777))
+  agreeInt("insert@32    ", collections::insert(base, 32, -777))
+  agreeInt("insert@64    ", collections::insert(base, 64, -777))
+
+  ' The invariant must survive COMBINATIONS, not just single operations.
+  MUT mixed AS List OF Integer = [-1, -2, -3]
+  FOR i = 1 TO 30
+    mixed = collections::prepend(mixed, -(i * 2))
+    mixed = collections::append(mixed, -(i * 3))
+    mixed = collections::removeAt(mixed, 1)
+  NEXT
+  agreeInt("interleaved  ", mixed)
+
+  ' value-path set
+  agreeInt("valueSet@0   ", valueSet(base, 0, -555))
+  agreeInt("valueSet@31  ", valueSet(base, 31, -555))
+  agreeInt("valueSet@63  ", valueSet(base, 63, -555))
+
+  ' A value copy does NOT normalize — `copy_collection_tight` copies the entry
+  ' table and the data region as two verbatim block copies. So a fix that only
+  ' handled freshly-permuted lists would pass every case above and still be
+  ' wrong here.
+  LET copied = collections::prepend(base, -999)
+  LET rebound = copied
+  agreeInt("copy path    ", rebound)
+
+  ' Every payload width: Float and Fixed are 8 bytes, Byte is 1, Scalar is 4.
+  ' A defect in the 1-byte case is invisible in the 8-byte case and vice versa.
+  MUT floats AS List OF Float = []
+  FOR i = 1 TO 70
+    floats = collections::append(floats, -toFloat(i))
+  NEXT
+  agreeFloat("Float prepend", collections::prepend(floats, -0.5))
+
+  MUT fixeds AS List OF Fixed = []
+  FOR i = 1 TO 70
+    fixeds = collections::append(fixeds, -toFixed(i))
+  NEXT
+  agreeFixed("Fixed prepend", collections::prepend(fixeds, -toFixed(9)))
+
+  MUT bytes AS List OF Byte = []
+  FOR i = 1 TO 70
+    bytes = collections::append(bytes, toByte(i))
+  NEXT
+  LET marker AS Byte = 200
+  MUT byteOrder AS String = ""
+  FOR EACH v IN collections::prepend(bytes, marker)
+    byteOrder = byteOrder & toString(v) & ","
+  NEXT
+  io::print("Byte prepend : " & byteOrder)
+
+  MUT scalars AS List OF Scalar = []
+  FOR i = 98 TO 120
+    scalars = collections::append(scalars, toScalar(i))
+  NEXT
+  MUT scalarOrder AS String = ""
+  FOR EACH v IN collections::prepend(scalars, toScalar(97))
+    scalarOrder = scalarOrder & toString(v)
+  NEXT
+  io::print("Scalar prepend: " & scalarOrder)
+
+  io::print("ok")
+  RETURN 0
+END FUNC

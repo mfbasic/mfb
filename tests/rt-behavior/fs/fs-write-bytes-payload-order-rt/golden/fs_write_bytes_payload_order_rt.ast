@@ -1,0 +1,121 @@
+{
+  "project": "fs_write_bytes_payload_order_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 11 },
+    { "module": "fs", "line": 12 },
+    { "module": "collections", "line": 13 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "logicalText",
+      "line": 17,
+      "params": [
+      { "name": "bytes", "type": "List OF Byte", "default": null, "line": 17 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 18 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "bytes" },
+        "line": 19,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 20 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundTrip",
+      "line": 25,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 25 },
+      { "name": "path", "type": "String", "default": null, "line": 25 },
+      { "name": "bytes", "type": "List OF Byte", "default": null, "line": 25 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 26,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 27 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "identifier", "value": "bytes" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "readBack", "type": null, "value": { "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": true, "name": "onDisk", "type": "String", "value": { "kind": "string", "value": "" }, "line": 31 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "readBack" },
+        "line": 32,
+        "body": [
+        { "kind": "assignment", "name": "onDisk", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "onDisk" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 33 }
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "onDisk" }, "right": { "kind": "call", "callee": "logicalText", "arguments": [{ "kind": "identifier", "value": "bytes" }] } },
+        "line": 35,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": ok" } }] }, "line": 36 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": MISMATCH disk=" } }, "right": { "kind": "identifier", "value": "onDisk" } }, "right": { "kind": "string", "value": " logical=" } }, "right": { "kind": "call", "callee": "logicalText", "arguments": [{ "kind": "identifier", "value": "bytes" }] } }] }, "line": 38 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 40 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 43,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "small", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "65" }, { "kind": "number", "value": "66" }, { "kind": "number", "value": "67" }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "z", "type": "Byte", "value": { "kind": "number", "value": "90" }, "line": 47 },
+      { "kind": "assignment", "name": "small", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "small" }, { "kind": "identifier", "value": "z" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "prepend n=4  " }, { "kind": "string", "value": "target/fs_order_small.bin" }, { "kind": "identifier", "value": "small" }] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "big", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 53 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "100" },
+        "step": null,
+        "line": 54,
+        "body": [
+        { "kind": "assignment", "name": "big", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "big" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "i" }] }] }, "line": 55 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "marker", "type": "Byte", "value": { "kind": "number", "value": "200" }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "prepend n=101" }, { "kind": "string", "value": "target/fs_order_big.bin" }, { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "big" }, { "kind": "identifier", "value": "marker" }] }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "insert@50    " }, { "kind": "string", "value": "target/fs_order_ins.bin" }, { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "big" }, { "kind": "number", "value": "50" }, { "kind": "identifier", "value": "marker" }] }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 63 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 64 }
+      ]
+    }
+    ]
+  }
+  ]
+}

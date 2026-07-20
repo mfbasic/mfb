@@ -1,0 +1,65 @@
+' bug-365, the worst case: the wrong bytes reached DISK.
+'
+' `fs::writeBytes` and `fs::writeBytesAtomic` take the byte list's data base and
+' copy `dataLength` bytes straight out. When `prepend` left the data region
+' permuted relative to entry order, a list holding `Z A B C` produced a file
+' containing `ABCZ` — no error at any layer, and the corruption persisted.
+'
+' `mfb man fs writeBytes` promises the bytes are written "in order, taken
+' verbatim from the list's data region". Those two clauses are not the same
+' thing, and where they disagreed the data region won. This asserts they agree.
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' What FOR EACH sees (the entry table) rendered as text, so it can be compared
+' against what actually landed on disk.
+FUNC logicalText(bytes AS List OF Byte) AS String
+  MUT s AS String = ""
+  FOR EACH v IN bytes
+    s = s & toString(v) & ","
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC roundTrip(label AS String, path AS String, bytes AS List OF Byte) AS Nothing
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  fs::writeBytes(path, bytes)
+  LET readBack = fs::readAllBytes(fs::openFile(path))
+  MUT onDisk AS String = ""
+  FOR EACH v IN readBack
+    onDisk = onDisk & toString(v) & ","
+  NEXT
+  IF onDisk = logicalText(bytes) THEN
+    io::print(label & ": ok")
+  ELSE
+    io::print(label & ": MISMATCH disk=" & onDisk & " logical=" & logicalText(bytes))
+  END IF
+  fs::deleteFile(path)
+END FUNC
+
+FUNC main() AS Integer
+  ' The four-byte case from the bug report: logical Z A B C, which used to
+  ' persist as A B C Z.
+  MUT small AS List OF Byte = [65, 66, 67]
+  LET z AS Byte = 90
+  small = collections::prepend(small, z)
+  roundTrip("prepend n=4  ", "target/fs_order_small.bin", small)
+
+  ' A length where the data shift overlaps itself, so a forward copy would smear
+  ' rather than shift.
+  MUT big AS List OF Byte = []
+  FOR i = 1 TO 100
+    big = collections::append(big, toByte(i))
+  NEXT
+  LET marker AS Byte = 200
+  roundTrip("prepend n=101", "target/fs_order_big.bin", collections::prepend(big, marker))
+
+  ' A mid-list insert permutes the same way a prepend does.
+  roundTrip("insert@50    ", "target/fs_order_ins.bin", collections::insert(big, 50, marker))
+
+  io::print("ok")
+  RETURN 0
+END FUNC
