@@ -89,7 +89,7 @@ Every number that sizes this plan, with the command that produced it.
 
 | What | Count | Command |
 |---|---|---|
-| `CodegenPlatform` trait methods | **65** | `awk '/pub\(crate\) trait CodegenPlatform/,0' src/target/shared/code/types.rs \| awk '/^}/{exit} /^    fn /{c++} END{print c}'` |
+| `CodegenPlatform` trait methods (span `types.rs:212-630`) | **65** — **54 required, 11 defaulted** | `awk '/pub\(crate\) trait CodegenPlatform/,0' src/target/shared/code/types.rs \| awk '/^}/{exit} /^    fn /{c++} END{print c}'` |
 | — implemented by the Linux platform | **64** | same over `impl<A: LinuxArch> code::CodegenPlatform` at `linux_common/code.rs:302` |
 | — implemented by the macOS platform | **63** | same over `macos_aarch64/code.rs:38` |
 | — that are **app-mode only** (a stated non-goal here) | **8** | `… \| grep -c '^app_\|^emit_app_'` |
@@ -101,18 +101,29 @@ Every number that sizes this plan, with the command that produced it.
 | — carrying **any** native artifact | **28** (2.7%) | `find tests -path '*/golden/*' \( -name '*.ncode' -o -name '*.ncodesum' -o -name '*.nobj' -o -name '*.nir' -o -name '*.nplan' -o -name '*.mir' \) \| xargs -n1 dirname \| sort -u \| wc -l` |
 | Native goldens by target | macos-aarch64 **66**, app 9, linux-x86_64 **6**, linux-aarch64 **6**, **linux-riscv64 0** | same find, bucketed on the `<target>` filename infix |
 
-So a new OS platform implements **~63 methods**, of which **8 are app-mode** (Windows
-returns `false` from `supports_app_mode()`, so these need a uniform unreachable/stub
-answer, not a real implementation) and **21 are POSIX ABI constants** for structures
-Windows does not have. That last group is §3.1, and it is the part of this plan nobody
-scoped.
+**A new OS platform must author 54 methods.** Only 11 have defaults, and they are
+exactly the ones a console-only OS wants free: the **8 app-mode** methods, plus
+`emit_tls_block_trampolines`, `entry_args_in_registers`, and `libc`. So the app-mode
+non-goal costs Windows nothing — it inherits all 8.
+
+Of the 54 required, **21 are POSIX ABI constants** for structures Windows does not have
+(§3.1). That is the part of this plan nobody scoped.
+
+This also refutes 47-A's own Phase 4, which says `win_x86_64/code.rs` is "a minimal
+`CodegenPlatform` … leave the trait's own defaults." With 54 required methods that does
+not compile, and the `termios_*`/offset accessors return plain `usize` — they cannot
+even carry an "unimplemented" error, so they must return fabricated values. The stub
+wall is real work currently hidden inside A.
 
 ### 2.2 The seams
 
 - **Targets & dispatch.** `BuildTarget { os, arch }` (`src/target.rs:16`), parsed
-  `os-arch` (`:75`). `NATIVE_BACKENDS` (`:197`) holds four backends; `backend_for`
-  linear-searches and errors otherwise. `"windows"` is currently a *rejected* target
-  string, asserted by a negative test (`src/os/linux/mod.rs:87`).
+  `os-arch` (`:79`). `NATIVE_BACKENDS` (`:197`) holds four backends; `backend_for`
+  (`:247`) linear-searches and errors otherwise. `"windows"` is currently a *rejected*
+  target string, asserted by a negative test at **`src/os/linux/mod.rs:141`**
+  (`write_native_object_plan_propagates_lowering_error`, setting `plan.target =
+  "windows"` at `:143`). That test asserts an ELF container rejects a non-Linux target —
+  **it must stay.** The draft's Phase B said to drop it.
 - **The x86-64 ISA layer is OS-neutral.** `src/arch/x86_64/`: `select.rs`
   (`remap_x86_abi` at `:107`), `encode/`, `regmodel.rs`, `reloc.rs`. linux-x86_64 reuses
   all of it; Windows will too.
@@ -390,11 +401,13 @@ after it the 20 silent arms are compile errors.
   Adding Schannel means editing that dispatch and the data-object emission at
   `mod.rs:680`/`:703` — otherwise Windows bakes OpenSSL sonames into its `.rdata`.
 
-Bounded-surface evidence: the machine floor (47-C) needs six kernel32 imports
-(`GetStdHandle`, `WriteFile`, `VirtualAlloc`, `VirtualFree`, `ExitProcess`,
-`GetCommandLineW`) plus `CommandLineToArgvW` (shell32) and `BCryptGenRandom` (bcrypt) —
-a tiny, fixed IAT. Each later surface adds one DLL's worth of imports on the same
-mechanism.
+Bounded-surface evidence: the machine floor (47-C) needs **seven** kernel32 imports —
+`GetStdHandle`, `WriteFile`, `VirtualAlloc`, `VirtualFree`, `ExitProcess`,
+`GetCommandLineW`, `GetSystemTimePreciseAsFileTime` — plus `CommandLineToArgvW`
+(shell32) and `BCryptGenRandom` (bcrypt): **9 total**, a tiny fixed IAT. (The
+2026-07-14 draft said "six" in its overview while its own Phase C required the
+time import — an internal contradiction.) Each later surface adds one DLL's worth of
+imports on the same mechanism.
 
 ## 1. Goal
 
@@ -574,6 +587,27 @@ mechanism.
   grep hits). That file grew **+94%** since the master was written (plan-50 landed
   struct-by-pointer marshaling), and a native `LINK` call is now a first-class Windows
   ABI surface. It needs a place in the phase map.
+- 2026-07-20 — **The required-method count was settled by direct measurement after two
+  review passes disagreed** (one said 25 required, one said 54). Definitive:
+  `types.rs:212-630`, **65 total, 54 required, 11 defaulted**. The 11 defaults are the 8
+  app-mode methods plus `emit_tls_block_trampolines`, `entry_args_in_registers` and
+  `libc` — so the console-only non-goal costs Windows nothing; it inherits all 8 free.
+  Recorded here because the disagreement is the reason to trust the command in §2.1 over
+  any prose number, including this document's.
+- 2026-07-20 — **`mir::Backend` has 4 methods, not "exactly three interesting" ones**
+  (47-A:171). `is_aarch64()` (`mir.rs:541`) is an existing ISA-dispatch hook the plan
+  never mentions, and it is exactly the kind of seam a new backend must answer.
+- 2026-07-20 — **`REGISTER_ARGUMENT_COUNT` is read at 7 shared-lowering sites, not 3**
+  (`builder_emit_helpers.rs:81,87,91`; `function_lowering.rs:577,580,661,674`). 47-A's
+  argument for *not* making it backend-dependent understates the blast radius it is
+  arguing about.
+- 2026-07-20 — **47-A's "~90% of `select_x86` is ISA, not ABI" is likely inverted.**
+  Measured: `select.rs` non-test is 780 lines, of which `remap_x86_abi` alone
+  (`:107-621`) is 515 — roughly **71% ABI-specific**. Re-derive before using it to argue
+  the Win64 delta is small.
+- 2026-07-20 — **`src/os/{linux,macos}/mod.rs` expose 6 and 4 public fns, not "the same
+  three wrappers"** (47-B:112). The three named do exist in both, but a PE sibling
+  should be scoped against the real surface.
 
 ## Summary
 
