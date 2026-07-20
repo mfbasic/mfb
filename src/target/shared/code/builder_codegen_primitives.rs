@@ -1878,7 +1878,7 @@ impl CodeBuilder<'_> {
         let cursor_slot = self.allocate_stack_object("adopt_cursor", 8);
         let remaining_slot = self.allocate_stack_object("adopt_remaining", 8);
         let elem_slot = self.allocate_stack_object("adopt_elem", 8);
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, element_type);
         let loop_label = self.label("owned_list_seed_loop");
         let done_label = self.label("owned_list_seed_done");
         let scratch9 = self.temporary_vreg();
@@ -1893,7 +1893,7 @@ impl CodeBuilder<'_> {
         let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
         self.emit(abi::store_u64(&item, abi::stack_pointer(), elem_slot));
         self.emit_owned_list_push(collection, elem_slot)?;
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, element_type);
         self.emit(abi::label(&done_label));
         Ok(())
     }

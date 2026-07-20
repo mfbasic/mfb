@@ -1603,7 +1603,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_slot,
         ));
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, &element_type);
 
         let loop_label = self.label("transform_call_loop");
         let ok_label = self.label("transform_call_ok");
@@ -1646,7 +1646,7 @@ impl CodeBuilder<'_> {
         // each transformed item in place with geometric headroom (plan-01 §4.2)
         // — amortized O(1) instead of the O(n) splice the singleton+insert did.
         self.lower_list_append_in_place(output_slot, item_slot, &output_list_type, &output_type)?;
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
@@ -1708,7 +1708,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_slot,
         ));
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, &element_type);
 
         let loop_label = self.label("filter_call_loop");
         let ok_label = self.label("filter_call_ok");
@@ -1748,7 +1748,7 @@ impl CodeBuilder<'_> {
         // `item_slot` already holds the pointer (stored before the callback), so it
         // survives both calls.
         self.free_collection_loop_item(item_slot, &element_type)?;
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
@@ -1807,7 +1807,7 @@ impl CodeBuilder<'_> {
         ));
         let cursor_slot = self.allocate_stack_object("reduce_cursor", 8);
         let remaining_slot = self.allocate_stack_object("reduce_remaining", 8);
-        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot, &element_type);
 
         let loop_label = self.label("reduce_call_loop");
         let ok_label = self.label("reduce_call_ok");
@@ -1850,7 +1850,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             accumulator_slot,
         ));
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(
@@ -1982,11 +1982,19 @@ impl CodeBuilder<'_> {
         });
     }
 
+    /// Seed a List/Map walk: cursor at the first lookup entry, bound at `count`.
+    ///
+    /// `element_type` is unused today — the walk strides the entry table for
+    /// every element type alike. It is threaded through because plan-57-D gives
+    /// fixed-width-scalar lists no entry table at all, so the cursor there
+    /// strides the *data region* by `payloadSize` instead. Adding the parameter
+    /// when that lands would mean touching every cursor loop twice.
     pub(super) fn initialize_collection_loop_slots(
         &mut self,
         collection_slot: usize,
         cursor_slot: usize,
         remaining_slot: usize,
+        _element_type: &str,
     ) {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -2086,11 +2094,18 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Step a List/Map walk one element on and branch back to `loop_label`.
+    ///
+    /// `element_type` is unused today for the same reason as
+    /// [`Self::initialize_collection_loop_slots`]: the stride is
+    /// `COLLECTION_ENTRY_SIZE` for every element type, and becomes `payloadSize`
+    /// for a fixed-width list under plan-57-D.
     pub(super) fn advance_collection_loop(
         &mut self,
         cursor_slot: usize,
         remaining_slot: usize,
         loop_label: &str,
+        _element_type: &str,
     ) {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
