@@ -30,32 +30,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::compare_registers(&index, &count));
         self.emit(abi::branch_ge(&invalid));
-        self.emit(abi::move_immediate(
-            &entry_offset,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(
-            &entry_offset,
+        self.emit_element_value_offset(
+            &value_offset,
+            &value_length,
+            &collection,
             &index,
             &entry_offset,
-        ));
-        self.emit(abi::add_immediate(
             &entry,
-            &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&entry, &entry, &entry_offset));
-        self.emit(abi::load_u64(
-            &value_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &value_length,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+            element_type,
+        );
         let result = self.emit_load_collection_payload(
             element_type,
             &collection,
@@ -502,32 +485,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::compare_registers(&index, &count));
         self.emit(abi::branch_ge(&use_default));
-        self.emit(abi::move_immediate(
-            &entry_offset,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(
-            &entry_offset,
+        self.emit_element_value_offset(
+            &value_offset,
+            &value_length,
+            &collection,
             &index,
             &entry_offset,
-        ));
-        self.emit(abi::add_immediate(
             &entry,
-            &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&entry, &entry, &entry_offset));
-        self.emit(abi::load_u64(
-            &value_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &value_length,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+            element_type,
+        );
         let result = self.emit_load_collection_payload(
             element_type,
             &collection,

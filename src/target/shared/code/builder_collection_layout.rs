@@ -1766,6 +1766,68 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(size_reg, size_reg, scratch_reg));
     }
 
+    /// The payload offset and length of list element `index`, into `dst_offset`
+    /// and `dst_length`.
+    ///
+    /// This is the single authority for "where does element `i` live". Every
+    /// indexed list read goes through it;
+    /// `builder_collection_compare.rs`'s offset-parameterized helpers sit one
+    /// level below it and are unaffected.
+    ///
+    /// `scratch_offset` and `scratch_entry` are supplied by the caller rather
+    /// than allocated here, so that consolidating a site cannot perturb its
+    /// register numbering — every one of these call sites allocates its whole
+    /// register set up front, so an allocation made *inside* the helper would
+    /// land in a different order and change the emitted bytes. Byte-identity is
+    /// plan-57-A's only guard, so it outranks the tidier signature.
+    ///
+    /// `element_type` is unused today: the lookup entry answers for every element
+    /// type alike. It is threaded through because plan-57-D branches on it to
+    /// give fixed-width-scalar lists an entry-free representation, where the
+    /// answer becomes `index * payloadSize` with no loads at all. Adding the
+    /// parameter later would mean touching all of these call sites twice.
+    pub(super) fn emit_element_value_offset(
+        &mut self,
+        dst_offset: &str,
+        dst_length: &str,
+        list: &str,
+        index: &str,
+        scratch_offset: &str,
+        scratch_entry: &str,
+        _element_type: &str,
+    ) {
+        self.emit(abi::move_immediate(
+            scratch_offset,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(
+            scratch_offset,
+            index,
+            scratch_offset,
+        ));
+        self.emit(abi::add_immediate(
+            scratch_entry,
+            list,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            scratch_entry,
+            scratch_entry,
+            scratch_offset,
+        ));
+        self.emit(abi::load_u64(
+            dst_offset,
+            scratch_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            dst_length,
+            scratch_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+    }
+
     pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
         // Scratch as vregs. Pinning these collides with the x86-64 ABI argument
         // registers and yields garbage element addresses.
